@@ -25,11 +25,16 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     mcpVersion?: number
 }
 
-function buildInsightUrl(baseUrl: string, urlPrefix: string | undefined, query: Record<string, unknown>): string {
+function buildInsightUrl(
+    kind: 'InsightVizNode' | 'DataTableNode',
+    query: Record<string, unknown>,
+    baseUrl: string,
+    urlPrefix?: string
+): string {
     if (urlPrefix) {
         return `${baseUrl}${urlPrefix}`
     }
-    const q = encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))
+    const q = encodeURIComponent(JSON.stringify({ kind, source: query }))
     return `${baseUrl}/insights/new#q=${q}`
 }
 
@@ -54,7 +59,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 const data = await context.api.query({ projectId }).trendsActors({ query })
                 return {
                     ...data,
-                    // TODO: _posthogUrl
+                    _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
                 }
             }
 
@@ -62,7 +67,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
             return {
                 results: data.results,
-                _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
+                _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },

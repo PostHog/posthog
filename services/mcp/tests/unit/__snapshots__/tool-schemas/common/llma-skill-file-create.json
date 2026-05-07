@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "description": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "content": {
+            "description": "Text content of the file.",
+            "type": "string"
+        },
+        "content_type": {
+            "default": "text/plain",
+            "description": "MIME type of the file content.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "path": {
+            "description": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "skill_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["skill_name", "path", "content"],
+    "type": "object"
+}

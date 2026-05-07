@@ -136,6 +136,38 @@ class UserBasicInfo:
 
 
 @dataclass(frozen=True)
+class DiffCluster:
+    """One connected region of differing pixels in a snapshot diff.
+
+    Wire shape — verbose key names for frontend consumption. Storage uses
+    a compact form (see `diff_metadata.DiffCluster`).
+    """
+
+    x: int
+    y: int
+    width: int
+    height: int
+    pixel_count: int
+    centroid_x: float
+    centroid_y: float
+
+
+@dataclass(frozen=True)
+class ClusterSummary:
+    """Spatial clustering of differing pixels for a snapshot.
+
+    `total` is the count before any per-snapshot cap (so the FE can show
+    "+N more" or pick a categorical label like 'Perceptible change' for highly
+    scattered diffs even when only the top-N items are shipped).
+    `truncated` is True when `len(items) < total`.
+    """
+
+    items: list[DiffCluster]
+    total: int
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -157,6 +189,17 @@ class Snapshot:
     reviewed_by: UserBasicInfo | None = None
     # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
     metadata: dict = field(default_factory=dict)
+    # Diff classification details — see ChangeKind enum and the diff
+    # pipeline. `change_kind` is the categorical signal the UI renders
+    # ('pixel' / 'structural'); `ssim_score` and `cluster_summary` are
+    # details available alongside. `size_mismatch` flags the case where
+    # baseline and current had different dimensions (composes with any
+    # change_kind — pixelhog padded the smaller image and ran metrics
+    # against the padded buffers).
+    ssim_score: float | None = None
+    change_kind: str = ""
+    cluster_summary: ClusterSummary | None = None
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -168,6 +211,7 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    unresolved: int = 0
     tolerated_matched: int = 0
 
 
@@ -204,6 +248,17 @@ class AutoApproveResult:
 
 
 @dataclass(frozen=True)
+class RecomputeResult:
+    """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
+
+    run: Run
+    counts_changed: bool
+    unresolved: int
+    ci_rerun_triggered: bool
+    ci_rerun_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ToleratedHashEntry:
     """A known tolerated alternate hash for a snapshot identifier."""
 
@@ -211,6 +266,7 @@ class ToleratedHashEntry:
     alternate_hash: str
     baseline_hash: str
     reason: str
+    diff_percentage: float | None
     created_at: datetime
     source_run_id: UUID | None
 
@@ -260,10 +316,23 @@ class SnapshotHistoryEntry:
     """A single entry in a snapshot's change history across runs."""
 
     run_id: UUID
+    snapshot_id: UUID
     result: str
     branch: str
     commit_sha: str
     created_at: datetime
+    pr_number: int | None = None
+    diff_percentage: float | None = None
+    review_state: str = ""
+    current_artifact: Artifact | None = None
+    # Diff classification — see ChangeKind enum. Lets the history view
+    # render categorical chips ('Perceptible change' / 'Size changed') instead
+    # of conflating SSIM dissimilarity with pixel diff %. `cluster_summary`
+    # deliberately omitted here — bbox overlays don't apply to a
+    # list-of-history-rows view; load the full snapshot for those.
+    ssim_score: float | None = None
+    change_kind: str = ""
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -277,3 +346,73 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     created_at: datetime
+
+
+# Hard cap on entries returned by the baselines overview endpoint. Above this,
+# truncate (newest by run completion) and surface `truncated: True` so the UI
+# can flag it. The whole flow is sized for this — the FE filters/sorts client-
+# side and ships ~600 KB gzipped at the cap.
+BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+
+# Number of most-recent default-branch completed runs that feed the
+# `recent_drift_avg` smoothing window. Bounded by run count rather than time
+# so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
+# to wash out a single jittery render while staying responsive on real changes.
+BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+
+@dataclass(frozen=True)
+class BaselineEntry:
+    """The current baseline state of a single snapshot identifier in a repo.
+
+    Anchored on the latest non-superseded run on the default branch (master/main)
+    for each `run_type` — i.e. "what is the baseline image we'd compare against
+    right now". One row per `(run_type, identifier)`.
+    """
+
+    identifier: str
+    run_type: str
+    browser: str | None
+    thumbnail_hash: str | None
+    width: int | None
+    height: int | None
+    tolerate_count_30d: int
+    tolerate_count_90d: int
+    is_quarantined: bool
+    last_run_at: datetime
+    # Lifetime count of YAML baseline flips on master/main for this identifier.
+    # Counts RunSnapshots with `result IN (CHANGED, REMOVED)` — the rows that
+    # represent an actual baseline-update event (subsequent runs see UNCHANGED
+    # against the new baseline). Drives the "most-changed" sort.
+    baseline_change_count: int
+    # AVG(diff_percentage) over the last N completed default-branch runs (see
+    # `BASELINE_DRIFT_RECENT_RUN_COUNT`), filtered to runs that produced a
+    # non-zero diff. Drives the drift-severity sort. None when no signal in
+    # the window.
+    recent_drift_avg: float | None
+
+
+@dataclass(frozen=True)
+class BaselineTotals:
+    """Aggregate counts across the **full** baseline universe.
+
+    Computed independently of pagination so the stat row stays correct when
+    `entries` is truncated. The FE uses these for unfiltered counts and falls
+    back to recomputing over `entries` once a filter is active.
+    """
+
+    all_snapshots: int
+    recently_tolerated: int
+    frequently_tolerated: int
+    currently_quarantined: int
+    by_run_type: dict[str, int]
+
+
+@dataclass(frozen=True)
+class BaselineOverview:
+    """Result of the baselines overview endpoint."""
+
+    entries: list[BaselineEntry]
+    totals: BaselineTotals
+    truncated: bool
+    generated_at: datetime

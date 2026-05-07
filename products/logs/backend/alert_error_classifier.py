@@ -16,11 +16,19 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 
 AlertErrorCode = Literal["server_busy", "query_performance", "invalid_query", "cancelled", "unknown"]
 
+# Infrastructure errors that should not count toward the BROKEN auto-disable threshold.
+# These indicate a transient cluster problem rather than a misconfigured alert.
+TRANSIENT_ERROR_CODES: frozenset[AlertErrorCode] = frozenset({"server_busy", "cancelled", "unknown"})
+
 
 @dataclass(frozen=True)
 class ClassifiedAlertError:
     code: AlertErrorCode
     user_message: str
+
+    @property
+    def is_transient(self) -> bool:
+        return self.code in TRANSIENT_ERROR_CODES
 
 
 _UNKNOWN = ClassifiedAlertError(

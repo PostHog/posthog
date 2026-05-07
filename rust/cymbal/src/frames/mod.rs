@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    error::{FrameError, UnhandledError},
+    error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         apple::{AppleDebugImage, RawAppleFrame},
@@ -25,6 +25,26 @@ use crate::{
     sanitize_source_line,
     symbol_store::Catalog,
 };
+
+/// Records the metric and tracing line for a single failed-frame construction. Each
+/// language-specific `From<(&RawFrame, Err, ...)> for Frame` impl calls this with the
+/// typed error in scope, so we don't have to round-trip the typed error through the
+/// `Frame` struct just to recover the metric reason later.
+pub(crate) fn record_frame_resolution_failure(
+    lang: &'static str,
+    reason: &'static str,
+    err: &dyn std::fmt::Display,
+) {
+    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang, "reason" => reason).increment(1);
+    match reason {
+        "network_error" | "invalid_data" | "symbol_not_found" => {
+            tracing::warn!(lang = lang, reason = reason, error = %err, "frame resolution failed");
+        }
+        _ => {
+            tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
+        }
+    }
+}
 
 pub mod records;
 pub mod releases;
@@ -115,22 +135,13 @@ impl RawFrame {
             for frame in frames {
                 if frame.resolved {
                     metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
-                } else if let Some(err) = &frame.resolve_failure {
-                    let reason = err.metric_reason();
-                    match reason {
-                        "network_error" | "invalid_data" | "symbol_not_found" => {
-                            tracing::warn!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
-                        }
-                        _ => {
-                            tracing::debug!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
-                        }
-                    }
-                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => reason)
-                        .increment(1);
-                } else {
-                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => "unknown")
-                        .increment(1);
                 }
+                // Failure metrics are emitted by the language-specific `From` impls in
+                // `langs/*.rs` at the moment of frame construction, where the typed error
+                // is in scope (so we can call `metric_reason()` directly). This avoids
+                // having to carry the typed error on the `Frame` struct just to recover
+                // the metric label, which previously required a custom serializer plus
+                // `skip_deserializing` and silently dropped failure reasons on PG round-trip.
             }
         }
 
@@ -204,13 +215,8 @@ pub struct Frame {
     pub resolved_name: Option<String>, // The name of the function, after symbolification
     pub lang: String, // The language of the frame. Always known (I guess?)
     pub resolved: bool, // Did we manage to resolve the frame?
-    #[serde(
-        serialize_with = "frame_error_serde::serialize",
-        skip_deserializing,
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub resolve_failure: Option<FrameError>, // If we failed to resolve the frame, why?
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub resolve_failure: Option<String>, // If we failed to resolve the frame, why? Plain string so it round-trips cleanly through PG/JSON; the typed metric label is emitted at construction time via `record_frame_resolution_failure`.
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
@@ -380,11 +386,7 @@ impl std::fmt::Display for Frame {
         writeln!(
             f,
             "  resolve_failure: {}",
-            self.resolve_failure
-                .as_ref()
-                .map(|e| e.to_string())
-                .as_deref()
-                .unwrap_or("no failure")
+            self.resolve_failure.as_deref().unwrap_or("no failure")
         )?;
 
         // Context
@@ -433,25 +435,6 @@ impl From<Frame> for FrameData {
             column: frame.column,
             lang: frame.lang,
             code_variables: frame.code_variables,
-        }
-    }
-}
-
-mod frame_error_serde {
-    use super::FrameError;
-    use serde::Serializer;
-
-    pub fn serialize<S>(value: &Option<FrameError>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // skip_serializing_if = "Option::is_none" guarantees value is Some here,
-        // but we match exhaustively to satisfy the type checker.
-        match value {
-            Some(err) => serializer.serialize_str(&err.to_string()),
-            None => {
-                unreachable!("skip_serializing_if = Option::is_none prevents None reaching here")
-            }
         }
     }
 }

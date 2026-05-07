@@ -35,6 +35,12 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    /// Maximum number of server-side (PgBouncer → Postgres) connections to
+    /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
+    /// to skip server-side warming entirely.
+    #[envconfig(default = "3")]
+    pub warmup_server_connections: u32,
+
     #[envconfig(default = "10")]
     pub pool_monitor_interval_secs: u64,
 
@@ -56,6 +62,12 @@ pub struct Config {
     /// Maximum gRPC message size to decode (receive), in bytes.
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
+
+    /// Maximum age of a gRPC connection in seconds before the server sends GOAWAY.
+    /// Clients reconnect transparently, naturally staggering across pods.
+    /// 0 = disabled (connections live indefinitely).
+    #[envconfig(default = "300")]
+    pub grpc_max_connection_age_secs: u64,
 }
 
 impl Config {
@@ -92,6 +104,14 @@ impl Config {
             None
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
+        }
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
         }
     }
 

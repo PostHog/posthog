@@ -21,10 +21,8 @@ class LegalDocumentDTO:
     id: UUID
     document_type: str
     company_name: str
-    representative_name: str
     representative_email: str
     status: str
-    signed_document_url: str
     created_by: LegalDocumentCreator | None
     created_at: datetime
 
@@ -40,7 +38,4 @@ class CreateLegalDocumentInput:
     document_type: str
     company_name: str
     company_address: str
-    representative_name: str
-    representative_title: str
     representative_email: str
-    dpa_mode: str

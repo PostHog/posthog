@@ -159,7 +159,7 @@ class Plugin(models.Model):
         related_query_name="plugin",
         null=True,
     )
-    plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType.choices, default=None)
+    plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType, default=None)
     is_global = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     is_preinstalled = models.BooleanField(default=False)
     is_stateless = models.BooleanField(
@@ -465,7 +465,7 @@ class PluginSourceFile(UUIDTModel):
     filename = models.CharField(max_length=200, blank=False)
     # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
     source = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=Status.choices, null=True)
+    status = models.CharField(max_length=20, choices=Status, null=True)
     transpiled = models.TextField(blank=True, null=True)
     error = models.TextField(blank=True, null=True)
     updated_at = models.DateTimeField(null=True, blank=True)

@@ -57,6 +57,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
                     headers: { productTrack: productTrackHeader(event) },
+                    teamId: serialized.team_id,
                 })
                 .then((result) => {
                     eventProcessedAndIngestedCounter.inc()

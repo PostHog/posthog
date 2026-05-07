@@ -22,6 +22,7 @@ class ThrottleContext:
     end_user_id: str | None = None
     plan_key: str | None = None
     seat_created_at: str | None = None
+    billing_period_start: str | None = None
 
 
 @dataclass

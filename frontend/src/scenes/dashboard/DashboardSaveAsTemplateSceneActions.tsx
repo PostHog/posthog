@@ -13,12 +13,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 export function DashboardSaveAsTemplateSceneActions(): JSX.Element | null {
     const { asDashboardTemplate, canSaveProjectDashboardTemplate } = useValues(dashboardLogic)
 
-    const customerTemplateEditorAccess = userHasAccess(
-        AccessControlResourceType.DashboardTemplate,
-        AccessControlLevel.Editor
-    )
+    const customerTemplateEditorAccess = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
     const customerTemplateDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.DashboardTemplate,
+        AccessControlResourceType.Dashboard,
         AccessControlLevel.Editor,
         undefined,
         true

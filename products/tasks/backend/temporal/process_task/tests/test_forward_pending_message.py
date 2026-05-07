@@ -85,8 +85,9 @@ class TestForwardPendingUserMessage(TestCase):
         assert "pending_user_message" not in run.state
 
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
-    def test_timeout_skips_retry_to_avoid_duplicate_delivery(self, mock_send, mock_token):
+    def test_timeout_skips_retry_to_avoid_duplicate_delivery(self, mock_send, mock_capture, mock_token):
         run = self._make_run(
             state={
                 "pending_user_message": "fix the tests",
@@ -98,6 +99,9 @@ class TestForwardPendingUserMessage(TestCase):
         forward_pending_user_message(str(run.id))
 
         mock_send.assert_called_once()
+        captured_events = [call.kwargs["event"] for call in mock_capture.call_args_list]
+        assert "process_task_activity_failed" in captured_events
+        assert "process_task_activity_completed" not in captured_events
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
 

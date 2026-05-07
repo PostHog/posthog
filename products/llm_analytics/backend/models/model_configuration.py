@@ -10,7 +10,7 @@ class LLMModelConfiguration(UUIDTModel):
     """Configuration for LLM model selection, used by evals and other features."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=LLMProvider.choices)
+    provider = models.CharField(max_length=50, choices=LLMProvider)
     model = models.CharField(max_length=100)
     provider_key = models.ForeignKey(
         "llm_analytics.LLMProviderKey",

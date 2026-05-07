@@ -14,7 +14,7 @@ import { urls } from '~/scenes/urls'
 
 import { llmAnalyticsScoreDefinitionsList, llmAnalyticsScoreDefinitionsPartialUpdate } from '../generated/api'
 import type {
-    KindD08EnumApi as ScoreDefinitionKind,
+    ExperimentMetricKindEnumApi as ScoreDefinitionKind,
     PaginatedScoreDefinitionListApi,
     ScoreDefinitionApi,
 } from '../generated/api.schemas'

@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -39,10 +40,12 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
+    ExperimentConclusion,
     ExperimentStatus,
     ExperimentsTabs,
 } from '~/types'
 
+import { CONCLUSION_DISPLAY_CONFIG } from './constants'
 import { CopyExperimentToProjectModal } from './CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
@@ -51,7 +54,6 @@ import {
     ExperimentsFilters,
     experimentsLogic,
     getExperimentStatus,
-    isExperimentPaused,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
@@ -69,7 +71,7 @@ export const scene: SceneExport = {
 }
 
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
-    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.'
 
 // Component for the survey button using QuickSurveyModal
 const ExperimentSurveyButton = ({
@@ -141,7 +143,8 @@ const ExperimentsTableFilters = ({
                             [
                                 { label: 'All', value: 'all' },
                                 { label: 'Draft', value: ExperimentStatus.Draft },
-                                { label: 'Running / Paused', value: ExperimentStatus.Running },
+                                { label: 'Running', value: ExperimentStatus.Running },
+                                { label: 'Paused', value: ExperimentStatus.Paused },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
@@ -199,7 +202,8 @@ const ExperimentsTable = ({
 }): JSX.Element => {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
-    const { loadExperiments, archiveExperiment, setExperimentsFilters } = useActions(experimentsLogic)
+    const { loadExperiments, archiveExperiment, unarchiveExperiment, setExperimentsFilters } =
+        useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
 
@@ -318,7 +322,7 @@ const ExperimentsTable = ({
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag status={getExperimentStatus(experiment)} isPaused={isExperimentPaused(experiment)} />
+                return <StatusTag status={getExperimentStatus(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
@@ -328,9 +332,44 @@ const ExperimentsTable = ({
                 const score: Record<ExperimentStatus, number> = {
                     [ExperimentStatus.Draft]: 1,
                     [ExperimentStatus.Running]: 2,
-                    [ExperimentStatus.Stopped]: 3,
+                    [ExperimentStatus.Paused]: 3,
+                    [ExperimentStatus.Stopped]: 4,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
+            },
+        },
+        {
+            title: 'Result',
+            key: 'conclusion',
+            render: function Render(_, experiment: Experiment) {
+                if (!experiment.conclusion) {
+                    return <span className="text-secondary">—</span>
+                }
+                const config = CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]
+                const tooltip = experiment.conclusion_comment
+                    ? `${config.description} — ${experiment.conclusion_comment}`
+                    : config.description
+                return (
+                    <Tooltip title={tooltip}>
+                        <div className="flex items-center gap-2 cursor-default">
+                            <div className={clsx('w-2 h-2 rounded-full', config.color)} />
+                            <span className="font-medium">{config.title}</span>
+                        </div>
+                    </Tooltip>
+                )
+            },
+            align: 'left',
+            sorter: (a, b) => {
+                const conclusionScore: Record<ExperimentConclusion, number> = {
+                    [ExperimentConclusion.Won]: 1,
+                    [ExperimentConclusion.Lost]: 2,
+                    [ExperimentConclusion.Inconclusive]: 3,
+                    [ExperimentConclusion.StoppedEarly]: 4,
+                    [ExperimentConclusion.Invalid]: 5,
+                }
+                const aScore = a.conclusion ? conclusionScore[a.conclusion] : 6
+                const bScore = b.conclusion ? conclusionScore[b.conclusion] : 6
+                return aScore - bScore
             },
         },
         {
@@ -396,6 +435,21 @@ const ExperimentsTable = ({
                                             fullWidth
                                         >
                                             Archive experiment
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
+                                {experiment.archived && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Experiment}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={experiment.user_access_level}
+                                    >
+                                        <LemonButton
+                                            onClick={() => unarchiveExperiment(experiment.id as number)}
+                                            data-attr={`experiment-${experiment.id}-dropdown-unarchive`}
+                                            fullWidth
+                                        >
+                                            Unarchive experiment
                                         </LemonButton>
                                     </AccessControlAction>
                                 )}

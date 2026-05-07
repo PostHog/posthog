@@ -1,0 +1,142 @@
+/* stylelint-disable selector-class-pattern -- descendant/tag selectors (.quill-card > img) fall outside strict BEM */
+@layer components {
+    .quill-card {
+        gap: 1rem;
+        padding-block: 1rem;
+        overflow: hidden;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--card-foreground);
+        background-color: var(--card);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+    }
+
+    .quill-card[data-size='sm'] {
+        gap: 0.75rem;
+        padding-block: 0.75rem;
+    }
+
+    .quill-card:has(> img:first-child) {
+        padding-top: 0;
+    }
+
+    .quill-card > img:first-child {
+        border-start-start-radius: var(--radius-lg);
+        border-start-end-radius: var(--radius-lg);
+    }
+
+    .quill-card > img:last-child {
+        border-end-start-radius: var(--radius-lg);
+        border-end-end-radius: var(--radius-lg);
+    }
+
+    .quill-card:has([data-slot='card-footer']) {
+        padding-bottom: 0;
+    }
+
+    /* =========================================================================
+       Card header — grid with 1fr for content, auto for action, rows for description
+       ========================================================================= */
+    .quill-card__header {
+        display: grid;
+        grid-auto-rows: min-content;
+        gap: 0.25rem;
+        align-items: start;
+        padding-inline: 1rem;
+        border-start-start-radius: var(--radius-lg);
+        border-start-end-radius: var(--radius-lg);
+        container-type: inline-size;
+    }
+
+    .group\/card-header[data-size='sm'] .quill-card__header,
+    [data-slot='card'][data-size='sm'] > .quill-card__header {
+        padding-inline: 0.75rem;
+    }
+
+    .quill-card__header:has([data-slot='card-action']) {
+        grid-template-columns: 1fr auto;
+    }
+
+    .quill-card__header:has([data-slot='card-description']) {
+        grid-template-rows: auto auto;
+    }
+
+    /* When header sits above content, render a divider */
+    .quill-card__header:has(+ [data-slot='card-content']) {
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    [data-slot='card'][data-size='sm'] > .quill-card__header:has(+ [data-slot='card-content']) {
+        padding-bottom: 0.75rem;
+    }
+
+    /* =========================================================================
+       Title / description / action
+       ========================================================================= */
+    .quill-card__title {
+        font-size: var(--text-sm, 0.875rem);
+        font-weight: 500;
+        line-height: var(--text-sm--line-height, 1.25rem);
+    }
+
+    .quill-card__description {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+    }
+
+    .quill-card__action {
+        grid-row: 1 / span 2;
+        grid-column-start: 2;
+        place-self: start end;
+    }
+
+    /* =========================================================================
+       Content + footer
+       ========================================================================= */
+    .quill-card__content {
+        padding-inline: 1rem;
+    }
+
+    [data-slot='card'][data-size='sm'] .quill-card__content {
+        padding-inline: 0.75rem;
+    }
+
+    .quill-card__footer {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
+        border-top: 1px solid var(--border);
+        border-end-start-radius: var(--radius-lg);
+        border-end-end-radius: var(--radius-lg);
+    }
+
+    [data-slot='card'][data-size='sm'] .quill-card__footer {
+        padding-inline: 0.75rem;
+        padding-top: 0.75rem;
+    }
+
+    /* =========================================================================
+       CardGroup
+       ========================================================================= */
+    .quill-card-group > [data-slot='card-group'] {
+        margin-bottom: 1rem;
+    }
+
+    .quill-card-group > [data-slot='card'] {
+        border-radius: 0;
+    }
+
+    .quill-card-group > [data-slot='card']:first-child {
+        border-start-start-radius: var(--radius-lg);
+        border-start-end-radius: var(--radius-lg);
+    }
+
+    .quill-card-group > [data-slot='card']:last-child {
+        border-end-start-radius: var(--radius-lg);
+        border-end-end-radius: var(--radius-lg);
+    }
+}

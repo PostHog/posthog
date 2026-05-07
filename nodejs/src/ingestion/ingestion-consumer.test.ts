@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 
@@ -103,7 +103,7 @@ describe('IngestionConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
-        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
+        const outputs = createTestIngestionOutputs(mockProducer)
         const ingester = new IngestionConsumer(
             hub,
             {
@@ -112,7 +112,7 @@ describe('IngestionConsumer', () => {
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,
-                    monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                    monitoringOutputs: createTestMonitoringOutputs(mockProducer),
                 }),
             },
             overrides
@@ -173,7 +173,7 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        // hub.kafkaProducer = mockProducer
+        // mockProducer = mockProducer
         team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
         team2 = (await getTeam(hub.postgres, team2Id))!
@@ -899,7 +899,7 @@ describe('IngestionConsumer', () => {
             await ingester.stop()
             hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
             hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
-            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY = true
+            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS = '*'
             ingester = await createIngestionConsumer(hub)
 
             const events = [
@@ -1360,12 +1360,14 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
+                        headers: undefined,
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: transformationFunction.id,
                             count: 1,
+                            instance_id: '',
                             metric_kind: 'success',
                             metric_name: 'succeeded',
                             team_id: team.id,
@@ -1425,12 +1427,14 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
+                        headers: undefined,
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: transformationFunction.id,
                             count: 1,
+                            instance_id: '',
                             metric_kind: 'success',
                             metric_name: 'succeeded',
                             team_id: team.id,

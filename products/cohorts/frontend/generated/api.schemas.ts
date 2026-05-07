@@ -82,6 +82,8 @@ export interface BehavioralFilterApi {
     event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
     /** @nullable */
     explicit_datetime?: string | null
+    /** @nullable */
+    explicit_datetime_to?: string | null
 }
 
 export type CohortFilterApiType = (typeof CohortFilterApiType)[keyof typeof CohortFilterApiType]
@@ -320,6 +322,46 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
     person_ids?: string[]
 }
 
+/**
+ * * `person` - person
+ */
+export type CohortPersonResultTypeEnumApi =
+    (typeof CohortPersonResultTypeEnumApi)[keyof typeof CohortPersonResultTypeEnumApi]
+
+export const CohortPersonResultTypeEnumApi = {
+    Person: 'person',
+} as const
+
+export type CohortPersonResultApiProperties = { [key: string]: unknown }
+
+export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
+
+export interface CohortPersonResultApi {
+    id: string
+    uuid: string
+    type: CohortPersonResultTypeEnumApi
+    name: string
+    distinct_ids: string[]
+    properties: CohortPersonResultApiProperties
+    /** @nullable */
+    created_at: string | null
+    /** @nullable */
+    last_seen_at: string | null
+    /** @nullable */
+    is_identified: boolean | null
+    matched_recordings: CohortPersonResultApiMatchedRecordingsItem[]
+    /** @nullable */
+    value_at_data_point: number | null
+}
+
+export interface CohortPersonsResponseApi {
+    results: CohortPersonResultApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+}
+
 export interface PatchedRemovePersonRequestApi {
     /** Person UUID to remove from the cohort */
     person_id?: string
@@ -338,6 +380,14 @@ export type CohortsListParams = {
 
 export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number
 }
 
 export type CohortsPersonsRetrieveFormat =

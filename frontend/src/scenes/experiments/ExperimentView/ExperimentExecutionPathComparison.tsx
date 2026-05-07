@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
@@ -8,6 +8,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -25,12 +26,16 @@ import { experimentLogic, ExperimentSavedMetric } from '../experimentLogic'
 import { getExperimentRefreshMode } from '../metricQueryUtils'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 
+const COMPARISON_CONCURRENCY_LIMIT = 10
+
 interface PathResult {
     response: ExperimentQueryResponse | null
     durationMs: number | null
     error: string | null
     loading: boolean
 }
+
+const EMPTY_PATH_RESULT: PathResult = { response: null, durationMs: null, error: null, loading: false }
 
 interface ComparisonRow {
     variant: string
@@ -118,67 +123,53 @@ function getSignificance(
     return null
 }
 
-function MetricComparison({
-    metric,
-    metricIndex,
-    experimentId,
-    isPrimary,
-}: {
-    metric: ExperimentMetric
-    metricIndex: number
-    experimentId: number
-    isPrimary: boolean
-}): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [direct, setDirect] = useState<PathResult>({ response: null, durationMs: null, error: null, loading: false })
-    const [precomputed, setPrecomputed] = useState<PathResult>({
-        response: null,
-        durationMs: null,
-        error: null,
-        loading: false,
-    })
-
-    const runComparison = async (): Promise<void> => {
-        setDirect({ response: null, durationMs: null, error: null, loading: true })
-        setPrecomputed({ response: null, durationMs: null, error: null, loading: true })
-
-        const runPath = async (mode: 'direct' | 'precomputed', setter: (r: PathResult) => void): Promise<void> => {
-            const query = {
-                kind: NodeKind.ExperimentQuery as const,
-                metric,
-                experiment_id: experimentId,
-                precomputation_mode: mode,
-            }
-            const startTime = performance.now()
-            try {
-                const response = await performQuery(
-                    setLatestVersionsOnQuery(query),
-                    undefined,
-                    getExperimentRefreshMode(featureFlags, true)
-                )
-                setter({
-                    response: response as ExperimentQueryResponse,
-                    durationMs: Math.round(performance.now() - startTime),
-                    error: null,
-                    loading: false,
-                })
-            } catch (e: any) {
-                setter({
-                    response: null,
-                    durationMs: Math.round(performance.now() - startTime),
-                    error: e?.message || 'Unknown error',
-                    loading: false,
-                })
-            }
+async function runPathQuery(
+    metric: ExperimentMetric,
+    experimentId: number,
+    mode: 'direct' | 'precomputed',
+    featureFlags: Record<string, boolean | string>
+): Promise<PathResult> {
+    const query = {
+        kind: NodeKind.ExperimentQuery as const,
+        metric,
+        experiment_id: experimentId,
+        precomputation_mode: mode,
+    }
+    const startTime = performance.now()
+    try {
+        const response = await performQuery(
+            setLatestVersionsOnQuery(query),
+            undefined,
+            getExperimentRefreshMode(featureFlags, true)
+        )
+        return {
+            response: response as ExperimentQueryResponse,
+            durationMs: Math.round(performance.now() - startTime),
+            error: null,
+            loading: false,
         }
+    } catch (e: any) {
+        return {
+            response: null,
+            durationMs: Math.round(performance.now() - startTime),
+            error: e?.message || 'Unknown error',
+            loading: false,
+        }
+    }
+}
 
-        await Promise.all([runPath('direct', setDirect), runPath('precomputed', setPrecomputed)])
+function MetricComparisonResults({
+    direct,
+    precomputed,
+}: {
+    direct: PathResult
+    precomputed: PathResult
+}): JSX.Element | null {
+    if (!direct.loading && !direct.response && !direct.error) {
+        return null
     }
 
-    const title = metric.name || getDefaultMetricTitle(metric)
     const hasResults = direct.response && precomputed.response
-    const isLoading = direct.loading || precomputed.loading
-
     const comparisonRows = hasResults ? buildComparisonRows(direct.response!, precomputed.response!) : []
     const directSig = direct.response ? getSignificance(direct.response) : null
     const precomputedSig = precomputed.response ? getSignificance(precomputed.response) : null
@@ -224,98 +215,83 @@ function MetricComparison({
     ]
 
     return (
-        <div className="border rounded p-3 mb-3">
-            <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                    <span className="font-semibold">
-                        {isPrimary ? 'Primary' : 'Secondary'} #{metricIndex + 1}: {title}
-                    </span>
+        <div className="mt-2">
+            <div className="flex gap-4 mb-2">
+                <div className="flex items-center gap-1">
+                    <span className="text-muted">Direct:</span>
+                    {direct.loading ? (
+                        <Spinner />
+                    ) : direct.error ? (
+                        <LemonTag type="danger">Error</LemonTag>
+                    ) : (
+                        <LemonTag type="default">{direct.durationMs}ms</LemonTag>
+                    )}
                 </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={runComparison}
-                    disabledReason={isLoading ? 'Running...' : undefined}
-                >
-                    {isLoading ? <Spinner className="mr-1" /> : null}
-                    Compare paths
-                </LemonButton>
+                <div className="flex items-center gap-1">
+                    <span className="text-muted">Precomputed:</span>
+                    {precomputed.loading ? (
+                        <Spinner />
+                    ) : precomputed.error ? (
+                        <LemonTag type="danger">Error</LemonTag>
+                    ) : (
+                        <LemonTag type="default">{precomputed.durationMs}ms</LemonTag>
+                    )}
+                </div>
+                {direct.durationMs && precomputed.durationMs && (
+                    <div className="flex items-center gap-1">
+                        <span className="text-muted">Speedup:</span>
+                        <LemonTag type={precomputed.durationMs < direct.durationMs ? 'success' : 'warning'}>
+                            {(direct.durationMs / precomputed.durationMs).toFixed(2)}x
+                        </LemonTag>
+                    </div>
+                )}
             </div>
 
-            {(direct.loading || direct.response || direct.error) && (
-                <div className="mt-2">
-                    <div className="flex gap-4 mb-2">
-                        <div className="flex items-center gap-1">
-                            <span className="text-muted">Direct:</span>
-                            {direct.loading ? (
-                                <Spinner />
-                            ) : direct.error ? (
-                                <LemonTag type="danger">Error</LemonTag>
-                            ) : (
-                                <LemonTag type="default">{direct.durationMs}ms</LemonTag>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <span className="text-muted">Precomputed:</span>
-                            {precomputed.loading ? (
-                                <Spinner />
-                            ) : precomputed.error ? (
-                                <LemonTag type="danger">Error</LemonTag>
-                            ) : (
-                                <LemonTag type="default">{precomputed.durationMs}ms</LemonTag>
-                            )}
-                        </div>
-                        {direct.durationMs && precomputed.durationMs && (
-                            <div className="flex items-center gap-1">
-                                <span className="text-muted">Speedup:</span>
-                                <LemonTag type={precomputed.durationMs < direct.durationMs ? 'success' : 'warning'}>
-                                    {(direct.durationMs / precomputed.durationMs).toFixed(2)}x
-                                </LemonTag>
-                            </div>
-                        )}
+            {directSig && precomputedSig && (
+                <div className="flex gap-4 mb-2">
+                    <div className="flex items-center gap-1">
+                        <span className="text-muted">Direct significant:</span>
+                        <LemonTag type={directSig.significant ? 'success' : 'default'}>
+                            {directSig.significant ? 'Yes' : 'No'}
+                            {directSig.pValue != null ? ` (p=${directSig.pValue.toFixed(4)})` : ''}
+                            {directSig.chanceToWin != null ? ` (${(directSig.chanceToWin * 100).toFixed(1)}%)` : ''}
+                        </LemonTag>
                     </div>
-
-                    {directSig && precomputedSig && (
-                        <div className="flex gap-4 mb-2">
-                            <div className="flex items-center gap-1">
-                                <span className="text-muted">Direct significant:</span>
-                                <LemonTag type={directSig.significant ? 'success' : 'default'}>
-                                    {directSig.significant ? 'Yes' : 'No'}
-                                    {directSig.pValue != null ? ` (p=${directSig.pValue.toFixed(4)})` : ''}
-                                    {directSig.chanceToWin != null
-                                        ? ` (${(directSig.chanceToWin * 100).toFixed(1)}%)`
-                                        : ''}
-                                </LemonTag>
-                            </div>
-                            <div className="flex items-center gap-1">
-                                <span className="text-muted">Precomputed significant:</span>
-                                <LemonTag type={precomputedSig.significant ? 'success' : 'default'}>
-                                    {precomputedSig.significant ? 'Yes' : 'No'}
-                                    {precomputedSig.pValue != null ? ` (p=${precomputedSig.pValue.toFixed(4)})` : ''}
-                                    {precomputedSig.chanceToWin != null
-                                        ? ` (${(precomputedSig.chanceToWin * 100).toFixed(1)}%)`
-                                        : ''}
-                                </LemonTag>
-                            </div>
-                        </div>
-                    )}
-
-                    {direct.error && <div className="text-danger text-sm mb-1">Direct error: {direct.error}</div>}
-                    {precomputed.error && (
-                        <div className="text-danger text-sm mb-1">Precomputed error: {precomputed.error}</div>
-                    )}
-
-                    {comparisonRows.length > 0 && (
-                        <LemonTable dataSource={comparisonRows} columns={columns} size="small" />
-                    )}
+                    <div className="flex items-center gap-1">
+                        <span className="text-muted">Precomputed significant:</span>
+                        <LemonTag type={precomputedSig.significant ? 'success' : 'default'}>
+                            {precomputedSig.significant ? 'Yes' : 'No'}
+                            {precomputedSig.pValue != null ? ` (p=${precomputedSig.pValue.toFixed(4)})` : ''}
+                            {precomputedSig.chanceToWin != null
+                                ? ` (${(precomputedSig.chanceToWin * 100).toFixed(1)}%)`
+                                : ''}
+                        </LemonTag>
+                    </div>
                 </div>
             )}
+
+            {direct.error && <div className="text-danger text-sm mb-1">Direct error: {direct.error}</div>}
+            {precomputed.error && (
+                <div className="text-danger text-sm mb-1">Precomputed error: {precomputed.error}</div>
+            )}
+
+            {comparisonRows.length > 0 && <LemonTable dataSource={comparisonRows} columns={columns} size="small" />}
         </div>
     )
 }
 
+interface MetricEntry {
+    metric: ExperimentMetric
+    isPrimary: boolean
+    index: number
+}
+
 function ExperimentExecutionPathComparison({ experimentId }: { experimentId: number }): JSX.Element {
     const { experiment } = useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const [results, setResults] = useState<Record<string, { direct: PathResult; precomputed: PathResult }>>({})
+    const [runAllInProgress, setRunAllInProgress] = useState(false)
 
     const sharedPrimaryMetrics: ExperimentMetric[] =
         (experiment.saved_metrics as ExperimentSavedMetric[] | undefined)
@@ -334,34 +310,111 @@ function ExperimentExecutionPathComparison({ experimentId }: { experimentId: num
         (m): m is ExperimentMetric => m.kind === NodeKind.ExperimentMetric
     )
 
-    if (primaryMetrics.length === 0 && secondaryMetrics.length === 0) {
+    const allMetrics: MetricEntry[] = [
+        ...primaryMetrics.map((metric, i) => ({ metric, isPrimary: true, index: i })),
+        ...secondaryMetrics.map((metric, i) => ({ metric, isPrimary: false, index: i })),
+    ]
+
+    const metricKey = (entry: MetricEntry): string => `${entry.isPrimary ? 'primary' : 'secondary'}-${entry.index}`
+
+    const runSingleComparison = useCallback(
+        async (entry: MetricEntry): Promise<void> => {
+            const key = metricKey(entry)
+            setResults((prev) => ({
+                ...prev,
+                [key]: {
+                    direct: { ...EMPTY_PATH_RESULT, loading: true },
+                    precomputed: { ...EMPTY_PATH_RESULT, loading: true },
+                },
+            }))
+
+            const [direct, precomputed] = await Promise.all([
+                runPathQuery(entry.metric, experimentId, 'direct', featureFlags),
+                runPathQuery(entry.metric, experimentId, 'precomputed', featureFlags),
+            ])
+
+            setResults((prev) => ({ ...prev, [key]: { direct, precomputed } }))
+        },
+        [experimentId, featureFlags]
+    )
+
+    const runAll = useCallback(async (): Promise<void> => {
+        setRunAllInProgress(true)
+
+        // Mark all as loading
+        const loadingState: Record<string, { direct: PathResult; precomputed: PathResult }> = {}
+        for (const entry of allMetrics) {
+            loadingState[metricKey(entry)] = {
+                direct: { ...EMPTY_PATH_RESULT, loading: true },
+                precomputed: { ...EMPTY_PATH_RESULT, loading: true },
+            }
+        }
+        setResults(loadingState)
+
+        // Each task runs both paths for one metric
+        const tasks = allMetrics.map((entry) => async () => {
+            const [direct, precomputed] = await Promise.all([
+                runPathQuery(entry.metric, experimentId, 'direct', featureFlags),
+                runPathQuery(entry.metric, experimentId, 'precomputed', featureFlags),
+            ])
+            setResults((prev) => ({ ...prev, [metricKey(entry)]: { direct, precomputed } }))
+        })
+
+        await runWithLimit(tasks, COMPARISON_CONCURRENCY_LIMIT)
+        setRunAllInProgress(false)
+    }, [allMetrics, experimentId, featureFlags])
+
+    if (allMetrics.length === 0) {
         return <div className="text-muted">No metrics configured.</div>
     }
 
+    const anyLoading = runAllInProgress || Object.values(results).some((r) => r.direct.loading || r.precomputed.loading)
+
     return (
         <div>
-            <h3 className="font-semibold mb-2">Execution path comparison</h3>
-            <p className="text-muted text-sm mb-3">
-                Run each metric through both direct scan and precomputed paths to compare timing and results.
-            </p>
-            {primaryMetrics.map((metric, i) => (
-                <MetricComparison
-                    key={`primary-${i}`}
-                    metric={metric}
-                    metricIndex={i}
-                    experimentId={experimentId}
-                    isPrimary={true}
-                />
-            ))}
-            {secondaryMetrics.map((metric, i) => (
-                <MetricComparison
-                    key={`secondary-${i}`}
-                    metric={metric}
-                    metricIndex={i}
-                    experimentId={experimentId}
-                    isPrimary={false}
-                />
-            ))}
+            <div className="flex items-center justify-between mb-3">
+                <div>
+                    <h3 className="font-semibold mb-1">Execution path comparison</h3>
+                    <p className="text-muted text-sm">
+                        Run each metric through both direct scan and precomputed paths to compare timing and results.
+                    </p>
+                </div>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={runAll}
+                    disabledReason={anyLoading ? 'Running...' : undefined}
+                >
+                    {runAllInProgress ? <Spinner className="mr-1" /> : null}
+                    Run all
+                </LemonButton>
+            </div>
+            {allMetrics.map((entry) => {
+                const key = metricKey(entry)
+                const result = results[key]
+                const title = entry.metric.name || getDefaultMetricTitle(entry.metric)
+                const isLoading = result?.direct.loading || result?.precomputed.loading
+
+                return (
+                    <div key={key} className="border rounded p-3 mb-3">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold">
+                                {entry.isPrimary ? 'Primary' : 'Secondary'} #{entry.index + 1}: {title}
+                            </span>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => runSingleComparison(entry)}
+                                disabledReason={isLoading ? 'Running...' : undefined}
+                            >
+                                {isLoading ? <Spinner className="mr-1" /> : null}
+                                Compare paths
+                            </LemonButton>
+                        </div>
+                        {result && <MetricComparisonResults direct={result.direct} precomputed={result.precomputed} />}
+                    </div>
+                )
+            })}
         </div>
     )
 }

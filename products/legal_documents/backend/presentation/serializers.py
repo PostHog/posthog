@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 
 from ..facade import api
 from ..facade.contracts import LegalDocumentDTO
-from ..facade.enums import DPA_SUBMITTABLE_MODES, DocumentType
+from ..facade.enums import DocumentType
 
 
 class LegalDocumentSerializer(DataclassSerializer):
@@ -31,53 +31,22 @@ class CreateLegalDocumentSerializer(serializers.Serializer):
     )
     company_name = serializers.CharField(
         max_length=255,
-        help_text="The customer legal entity entering the agreement.",
+        help_text="The customer legal entity entering the agreement (PandaDoc's Client.Company).",
     )
     company_address = serializers.CharField(
         max_length=512,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="Customer address. Required for DPAs; ignored for BAAs.",
-    )
-    representative_name = serializers.CharField(
-        max_length=255,
-        help_text="Name of the signer at the customer.",
-    )
-    representative_title = serializers.CharField(
-        max_length=255,
-        help_text="Title of the signer at the customer.",
+        help_text="The customer address (PandaDoc's Client.StreetAddress).",
     )
     representative_email = serializers.EmailField(
-        help_text="Email the signed PandaDoc envelope is sent to.",
-    )
-    dpa_mode = serializers.CharField(
-        max_length=16,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text=(
-            "DPA style: 'pretty' or 'lawyer' for submittable versions. "
-            "'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API."
-        ),
+        help_text="Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email).",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         document_type = attrs["document_type"]
         organization: Organization = self.context["view"].organization
 
-        if document_type == DocumentType.BAA:
-            if not api.has_qualifying_baa_addon(organization):
-                raise PermissionDenied("A Boost, Scale, or Enterprise add-on is required to generate a BAA.")
-            attrs["dpa_mode"] = ""
-            attrs["company_address"] = ""
-        elif document_type == DocumentType.DPA:
-            if not attrs.get("company_address"):
-                raise serializers.ValidationError({"company_address": "Company address is required for a DPA."})
-            if attrs.get("dpa_mode") not in DPA_SUBMITTABLE_MODES:
-                raise serializers.ValidationError(
-                    {"dpa_mode": ("Pick 'pretty' or 'lawyer' to submit. 'fairytale' and 'tswift' are preview-only.")}
-                )
+        if document_type == DocumentType.BAA and not api.has_qualifying_baa_addon(organization):
+            raise PermissionDenied("A Boost, Scale, or Enterprise add-on is required to generate a BAA.")
 
         # Only one BAA and one DPA per organization. If they need a new one, a staff
         # member deletes the old row from Django admin. The DB-level unique constraint
@@ -93,13 +62,3 @@ class CreateLegalDocumentSerializer(serializers.Serializer):
             )
 
         return attrs
-
-
-class LegalDocumentSignedWebhookSerializer(serializers.Serializer):
-    secret = serializers.CharField(write_only=True, max_length=128)
-    signed_document_url = serializers.URLField(max_length=2048)
-
-    def validate_signed_document_url(self, value: str) -> str:
-        if not value.lower().startswith(("http://", "https://")):
-            raise serializers.ValidationError("Must be an absolute URL.")
-        return value

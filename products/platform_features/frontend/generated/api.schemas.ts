@@ -194,9 +194,10 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-export const MembershipLevelEnumApi = {
+export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -245,7 +246,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -319,7 +320,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: MembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -373,10 +374,10 @@ export interface PatchedOrganizationApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -385,11 +386,7 @@ export const OrganizationMembershipLevelApi = {
 export interface OrganizationMemberApi {
     readonly id: string
     readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -409,11 +406,7 @@ export interface PaginatedOrganizationMemberListApi {
 export interface PatchedOrganizationMemberApi {
     readonly id?: string
     readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
@@ -617,6 +610,10 @@ export interface CommentApi {
     deleted?: boolean | null
     mentions?: number[]
     slug?: string
+    /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+    is_task?: boolean
+    /** The user who marked this task complete. Null for open tasks and non-task comments. */
+    readonly completed_by: UserBasicApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown | null
@@ -630,6 +627,11 @@ export interface CommentApi {
     item_context?: unknown | null
     /** @maxLength 79 */
     scope: string
+    /**
+     * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+     * @nullable
+     */
+    readonly completed_at: string | null
     /** @nullable */
     source_comment?: string | null
 }
@@ -649,6 +651,10 @@ export interface PatchedCommentApi {
     deleted?: boolean | null
     mentions?: number[]
     slug?: string
+    /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+    is_task?: boolean
+    /** The user who marked this task complete. Null for open tasks and non-task comments. */
+    readonly completed_by?: UserBasicApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown | null
@@ -662,8 +668,61 @@ export interface PatchedCommentApi {
     item_context?: unknown | null
     /** @maxLength 79 */
     scope?: string
+    /**
+     * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+     * @nullable
+     */
+    readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
+}
+
+export interface PinnedSceneTabApi {
+    /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
+    id?: string
+    /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
+    pathname?: string
+    /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
+    search?: string
+    /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
+    hash?: string
+    /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
+    title?: string
+    /**
+     * Optional user-provided title that overrides `title` in the navigation UI.
+     * @nullable
+     */
+    customTitle?: string | null
+    /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
+    iconType?: string
+    /**
+     * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+     * @nullable
+     */
+    sceneId?: string | null
+    /**
+     * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+     * @nullable
+     */
+    sceneKey?: string | null
+    /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
+    sceneParams?: unknown
+    /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
+    pinned?: boolean
+}
+
+export interface PinnedSceneTabsApi {
+    /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
+    tabs?: PinnedSceneTabApi[]
+    /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
+    homepage?: PinnedSceneTabApi | null
+}
+
+export interface PatchedPinnedSceneTabsApi {
+    /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
+    tabs?: PinnedSceneTabApi[]
+    /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
+    homepage?: PinnedSceneTabApi | null
 }
 
 export type ApprovalPoliciesListParams = {
@@ -720,6 +779,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     */
+    search?: string
 }
 
 export type RolesListParams = {
@@ -819,6 +882,7 @@ export type ActivityLogListParams = {
 * `CustomerProfileConfig` - CustomerProfileConfig
 * `Log` - Log
 * `LogsAlertConfiguration` - LogsAlertConfiguration
+* `LogsExclusionRule` - LogsExclusionRule
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
  * @minLength 1
@@ -892,6 +956,7 @@ export const ActivityLogListScope = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
 } as const
@@ -952,6 +1017,7 @@ export const ActivityLogListScope = {
  * `CustomerProfileConfig` - CustomerProfileConfig
  * `Log` - Log
  * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * `LogsExclusionRule` - LogsExclusionRule
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  */
@@ -1013,6 +1079,7 @@ export const ActivityLogListScopesItem = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
 } as const
@@ -1051,6 +1118,15 @@ export type AdvancedActivityLogsListParams = {
 
 export type CommentsListParams = {
     /**
+ * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
+
+* `any` - any
+* `open` - open
+* `completed` - completed
+ * @minLength 1
+ */
+    completed?: CommentsListCompleted
+    /**
      * The pagination cursor value.
      */
     cursor?: string
@@ -1059,6 +1135,15 @@ export type CommentsListParams = {
      * @minLength 1
      */
     item_id?: string
+    /**
+ * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
+
+* `any` - any
+* `comment` - comment
+* `task` - task
+ * @minLength 1
+ */
+    kind?: CommentsListKind
     /**
      * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
      * @minLength 1
@@ -1075,3 +1160,19 @@ export type CommentsListParams = {
      */
     source_comment?: string
 }
+
+export type CommentsListCompleted = (typeof CommentsListCompleted)[keyof typeof CommentsListCompleted]
+
+export const CommentsListCompleted = {
+    Any: 'any',
+    Open: 'open',
+    Completed: 'completed',
+} as const
+
+export type CommentsListKind = (typeof CommentsListKind)[keyof typeof CommentsListKind]
+
+export const CommentsListKind = {
+    Any: 'any',
+    Comment: 'comment',
+    Task: 'task',
+} as const

@@ -35,14 +35,14 @@ class TestGenerateInsightMetadata(APIBaseTest):
         response = self.client.post(self.url, {}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Missing" in response.json()["error"]
+        assert "Missing" in response.json()["detail"]
 
     @patch(MOCK_PATH, side_effect=Exception("LLM API error"))
     def test_llm_failure_returns_500(self, mock_openai):
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "Failed" in response.json()["error"]
+        assert "Failed" in response.json()["detail"]
 
     def test_ai_not_approved_returns_403(self):
         self.organization.is_ai_data_processing_approved = False

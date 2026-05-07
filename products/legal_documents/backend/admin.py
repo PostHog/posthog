@@ -1,6 +1,12 @@
-from django.contrib import admin
+from typing import Any
+
+from django.contrib import admin, messages
+from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import SafeString
+
+from posthog.cloud_utils import is_cloud, is_dev_mode
 
 from .models import LegalDocument
 
@@ -12,15 +18,14 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "company_name",
         "organization_link",
         "status",
-        "signed_url_preview",
+        "pandadoc_link",
         "created_at",
     )
     list_display_links = ("id",)
-    list_filter = ("document_type", "status", "dpa_mode", "created_at")
+    list_filter = ("document_type", "status", "created_at")
     search_fields = (
         "id",
         "company_name",
-        "representative_name",
         "representative_email",
         "organization__name",
     )
@@ -29,20 +34,16 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     list_select_related = ("organization", "created_by")
 
     # Only the signed URL is editable by admins. Everything else is read-only so
-    # customer-submitted content can't be quietly rewritten. `webhook_secret` is
-    # deliberately never exposed in the UI — it is generated once at creation
-    # time and only ever matched server-side on the public webhook.
+    # customer-submitted content can't be quietly rewritten.
     readonly_fields = (
         "id",
         "organization",
         "document_type",
         "company_name",
         "company_address",
-        "representative_name",
-        "representative_title",
         "representative_email",
-        "dpa_mode",
         "status",
+        "pandadoc_link",
         "created_by",
         "created_at",
         "updated_at",
@@ -55,8 +56,8 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                     "id",
                     "organization",
                     "document_type",
-                    "dpa_mode",
                     "status",
+                    "pandadoc_link",
                 )
             },
         ),
@@ -66,17 +67,8 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 "fields": (
                     "company_name",
                     "company_address",
-                    "representative_name",
-                    "representative_title",
                     "representative_email",
                 )
-            },
-        ),
-        (
-            "Signed document",
-            {
-                "fields": ("signed_document_url",),
-                "description": "Paste the PandaDoc download URL once the customer has signed.",
             },
         ),
         (
@@ -85,28 +77,44 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         ),
     )
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
         return False
+
+    def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
+        if not (is_cloud() or is_dev_mode()):
+            messages.warning(
+                request,
+                "Legal documents are only generated on PostHog Cloud. On self-hosted "
+                "deployments, listed rows (if any) are read-only historical records and "
+                "the PandaDoc / Slack integrations are disabled.",
+            )
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def change_view(
+        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None
+    ) -> HttpResponse:
+        if not (is_cloud() or is_dev_mode()):
+            messages.warning(
+                request,
+                "Legal documents are only generated on PostHog Cloud. On self-hosted "
+                "deployments, listed rows (if any) are read-only historical records and "
+                "the PandaDoc / Slack integrations are disabled.",
+            )
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     @admin.display(description="Organization", ordering="organization__name")
-    def organization_link(self, document: LegalDocument):
+    def organization_link(self, document: LegalDocument) -> SafeString:
         url = reverse("admin:posthog_organization_change", args=[document.organization_id])
         return format_html('<a href="{}">{}</a>', url, document.organization.name)
 
-    @admin.display(description="Signed URL")
-    def signed_url_preview(self, document: LegalDocument) -> str:
-        if not document.signed_document_url:
+    @admin.display(description="PandaDoc", ordering="pandadoc_document_id")
+    def pandadoc_link(self, document: LegalDocument) -> str | SafeString:
+        if not document.pandadoc_document_id:
             return "—"
         return format_html(
-            '<a href="{url}" target="_blank" rel="noopener">Download</a>',
-            url=document.signed_document_url,
+            '<a href="https://app.pandadoc.com/a/#/documents/{id}" target="_blank" rel="noopener">{id}</a>',
+            id=document.pandadoc_document_id,
         )
-
-    def save_model(self, request, obj, form, change) -> None:
-        # If an admin pastes a URL for the first time, move the row into the signed state.
-        if change and "signed_document_url" in form.changed_data and obj.signed_document_url:
-            obj.status = LegalDocument.Status.SIGNED
-        super().save_model(request, obj, form, change)

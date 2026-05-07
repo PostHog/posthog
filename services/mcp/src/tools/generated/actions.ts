@@ -14,37 +14,6 @@ import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ActionsGetAllSchema = ActionsListQueryParams.omit({ format: true })
-
-const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Schemas.PaginatedActionList>> =>
-    withUiApp('action-list', {
-        name: 'actions-get-all',
-        schema: ActionsGetAllSchema,
-        handler: async (context: Context, params: z.infer<typeof ActionsGetAllSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedActionList>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
-                query: {
-                    limit: params.limit,
-                    offset: params.offset,
-                },
-            })
-            return await withPostHogUrl(
-                context,
-                {
-                    ...result,
-                    results: await Promise.all(
-                        (result.results ?? []).map((item) =>
-                            withPostHogUrl(context, item, `/data-management/actions/${item.id}`)
-                        )
-                    ),
-                },
-                '/data-management/actions'
-            )
-        },
-    })
-
 const ActionCreateSchema = ActionsCreateBody.omit({ _create_in_folder: true }).extend({
     name: ActionsCreateBody.shape['name'].describe('Name of the action (must be unique within the project)'),
 })
@@ -85,6 +54,22 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema, WithPostHogUrl<Sche
             return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
         },
     })
+
+const ActionDeleteSchema = ActionsDestroyParams.omit({ project_id: true })
+
+const actionDelete = (): ToolBase<typeof ActionDeleteSchema, Schemas.Action> => ({
+    name: 'action-delete',
+    schema: ActionDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof ActionDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Action>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
+        })
+        return result
+    },
+})
 
 const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
 
@@ -143,26 +128,41 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, WithPostHogUrl<Sche
         },
     })
 
-const ActionDeleteSchema = ActionsDestroyParams.omit({ project_id: true })
+const ActionsGetAllSchema = ActionsListQueryParams.omit({ format: true })
 
-const actionDelete = (): ToolBase<typeof ActionDeleteSchema, Schemas.Action> => ({
-    name: 'action-delete',
-    schema: ActionDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ActionDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Action>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
-        })
-        return result
-    },
-})
+const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Schemas.PaginatedActionList>> =>
+    withUiApp('action-list', {
+        name: 'actions-get-all',
+        schema: ActionsGetAllSchema,
+        handler: async (context: Context, params: z.infer<typeof ActionsGetAllSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.PaginatedActionList>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
+                query: {
+                    limit: params.limit,
+                    offset: params.offset,
+                },
+            })
+            return await withPostHogUrl(
+                context,
+                {
+                    ...result,
+                    results: await Promise.all(
+                        (result.results ?? []).map((item) =>
+                            withPostHogUrl(context, item, `/data-management/actions/${item.id}`)
+                        )
+                    ),
+                },
+                '/data-management/actions'
+            )
+        },
+    })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'actions-get-all': actionsGetAll,
     'action-create': actionCreate,
+    'action-delete': actionDelete,
     'action-get': actionGet,
     'action-update': actionUpdate,
-    'action-delete': actionDelete,
+    'actions-get-all': actionsGetAll,
 }

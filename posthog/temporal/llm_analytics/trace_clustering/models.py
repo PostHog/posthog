@@ -1,17 +1,15 @@
 """Data models for trace clustering workflow."""
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
+from posthog.temporal.llm_analytics.shared_activities import AnalysisLevel  # noqa: F401
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
 )
-
-# Analysis level determines whether we cluster traces or individual generations
-AnalysisLevel = Literal["trace", "generation"]
 
 
 @dataclass
@@ -128,7 +126,18 @@ class ClusterSentiment:
 
 @dataclass
 class ClusterAggregateMetrics:
-    """Pre-computed aggregate metrics for a cluster, baked into the event."""
+    """Pre-computed aggregate metrics for a cluster, baked into the event.
+
+    Operational fields (avg_cost/latency/tokens/errors) are populated for trace,
+    generation, and evaluation levels. For evaluations, operational metrics come
+    from the linked generation via $ai_target_event_id.
+
+    Eval-only fields (pass_rate, na_rate, dominant_evaluation_name,
+    dominant_runtime, avg_judge_cost) are None for trace and generation levels.
+    Keeping them on the same dataclass means a single shape flows through
+    activities, the serializer, $ai_*_clusters events, generated TypeScript
+    types, and MCP tool schemas.
+    """
 
     avg_cost: float | None = None
     avg_latency: float | None = None
@@ -138,6 +147,12 @@ class ClusterAggregateMetrics:
     error_count: int = 0
     item_count: int = 0
     sentiment: ClusterSentiment | None = None
+    # Evaluation-only fields (None for trace/generation levels)
+    pass_rate: float | None = None
+    na_rate: float | None = None
+    dominant_evaluation_name: str | None = None
+    dominant_runtime: str | None = None
+    avg_judge_cost: float | None = None
 
 
 @dataclass

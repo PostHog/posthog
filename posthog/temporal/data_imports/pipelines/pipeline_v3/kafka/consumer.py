@@ -317,7 +317,25 @@ class KafkaConsumerService:
 
         dlq_count = 0
 
-        for raw_msg, message in messages:
+        for index, (raw_msg, message) in enumerate(messages):
+            if self._shutdown_requested:
+                # Graceful mid-batch shutdown: commit offsets for messages we've
+                # already handled (successes + per-message DLQ commits are idempotent)
+                # and leave the remainder for Kafka to redeliver after rebalance.
+                try:
+                    self._consumer.commit()
+                    OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+                except Exception:
+                    OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+                    logger.warning("shutdown_commit_failed", exc_info=True)
+                logger.info(
+                    "shutdown_during_batch",
+                    handled=index,
+                    dlq_count=dlq_count,
+                    remaining=len(messages) - index,
+                )
+                return
+
             team_id = str(message.get("team_id") or "unknown")
             schema_id = str(message.get("schema_id") or "unknown")
 

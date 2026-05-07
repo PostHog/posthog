@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Optional, cast
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,24 +13,106 @@ from posthog.rate_limit import UserAuthenticationThrottle
 
 
 class PinnedSceneTabSerializer(serializers.Serializer):
-    id = serializers.CharField(required=False, allow_blank=True)
-    pathname = serializers.CharField(required=False)
-    search = serializers.CharField(required=False, allow_blank=True)
-    hash = serializers.CharField(required=False, allow_blank=True)
-    title = serializers.CharField(required=False, allow_blank=True)
-    customTitle = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    iconType = serializers.CharField(required=False, allow_blank=True)
-    sceneId = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    sceneKey = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    sceneParams = serializers.JSONField(required=False)
-    pinned = serializers.BooleanField(required=False)
+    id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Stable identifier for the tab. Generated client-side; safe to omit on create.",
+    )
+    pathname = serializers.CharField(
+        required=False,
+        help_text=(
+            "URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. "
+            "Combined with `search` and `hash` to reconstruct the destination."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Query string portion of the URL, including the leading `?`. Empty string when there is no query.",
+    )
+    hash = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.",
+    )
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Default tab title derived from the destination scene. Used when `customTitle` is not set.",
+    )
+    customTitle = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional user-provided title that overrides `title` in the navigation UI.",
+    )
+    iconType = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.",
+    )
+    sceneId = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.",
+    )
+    sceneKey = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.",
+    )
+    sceneParams = serializers.JSONField(
+        required=False,
+        help_text="Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.",
+    )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="Whether this entry is pinned. Always coerced to true on save — pass true or omit.",
+    )
 
 
 class PinnedSceneTabsSerializer(serializers.Serializer):
-    tabs = PinnedSceneTabSerializer(many=True, required=False)
-    homepage = PinnedSceneTabSerializer(required=False, allow_null=True)
+    tabs = PinnedSceneTabSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the "
+            "current team. Send the full list to replace the existing pins; omit to leave them unchanged."
+        ),
+    )
+    homepage = PinnedSceneTabSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog "
+            "logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall "
+            "back to the project default."
+        ),
+    )
 
 
+@extend_schema(tags=["platform_features"])
+@extend_schema_view(
+    retrieve=extend_schema(
+        description=(
+            "Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. "
+            "Pass `@me` as the UUID."
+        ),
+        responses={200: PinnedSceneTabsSerializer},
+    ),
+    partial_update=extend_schema(
+        description=(
+            "Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. "
+            "Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home "
+            "destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be "
+            "omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage."
+        ),
+        request=PinnedSceneTabsSerializer,
+        responses={200: PinnedSceneTabsSerializer},
+    ),
+)
 class UserHomeSettingsViewSet(viewsets.GenericViewSet):
     scope_object = "user"
     serializer_class = PinnedSceneTabsSerializer

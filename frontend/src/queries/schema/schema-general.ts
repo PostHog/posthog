@@ -16,7 +16,6 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
-    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -419,6 +418,8 @@ export interface HogQLQueryModifiers {
     optimizeJoinedFilters?: boolean
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -1121,6 +1122,7 @@ export interface HeatmapSettings {
 }
 
 export interface YAxisSettings {
+    label?: string
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
@@ -1130,6 +1132,7 @@ export interface YAxisSettings {
 
 export interface ChartSettings {
     xAxis?: ChartAxis
+    xAxisLabel?: string
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
@@ -1640,9 +1643,11 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
-    /** @description The type of property to aggregate on (event or person). Defaults to event.
+    /** @description The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
      * @default event */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+    /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1848,11 +1853,10 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
-    cache_age_seconds?: number
+    /** How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency. */
+    data_freshness_seconds?: integer
     /** Whether this endpoint's query results are materialized to S3 */
     is_materialized?: boolean
-    /** How frequently should the underlying materialized view be updated */
-    sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
@@ -2565,6 +2569,22 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
+/** Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema */
+export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
+    fingerprint: string
+    issue_id: string
+    issue_name: string | null
+    issue_description: string | null
+    issue_status: string
+    assigned_user_id: integer | null
+    assigned_role_id: string | null
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: integer
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: integer
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -2596,6 +2616,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     useQueryV2?: boolean
     /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * The backend caps the list at 50 entries; extras are dropped silently.
+     * @type array
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2894,14 +2920,26 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     limit?: integer
     offset?: integer
     search?: string
+    /** When true, the search query also matches attribute values (not just keys). */
+    searchValues?: boolean
     severityLevels?: LogSeverityLevel[]
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
 }
 
+export interface LogAttributeResult {
+    name: string
+    /** Either 'log_attribute' or 'log_resource_attribute'. */
+    propertyFilterType: string
+    /** Whether this row matched the search by attribute key or by attribute value. */
+    matchedOn: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn is 'value'. */
+    matchedValue?: string
+}
+
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
-    results: Record<string, any>[]
+    results: LogAttributeResult[]
     count: number
 }
 
@@ -3101,6 +3139,7 @@ export type FileSystemIconType =
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
+    | 'llm_tags'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
@@ -3348,7 +3387,7 @@ export interface ExperimentApiMetric {
 }
 
 export interface ExperimentVariant {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -3359,10 +3398,12 @@ export interface ExperimentVariant {
 }
 
 export interface ExperimentParameters {
-    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
+    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
+    rollout_percentage?: number
 }
 
 /** Slim exposure config for experiment API payloads. */
@@ -3497,8 +3538,6 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
-    /** @deprecated Now always enabled, kept for backward compatibility */
-    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -3583,6 +3622,9 @@ export interface ExperimentStatsBase {
     number_of_samples: integer
     sum: number
     sum_squares: number
+    covariate_sum?: number
+    covariate_sum_squares?: number
+    covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -3654,12 +3696,23 @@ export interface SampleRatioMismatch {
     p_value: number
 }
 
+/**
+ * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE`
+ * handling + observed `$multiple` share above the threshold. Present on the response
+ * only when the experiment is currently at risk.
+ */
+export interface BiasRisk {
+    /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+    multiple_variant_percentage: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
+    bias_risk?: BiasRisk
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -4039,8 +4092,7 @@ export interface ResolvedDateRangeResponse {
     date_to: string
 }
 
-export type MultipleBreakdownType = Extract<
-    BreakdownType,
+export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
@@ -4049,8 +4101,8 @@ export type MultipleBreakdownType = Extract<
     | 'hogql'
     | 'cohort'
     | 'revenue_analytics'
+    | 'data_warehouse'
     | 'data_warehouse_person_property'
->
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
@@ -4522,6 +4574,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_tag'
     | '$ai_trace_summary'
     | '$ai_generation_summary'
     | '$ai_trace_clusters'
@@ -5168,6 +5221,10 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Source = 'source',
     ReportedConversion = 'reported_conversion',
     ReportedConversionValue = 'reported_conversion_value',
+    AdGroupId = 'ad_group_id',
+    AdGroupName = 'ad_group_name',
+    AdId = 'ad_id',
+    AdName = 'ad_name',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -5201,6 +5258,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         required: false,
         isCurrency: true,
     },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupName]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdName]: { type: ['string'], required: false, isCurrency: false },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -5244,6 +5305,8 @@ export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
     Source = 'source',
     Campaign = 'campaign',
+    AdGroup = 'ad_group',
+    Ad = 'ad',
     Medium = 'medium',
     Content = 'content',
     Term = 'term',
@@ -5253,6 +5316,10 @@ export enum MarketingAnalyticsBaseColumns {
     Id = 'ID',
     Campaign = 'Campaign',
     Source = 'Source',
+    AdGroup = 'Ad group',
+    AdGroupId = 'Ad group ID',
+    Ad = 'Ad',
+    AdId = 'Ad ID',
     Cost = 'Cost',
     Clicks = 'Clicks',
     Impressions = 'Impressions',
@@ -5267,8 +5334,29 @@ export enum MarketingAnalyticsBaseColumns {
 export type MarketingAnalyticsDrillDownConfig = {
     columnAlias: string
     excludedBaseColumns: MarketingAnalyticsBaseColumns[]
+    // When true, this level can't be attributed to events — drop conversion goal columns.
+    // Used for ad-group / ad levels where events can't be mapped to a specific ad.
+    excludesConversionGoals?: boolean
 }
 
+// Hierarchy columns are emitted only at AD_GROUP / AD levels — at every other level
+// the runtime auto-excludes them via `getEffectiveExcludedColumns`. Keep this mirrored
+// with backend `HIERARCHY_BASE_COLUMNS` (products/marketing_analytics/backend/hogql_queries/constants.py).
+export const HIERARCHY_BASE_COLUMNS: ReadonlySet<MarketingAnalyticsBaseColumns> = new Set([
+    MarketingAnalyticsBaseColumns.AdGroup,
+    MarketingAnalyticsBaseColumns.AdGroupId,
+    MarketingAnalyticsBaseColumns.Ad,
+    MarketingAnalyticsBaseColumns.AdId,
+])
+
+export const HIERARCHY_DRILL_DOWN_LEVELS: ReadonlySet<MarketingAnalyticsDrillDownLevel> = new Set([
+    MarketingAnalyticsDrillDownLevel.AdGroup,
+    MarketingAnalyticsDrillDownLevel.Ad,
+])
+
+// Centralized drill-down level configuration. Hierarchy columns (ad_group / ad) are
+// auto-excluded by the runtime at non-hierarchy levels — see HIERARCHY_BASE_COLUMNS —
+// so they don't need to appear in `excludedBaseColumns` for CHANNEL/SOURCE/CAMPAIGN/UTM.
 export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsDrillDownConfig
@@ -5291,7 +5379,27 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     },
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
+        // Empty user-config preserves master's natural enum order at CAMPAIGN —
+        // hierarchy columns are auto-excluded by the runtime.
         excludedBaseColumns: [],
+    },
+    [MarketingAnalyticsDrillDownLevel.AdGroup]: {
+        // Show Campaign + Source as parent context, plus Ad group + ID. Hide Id (campaign id),
+        // Ad / AdId since they don't apply at this level.
+        columnAlias: MarketingAnalyticsBaseColumns.AdGroup,
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
+        ],
+        excludesConversionGoals: true,
+    },
+    [MarketingAnalyticsDrillDownLevel.Ad]: {
+        // Full hierarchy: Campaign + Source + Ad group + Ad + Ad ID. Hide campaign Id and
+        // Ad group ID to keep the table readable.
+        columnAlias: MarketingAnalyticsBaseColumns.Ad,
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.AdGroupId],
+        excludesConversionGoals: true,
     },
     [MarketingAnalyticsDrillDownLevel.Medium]: {
         columnAlias: 'Medium',
@@ -5305,6 +5413,19 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
         columnAlias: 'Term',
         excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
     },
+}
+
+/** Combine the level's user-facing excluded set with the hierarchy auto-exclusion.
+ * Mirror of backend `get_effective_excluded_columns`. */
+export function getEffectiveExcludedColumns(
+    level: MarketingAnalyticsDrillDownLevel
+): Set<MarketingAnalyticsBaseColumns> {
+    const userExcluded = new Set(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[level].excludedBaseColumns)
+    if (HIERARCHY_DRILL_DOWN_LEVELS.has(level)) {
+        return userExcluded
+    }
+    HIERARCHY_BASE_COLUMNS.forEach((col) => userExcluded.add(col))
+    return userExcluded
 }
 
 export enum MarketingAnalyticsConstants {
@@ -5371,6 +5492,13 @@ export interface SourceFieldInputConfig {
     required: boolean
     placeholder: string
     caption?: string
+    /**
+     * Marks this field as containing sensitive data. The value is stripped from
+     * API responses regardless of the rendering `type` (so a multi-line PEM
+     * blob can use `textarea` and still be redacted). Required: source authors
+     * must explicitly classify every field.
+     */
+    secret: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -5436,12 +5564,18 @@ export interface SourceConfig {
     disabledReason?: string | null
     existingSource?: boolean
     unreleasedSource?: boolean
-    betaSource?: boolean
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
     iconPath: string
     featureFlag?: string
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why
@@ -5599,6 +5733,8 @@ export const externalDataSources = [
     'BuildBetter',
     'Convex',
     'ClickHouse',
+    'Plain',
+    'Resend',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5856,6 +5992,10 @@ export interface UsageMetric {
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer
+    /** Daily values over the current interval period. Only populated when display is 'sparkline'. */
+    timeseries?: number[]
+    /** ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'. */
+    timeseries_labels?: string[]
 }
 
 export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -6021,6 +6161,7 @@ export enum UserProductListReason {
     USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
     NEW_PRODUCT = 'new_product',
     SALES_LED = 'sales_led',
+    ONBOARDING_DELEGATED = 'onboarding_delegated',
 }
 
 export interface UserProductListItem {
@@ -6119,6 +6260,7 @@ export enum ProductIntentContext {
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
+    LLM_ANALYTICS_TRACE_VIEWED = 'llm_analytics_trace_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
     LLM_CLUSTER_EXPLORED = 'llm_cluster_explored',
     LLM_DATASET_CREATED = 'llm_dataset_created',

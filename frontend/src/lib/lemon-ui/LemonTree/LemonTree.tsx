@@ -37,11 +37,14 @@ import { Link } from '../Link/Link'
 import { Spinner } from '../Spinner/Spinner'
 import {
     InlineEditField,
+    TreeDropPosition,
     TreeNodeDisplayCheckbox,
     TreeNodeDisplayIcon,
     TreeNodeDraggable,
     TreeNodeDroppable,
 } from './LemonTreeUtils'
+
+export type LemonTreeDragEndEvent = DragEndEvent & { position: TreeDropPosition }
 
 export type LemonTreeSelectMode = 'default' | 'multi' | 'folder-only' | 'all'
 export type LemonTreeSize = 'default' | 'narrow'
@@ -116,6 +119,10 @@ type LemonTreeBaseProps = Omit<
     isItemDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
+    /** Drop mode for the item when used as a drop target. 'reorder' renders an insertion
+     * line above or below the row based on pointer position. 'onto' (default) highlights
+     * the whole row — appropriate for dropping *into* folders. */
+    getItemDropMode?: (item: TreeDataItem) => 'onto' | 'reorder'
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The button to render for the item's side action. */
@@ -170,8 +177,10 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     ) => void
     /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
     contentRef?: React.RefObject<HTMLElement>
-    /** Handler for when a drag operation completes */
-    onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Handler for when a drag operation completes. When the drop target is a 'reorder'
+     * item, `position` describes which side of the target the pointer was over — either
+     * 'before' or 'after'. For default 'onto' drops, `position` is 'onto'. */
+    onDragEnd?: (dragEvent: LemonTreeDragEndEvent) => void
     /** Handler for when a drag operation starts */
     onDragStart?: (dragEvent: DragStartEvent) => void
     /** Handler for when the drag target changes */
@@ -207,6 +216,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     disableKeyboardInput?: (disable: boolean) => void
     /** Whether the item is dragging */
     isDragging?: boolean
+    /** Internal callback threaded from <LemonTree> down to rows for insertion-line positioning during reorder drags. */
+    onReorderPositionChange?: (id: string, position: TreeDropPosition) => void
 }
 
 export interface LemonTreeRef {
@@ -257,6 +268,8 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             isItemActive,
             isItemDraggable,
             isItemDroppable,
+            getItemDropMode,
+            onReorderPositionChange,
             depth = 0,
             itemSideAction,
             itemSideActionButton,
@@ -538,7 +551,12 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
 
         if (isItemDroppable?.(item)) {
             wrappedContent = (
-                <TreeNodeDroppable id={item.id} isDroppable={!!isItemDroppable?.(item)}>
+                <TreeNodeDroppable
+                    id={item.id}
+                    isDroppable={!!isItemDroppable?.(item)}
+                    dropMode={getItemDropMode?.(item) ?? 'onto'}
+                    onPositionChange={onReorderPositionChange}
+                >
                     {wrappedContent}
                 </TreeNodeDroppable>
             )
@@ -644,6 +662,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             onSetExpandedItemIds,
             isItemDraggable,
             isItemDroppable,
+            getItemDropMode,
             itemSideAction,
             isItemEditing,
             onItemNameChange,
@@ -707,6 +726,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             scrollDirection: 'idle' as ScrollDirection,
         })
         const externalViewportOffsetRef = useRef<number>(0)
+        // Tracks the last known "before"/"after" side of the current reorder drop target so
+        // the `onDragEnd` payload can tell the consumer which side of the row was targeted.
+        const dropPositionRef = useRef<TreeDropPosition>('onto')
+        const handleReorderPositionChange = useCallback((_id: string, position: TreeDropPosition): void => {
+            dropPositionRef.current = position
+        }, [])
 
         // Add new state for type-ahead
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
@@ -1514,6 +1539,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 sensors={sensors}
                 onDragStart={(event) => {
                     setIsDragging(true)
+                    dropPositionRef.current = 'onto'
                     const item = findItem(data, String(event.active?.id))
                     if (item) {
                         setActiveDragItem(item)
@@ -1529,12 +1555,17 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     if (active && active === over) {
                         dragEvent.activatorEvent.stopPropagation()
                     } else {
-                        onDragEnd?.(dragEvent)
+                        const overItem = over ? findItem(data, String(over)) : undefined
+                        const overMode = overItem ? (getItemDropMode?.(overItem) ?? 'onto') : 'onto'
+                        const position: TreeDropPosition = overMode === 'reorder' ? dropPositionRef.current : 'onto'
+                        onDragEnd?.(Object.assign(dragEvent, { position }))
                     }
+                    dropPositionRef.current = 'onto'
                     setIsDragging(false)
                     setActiveDragItem(null)
                 }}
                 onDragCancel={() => {
+                    dropPositionRef.current = 'onto'
                     setIsDragging(false)
                     setActiveDragItem(null)
                     onDragCancel?.()
@@ -1617,6 +1648,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                                             onItemNameChange={onItemNameChange}
                                                             isItemDraggable={isItemDraggable}
                                                             isItemDroppable={isItemDroppable}
+                                                            getItemDropMode={getItemDropMode}
+                                                            onReorderPositionChange={handleReorderPositionChange}
                                                             enableDragAndDrop={enableDragAndDrop}
                                                             disableKeyboardInput={(disable) => {
                                                                 setDisableKeyboardInput(disable)
@@ -1660,6 +1693,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                     })}
                                     isItemDraggable={isItemDraggable}
                                     isItemDroppable={isItemDroppable}
+                                    getItemDropMode={getItemDropMode}
+                                    onReorderPositionChange={handleReorderPositionChange}
                                     enableDragAndDrop={enableDragAndDrop}
                                     disableKeyboardInput={(disable) => {
                                         setDisableKeyboardInput(disable)

@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
@@ -18,9 +18,9 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::{setup_metrics_recorder, track_metrics};
+use common_metrics::setup_metrics_routes_for_product_with_overrides;
 use common_redis::Client as RedisClient;
-use health::{readiness_handler, HealthRegistry};
+use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
@@ -33,14 +33,19 @@ use tower_http::{
 
 use crate::{
     api::{
+        concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
-    flags::flag_group_type_mapping::GroupTypeCacheManager,
+    flags::{
+        flag_definitions_cache::FlagDefinitionsCache,
+        flag_group_type_mapping::GroupTypeCacheManager,
+    },
     metrics::{
+        buckets::bucket_overrides,
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
             FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
@@ -67,13 +72,15 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
-    pub flags_rate_limiter: FlagsRateLimiter,
-    pub ip_rate_limiter: IpRateLimiter,
+    pub(crate) flags_rate_limiter: FlagsRateLimiter,
+    pub(crate) ip_rate_limiter: IpRateLimiter,
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// In-memory cache for deserialized + regex-compiled flag definitions
+    pub flag_definitions_cache: Arc<FlagDefinitionsCache>,
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
@@ -94,6 +101,9 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Shadow-keyspace billing aggregator. See `crate::billing` for the
+    /// dual-write contract.
+    pub billing_aggregator: Option<Arc<BillingAggregator>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -104,11 +114,13 @@ pub fn router(
     cohort_cache: Arc<CohortCacheManager>,
     group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
-    liveness: HealthRegistry,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    flag_definitions_cache: Arc<FlagDefinitionsCache>,
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
@@ -116,6 +128,7 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    billing_aggregator: Option<Arc<BillingAggregator>>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -195,6 +208,7 @@ pub fn router(
         flags_rate_limiter,
         ip_rate_limiter,
         flags_hypercache_reader,
+        flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
@@ -202,6 +216,7 @@ pub fn router(
         team_negative_cache,
         cohort_membership_provider,
         auth_token_cache,
+        billing_aggregator,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -221,8 +236,20 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())))
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || ready(l.check())
+            }),
+        )
         .route(
             "/_startup",
             get(move || startup(db_pools_for_startup.clone())),
@@ -235,7 +262,19 @@ pub fn router(
     // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
     // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
     //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
+    // 3. record_concurrency_enter: stamps the request with `Instant::now()`
+    //    just before permit acquisition. Inside `TimeoutLayer` so timeouts
+    //    still fire while the request is parked at the limiter.
+    // 4. ConcurrencyLimitLayer: bounds in-flight requests.
+    // 5. record_concurrency_wait (innermost): computes elapsed permit-wait
+    //    immediately after the layer hands off a permit, before the handler.
+    //
+    // Note: this entire chain wraps both `/flags|/decide` AND
+    // `/flags/definitions|/api/feature_flag/local_evaluation`. The shim pair
+    // is harmless on definitions (the handler never extracts the wait
+    // extension), but does add ~one extension-insert + one extension-read
+    // per definitions request. If that overhead ever becomes load-bearing,
+    // scope the shims to `/flags|/decide` via a dedicated sub-router.
     let mut flags_router = Router::new();
 
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
@@ -272,7 +311,15 @@ pub fn router(
     }
 
     let flags_router = flags_router
+        // Innermost: runs *after* `ConcurrencyLimitLayer` releases a
+        // permit, so it can compute the elapsed permit-wait before the
+        // handler runs.
+        .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        // Sandwiched between `TimeoutLayer` and `ConcurrencyLimitLayer`:
+        // captures `Instant::now()` *after* timeout deadline propagation
+        // but *before* permit acquisition.
+        .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
@@ -298,7 +345,6 @@ pub fn router(
         .merge(flags_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -306,8 +352,11 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        let recorder_handle = setup_metrics_recorder();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
+        setup_metrics_routes_for_product_with_overrides(
+            router,
+            "feature_flags",
+            &bucket_overrides(),
+        )
     } else {
         router
     }

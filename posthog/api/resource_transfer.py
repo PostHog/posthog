@@ -8,6 +8,7 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import Team, User
@@ -54,6 +55,7 @@ class ResourceSearchSerializer(serializers.Serializer):
 
 class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     @action(detail=False, methods=["POST"])
     def preview(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -188,13 +188,19 @@ export class LogsRateLimiterService {
         // Group messages by team to calculate total cost per team (only for teams with rate limiting enabled)
         const teamCosts = new Map<number, number>()
         const teamOldestTimestamps = new Map<number, number>()
+        const teamNewestTimestamps = new Map<number, number>()
 
         for (const message of messages) {
             const messageTimestamp = this.getTimestampFromMessage(message)
 
-            const existing = teamOldestTimestamps.get(message.teamId)
-            if (existing === undefined || messageTimestamp < existing) {
+            const existingOldest = teamOldestTimestamps.get(message.teamId)
+            if (existingOldest === undefined || messageTimestamp < existingOldest) {
                 teamOldestTimestamps.set(message.teamId, messageTimestamp)
+            }
+
+            const existingNewest = teamNewestTimestamps.get(message.teamId)
+            if (existingNewest === undefined || messageTimestamp > existingNewest) {
+                teamNewestTimestamps.set(message.teamId, messageTimestamp)
             }
 
             if (!this.isRateLimitingEnabledForTeam(message.teamId)) {
@@ -212,12 +218,14 @@ export class LogsRateLimiterService {
             logsMessageLagHistogram.observe(nowSeconds - timestamp)
         }
 
-        // Check rate limits for all teams
+        // Use the newest timestamp per team for the token bucket: this gives the bucket credit
+        // for the full producer-time span the batch covers, so a catch-up batch refills against
+        // its own time range instead of seeing timeDiff=0 from the previous batch's last call.
         const rateLimitResults = await this.rateLimitMany(
             Array.from(teamCosts.entries()).map(([teamId, cost]) => [
                 teamId.toString(),
                 cost,
-                teamOldestTimestamps.get(teamId) ?? msToSeconds(Date.now()),
+                teamNewestTimestamps.get(teamId) ?? msToSeconds(Date.now()),
             ])
         )
 

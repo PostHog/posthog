@@ -122,6 +122,7 @@ class SnapshotClassifier:
             snapshot.classification_reason = classification_reason
             snapshot.review_state = review_state
             snapshot.tolerated_hash_match = tolerated_match
+            snapshot.diff_percentage = tolerated_match.diff_percentage if tolerated_match else None
             snapshot.baseline_artifact = self.artifact_cache.get(baseline_hash) if baseline_hash else None
             snapshot.current_artifact = self.artifact_cache.get(snapshot.current_hash)
 
@@ -132,6 +133,7 @@ class SnapshotClassifier:
                 "classification_reason",
                 "review_state",
                 "tolerated_hash_match",
+                "diff_percentage",
                 "baseline_artifact",
                 "current_artifact",
             ],

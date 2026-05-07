@@ -21,7 +21,6 @@ from posthog.api import (
     hog_flow_template,
     hog_function_template,
     playwright_setup,
-    remote_config,
     report,
     router,
     sharing,
@@ -36,8 +35,8 @@ from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
-from posthog.api.slack import slack_interactivity_callback
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
+from posthog.api.user_integration import github_link_complete
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -50,18 +49,13 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
-from products.legal_documents.backend.presentation.webhook import legal_document_signed_webhook
+from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
-from products.slack_app.backend.api import (
-    posthog_code_event_handler,
-    posthog_code_interactivity_handler,
-    slack_event_handler,
-)
-from products.surveys.backend.api.survey import public_survey_page, surveys
-from products.tasks.backend.webhooks import github_pr_webhook
+from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.surveys.backend.api.survey import public_survey_page
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -90,6 +84,48 @@ except ImportError:
     pass
 else:
     extend_api_router()
+
+
+@csrf_exempt
+def github_webhook(request: HttpRequest) -> HttpResponse:
+    """Unified GitHub App webhook dispatcher.
+
+    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes
+    by ``X-GitHub-Event`` to the appropriate product handler.
+    """
+    import json
+
+    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    secret = get_github_webhook_secret()
+    if not secret:
+        return HttpResponse("Webhook not configured", status=500)
+
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_github_signature(request.body, signature, secret):
+        return HttpResponse("Invalid signature", status=403)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=400)
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+
+    if event_type in ("issues", "issue_comment"):
+        from products.conversations.backend.api.github_events import dispatch_github_event
+
+        return dispatch_github_event(request, event_type, payload)
+
+    if event_type == "pull_request":
+        from products.tasks.backend.webhooks import handle_pull_request_event
+
+        return handle_pull_request_event(payload)
+
+    return HttpResponse(status=200)
 
 
 @requires_csrf_token
@@ -205,9 +241,9 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
-        "api/legal_documents/signed",
-        csrf_exempt(legal_document_signed_webhook),
-        name="legal_document_signed_webhook",
+        "api/legal_documents/pandadoc",
+        csrf_exempt(legal_document_pandadoc_webhook),
+        name="legal_document_pandadoc_webhook",
     ),
     path(
         "api/users/<str:user_id>/signal_autonomy/",
@@ -236,10 +272,10 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
-    opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
+    opt_slash_path("api/signup/resend-invite", signup.SignupResendInviteViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -316,9 +352,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
-    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
-    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
@@ -327,18 +360,20 @@ urlpatterns = [
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
-    path("logout", authentication.logout, name="login"),
+    opt_slash_path("logout", authentication.logout, name="logout"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
+    # GitHub account linking (identity-only, separate from the login pipeline).
+    # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
+    path("complete/github-link/", github_link_complete, name="github_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
-    opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
-    opt_slash_path("slack/event-callback", slack_event_handler),
-    opt_slash_path("slack/posthog-code-event-callback", posthog_code_event_handler),
-    opt_slash_path("slack/posthog-code-interactivity-callback", posthog_code_interactivity_handler),
-    # GitHub webhooks for task lifecycle events
-    opt_slash_path("webhooks/github/pr", github_pr_webhook),
+    opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
+    opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
+    opt_slash_path("webhooks/github/pr", github_webhook),
+    opt_slash_path("webhooks/github", github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
@@ -347,7 +382,7 @@ urlpatterns = [
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
+    # external clients cannot see them. See bin/unit_metrics.py
     # for details on the production metrics setup.
 
     # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)

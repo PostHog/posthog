@@ -6,8 +6,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
+    logsAlertsCreate,
     logsAlertsDestroy,
     logsAlertsList,
     logsAlertsPartialUpdate,
@@ -16,6 +18,7 @@ import {
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
+import { alertFiltersForPreEnableCheck, dispatchPreEnableCheck, runPreEnableChecks } from './logsAlertUtils'
 
 const ALERT_POLL_INTERVAL_MS = 30_000
 
@@ -36,6 +39,8 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         setViewingHistoryAlert: (alert: LogsAlertConfigurationApi | null) => ({ alert }),
         snoozeAlert: (alertId: string, durationMinutes: number) => ({ alertId, durationMinutes }),
         unsnoozeAlert: (alertId: string) => ({ alertId }),
+        createAlertAndOpen: true,
+        setCreatingAlert: (creating: boolean) => ({ creating }),
     }),
 
     reducers({
@@ -66,6 +71,12 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 setViewingHistoryAlert: (_, { alert }) => alert,
             },
         ],
+        creatingAlert: [
+            false,
+            {
+                setCreatingAlert: (_, { creating }) => creating,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -74,7 +85,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             {
                 loadAlerts: async () => {
                     const projectId = String(values.currentTeamId)
-                    const response = await logsAlertsList(projectId)
+                    const response = await logsAlertsList(projectId, { limit: 500 })
                     return response.results
                 },
             },
@@ -82,18 +93,6 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        loadAlertsSuccess: () => {
-            const params = router.values.searchParams
-            if (params.alertId && typeof params.alertId === 'string') {
-                const alert = values.alerts.find((a) => a.id === params.alertId)
-                if (alert) {
-                    actions.setEditingAlert(alert)
-                }
-                // Clear alertId from URL regardless of whether we found the alert
-                const { alertId: _, ...rest } = router.values.searchParams
-                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
-            }
-        },
         deleteAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
             try {
@@ -104,16 +103,30 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 lemonToast.error('Failed to delete alert')
             }
         },
-        toggleAlertEnabled: async ({ alert }) => {
+        toggleAlertEnabled: ({ alert }) => {
+            const isEnabling = !(alert.enabled ?? true)
             const projectId = String(values.currentTeamId)
-            try {
-                await logsAlertsPartialUpdate(projectId, alert.id, {
-                    enabled: !(alert.enabled ?? true),
-                })
-                actions.loadAlerts()
-            } catch {
-                lemonToast.error('Failed to update alert')
+
+            const performToggle = async (): Promise<void> => {
+                try {
+                    await logsAlertsPartialUpdate(projectId, alert.id, {
+                        enabled: !(alert.enabled ?? true),
+                    })
+                    actions.loadAlerts()
+                } catch {
+                    lemonToast.error('Failed to update alert')
+                }
             }
+
+            if (!isEnabling) {
+                void performToggle()
+                return
+            }
+
+            dispatchPreEnableCheck(runPreEnableChecks(alert, alertFiltersForPreEnableCheck(alert)), {
+                onConfirm: () => void performToggle(),
+                onConfigureNotifications: () => router.actions.push(urls.logsAlertDetail(alert.id, 'notifications')),
+            })
         },
         resetAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
@@ -152,6 +165,19 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 actions.loadAlerts()
             } catch {
                 lemonToast.error('Failed to unsnooze alert')
+            }
+        },
+        createAlertAndOpen: async () => {
+            const projectId = String(values.currentTeamId)
+            actions.setCreatingAlert(true)
+            try {
+                const created = await logsAlertsCreate(projectId, { enabled: false })
+                router.actions.push(urls.logsAlertDetail(created.id))
+                actions.loadAlerts()
+            } catch (e: any) {
+                lemonToast.error(e?.detail ?? e?.message ?? 'Failed to create alert')
+            } finally {
+                actions.setCreatingAlert(false)
             }
         },
     })),

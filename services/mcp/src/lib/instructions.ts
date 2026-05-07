@@ -1,12 +1,11 @@
 import type { GroupType } from '@/api/client'
-import { formatPrompt } from '@/lib/utils'
 import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     if (!groupTypes || groupTypes.length === 0) {
         return ''
     }
-    return groupTypes.map((gt) => gt.group_type).join(', ')
+    return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
 }
 
 export function buildActiveEnvironmentContextPrompt(
@@ -45,13 +44,6 @@ export function buildActiveEnvironmentContextPrompt(
         lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
     return `### Active environment\n\nAll tool calls and queries are scoped to this environment.\n\n${lines.join('\n')}`
-}
-
-export function buildInstructionsV1(template: string, metadata?: string): string {
-    if (!metadata) {
-        return template
-    }
-    return `${template}\n\n${metadata}`
 }
 
 export interface ToolInfo {
@@ -112,6 +104,10 @@ export class ToolDomainExtractor {
         return this.getDomains()
             .map((d) => `- ${d}`)
             .join('\n')
+    }
+
+    toCompact(): string {
+        return this.getDomains().join('|')
     }
 
     private groupByCategory(tools: ToolInfo[]): Map<string, string[]> {
@@ -235,17 +231,49 @@ export function buildToolDomainsBlock(tools: ToolInfo[]): string {
     return new ToolDomainExtractor(tools).toMarkdown()
 }
 
-export function buildInstructionsV2(
-    template: string,
-    guidelines: string,
-    groupTypes?: GroupType[],
-    metadata?: string,
-    tools?: ToolInfo[]
-): string {
-    return formatPrompt(template, {
-        guidelines: guidelines.trim(),
-        defined_groups: buildDefinedGroupsBlock(groupTypes),
-        metadata: metadata?.trim() ?? '',
-        tool_domains: tools ? buildToolDomainsBlock(tools) : '',
-    })
+export function buildToolDomainsCompact(tools: ToolInfo[]): string {
+    return new ToolDomainExtractor(tools).toCompact()
+}
+
+export interface QueryToolInfo {
+    name: string
+    title: string
+    systemPromptHint?: string
+}
+
+/**
+ * Renders the `query-*` tool catalog injected into the system prompt as a
+ * single bullet list. Populated from the YAML `system_prompt_hint` field with
+ * `title` as a fallback so a missing hint is visible rather than silent.
+ */
+export class QueryToolCatalog {
+    constructor(private readonly tools: QueryToolInfo[]) {}
+
+    toMarkdown(): string {
+        const queryTools = this.filteredAndSorted()
+        if (queryTools.length === 0) {
+            return ''
+        }
+        return queryTools.map((t) => `- \`${t.name}\` — ${t.systemPromptHint ?? t.title}`).join('\n')
+    }
+
+    toCompact(): string {
+        const queryTools = this.filteredAndSorted()
+        if (queryTools.length === 0) {
+            return ''
+        }
+        return queryTools.map((t) => t.name.replace(/^query-/, '')).join('|')
+    }
+
+    private filteredAndSorted(): QueryToolInfo[] {
+        return this.tools.filter((t) => t.name.startsWith('query-')).sort((a, b) => a.name.localeCompare(b.name))
+    }
+}
+
+export function buildQueryToolsBlock(tools: QueryToolInfo[]): string {
+    return new QueryToolCatalog(tools).toMarkdown()
+}
+
+export function buildQueryToolsCompact(tools: QueryToolInfo[]): string {
+    return new QueryToolCatalog(tools).toCompact()
 }

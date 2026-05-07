@@ -73,3 +73,24 @@ export const legalDocumentsRetrieve = async (
         method: 'GET',
     })
 }
+
+/**
+ * Short-lived redirect to the signed PDF in object storage. 404 while the
+envelope is still out for signature (or if the upload hasn't completed
+yet). The underlying presigned URL expires in ~60s; clients should hit
+this endpoint each time they want to view the PDF rather than caching.
+ */
+export const getLegalDocumentsDownloadRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/legal_documents/${id}/download/`
+}
+
+export const legalDocumentsDownloadRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getLegalDocumentsDownloadRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}

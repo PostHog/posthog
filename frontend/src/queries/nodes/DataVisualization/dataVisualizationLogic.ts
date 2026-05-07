@@ -335,6 +335,20 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.heatmap,
                   }
                 : undefined,
+        leftYAxisSettings:
+            state.leftYAxisSettings || settings.leftYAxisSettings
+                ? {
+                      ...state.leftYAxisSettings,
+                      ...settings.leftYAxisSettings,
+                  }
+                : undefined,
+        rightYAxisSettings:
+            state.rightYAxisSettings || settings.rightYAxisSettings
+                ? {
+                      ...state.rightYAxisSettings,
+                      ...settings.rightYAxisSettings,
+                  }
+                : undefined,
     }
 }
 

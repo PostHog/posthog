@@ -14,6 +14,28 @@
     }
 }
 
+// Workaround for https://github.com/microsoft/monaco-editor/issues/5208 —
+// the find widget's action-bar tooltip flickers when its rich layout stacks
+// the label and keybinding onto two lines, making the container tall enough
+// to overlap the button. Force a single-row layout so the tooltip stays
+// short and clear of the button. Scoped to when the find widget is open so
+// tooltips on other action bars are unaffected.
+body:has(.monaco-editor .find-widget.visible) .workbench-hover-container {
+    pointer-events: none !important;
+
+    &,
+    .hover-row,
+    .hover-contents,
+    .action-container,
+    .actions-container {
+        display: flex !important;
+        flex-flow: row nowrap !important;
+        gap: 6px !important;
+        align-items: center !important;
+        white-space: nowrap !important;
+    }
+}
+
 .editor-wrapper .monaco-editor,
 .editor-wrapper .monaco-diff-editor,
 .editor-wrapper .overflow-guard {

@@ -796,7 +796,11 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.type == "person" and property.key == "distinct_id":
+            # distinct_id is not stored in person.properties — it lives in the
+            # person_distinct_id2 table and is exposed via the `pdi` lazy join on persons.
+            chain = ["person", "pdi"] if scope != "person" else ["pdi"]
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
