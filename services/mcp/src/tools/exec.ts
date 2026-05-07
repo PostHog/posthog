@@ -6,7 +6,13 @@ import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from './types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type Tool,
+    type ZodObjectAny,
+} from './types'
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -270,7 +276,23 @@ export function createExecTool(
                         success: true,
                         output_format: useJson ? 'json' : 'text',
                     })
-                    return useJson ? JSON.stringify(result) : formatResponse(result)
+                    if (useJson) {
+                        return JSON.stringify(result)
+                    }
+                    // Optimized mode: when the handler attached a backend-formatted table
+                    // via `__formatted_results_override`, return ONLY that string. The raw
+                    // `results`/`_posthogUrl` payload would otherwise duplicate the table
+                    // and crowd it out — buildToolResultPayload makes the same choice for
+                    // the non-exec path, this keeps exec consistent.
+                    if (result !== null && typeof result === 'object') {
+                        const formattedOverride = (result as Record<string, unknown>)[
+                            POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY
+                        ]
+                        if (typeof formattedOverride === 'string') {
+                            return formattedOverride
+                        }
+                    }
+                    return formatResponse(result)
                 }
 
                 default:
