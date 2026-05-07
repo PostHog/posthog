@@ -16070,48 +16070,182 @@
       {
         alias: "id"
         expr: {
-          chain: [
-            "poe",
-            "id"
-          ]
-          from_asterisk: False
-          type: {
-            name: "id"
-            table_type: {
-              field: "poe"
-              table_type: <recursion ...>
-              virtual_table: {
-                fields: {
-                  $virt_initial_channel_type: {
-                    hidden: False
-                  },
-                  $virt_initial_referring_domain_type: {
-                    hidden: False
-                  },
-                  $virt_mrr: {
-                    hidden: False
-                  },
-                  $virt_revenue: {
-                    hidden: False
-                  },
-                  created_at: {
-                    hidden: False
-                  },
-                  id: {
-                    hidden: False
-                  },
-                  properties: {
-                    hidden: False
-                  },
-                  revenue_analytics: {
-                    hidden: False
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "distinct_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "distinct_id"
+                        ]
+                        from_asterisk: False
+                        type: {
+                          name: "distinct_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              hidden: False,
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  distinct_id: {
+                                    hidden: False
+                                  },
+                                  person: {
+                                    hidden: False
+                                  },
+                                  person_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      from_asterisk: False
+                      hidden: True
+                      type: {
+                        alias: "distinct_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "int"
+                      nullable: False
+                    }
                   }
-                },
-                hidden: False,
-                name: None,
-                top_level_settings: None,
-                workload: None
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
               }
+            },
+            {
+              alias: "person_id"
+              expr: {
+                chain: [
+                  "override",
+                  "person_id"
+                ]
+                from_asterisk: False
+                type: {
+                  name: "person_id"
+                  table_type: {
+                    field: "override"
+                    lazy_join: {
+                      from_field: [
+                        "distinct_id"
+                      ],
+                      hidden: False,
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          distinct_id: {
+                            hidden: False
+                          },
+                          person: {
+                            hidden: False
+                          },
+                          person_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              from_asterisk: False
+              hidden: True
+              type: {
+                alias: "person_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                from_asterisk: False
+                type: {
+                  name: "event_person_id"
+                  table_type: <recursion ...>
+                }
+              }
+              from_asterisk: False
+              hidden: True
+              type: {
+                alias: "event_person_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
             }
           }
         }
