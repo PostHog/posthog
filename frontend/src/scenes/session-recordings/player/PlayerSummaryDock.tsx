@@ -9,12 +9,16 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
 import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgressLogic'
 import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+
+const ASK_MAX_DIGEST_PROMPT =
+    "Set me up with a daily Slack digest of session summaries. I'll tell you what's notable for my product."
 
 const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
@@ -35,7 +39,10 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { openBySessionId, summaryIdBySessionId } = useValues(sessionSummaryProgressLogic)
     const { setSummaryOpen, cancelSummarization } = useActions(sessionSummaryProgressLogic)
-    const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
+    const { reportAISessionSummaryViewed, reportAISessionSummaryDigestClicked } = useActions(
+        sessionRecordingEventUsageLogic
+    )
+    const { askMax } = useActions(maxLogic)
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -170,7 +177,27 @@ export function PlayerSummaryDock(): JSX.Element | null {
                             </div>
                         </LemonBanner>
                     ) : hasSummary ? (
-                        <SessionSummary />
+                        <>
+                            <SessionSummary />
+                            <div className="mt-3 text-xs text-secondary flex items-center gap-1.5">
+                                <IconMagicWand className="text-primary" />
+                                <span>
+                                    Want this delivered to Slack daily?{' '}
+                                    <button
+                                        type="button"
+                                        className="text-primary underline cursor-pointer"
+                                        onClick={() => {
+                                            reportAISessionSummaryDigestClicked(sessionRecordingId)
+                                            askMax(ASK_MAX_DIGEST_PROMPT)
+                                        }}
+                                        data-attr="session-summary-digest-ask-max"
+                                    >
+                                        Ask Max
+                                    </button>
+                                    .
+                                </span>
+                            </div>
+                        </>
                     ) : null}
                 </div>
             )}

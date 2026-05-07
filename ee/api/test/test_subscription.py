@@ -1444,6 +1444,78 @@ class TestSubscriptionTemporal(APILicensedTest):
                 temporal_mock.return_value.start_workflow.assert_not_called()
 
 
+class TestSessionSummaryDigest(APILicensedTest):
+    """Tests for the `POST /api/projects/<id>/subscriptions/session_summary_digest/` action.
+
+    Validates the convenience action that composes Insight + Subscription for a Slack digest.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self.mock_sync = self._sync_connect_patcher.start()
+        self.mock_temporal_client = MagicMock()
+        self.mock_temporal_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = self.mock_temporal_client
+        self.addCleanup(self._sync_connect_patcher.stop)
+
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.slack_integration = Integration.objects.create(team=self.team, kind="slack", config={})
+
+    def _create_digest(self, **overrides):
+        payload = {
+            "slack_integration_id": self.slack_integration.id,
+            "slack_channel_id": "C1234|#cx-triage",
+            "frequency": "daily",
+            "prompt_guide": "Highlight failed checkouts and pricing-page friction.",
+        }
+        payload.update(overrides)
+        # `feature_enabled` is patched to True so the prompt_guide write is allowed.
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/session_summary_digest/",
+                payload,
+                format="json",
+            )
+
+    def test_creates_insight_and_subscription_with_supplied_prompt_guide(self):
+        response = self._create_digest()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = response.json()
+        assert body["target_type"] == "slack"
+        assert body["target_value"] == "C1234|#cx-triage"
+        assert body["frequency"] == "daily"
+        assert body["summary_enabled"] is True
+        assert body["summary_prompt_guide"] == "Highlight failed checkouts and pricing-page friction."
+        assert body["integration_id"] == self.slack_integration.id
+
+        # Insight side: created with the canonical name and a HogQL data table query.
+        insight = Insight.objects.get(id=body["insight"])
+        assert insight.name == "Session summary digest"
+        assert insight.team_id == self.team.id
+        assert insight.query["kind"] == "DataTableNode"
+        assert insight.query["source"]["kind"] == "HogQLQuery"
+        assert "$session_summary_ready" in insight.query["source"]["query"]
+
+    def test_reuses_existing_insight_on_second_call(self):
+        first = self._create_digest()
+        second = self._create_digest(slack_channel_id="C5678|#growth")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        # Both subscriptions point at the same insight — find-or-create did its job.
+        assert first.json()["insight"] == second.json()["insight"]
+        # And the team only has one digest insight, not two.
+        assert Insight.objects.filter(team_id=self.team.id, name="Session summary digest", deleted=False).count() == 1
+
+    def test_rejects_empty_prompt_guide(self):
+        response = self._create_digest(prompt_guide="   ")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "prompt_guide" in response.content.decode().lower()
+
+
 class TestSubscriptionDeliveryAPI(APILicensedTest):
     subscription: Subscription = None  # type: ignore
     insight: Insight = None  # type: ignore

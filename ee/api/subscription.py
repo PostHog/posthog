@@ -1,11 +1,13 @@
 import uuid
 import asyncio
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
+from django.utils import timezone
 
 import jwt
 import posthoganalytics
@@ -24,6 +26,7 @@ from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
@@ -48,6 +51,21 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+
+SESSION_SUMMARY_DIGEST_INSIGHT_NAME = "Session summary digest"
+SESSION_SUMMARY_DIGEST_HOGQL = """\
+SELECT
+    properties.session_id AS session_id,
+    properties.replay_url AS recording,
+    properties.session_summary AS summary,
+    properties.session_duration AS duration_seconds,
+    timestamp
+FROM events
+WHERE event = '$session_summary_ready'
+    AND timestamp >= now() - INTERVAL 1 DAY
+ORDER BY timestamp DESC
+LIMIT 50
+"""
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -573,6 +591,77 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
+def find_or_create_session_summary_digest_insight(team_id: int, created_by_user=None) -> Insight:
+    """Idempotently fetch the team's session-summary digest insight, creating it if missing.
+
+    Looked up by name + team. The same insight backs every digest subscription for the team
+    so multiple Slack channels share one source of truth and one query cost.
+    """
+    existing = Insight.objects.filter(
+        team_id=team_id,
+        name=SESSION_SUMMARY_DIGEST_INSIGHT_NAME,
+        deleted=False,
+    ).first()
+    if existing:
+        return existing
+
+    return Insight.objects.create(
+        team_id=team_id,
+        saved=True,
+        name=SESSION_SUMMARY_DIGEST_INSIGHT_NAME,
+        description=(
+            "Auto-generated. Backs the session summary digest subscriptions. "
+            "Lists $session_summary_ready events from the last 24 hours."
+        ),
+        query={
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": SESSION_SUMMARY_DIGEST_HOGQL,
+            },
+        },
+        created_by=created_by_user,
+    )
+
+
+class SessionSummaryDigestCreateSerializer(serializers.Serializer):
+    """Inputs for the session summary digest convenience action.
+
+    `prompt_guide` is required (not defaulted) — what counts as 'notable' is customer-specific
+    and the prompt is the customer's lever for tuning the digest to their product.
+    """
+
+    slack_integration_id = serializers.IntegerField(help_text="ID of the team's connected Slack integration.")
+    slack_channel_id = serializers.CharField(
+        max_length=255,
+        help_text="Slack channel ID (or name) where the digest should be posted.",
+    )
+    frequency = serializers.ChoiceField(
+        choices=["daily", "weekly"],
+        default="daily",
+        help_text="Delivery cadence — 'daily' (every morning) or 'weekly' (Mondays).",
+    )
+    prompt_guide = serializers.CharField(
+        max_length=500,
+        help_text=(
+            "Required. What counts as 'notable' for this team's product. The AI uses this "
+            "to filter and frame each digest. Example: 'Highlight failed checkouts and any "
+            "session where a paying customer hit friction on pricing.'"
+        ),
+    )
+    start_date = serializers.DateTimeField(
+        required=False,
+        help_text="When to begin delivering. Defaults to the next 9am UTC.",
+    )
+
+    def validate_prompt_guide(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError(
+                "prompt_guide is required and cannot be empty. Describe what's notable for your product."
+            )
+        return value
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -800,6 +889,81 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         )
 
         return Response(status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        request_serializer=SessionSummaryDigestCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=SubscriptionSerializer,
+                description="The created Slack digest subscription.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid request — missing/empty prompt_guide, invalid integration, or schedule conflict.",
+            ),
+            403: OpenApiResponse(
+                description="Organization has not approved AI data processing, or AI summary feature is gated.",
+            ),
+        },
+        summary="Subscribe to session summary digest",
+        description=(
+            "Convenience action: subscribe a Slack channel to a daily/weekly AI-summarized digest "
+            "of session summaries. Idempotently finds or creates the team's 'Session summary digest' "
+            "insight and creates a subscription against it. The customer-supplied prompt_guide steers "
+            "what the AI calls out in each delivery."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="session_summary_digest",
+        required_scopes=["subscription:write"],
+    )
+    def session_summary_digest(self, request, **kwargs):
+        validated_data = request.validated_data
+
+        insight = find_or_create_session_summary_digest_insight(
+            team_id=self.team_id,
+            created_by_user=request.user if request.user.is_authenticated else None,
+        )
+
+        start_date = validated_data.get("start_date")
+        if start_date is None:
+            now = timezone.now()
+            next_nine = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if next_nine <= now:
+                next_nine = next_nine + timedelta(days=1)
+            start_date = next_nine
+
+        subscription_data = {
+            "insight": insight.id,
+            "target_type": Subscription.SubscriptionTarget.SLACK,
+            "target_value": validated_data["slack_channel_id"],
+            "integration_id": validated_data["slack_integration_id"],
+            "frequency": validated_data["frequency"],
+            "interval": 1,
+            "start_date": start_date,
+            "title": SESSION_SUMMARY_DIGEST_INSIGHT_NAME,
+            "summary_enabled": True,
+            "summary_prompt_guide": validated_data["prompt_guide"],
+        }
+
+        sub_serializer = self.get_serializer(data=subscription_data)
+        sub_serializer.is_valid(raise_exception=True)
+        sub_serializer.save()
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="session_summary_digest_subscription_created",
+            properties={
+                "subscription_id": sub_serializer.instance.id,
+                "team_id": self.team_id,
+                "frequency": sub_serializer.instance.frequency,
+                "insight_id": insight.id,
+            },
+            groups=groups(self.organization, self.team),
+        )
+
+        return Response(sub_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):

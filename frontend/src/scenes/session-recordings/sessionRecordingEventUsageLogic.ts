@@ -77,6 +77,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             source,
             summary_id,
         }),
+        reportAISessionSummaryDigestClicked: (recording_id: string) => ({ recording_id }),
     }),
     listeners(() => ({
         reportRecordingLoaded: ({ playerData, metadata }) => {
@@ -162,6 +163,9 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         },
         reportAISessionSummaryViewed: ({ recording_id, source, summary_id }) => {
             posthog.capture('ai session summary viewed', { recording_id, source, summary_id })
+        },
+        reportAISessionSummaryDigestClicked: ({ recording_id }) => {
+            posthog.capture('ai session summary digest clicked', { recording_id })
         },
     })),
 ])

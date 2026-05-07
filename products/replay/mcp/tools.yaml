@@ -177,6 +177,43 @@ tools:
     session-recordings-list:
         operation: session_recordings_list
         enabled: false
+    subscribe-to-session-summary-digest:
+        operation: subscriptions_session_summary_digest_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Subscribe to session summary digest
+        description: >
+            Subscribe a Slack channel to a daily or weekly AI-summarized digest of session summaries. The digest pulls
+            `$session_summary_ready` events from the last 24 hours and renders them with the user-supplied
+            `prompt_guide`.
+
+
+            CRITICAL: `prompt_guide` is required and customer-specific. It tells the AI what's "notable" for THIS team's
+            product. Before invoking this tool, ASK the user what they care about — a generic prompt_guide produces a
+            generic digest. The customer's framing of "what matters" is the entire differentiator. Examples to suggest:
+
+            - "Highlight failed checkouts and any session where a paying customer hit friction on pricing."
+
+            - "Flag enterprise users who abandoned onboarding mid-flow."
+
+            - "Surface UI bugs not caught by error tracking — visual glitches, layout breaks, content failing to render."
+
+
+            Required prerequisites: the team must have (1) a connected Slack integration (see Slack integrations), and
+            (2) AI data processing approval at the organization level. The tool will return 400 / 403 if either is
+            missing — surface those errors verbatim to the user so they can resolve.
+
+
+            Idempotency: the underlying digest insight is created once per team and reused across digest subscriptions —
+            calling this tool multiple times produces multiple subscriptions (e.g. one per Slack channel) backed by the
+            same insight.
+        requires_ai_consent: true
+        feature_flag: replay-video-based-summarization
     session-recordings-partial-update:
         operation: session_recordings_partial_update
         enabled: false

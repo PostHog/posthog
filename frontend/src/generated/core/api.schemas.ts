@@ -2753,6 +2753,46 @@ export interface PatchedSubscriptionApi {
 }
 
 /**
+ * * `daily` - daily
+ * `weekly` - weekly
+ */
+export type SessionSummaryDigestCreateFrequencyEnumApi =
+    (typeof SessionSummaryDigestCreateFrequencyEnumApi)[keyof typeof SessionSummaryDigestCreateFrequencyEnumApi]
+
+export const SessionSummaryDigestCreateFrequencyEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+} as const
+
+/**
+ * Inputs for the session summary digest convenience action.
+
+`prompt_guide` is required (not defaulted) — what counts as 'notable' is customer-specific
+and the prompt is the customer's lever for tuning the digest to their product.
+ */
+export interface SessionSummaryDigestCreateApi {
+    /** ID of the team's connected Slack integration. */
+    slack_integration_id: number
+    /**
+     * Slack channel ID (or name) where the digest should be posted.
+     * @maxLength 255
+     */
+    slack_channel_id: string
+    /** Delivery cadence — 'daily' (every morning) or 'weekly' (Mondays).
+
+* `daily` - daily
+* `weekly` - weekly */
+    frequency?: SessionSummaryDigestCreateFrequencyEnumApi
+    /**
+     * Required. What counts as 'notable' for this team's product. The AI uses this to filter and frame each digest. Example: 'Highlight failed checkouts and any session where a paying customer hit friction on pricing.'
+     * @maxLength 500
+     */
+    prompt_guide: string
+    /** When to begin delivering. Defaults to the next 9am UTC. */
+    start_date?: string
+}
+
+/**
  * * `disabled` - disabled
  * `toolbar` - toolbar
  */

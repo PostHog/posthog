@@ -11,6 +11,7 @@ import {
     SessionRecordingPlaylistsRetrieveParams,
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
+    SubscriptionsSessionSummaryDigestCreateBody,
 } from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -194,6 +195,41 @@ const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeS
             return result
         },
     })
+
+const SubscribeToSessionSummaryDigestSchema = SubscriptionsSessionSummaryDigestCreateBody
+
+const subscribeToSessionSummaryDigest = (): ToolBase<
+    typeof SubscribeToSessionSummaryDigestSchema,
+    Schemas.Subscription
+> => ({
+    name: 'subscribe-to-session-summary-digest',
+    schema: SubscribeToSessionSummaryDigestSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscribeToSessionSummaryDigestSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.slack_integration_id !== undefined) {
+            body['slack_integration_id'] = params.slack_integration_id
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.frequency !== undefined) {
+            body['frequency'] = params.frequency
+        }
+        if (params.prompt_guide !== undefined) {
+            body['prompt_guide'] = params.prompt_guide
+        }
+        if (params.start_date !== undefined) {
+            body['start_date'] = params.start_date
+        }
+        const result = await context.api.request<Schemas.Subscription>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/session_summary_digest/`,
+            body,
+        })
+        return result
+    },
+})
 
 // --- Query wrapper schemas from schema.json ---
 
@@ -643,6 +679,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
     'session-recording-summarize': sessionRecordingSummarize,
+    'subscribe-to-session-summary-digest': subscribeToSessionSummaryDigest,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,

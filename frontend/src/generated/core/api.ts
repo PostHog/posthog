@@ -50,6 +50,7 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    SessionSummaryDigestCreateApi,
     SharingConfigurationApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
@@ -1703,6 +1704,27 @@ export const subscriptionsTestDeliveryCreate = async (
     return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Convenience action: subscribe a Slack channel to a daily/weekly AI-summarized digest of session summaries. Idempotently finds or creates the team's 'Session summary digest' insight and creates a subscription against it. The customer-supplied prompt_guide steers what the AI calls out in each delivery.
+ * @summary Subscribe to session summary digest
+ */
+export const getSubscriptionsSessionSummaryDigestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/session_summary_digest/`
+}
+
+export const subscriptionsSessionSummaryDigestCreate = async (
+    projectId: string,
+    sessionSummaryDigestCreateApi: SessionSummaryDigestCreateApi,
+    options?: RequestInit
+): Promise<SubscriptionApi> => {
+    return apiMutator<SubscriptionApi>(getSubscriptionsSessionSummaryDigestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummaryDigestCreateApi),
     })
 }
 

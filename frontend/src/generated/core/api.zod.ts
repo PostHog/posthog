@@ -2854,6 +2854,41 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Standard Subscription serializer.')
 
 /**
+ * Convenience action: subscribe a Slack channel to a daily/weekly AI-summarized digest of session summaries. Idempotently finds or creates the team's 'Session summary digest' insight and creates a subscription against it. The customer-supplied prompt_guide steers what the AI calls out in each delivery.
+ * @summary Subscribe to session summary digest
+ */
+export const subscriptionsSessionSummaryDigestCreateBodySlackChannelIdMax = 255
+
+export const subscriptionsSessionSummaryDigestCreateBodyFrequencyDefault = `daily`
+export const subscriptionsSessionSummaryDigestCreateBodyPromptGuideMax = 500
+
+export const SubscriptionsSessionSummaryDigestCreateBody = /* @__PURE__ */ zod
+    .object({
+        slack_integration_id: zod.number().describe("ID of the team's connected Slack integration."),
+        slack_channel_id: zod
+            .string()
+            .max(subscriptionsSessionSummaryDigestCreateBodySlackChannelIdMax)
+            .describe('Slack channel ID (or name) where the digest should be posted.'),
+        frequency: zod
+            .enum(['daily', 'weekly'])
+            .describe('* `daily` - daily\n* `weekly` - weekly')
+            .default(subscriptionsSessionSummaryDigestCreateBodyFrequencyDefault)
+            .describe(
+                "Delivery cadence — 'daily' (every morning) or 'weekly' (Mondays).\n\n* `daily` - daily\n* `weekly` - weekly"
+            ),
+        prompt_guide: zod
+            .string()
+            .max(subscriptionsSessionSummaryDigestCreateBodyPromptGuideMax)
+            .describe(
+                "Required. What counts as 'notable' for this team's product. The AI uses this to filter and frame each digest. Example: 'Highlight failed checkouts and any session where a paying customer hit friction on pricing.'"
+            ),
+        start_date: zod.iso.datetime({}).optional().describe('When to begin delivering. Defaults to the next 9am UTC.'),
+    })
+    .describe(
+        "Inputs for the session summary digest convenience action.\n\n`prompt_guide` is required (not defaulted) — what counts as 'notable' is customer-specific\nand the prompt is the customer's lever for tuning the digest to their product."
+    )
+
+/**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
  */
 export const usersUpdateBodyFirstNameMax = 150
