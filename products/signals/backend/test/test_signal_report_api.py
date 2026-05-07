@@ -547,19 +547,14 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Single match — only the report whose repo_selection matches comes back.
-            ("single_match", "posthog/posthog", {"a"}, {"b"}),
-            # Multiple repos in the filter — both matching reports come back.
-            ("multiple_repos", "posthog/posthog,posthog/posthog-js", {"a", "b"}, set()),
-            # Mixed-case query against lower-case stored repo names.
-            ("case_insensitive_query", "PostHog/PostHog", {"a"}, {"b"}),
-            # Lower-case query against (hypothetically) mixed-case stored repo names.
-            # Stored values from the agentic flow are lower-case in practice, but the
-            # backend still lower-cases both sides defensively.
-            ("case_insensitive_storage", "posthog/posthog-js", {"b"}, {"a"}),
+            ("single_match", "posthog/posthog", {"a"}),
+            ("multiple_repos", "posthog/posthog,posthog/posthog-js", {"a", "b"}),
+            # Mixed-case query against lower-case stored repo names — the input is
+            # lower-cased before matching, so this still hits "posthog/posthog".
+            ("case_insensitive_query", "PostHog/PostHog", {"a"}),
         ]
     )
-    def test_repository_filter_matches_repos(self, _name, repo_query, expected_titles, excluded_titles):
+    def test_repository_filter_matches_repos(self, _name, repo_query, expected_titles):
         reports_by_title = {
             "a": self._create_report(title="A"),
             "b": self._create_report(title="B"),
@@ -570,21 +565,17 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url(repository=repo_query))
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
-        for title in expected_titles:
-            assert str(reports_by_title[title].id) in result_ids
-        for title in excluded_titles:
-            assert str(reports_by_title[title].id) not in result_ids
+        assert result_ids == {str(reports_by_title[t].id) for t in expected_titles}
 
     def test_repository_filter_excludes_reports_without_repo_selection_artefact(self):
         report_with_repo = self._create_report(title="A")
-        report_without_repo = self._create_report(title="B")
+        self._create_report(title="B")
         self._repo_selection_artefact(report_with_repo, repository="posthog/posthog")
 
         response = self.client.get(self._list_url(repository="posthog/posthog"))
         assert response.status_code == status.HTTP_200_OK
-        ids = {r["id"] for r in response.json()["results"]}
-        assert str(report_with_repo.id) in ids
-        assert str(report_without_repo.id) not in ids
+        result_ids = {r["id"] for r in response.json()["results"]}
+        assert result_ids == {str(report_with_repo.id)}
 
     def test_repository_filter_empty_returns_all(self):
         report = self._create_report(title="A")
@@ -592,8 +583,8 @@ class TestSignalReportListAPI(APIBaseTest):
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
-        ids = {r["id"] for r in response.json()["results"]}
-        assert str(report.id) in ids
+        result_ids = {r["id"] for r in response.json()["results"]}
+        assert result_ids == {str(report.id)}
 
     # --- legacy choice removal ---
 

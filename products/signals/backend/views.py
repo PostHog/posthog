@@ -439,13 +439,11 @@ class SignalReportViewSet(
         if not repository_filter:
             return queryset
 
-        # Repos are matched case-insensitively against the `repository` field of any
-        # `repo_selection` artefact's JSON content (e.g. `{"repository": "owner/repo", ...}`).
-        # Matches *any* such artefact rather than only the latest — the same shape as
-        # `_apply_signal_report_suggested_reviewer_filter`. In practice each report has
-        # at most one `repo_selection` artefact (`select_repository_activity` reuses the
-        # previous one when present), so any-vs-latest doesn't matter today; if that ever
-        # changes, switch this to a Subquery on the latest by `created_at`.
+        # Matches *any* `repo_selection` artefact rather than only the latest — same
+        # shape as `_apply_signal_report_suggested_reviewer_filter`. Each report has at
+        # most one repo_selection artefact today (`select_repository_activity` reuses the
+        # previous one), so any-vs-latest doesn't matter; if that changes, switch to a
+        # Subquery on the latest by `created_at`.
         repositories = [s.strip().lower() for s in repository_filter.split(",") if s.strip()]
         if not repositories:
             return queryset
