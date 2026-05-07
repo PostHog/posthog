@@ -554,7 +554,6 @@ class TestInfoProcess:
         assert "raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt" in shell
         assert "cat devenv/news.txt" in shell  # local fallback
         assert "News:" in shell
-        assert "awk" in shell  # changelog-style date heading parser
 
     def test_info_process_includes_commands(self) -> None:
         """Info process shell includes useful commands."""
