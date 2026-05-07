@@ -73,13 +73,10 @@ class CodeInviteAdmin(admin.ModelAdmin):
     inlines = []
 
     def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return ("id", "code", "redemption_count", "created_at")
         return ("id", "redemption_count", "created_at")
 
     def get_fieldsets(self, request, obj=None):
         if obj:
-            # Show auto-generated code as readonly on existing records
             return (
                 (None, {"fields": ("id", "code", "description")}),
                 ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
