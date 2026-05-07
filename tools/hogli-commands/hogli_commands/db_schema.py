@@ -97,8 +97,7 @@ def _run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
         env=os.environ.copy(),
         stdin=subprocess.PIPE,
     )
-    if process.stdin is None:
-        raise SchemaRestoreError("failed to open psql stdin")
+    assert process.stdin is not None  # stdin=PIPE guarantees this
 
     try:
         with gzip.open(gzip_path, "rb") as source:
@@ -116,6 +115,11 @@ def _run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
     returncode = process.wait()
     if returncode != 0:
         raise subprocess.CalledProcessError(returncode, command)
+
+
+def _psql_admin(sql: str) -> None:
+    """Run a one-shot SQL statement against the postgres maintenance database."""
+    _run([*DOCKER_COMPOSE, "exec", "-T", "db", "psql", "-U", "posthog", "postgres", "-c", sql])
 
 
 def _ensure_migration_defaults(target_db: str) -> None:
@@ -140,34 +144,8 @@ def restore_schema_dump(
     _validate_gzip(resolved_schema_path)
 
     if recreate:
-        _run(
-            [
-                *DOCKER_COMPOSE,
-                "exec",
-                "-T",
-                "db",
-                "psql",
-                "-U",
-                "posthog",
-                "postgres",
-                "-c",
-                f"DROP DATABASE IF EXISTS {target_db};",
-            ]
-        )
-        _run(
-            [
-                *DOCKER_COMPOSE,
-                "exec",
-                "-T",
-                "db",
-                "psql",
-                "-U",
-                "posthog",
-                "postgres",
-                "-c",
-                f"CREATE DATABASE {target_db};",
-            ]
-        )
+        _psql_admin(f"DROP DATABASE IF EXISTS {target_db};")
+        _psql_admin(f"CREATE DATABASE {target_db};")
 
     _run_psql_with_gzip_input(resolved_schema_path, target_db)
 
@@ -461,8 +439,7 @@ def _create_postgres_backup() -> Path:
         env=os.environ.copy(),
         stdout=subprocess.PIPE,
     )
-    if dump.stdout is None:
-        raise SchemaRestoreError("failed to open pg_dumpall stdout")
+    assert dump.stdout is not None  # stdout=PIPE guarantees this
 
     try:
         with open(backup_file, "wb") as raw_backup, gzip.GzipFile(fileobj=raw_backup, mode="wb") as compressed_backup:
@@ -507,22 +484,23 @@ def db_download_schema() -> None:
         raise click.ClickException(str(exc)) from exc
 
 
+def _recreate_test_db() -> None:
+    try:
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @click.command(
     name="db:restore-test-db", help="Restore a fresh test database from .postgres-backups/schema-latest.sql.gz"
 )
 def db_restore_test_db() -> None:
-    try:
-        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
-    except Exception as exc:
-        raise click.ClickException(str(exc)) from exc
+    _recreate_test_db()
 
 
 @click.command(name="db:restore-schema-fresh", help="Alias for db:restore-test-db")
 def db_restore_schema_fresh() -> None:
-    try:
-        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
-    except Exception as exc:
-        raise click.ClickException(str(exc)) from exc
+    _recreate_test_db()
 
 
 @click.command(
