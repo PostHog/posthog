@@ -496,7 +496,14 @@ def compute_unmigrated_to_fail_closed(
     for model in apps.get_models():
         if model._meta.abstract or model._meta.proxy:
             continue
-        if isinstance(model._meta.default_manager, TeamScopedManager):
+        # Scan every manager on the model rather than just `_default_manager`.
+        # PR #57879 sets `default_manager_name = "all_teams"` on
+        # ProductTeamModel so admin/forms/related-object access bypass
+        # scoping (Django framework manager contract). The model still
+        # declares `objects = TeamScopedManager()`, so checking the full
+        # managers list is the right detection signal regardless of which
+        # one Django picks as default.
+        if any(isinstance(m, TeamScopedManager) for m in model._meta.managers):
             fail_closed.add(model.__name__)
 
     candidates = team_scoped - excluded - legitimately_unscoped - needs_team_id

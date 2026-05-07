@@ -50,19 +50,28 @@ class TestTeamScopedRootMixinWiring(SimpleTestCase):
 
 
 class TestFailClosedIntrospection(SimpleTestCase):
-    """The CI baseline check (compute_unmigrated_to_fail_closed) reads
-    `model._meta.default_manager` and tests `isinstance(_, TeamScopedManager)`.
-    Confirm that contract holds for all three adoption styles.
+    """The CI baseline check (compute_unmigrated_to_fail_closed) scans
+    `model._meta.managers` for any `TeamScopedManager` instance. Confirm
+    that contract holds for all three adoption styles.
+
+    Scanning the whole managers list (rather than `_default_manager`) keeps
+    the detection robust to `Meta.default_manager_name = "all_teams"` —
+    set elsewhere so admin / framework managers bypass scoping while user
+    code via `Model.objects` stays fail-closed.
     """
 
+    @staticmethod
+    def _has_team_scoped_manager(model: type) -> bool:
+        return any(isinstance(m, TeamScopedManager) for m in model._meta.managers)
+
     def test_product_team_model_is_detected(self) -> None:
-        self.assertIsInstance(ProductTeamModel._meta.default_manager, TeamScopedManager)
+        self.assertTrue(self._has_team_scoped_manager(ProductTeamModel))
 
     def test_team_scoped_root_mixin_is_detected(self) -> None:
-        self.assertIsInstance(TeamScopedRootMixin._meta.default_manager, TeamScopedManager)
+        self.assertTrue(self._has_team_scoped_manager(TeamScopedRootMixin))
 
     def test_adhoc_declaration_is_detected(self) -> None:
         """A bare `objects = TeamScopedManager()` on a plain model also satisfies
         the check — no mixin required, useful when a model already inherits a
         custom base or needs a TeamScopedManager subclass."""
-        self.assertIsInstance(_AdHocFailClosed._meta.default_manager, TeamScopedManager)
+        self.assertTrue(self._has_team_scoped_manager(_AdHocFailClosed))
