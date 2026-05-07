@@ -32,6 +32,11 @@ export class CdpEventsConsumer<
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
+    // Subclasses that handle non-event sources (internal events, person updates, data warehouse rows)
+    // should set this to false: hog flows are user-facing event-triggered workflows and should not
+    // fan out from system-internal sources, which also lets non-UUID person identifiers leak into
+    // the cyclotron queue.
+    protected triggersHogFlows = true
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumerInterface
 
@@ -68,7 +73,7 @@ export class CdpEventsConsumer<
 
         const invocationsToBeQueued = [
             ...(await this.createHogFunctionInvocations(invocationGlobals)),
-            ...(await this.createHogFlowInvocations(invocationGlobals)),
+            ...(this.triggersHogFlows ? await this.createHogFlowInvocations(invocationGlobals) : []),
         ]
 
         return {

@@ -16,6 +16,11 @@ import { counterParseError } from './metrics'
 export class CdpInternalEventsConsumer extends CdpEventsConsumer {
     protected override name = 'CdpInternalEventsConsumer'
     protected override hogTypes: HogFunctionTypeType[] = ['internal_destination']
+    // Internal events (activity log, comment mentions, early access feature edits, etc.) carry an
+    // org-member id in `person.id` rather than a posthog_person UUID. They are intended to drive
+    // internal_destination hog functions only and must not fan out to user-facing hog flows, which
+    // would otherwise insert non-UUID strings into cyclotron_jobs.person_id.
+    protected override triggersHogFlows = false
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')

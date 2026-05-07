@@ -1174,3 +1174,78 @@ describe('hog flow processing', () => {
         })
     })
 })
+
+describe('CdpInternalEventsConsumer hog flow scoping', () => {
+    let processor: CdpInternalEventsConsumer
+    let hub: Hub
+    let team: Team
+
+    const insertHogFlow = async (hogFlow: HogFlow) => {
+        const teamId = hogFlow.team_id ?? team.id
+        const item = await _insertHogFlow(hub.postgres, hogFlow)
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
+        return item
+    }
+
+    beforeEach(async () => {
+        await resetTestDatabase()
+        hub = await createHub()
+        team = await getFirstTeam(hub.postgres)
+        processor = new CdpInternalEventsConsumer(hub, createCdpConsumerDeps(hub))
+
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
+        processor['cyclotronJobQueue'] = {
+            queueInvocations: jest.fn(),
+            startAsProducer: jest.fn(() => Promise.resolve()),
+            stop: jest.fn(),
+        } as unknown as jest.Mocked<CyclotronJobQueue>
+
+        await processor.start()
+    })
+
+    afterEach(async () => {
+        await processor.stop()
+        await closeHub(hub)
+    })
+
+    it('does not fan out internal events to event-triggered hog flows', async () => {
+        await insertHogFlow(
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'event',
+                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                    },
+                })
+                .build()
+        )
+
+        const globals = createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                event: '$activity_log_entry_created',
+                properties: {},
+            } as any,
+            person: {
+                id: '12345',
+                properties: {},
+                name: '',
+                url: '',
+            },
+        })
+
+        const spy = jest.spyOn(processor as any, 'createHogFlowInvocations')
+
+        const { invocations } = await processor.processBatch([globals])
+
+        expect(spy).not.toHaveBeenCalled()
+        expect(invocations).toHaveLength(0)
+    })
+})
