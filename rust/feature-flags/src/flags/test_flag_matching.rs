@@ -208,9 +208,9 @@ mod tests {
         );
     }
 
-    // Regression for #55165. The injected `distinct_id` case passes
-    // `Some(HashMap::new())` so the only way the override can be populated is
-    // the matcher's own injection of `self.distinct_id`.
+    // The injected `distinct_id` case passes `Some(HashMap::new())` so the
+    // only way the override can be populated is the matcher's own injection
+    // of `self.distinct_id`.
     #[rstest::rstest]
     #[case::injected_from_request("request_only_user", "request_only_user", None)]
     #[case::explicit_override_wins("request_user", "explicit_user", Some("explicit_user"))]

@@ -371,12 +371,12 @@ impl FlagSnapshot {
 fn merge_distinct_id_into_person_properties(
     distinct_id: &str,
     overrides: Option<HashMap<String, Value>>,
-) -> Option<HashMap<String, Value>> {
+) -> HashMap<String, Value> {
     let mut overrides = overrides.unwrap_or_default();
     overrides
         .entry("distinct_id".to_string())
         .or_insert_with(|| Value::String(distinct_id.to_string()));
-    Some(overrides)
+    overrides
 }
 
 impl FeatureFlagMatcher {
@@ -477,8 +477,10 @@ impl FeatureFlagMatcher {
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
-        let person_property_overrides =
-            merge_distinct_id_into_person_properties(&self.distinct_id, person_property_overrides);
+        let person_property_overrides = Some(merge_distinct_id_into_person_properties(
+            &self.distinct_id,
+            person_property_overrides,
+        ));
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -2516,83 +2518,52 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_merge_distinct_id_injects_when_overrides_absent() {
-        let result = merge_distinct_id_into_person_properties("user_42", None)
-            .expect("expected overrides to be returned");
+    #[rstest::rstest]
+    #[case::injects_when_overrides_absent("user_42", None, "user_42", vec![])]
+    #[case::injects_when_overrides_lack_distinct_id(
+        "user_42",
+        Some(vec![("email", "a@x.com")]),
+        "user_42",
+        vec![("email", "a@x.com")],
+    )]
+    #[case::explicit_override_wins(
+        "user_42",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    #[case::injects_empty_string_when_overrides_absent("", None, "", vec![])]
+    #[case::injects_empty_string_when_overrides_lack_distinct_id(
+        "",
+        Some(vec![("foo", "bar")]),
+        "",
+        vec![("foo", "bar")],
+    )]
+    #[case::explicit_override_wins_over_empty_request_distinct_id(
+        "",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    fn test_merge_distinct_id_into_person_properties(
+        #[case] request_distinct_id: &str,
+        #[case] overrides: Option<Vec<(&str, &str)>>,
+        #[case] expected_distinct_id: &str,
+        #[case] expected_extras: Vec<(&str, &str)>,
+    ) {
+        let overrides = overrides.map(|kvs| {
+            kvs.into_iter()
+                .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
+                .collect::<HashMap<_, _>>()
+        });
+        let result = merge_distinct_id_into_person_properties(request_distinct_id, overrides);
         assert_eq!(
             result.get("distinct_id"),
-            Some(&Value::String("user_42".to_string()))
+            Some(&Value::String(expected_distinct_id.to_string())),
         );
-        assert_eq!(result.len(), 1);
-    }
-
-    #[test]
-    fn test_merge_distinct_id_injects_when_overrides_lack_distinct_id() {
-        let overrides =
-            HashMap::from([("email".to_string(), Value::String("a@x.com".to_string()))]);
-        let result = merge_distinct_id_into_person_properties("user_42", Some(overrides))
-            .expect("expected overrides to be returned");
-        assert_eq!(
-            result.get("distinct_id"),
-            Some(&Value::String("user_42".to_string()))
-        );
-        assert_eq!(
-            result.get("email"),
-            Some(&Value::String("a@x.com".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_merge_distinct_id_explicit_override_wins() {
-        let overrides = HashMap::from([(
-            "distinct_id".to_string(),
-            Value::String("explicit".to_string()),
-        )]);
-        let result = merge_distinct_id_into_person_properties("user_42", Some(overrides))
-            .expect("expected overrides to be returned");
-        assert_eq!(
-            result.get("distinct_id"),
-            Some(&Value::String("explicit".to_string())),
-            "person_properties.distinct_id should win over the request's distinct_id"
-        );
-    }
-
-    #[test]
-    fn test_merge_distinct_id_injects_empty_string_when_overrides_absent() {
-        let result = merge_distinct_id_into_person_properties("", None)
-            .expect("expected overrides to be returned");
-        assert_eq!(
-            result.get("distinct_id"),
-            Some(&Value::String(String::new()))
-        );
-        assert_eq!(result.len(), 1);
-    }
-
-    #[test]
-    fn test_merge_distinct_id_injects_empty_string_when_overrides_lack_distinct_id() {
-        let overrides = HashMap::from([("foo".to_string(), Value::String("bar".to_string()))]);
-        let result = merge_distinct_id_into_person_properties("", Some(overrides))
-            .expect("expected overrides to be returned");
-        assert_eq!(
-            result.get("distinct_id"),
-            Some(&Value::String(String::new()))
-        );
-        assert_eq!(result.get("foo"), Some(&Value::String("bar".to_string())));
-    }
-
-    #[test]
-    fn test_merge_distinct_id_explicit_override_wins_over_empty_request_distinct_id() {
-        let overrides = HashMap::from([(
-            "distinct_id".to_string(),
-            Value::String("explicit".to_string()),
-        )]);
-        let result = merge_distinct_id_into_person_properties("", Some(overrides))
-            .expect("expected overrides to be returned");
-        assert_eq!(
-            result.get("distinct_id"),
-            Some(&Value::String("explicit".to_string())),
-            "person_properties.distinct_id should win even when the request distinct_id is empty"
-        );
+        for (k, v) in &expected_extras {
+            assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
+        }
+        assert_eq!(result.len(), 1 + expected_extras.len());
     }
 }
