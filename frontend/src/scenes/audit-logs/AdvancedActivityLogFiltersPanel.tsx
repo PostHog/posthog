@@ -12,18 +12,18 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { BasicFiltersTab } from './BasicFiltersTab'
 
 export function AdvancedActivityLogFiltersPanel(): JSX.Element {
-    const { hasActiveFilters, exportsLoading, filters, scope } = useValues(advancedActivityLogsLogic)
+    const { hasActiveFilters, exportsLoading, filters, view } = useValues(advancedActivityLogsLogic)
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { properties: subscribeProperties } = advancedActivityFiltersToHogProperties(filters)
-    const isOrganizationScope = scope === 'organization'
+    const isOrganizationView = view === 'organization'
 
     return (
         <div className="border rounded-md p-4 bg-bg-light">
             <div className="flex items-center justify-end">
                 <div className="flex gap-2">
-                    {!isOrganizationScope && (
+                    {!isOrganizationView && (
                         <LemonDropdown
                             overlay={
                                 <div className="space-y-1 p-1">
@@ -60,7 +60,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                             </LemonButton>
                         </LemonDropdown>
                     )}
-                    {!isOrganizationScope && featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
+                    {!isOrganizationView && featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
                         <ActivityLogSubscribeMenu
                             properties={subscribeProperties}
                             data-attr="audit-logs-subscribe-button"

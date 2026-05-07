@@ -17,7 +17,7 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
-import type { ActivityLogsScope } from './advancedActivityLogsLogic'
+import type { ActivityLogsView } from './advancedActivityLogsLogic'
 import { ExportsList } from './ExportsList'
 
 export const scene: SceneExport = {
@@ -26,15 +26,15 @@ export const scene: SceneExport = {
 }
 
 export function AdvancedActivityLogsScene(): JSX.Element | null {
-    const { activeTab, scope, canViewOrganizationScope } = useValues(advancedActivityLogsLogic)
-    const { setActiveTab, setScope } = useActions(advancedActivityLogsLogic)
+    const { activeTab, view, canViewOrganization } = useValues(advancedActivityLogsLogic)
+    const { setActiveTab, setView } = useActions(advancedActivityLogsLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
     const includesOrgLevelLogs = currentTeam?.receive_org_level_activity_logs
-    const inOrganizationScope = scope === 'organization'
+    const inOrganizationView = view === 'organization'
 
-    const tabs = inOrganizationScope
+    const tabs = inOrganizationView
         ? [
               {
                   key: 'logs',
@@ -73,7 +73,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
         )
     }
 
-    const projectScopeTooltip = (
+    const projectViewTooltip = (
         <>
             {includesOrgLevelLogs
                 ? 'This project view also includes organization-level changes (such as organization settings, domains, and members).'
@@ -96,17 +96,17 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
             />
             <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
                 <LemonTabs
-                    activeKey={inOrganizationScope ? 'logs' : activeTab}
+                    activeKey={inOrganizationView ? 'logs' : activeTab}
                     onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
                     tabs={tabs}
                     sceneInset
                     rightSlot={
                         <div className="flex items-center gap-3">
-                            {canViewOrganizationScope ? (
+                            {canViewOrganization ? (
                                 <LemonSegmentedButton
                                     size="small"
-                                    value={scope}
-                                    onChange={(value) => setScope(value as ActivityLogsScope)}
+                                    value={view}
+                                    onChange={(value) => setView(value as ActivityLogsView)}
                                     options={[
                                         {
                                             value: 'project',
@@ -116,7 +116,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                                                     <IconInfo className="text-base" />
                                                 </span>
                                             ),
-                                            tooltip: projectScopeTooltip,
+                                            tooltip: projectViewTooltip,
                                         },
                                         {
                                             value: 'organization',
@@ -124,11 +124,11 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                                             tooltip: 'Activity across all projects in the organization.',
                                         },
                                     ]}
-                                    data-attr="audit-logs-scope-toggle"
+                                    data-attr="audit-logs-view-toggle"
                                 />
                             ) : (
                                 // No toggle for non-admins — keep the contextual indicator inline.
-                                <Tooltip title={projectScopeTooltip}>
+                                <Tooltip title={projectViewTooltip}>
                                     <span className="flex items-center gap-1 text-sm text-secondary whitespace-nowrap cursor-pointer">
                                         {includesOrgLevelLogs ? 'Project and organization logs' : 'Project logs only'}
                                         <IconInfo className="text-base" />

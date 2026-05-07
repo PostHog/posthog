@@ -17,7 +17,7 @@ import { ActivityScope, OrganizationType, TeamBasicType } from '~/types'
 import { userLogic } from '../userLogic'
 import type { advancedActivityLogsLogicType } from './advancedActivityLogsLogicType'
 
-export type ActivityLogsScope = 'project' | 'organization'
+export type ActivityLogsView = 'project' | 'organization'
 
 export interface DetailFilter {
     operation: 'exact' | 'contains' | 'in'
@@ -113,7 +113,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         clearAllFilters: true,
         setActiveTab: (tab: 'logs' | 'exports') => ({ tab }),
         setShowMoreFilters: (show: boolean) => ({ show }),
-        setScope: (scope: ActivityLogsScope) => ({ scope }),
+        setView: (view: ActivityLogsView) => ({ view }),
 
         // Detail filters
         addActiveFilter: (fieldPath: string, isCustom: boolean = false) => ({ fieldPath, isCustom }),
@@ -161,10 +161,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        scope: [
-            'project' as ActivityLogsScope,
+        view: [
+            'project' as ActivityLogsView,
             {
-                setScope: (_, { scope }) => scope,
+                setView: (_, { view }) => view,
             },
         ],
         showMoreFilters: [
@@ -212,7 +212,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
                     values.filters.clients?.forEach((client) => params.append('clients', client))
                     values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
-                    if (values.scope === 'organization') {
+                    if (values.view === 'organization') {
                         values.filters.team_ids?.forEach((team_id: number) =>
                             params.append('team_ids', String(team_id))
                         )
@@ -262,14 +262,14 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
     selectors({
         advancedActivityLogsBaseUrl: [
-            (s) => [s.scope, s.currentProjectId, s.currentOrganizationId],
-            (scope: ActivityLogsScope, currentProjectId: number | string, currentOrganizationId: string): string =>
-                scope === 'organization'
+            (s) => [s.view, s.currentProjectId, s.currentOrganizationId],
+            (view: ActivityLogsView, currentProjectId: number | string, currentOrganizationId: string): string =>
+                view === 'organization'
                     ? `api/organizations/${currentOrganizationId}/advanced_activity_logs`
                     : `api/projects/${currentProjectId}/advanced_activity_logs`,
         ],
 
-        canViewOrganizationScope: [
+        canViewOrganization: [
             (s) => [s.currentOrganization],
             (currentOrganization: OrganizationType | null): boolean =>
                 !!currentOrganization?.membership_level &&
@@ -285,8 +285,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         ],
 
         hasActiveFilters: [
-            (s) => [s.filters, s.scope],
-            (filters: AdvancedActivityLogFilters, scope: ActivityLogsScope): boolean => {
+            (s) => [s.filters, s.view],
+            (filters: AdvancedActivityLogFilters, view: ActivityLogsView): boolean => {
                 return Boolean(
                     filters.start_date ||
                     filters.end_date ||
@@ -295,7 +295,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     filters.activities?.length ||
                     filters.clients?.length ||
                     filters.item_ids?.length ||
-                    (scope === 'organization' && filters.team_ids?.length) ||
+                    (view === 'organization' && filters.team_ids?.length) ||
                     filters.was_impersonated !== undefined ||
                     filters.is_system !== undefined ||
                     (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
@@ -341,11 +341,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         ],
 
         urlSearchParams: [
-            (s) => [s.filters, s.scope],
-            (filters: AdvancedActivityLogFilters, scope: ActivityLogsScope) => {
+            (s) => [s.filters, s.view],
+            (filters: AdvancedActivityLogFilters, view: ActivityLogsView) => {
                 return objectClean({
                     ...router.values.searchParams,
-                    view: scope === 'organization' ? 'organization' : undefined,
+                    view: view === 'organization' ? 'organization' : undefined,
                     start_date: filters.start_date,
                     end_date: filters.end_date,
                     users: filters.users?.length ? filters.users.join(',') : undefined,
@@ -353,7 +353,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     activities: filters.activities?.length ? filters.activities.join(',') : undefined,
                     clients: filters.clients?.length ? filters.clients.join(',') : undefined,
                     team_ids:
-                        scope === 'organization' && filters.team_ids?.length ? filters.team_ids.join(',') : undefined,
+                        view === 'organization' && filters.team_ids?.length ? filters.team_ids.join(',') : undefined,
                     item_ids: filters.item_ids?.length ? filters.item_ids.join(',') : undefined,
                     was_impersonated: filters.was_impersonated?.toString(),
                     is_system: filters.is_system?.toString(),
@@ -388,8 +388,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             actions.setShowMoreFilters(false)
             actions.loadAdvancedActivityLogs({})
         },
-        setScope: () => {
-            // Switching scope changes both the endpoint and the meaning of project filters,
+        setView: () => {
+            // Switching view changes both the endpoint and the meaning of project filters,
             // so refresh both the static filter options and the log results.
             actions.setFilters({ team_ids: [], page: 1 })
             actions.loadAvailableFilters()
@@ -397,8 +397,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
 
         setActiveTab: ({ tab }) => {
-            if (tab === 'exports' && values.scope !== 'organization') {
-                // Start polling when switching to exports tab (project scope only)
+            if (tab === 'exports' && values.view !== 'organization') {
+                // Start polling when switching to exports tab (project view only)
                 actions.loadExports()
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
@@ -407,7 +407,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     return () => clearInterval(intervalId)
                 }, 'exportPollingInterval')
             } else {
-                // Stop polling when switching away from exports tab (or in org scope)
+                // Stop polling when switching away from exports tab (or in organization view)
                 cache.disposables.dispose('exportPollingInterval')
             }
         },
@@ -506,7 +506,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
 
         exportLogs: async ({ format }) => {
-            if (values.scope === 'organization') {
+            if (values.view === 'organization') {
                 lemonToast.info('Export is not yet available for organization-wide activity logs.')
                 return
             }
@@ -558,7 +558,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             router.values.hashParams,
             { replace: true },
         ],
-        setScope: () => [
+        setView: () => [
             router.values.location.pathname,
             values.urlSearchParams,
             router.values.hashParams,
@@ -576,10 +576,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         '/activity-logs': (_, searchParams) => {
             const hasUrlParams = Object.keys(searchParams).length > 0
 
-            const desiredScope: ActivityLogsScope =
-                searchParams.view === 'organization' && values.canViewOrganizationScope ? 'organization' : 'project'
-            if (desiredScope !== values.scope) {
-                actions.setScope(desiredScope)
+            const desiredView: ActivityLogsView =
+                searchParams.view === 'organization' && values.canViewOrganization ? 'organization' : 'project'
+            if (desiredView !== values.view) {
+                actions.setView(desiredView)
             }
 
             // If just visiting the page, we want to clear all filters in case the page was previously mounted with filters
@@ -616,7 +616,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     ? searchParams.clients
                     : searchParams.clients?.split(',') || []
             }
-            if (searchParams.team_ids && desiredScope === 'organization') {
+            if (searchParams.team_ids && desiredView === 'organization') {
                 const raw: string[] = Array.isArray(searchParams.team_ids)
                     ? searchParams.team_ids
                     : searchParams.team_ids.split?.(',') || [String(searchParams.team_ids)]

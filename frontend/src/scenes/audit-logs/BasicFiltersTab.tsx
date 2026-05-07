@@ -20,11 +20,11 @@ export const BasicFiltersTab = (): JSX.Element => {
         availableFiltersLoading,
         showMoreFilters,
         activeAdvancedFiltersCount,
-        scope,
+        view,
         teamsById,
     } = useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
-    const isOrganizationScope = scope === 'organization'
+    const isOrganizationView = view === 'organization'
     const projectOptions = Object.entries(teamsById)
         .map(([id, name]) => ({ key: id, label: name as string }))
         .sort((a, b) => a.label.localeCompare(b.label))
@@ -46,7 +46,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                     />
                 </div>
 
-                {isOrganizationScope && (
+                {isOrganizationView && (
                     <div className="flex flex-col gap-1">
                         <label className="block text-sm font-medium mb-1">Project</label>
                         <LemonInputSelect
