@@ -260,9 +260,10 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
 
     def trigger_sync_view(self, request, schema_id):
         # Ad-hoc external-data-job workflow execution. Bypasses the schedule because
-        # the schedule's stored input cannot override `billable` per-trigger.
-        # WARNING: this can race with the schedule's own runs. Pause the schedule
-        # first using the buttons below if there's any chance of overlap.
+        # the schedule's stored input cannot override `billable` per-trigger. To avoid
+        # racing with the regular scheduled run, mirror repartition_view: pause the
+        # schedule (if not already paused), record the auto-unpause marker, and let
+        # `update_external_data_job_model` resume the schedule on COMPLETED.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
@@ -275,11 +276,34 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         reset_pipeline = request.POST.get("reset_pipeline") == "on"
         billable = request.POST.get("billable") == "on"
 
-        # See note in repartition_view: reset_pipeline goes on sync_type_config so the
-        # pipeline can clear it after the first reset. Passing it on the workflow
-        # input would make every activity retry re-reset, wiping progress.
+        try:
+            client = sync_connect()
+        except Exception as e:
+            messages.error(request, f"Failed to connect to Temporal: {e}.")
+            return redirect(_change_url(schema_id))
+
+        was_paused = _is_schedule_paused(client, str(schema.id))
+        admin_paused_now = False
+        if not was_paused:
+            try:
+                pause_external_data_schedule(str(schema.id))
+                admin_paused_now = True
+            except Exception as e:
+                messages.error(request, f"Failed to pause schedule before sync: {e}.")
+                return redirect(_change_url(schema_id))
+
+        # Single save: stage reset_pipeline (only when ticked) + the auto-unpause
+        # marker. reset_pipeline goes on sync_type_config rather than the workflow
+        # input — the pipeline pops it after the first reset; on the input it
+        # would re-fire on every activity retry and wipe progress.
+        sync_type_config_dirty = False
         if reset_pipeline:
             schema.sync_type_config["reset_pipeline"] = True
+            sync_type_config_dirty = True
+        if admin_paused_now:
+            schema.sync_type_config["admin_unpause_schedule_after_run"] = True
+            sync_type_config_dirty = True
+        if sync_type_config_dirty:
             schema.save(update_fields=["sync_type_config"])
 
         inputs = ExternalDataWorkflowInputs(
@@ -291,17 +315,30 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         )
         workflow_id = f"{schema.id}-admin-resync-{int(time.time())}"
         try:
-            client = sync_connect()
             _start_external_data_workflow(client, workflow_id, inputs)
         except Exception as e:
+            # Best-effort rollback of the pause we just did so the schedule doesn't
+            # stay paused forever after a failed workflow start.
+            if admin_paused_now:
+                try:
+                    unpause_external_data_schedule(str(schema.id))
+                    schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
+                    schema.save(update_fields=["sync_type_config"])
+                except Exception:
+                    pass
             messages.error(request, f"Failed to trigger sync: {e}")
             return redirect(_change_url(schema_id))
 
         billable_label = "billable" if billable else "non-billable"
         action_label = "resync (with reset)" if reset_pipeline else "sync"
+        pause_note = (
+            " Schedule paused for the duration of this run; will auto-unpause on a successful completion."
+            if admin_paused_now
+            else " Schedule was already paused; leaving it paused."
+        )
         messages.success(
             request,
-            f"Triggered {billable_label} {action_label} for {schema.name} (workflow_id={workflow_id}).",
+            f"Triggered {billable_label} {action_label} for {schema.name} (workflow_id={workflow_id}).{pause_note}",
         )
         return redirect(_change_url(schema_id))
 

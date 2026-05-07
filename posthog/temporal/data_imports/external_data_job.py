@@ -55,6 +55,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.data_load.service import a_unpause_external_data_schedule
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -186,8 +187,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
 
 async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:
-    from products.data_warehouse.backend.data_load.service import a_unpause_external_data_schedule
-
     try:
         schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(id=schema_id)
     except ExternalDataSchema.DoesNotExist:
