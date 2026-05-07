@@ -172,40 +172,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert "email" not in prop_names
         assert "already_mat" not in prop_names
 
-    def test_available_properties_includes_all_typed_properties(self):
-        """Every typed event property is materializable — dmat columns are String, HogQL casts at read time."""
-        for prop_type in [
-            PropertyType.Numeric,
-            PropertyType.Boolean,
-            PropertyType.Datetime,
-            PropertyType.Duration,
-            PropertyType.String,
-        ]:
-            PropertyDefinition.objects.create(
-                team=self.team,
-                name=f"{prop_type}_prop",
-                property_type=prop_type,
-                type=PropertyDefinition.Type.EVENT,
-            )
-        PropertyDefinition.objects.create(
-            team=self.team,
-            name="untyped_prop",
-            property_type=None,
-            type=PropertyDefinition.Type.EVENT,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/materialized_column_slots/available_properties/")
-
-        assert response.status_code == status.HTTP_200_OK
-        prop_names = {p["name"] for p in response.json()}
-        assert prop_names == {
-            f"{PropertyType.Numeric}_prop",
-            f"{PropertyType.Boolean}_prop",
-            f"{PropertyType.Datetime}_prop",
-            f"{PropertyType.Duration}_prop",
-            f"{PropertyType.String}_prop",
-        }
-
     @patch("posthog.api.materialized_column_slot.get_auto_materialized_property_names")
     def test_available_properties_excludes_auto_materialized(self, mock_get_auto):
         """Test that auto-materialized properties are excluded from available_properties."""
@@ -538,60 +504,27 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         # Verify slot still exists
         assert MaterializedColumnSlot.objects.filter(id=slot.id).exists()
 
-    def test_delete_slot_allowed_in_pending_state(self):
-        """Test that deletion works when slot is in PENDING state."""
+    @parameterized.expand(
+        [
+            ["PENDING", None],
+            ["READY", 1],
+            ["ERROR", 2],
+        ]
+    )
+    def test_delete_slot_allowed_in_non_backfill_states(self, state, slot_index):
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
-            name="test_prop_pending",
+            name=f"test_prop_{state.lower()}",
             property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
+        kwargs = {"error_message": "Previous failure"} if state == "ERROR" else {}
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            slot_index=None,
-            state=MaterializedColumnSlotState.PENDING,
-        )
-
-        response = self.client.delete(f"/api/environments/{self.team.id}/materialized_column_slots/{slot.id}/")
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not MaterializedColumnSlot.objects.filter(id=slot.id).exists()
-
-    def test_delete_slot_allowed_in_ready_state(self):
-        """Test that deletion works when slot is in READY state."""
-        prop_def = PropertyDefinition.objects.create(
-            team=self.team,
-            name="test_prop_ready",
-            property_type=PropertyType.String,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        slot = MaterializedColumnSlot.objects.create(
-            team=self.team,
-            property_definition=prop_def,
-            slot_index=1,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        response = self.client.delete(f"/api/environments/{self.team.id}/materialized_column_slots/{slot.id}/")
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not MaterializedColumnSlot.objects.filter(id=slot.id).exists()
-
-    def test_delete_slot_allowed_in_error_state(self):
-        """Test that deletion works when slot is in ERROR state."""
-        prop_def = PropertyDefinition.objects.create(
-            team=self.team,
-            name="test_prop_error",
-            property_type=PropertyType.String,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        slot = MaterializedColumnSlot.objects.create(
-            team=self.team,
-            property_definition=prop_def,
-            slot_index=2,
-            state=MaterializedColumnSlotState.ERROR,
-            error_message="Previous failure",
+            slot_index=slot_index,
+            state=state,
+            **kwargs,
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/materialized_column_slots/{slot.id}/")

@@ -373,7 +373,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
     historical_migration?: boolean
     /** dmat columns spread into the Kafka payload. Index signature because the set is data-driven. */
-    [dmatColumn: `dmat_${string}_${number}`]: string | number | null | undefined
+    [dmatColumn: `dmat_${string}_${number}`]: string
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -406,8 +406,8 @@ export interface ProcessedEvent {
 }
 
 /**
- * One row of a team's dmat slot config. `compaction_target_slot_index` set = ingestion
- * dual-writes to both columns until the workflow swaps them post-mutation.
+ * One row of a team's dmat slot config. If `compaction_target_slot_index` is set,
+ * ingestion dual-writes to both columns until the workflow swaps them post-mutation.
  */
 export interface MaterializedColumnSlot {
     property_name: string
