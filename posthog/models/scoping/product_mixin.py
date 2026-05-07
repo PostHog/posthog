@@ -64,6 +64,17 @@ class ProductTeamModel(models.Model):
     class Meta:
         abstract = True
 
+        # Django framework internals (admin widgets, related-object access,
+        # generic relations, prefetch_related, DRF default querysets, ...)
+        # use `_default_manager`. Per Django's contract those internals
+        # expect an unfiltered manager. The `objects = TeamScopedManager()`
+        # above is what user code reaches for explicitly (`Repo.objects.all()`)
+        # and stays fail-closed; the framework reads through `all_teams` so
+        # an admin change-page or a `repo.runs.all()` traversal doesn't have
+        # to know about scoping. `Model._base_manager` defaults to
+        # `_default_manager` so it picks up the same setting.
+        default_manager_name = "all_teams"
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Rewrite child team_ids to canonical on insert / when team_id is
         # being written. Updates that don't touch team_id skip the lookup —

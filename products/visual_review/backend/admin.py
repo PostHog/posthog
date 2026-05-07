@@ -15,6 +15,14 @@ ever seen. The admin classes below are tuned accordingly:
 - Read-only by default — these rows are written by ingestion / diff
   pipelines and should not be hand-edited.
 
+Cross-team browsing: visual_review's models extend `ProductTeamModel`, which
+sets `Meta.default_manager_name = "all_teams"`. Django framework internals
+(admin queryset, FK widget label rendering, related-object access) use
+`_default_manager` and so read through the unscoped manager — admin works
+without per-class plumbing. User code that reaches for `Model.objects`
+explicitly still gets the fail-closed `TeamScopedManager`. See
+`posthog/models/scoping/README.md`.
+
 Registration: this module deliberately does not use `@admin.register(...)`.
 visual_review is an isolated product (per `tach.toml` interfaces), and the
 central admin wiring in `posthog/admin/__init__.py` discovers this module via
@@ -29,6 +37,7 @@ from typing import Any
 
 from django.contrib import admin
 from django.db.models import QuerySet
+from django.forms.models import BaseInlineFormSet
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
@@ -155,15 +164,35 @@ class ArtifactAdmin(admin.ModelAdmin):
         return _team_link(artifact.team_id)
 
 
+class _LimitedRunSnapshotFormSet(BaseInlineFormSet):
+    """
+    Apply the row cap *after* Django's inline formset filters by parent FK.
+
+    `BaseInlineFormSet.__init__` calls `queryset.filter(<fk>=instance)` on
+    whatever the inline's `get_queryset` returns. Slicing in
+    `Inline.get_queryset` would be lost on a fresh QuerySet at that point
+    and Django would crash with "Cannot filter a query once a slice has
+    been taken." Override `get_queryset` here, which runs after the FK
+    filter is applied, and slice on the way out.
+    """
+
+    LIMIT = 25
+
+    def get_queryset(self) -> QuerySet[RunSnapshot]:
+        qs = super().get_queryset().order_by("-created_at")
+        return qs[: self.LIMIT]
+
+
 class RunSnapshotInline(admin.TabularInline):
     """
     Inline preview of a run's snapshots. Capped at the first 25 rows via
-    `get_queryset` — a single run can have thousands of snapshots, and
-    rendering them all would dominate the change page.
+    `_LimitedRunSnapshotFormSet` — a single run can have thousands of
+    snapshots, and rendering them all would dominate the change page.
     """
 
     model = RunSnapshot
     fk_name = "run"
+    formset = _LimitedRunSnapshotFormSet
     extra = 0
     can_delete = False
     show_change_link = True
@@ -180,14 +209,6 @@ class RunSnapshotInline(admin.TabularInline):
     # FKs on RunSnapshot point at high-cardinality Artifact rows; force raw_id
     # widgets so the inline doesn't render giant <select>s per row.
     raw_id_fields = ("current_artifact", "baseline_artifact", "diff_artifact", "tolerated_hash_match")
-
-    INLINE_LIMIT = 25
-
-    def get_queryset(self, request: HttpRequest) -> QuerySet[RunSnapshot]:
-        qs = super().get_queryset(request).order_by("-created_at")
-        # Slicing a QuerySet inside the admin is normally fragile, but the
-        # inline only iterates — it doesn't try to count or paginate.
-        return qs[: self.INLINE_LIMIT]
 
     def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
         return False
