@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -206,6 +207,8 @@ class DebugCHQueries(viewsets.ViewSet):
         if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
         insight_id = request.query_params.get("insight_id")
         experiment_id = request.query_params.get("experiment_id")
 
@@ -240,6 +243,8 @@ class DebugCHQueries(viewsets.ViewSet):
     def precomputation_teams(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can manage precomputation teams.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
 
         if request.method == "POST":
             return self._update_precomputation(request)
@@ -343,6 +348,8 @@ class DebugCHQueries(viewsets.ViewSet):
     def slowest_queries(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view slowest queries.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
 
         try:
             hours = int(request.query_params.get("hours", 1))

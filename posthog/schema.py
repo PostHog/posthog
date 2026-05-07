@@ -1959,7 +1959,16 @@ class ExperimentVariant(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(..., description="Variant key, e.g. 'control', 'test', 'variant_a'.")
+    key: str = Field(
+        ...,
+        description=(
+            "Variant key. Exactly one variant in feature_flag_variants must use key"
+            " 'control' (lowercase, exactly) — that is the baseline used for analysis"
+            " and the special key the experiment runtime expects. Other variants use"
+            " keys like 'test', 'variant_a', 'variant_b'. Map natural-language names"
+            " ('original', 'A', 'baseline') to 'control'."
+        ),
+    )
     name: str | None = Field(default=None, description="Human-readable variant name.")
     rollout_percentage: float | None = None
     split_percent: float | None = Field(
@@ -6864,7 +6873,11 @@ class ExperimentParameters(BaseModel):
     )
     feature_flag_variants: list[ExperimentVariant] | None = Field(
         default=None,
-        description=("Experiment variants. If not specified, defaults to a 50/50 control/test split."),
+        description=(
+            "Experiment variants. If specified, must include a variant with key"
+            " 'control' (lowercase). Defaults to a 50/50 control/test split when"
+            " omitted. Minimum 2, maximum 20."
+        ),
     )
     minimum_detectable_effect: float | None = Field(
         default=None,

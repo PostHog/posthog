@@ -454,12 +454,12 @@ describe('hog-charts scales', () => {
     describe('yTickCountForHeight', () => {
         it.each([
             { plotHeight: 0, expected: 2 },
-            { plotHeight: 80, expected: 2 },
-            { plotHeight: 160, expected: 2 },
-            { plotHeight: 240, expected: 3 },
-            { plotHeight: 480, expected: 6 },
-            { plotHeight: 640, expected: 8 },
-            { plotHeight: 1600, expected: 8 },
+            { plotHeight: 50, expected: 2 },
+            { plotHeight: 100, expected: 2 },
+            { plotHeight: 200, expected: 4 },
+            { plotHeight: 400, expected: 8 },
+            { plotHeight: 550, expected: 11 },
+            { plotHeight: 1600, expected: 11 },
         ])('plotHeight $plotHeight → $expected ticks', ({ plotHeight, expected }) => {
             expect(yTickCountForHeight(plotHeight)).toBe(expected)
         })
