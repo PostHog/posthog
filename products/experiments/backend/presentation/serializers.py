@@ -63,10 +63,27 @@ class ExperimentParametersField(serializers.JSONField):
         # Deep copy to avoid mutating the caller's dict (e.g. serializer.initial_data / request.data)
         if isinstance(data, dict) and "feature_flag_variants" in data:
             data = deepcopy(data)
-            for variant in data["feature_flag_variants"]:
-                if isinstance(variant, dict) and "split_percent" in variant:
-                    # split_percent wins in case both keys present, as rollout_percentage deprecated
-                    variant["rollout_percentage"] = variant.pop("split_percent")
+            variants = data["feature_flag_variants"]
+            if isinstance(variants, list):
+                # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
+                # to lowercase 'control'. The downstream validator and runtime treat 'control'
+                # as a special key, so a typo in casing was the leading cause of the
+                # "Feature flag variants must contain a control variant" error in MCP traces —
+                # most often from LLM-generated payloads. Only rewrite when no exact 'control'
+                # match already exists, so we never collapse two distinct keys into a duplicate.
+                existing_keys = {v.get("key") for v in variants if isinstance(v, dict)}
+                if "control" not in existing_keys:
+                    for variant in variants:
+                        if not isinstance(variant, dict):
+                            continue
+                        key = variant.get("key")
+                        if isinstance(key, str) and key != "control" and key.lower() == "control":
+                            variant["key"] = "control"
+                            break
+                for variant in variants:
+                    if isinstance(variant, dict) and "split_percent" in variant:
+                        # split_percent wins in case both keys present, as rollout_percentage deprecated
+                        variant["rollout_percentage"] = variant.pop("split_percent")
         return super().to_internal_value(data)
 
 
