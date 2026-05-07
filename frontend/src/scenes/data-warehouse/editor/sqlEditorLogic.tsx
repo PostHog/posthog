@@ -2450,12 +2450,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !draftIdFromUrl &&
                     !viewIdFromUrl &&
                     !insightShortIdFromUrl &&
-                    (values.queryInput === null ||
-                        !activeTabMatchesUrlTarget(values.activeTab, {
-                            hashQ: hashParams.q,
-                            queryInput: values.queryInput,
-                        }) ||
-                        values.queryInput !== hashParams.q)
+                    !activeTabMatchesUrlTarget(values.activeTab, {
+                        hashQ: hashParams.q,
+                        queryInput: values.queryInput,
+                    })
                 ) {
                     actions.createTab(hashParams.q)
                     tabAdded = true
