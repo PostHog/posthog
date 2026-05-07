@@ -73,7 +73,7 @@ def proto_group_type_mapping_to_model(mapping: group_pb2.GroupTypeMapping) -> Gr
         id=mapping.id,
         team_id=mapping.team_id,
         project_id=mapping.project_id,
-        group_type=mapping.group_type or None,
+        group_type=mapping.group_type,
         group_type_index=mapping.group_type_index,
         name_singular=mapping.name_singular or None,
         name_plural=mapping.name_plural or None,

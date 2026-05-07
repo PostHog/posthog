@@ -1104,7 +1104,7 @@ class TestProtoGroupTypeMappingToModel(SimpleTestCase):
 
         result = proto_group_type_mapping_to_model(proto)
 
-        assert result.group_type is None
+        assert result.group_type == ""
         assert result.name_singular is None
         assert result.name_plural is None
         assert result.detail_dashboard_id is None
