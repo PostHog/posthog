@@ -20,6 +20,16 @@ use crate::v1::context::Context;
 use crate::v1::sinks::Destination;
 use crate::v1::Error;
 
+/// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
+fn destination_for_event_name(name: &str) -> Destination {
+    match name {
+        "$exception" => Destination::ExceptionErrorTracking,
+        "$$heatmap" => Destination::HeatmapMain,
+        "$$client_ingestion_warning" => Destination::ClientIngestionWarning,
+        _ => Destination::AnalyticsMain,
+    }
+}
+
 pub async fn process_batch(
     state: &router::State,
     context: &mut Context,
@@ -84,6 +94,8 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
             return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }
 
+        let destination = destination_for_event_name(&event.event);
+
         match validate_event(&event) {
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
@@ -94,7 +106,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
                     adjusted_timestamp: Some(adjusted),
                     result: EventResult::Ok,
                     details: None,
-                    destination: Destination::default(),
+                    destination,
                     force_disable_person_processing: false,
                 });
             }
@@ -105,7 +117,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
                     adjusted_timestamp: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
-                    destination: Destination::default(),
+                    destination,
                     force_disable_person_processing: false,
                 });
             }
@@ -248,7 +260,7 @@ async fn apply_restrictions(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok {
+        if event.result != EventResult::Ok || !event.destination.is_analytics_pipeline() {
             continue;
         }
 
@@ -1029,6 +1041,85 @@ mod tests {
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(ev.destination, Destination::AnalyticsMain);
+    }
+
+    // --- destination_for_event_name ---
+
+    #[rstest::rstest]
+    #[case("$exception", Destination::ExceptionErrorTracking)]
+    #[case("$$heatmap", Destination::HeatmapMain)]
+    #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    #[case("$pageview", Destination::AnalyticsMain)]
+    #[case("custom_event", Destination::AnalyticsMain)]
+    #[case("$autocapture", Destination::AnalyticsMain)]
+    fn destination_for_event_name_mapping(
+        #[case] event_name: &str,
+        #[case] expected: Destination,
+    ) {
+        assert_eq!(destination_for_event_name(event_name), expected);
+    }
+
+    // --- restrictions bypass non-analytics events ---
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[case("$exception", Destination::ExceptionErrorTracking)]
+    #[case("$$heatmap", Destination::HeatmapMain)]
+    #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    async fn restrictions_skip_non_analytics_events(
+        #[case] event_name: &str,
+        #[case] expected_dest: Destination,
+    ) {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut ev = wrapped_event(event_name, "user-1");
+        ev.destination = expected_dest.clone();
+        let mut events = vec![ev];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        // Non-analytics events are untouched by restrictions
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, expected_dest);
+    }
+
+    #[tokio::test]
+    async fn restrictions_still_apply_to_analytics_events() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$exception", "user-2"),
+        ];
+        // Simulate what validate_events does
+        events[1].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        // Analytics event gets dropped by restriction
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].destination, Destination::Drop);
+        // Non-analytics event bypasses restriction
+        assert_eq!(events[1].result, EventResult::Ok);
+        assert_eq!(events[1].destination, Destination::ExceptionErrorTracking);
     }
 
     // --- apply_token_distinct_id_limits ---

@@ -109,6 +109,14 @@ pub struct Config {
     pub topic_historical: String,
     pub topic_overflow: String,
     pub topic_dlq: String,
+
+    // -- Non-analytics topics (defaults match legacy production values) --
+    #[envconfig(default = "error_tracking_events")]
+    pub topic_exception: String,
+    #[envconfig(default = "heatmaps_ingestion")]
+    pub topic_heatmap: String,
+    #[envconfig(default = "events_plugin_ingestion")]
+    pub topic_client_ingestion_warning: String,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -160,6 +168,9 @@ impl Config {
             Destination::AnalyticsHistorical => Some(&self.topic_historical),
             Destination::Overflow => Some(&self.topic_overflow),
             Destination::Dlq => Some(&self.topic_dlq),
+            Destination::ExceptionErrorTracking => Some(&self.topic_exception),
+            Destination::HeatmapMain => Some(&self.topic_heatmap),
+            Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -173,6 +184,7 @@ mod tests {
     use envconfig::Envconfig;
 
     use super::Config;
+    use crate::v1::sinks::Destination;
 
     fn required_kafka_env() -> HashMap<String, String> {
         [
@@ -371,5 +383,32 @@ mod tests {
 
         cfg.metadata_max_age_ms = 15000;
         assert!(cfg.validate().is_ok(), "exactly 3x should pass");
+    }
+
+    #[test]
+    fn non_analytics_topic_defaults() {
+        let env = required_kafka_env();
+        let cfg = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(cfg.topic_exception, "error_tracking_events");
+        assert_eq!(cfg.topic_heatmap, "heatmaps_ingestion");
+        assert_eq!(cfg.topic_client_ingestion_warning, "events_plugin_ingestion");
+    }
+
+    #[test]
+    fn topic_for_non_analytics_destinations() {
+        let env = required_kafka_env();
+        let cfg = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(
+            cfg.topic_for(&Destination::ExceptionErrorTracking),
+            Some("error_tracking_events")
+        );
+        assert_eq!(
+            cfg.topic_for(&Destination::HeatmapMain),
+            Some("heatmaps_ingestion")
+        );
+        assert_eq!(
+            cfg.topic_for(&Destination::ClientIngestionWarning),
+            Some("events_plugin_ingestion")
+        );
     }
 }
