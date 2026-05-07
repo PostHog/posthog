@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
+from .access import has_tasks_access
 from .automation_service import (
     delete_automation_schedule,
     run_task_automation,
@@ -200,25 +201,7 @@ class TasksAccessPermission(BasePermission):
     message = "You need a valid invite code to access this feature."
 
     def has_permission(self, request, view) -> bool:
-        user = request.user
-        if not user or not user.is_authenticated:
-            return False
-
-        # Check 1: feature flag (covers existing enrolled users, staff overrides)
-        org_id = str(view.organization.id)
-        flag_enabled = posthoganalytics.feature_enabled(
-            "tasks",
-            user.distinct_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if flag_enabled:
-            return True
-
-        # Check 2: invite code redemption (covers new invited users)
-        return CodeInviteRedemption.objects.filter(user=user).exists()
+        return has_tasks_access(request.user)
 
 
 @extend_schema(tags=["tasks"])
@@ -2502,8 +2485,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        has_redeemed = CodeInviteRedemption.objects.filter(user=request.user).exists()
-        return Response({"has_access": has_redeemed})
+        return Response({"has_access": has_tasks_access(request.user)})
 
 
 @extend_schema(tags=["sandbox-environments"])

@@ -4661,6 +4661,29 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         response = self.client.get("/api/projects/@current/tasks/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_check_access_flag_on_no_redemption(self):
+        self.set_tasks_feature_flag(True)
+
+        response = self.client.get("/api/code/invites/check-access/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["has_access"])
+
+    def test_check_access_flag_off_no_redemption(self):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.get("/api/code/invites/check-access/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["has_access"])
+
+    def test_check_access_flag_off_with_redemption(self):
+        self.set_tasks_feature_flag(False)
+        invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=0, is_active=True)
+        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
+
+        response = self.client.get("/api/code/invites/check-access/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["has_access"])
+
     def test_authentication_required(self):
         task = self.create_task()
         automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
