@@ -1209,9 +1209,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             if (typeof rawArgs === 'string' || (typeof rawArgs === 'object' && !Array.isArray(rawArgs))) {
                 functionArguments = parseToolArguments(rawArgs as string | Record<string, unknown>)
             } else {
-                functionArguments = { arguments: rawArgs as unknown }
+                functionArguments = { arguments: rawArgs }
             }
         } else {
+            // Strip `arguments` too in case it's explicitly null — it would otherwise leak into rest.
             const { id: _id, type: _type, status: _status, name: _name, arguments: _args, ...rest } = rawMessage
             functionArguments = rest
         }

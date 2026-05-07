@@ -852,7 +852,7 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
-        it('normalizes the customer trace shape end-to-end', () => {
+        it('lifts function items into tool_calls and keeps non-function items as content', () => {
             const message = {
                 role: 'assistant',
                 content: [
