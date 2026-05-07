@@ -234,19 +234,22 @@ export function ProjectTree({
                     >
                         {isAIFirst ? (
                             <>
-                                Starred items are added by pressing{' '}
-                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                                side-clicking a panel item, then "Add to starred", or inside an app's resources file
-                                menu click{' '}
-                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                                Add a starred item by clicking{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />{' '}
+                                next to an item in the Files sidebar, then selecting "
+                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add
+                                to starred". You can also add a starred item by opening a resource, clicking its project
+                                name in the side panel, and selecting "
+                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add
+                                to starred".
                             </>
                         ) : (
                             <>
-                                Shortcuts are added by pressing{' '}
-                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                                side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources
-                                file menu click{' '}
-                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                                Add a shortcut by clicking{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />{' '}
+                                next to an item in the Files sidebar, then selecting "
+                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />{' '}
+                                Add to shortcuts panel".
                             </>
                         )}{' '}
                         {fullFileSystemFiltered.length > 0 && (

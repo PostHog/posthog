@@ -69,6 +69,10 @@ class Ticket(UUIDTModel):
     teams_service_url = models.URLField(max_length=512, null=True, blank=True)  # Bot Connector endpoint for replies
     teams_tenant_id = models.CharField(max_length=64, null=True, blank=True)
 
+    # GitHub channel fields (only set for channel_source="github")
+    github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo
+    github_issue_number = models.PositiveIntegerField(null=True, blank=True)
+
     # Email channel fields (only set for channel_source="email")
     email_config = models.ForeignKey(
         "conversations.EmailChannel",
@@ -129,6 +133,11 @@ class Ticket(UUIDTModel):
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
+            models.UniqueConstraint(
+                fields=["team", "github_repo", "github_issue_number"],
+                condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
+                name="posthog_con_github_issue_uniq",
+            ),
         ]
 
     def __str__(self):

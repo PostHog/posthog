@@ -1,3 +1,4 @@
+import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
@@ -40,7 +41,7 @@ function parseCommand(input: string): { verb: string; rest: string } {
 // don't carry "use X instead" guidance.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     'entity-search': () =>
-        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `query-examples` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
+        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed in MCP v2. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -48,7 +49,7 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'property-definitions': () =>
         'Tool "property-definitions" was removed in MCP v2. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `query-examples` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))
@@ -125,30 +126,39 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info <tool_name>')
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, rest)
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new Error('Usage: info [--json] <tool_name>')
+                    }
+                    const tool = findTool(allTools, infoArgs)
                     const fullSchema = z.toJSONSchema(tool.schema)
-                    const fullOutput = JSON.stringify({
+                    // YAML for the top shape, but inputSchema stays as a JSON
+                    // string dumped inside the YAML — JSON Schema is conventionally
+                    // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
+                    const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
+                        if (forceJson) {
+                            return JSON.stringify({ ...payload, inputSchema: schema })
+                        }
+                        return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
+                    }
+
+                    const topShape = {
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
                         annotations: tool.annotations,
-                        inputSchema: fullSchema,
-                    })
+                    }
+                    const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
                     }
 
                     // Schema too large — return summary with drill-down hints
-                    return JSON.stringify({
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
-                        inputSchema: summarizeSchema(fullSchema as Record<string, unknown>, tool.name),
-                    })
+                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
                 }
 
                 case 'schema': {
@@ -196,15 +206,15 @@ export function createExecTool(
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
-
                     let input: Record<string, unknown>
                     if (!jsonBody) {
                         input = {}
                     } else {
                         try {
                             input = JSON.parse(jsonBody) as Record<string, unknown>
-                        } catch {
-                            throw new Error(`Invalid JSON input: ${jsonBody}`)
+                        } catch (err) {
+                            const detail = err instanceof Error ? err.message : String(err)
+                            throw new Error(`Invalid JSON input: ${detail}`)
                         }
                     }
 
@@ -244,7 +254,7 @@ export function createExecTool(
                                 handlerResult: result,
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
-                                params: forceJson ? { ...input, output_format: 'json' } : input,
+                                params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
                                 // Passing `undefined` bypasses the coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.

@@ -13,15 +13,12 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
-    ActorsQuery,
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
     CachedRetentionQueryResponse,
-    CohortPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
@@ -30,22 +27,15 @@ from posthog.schema import (
     HogQLQuery,
     MeanRetentionCalculation,
     PersonPropertyFilter,
-    ProductKey,
     PropertyOperator,
-    QueryLogTags,
     RetentionQuery,
 )
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.monitoring import Feature
-from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.clickhouse.query_tagging import (
-    Feature as TagFeature,
-    Product,
-    QueryTags,
-)
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
@@ -390,6 +380,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
                 response["detail"],
             )
+
+    def test_hogql_error_is_enriched_with_metadata(self):
+        query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}
+
+        response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = response_post.json()
+        self.assertEqual(response["type"], "validation_error")
+
+        self.assertIn("Tables referenced: events", response["detail"])
+
+        self.assertIn("extra", response)
+        self.assertIn("hogql_metadata", response["extra"])
+        metadata = response["extra"]["hogql_metadata"]
+        self.assertFalse(metadata["isValid"])
+        self.assertEqual(metadata["table_names"], ["events"])
+        self.assertTrue(len(metadata["errors"]) > 0)
+        first_error = metadata["errors"][0]
+        self.assertIn("user_id", first_error["message"])
+        self.assertIsNotNone(first_error.get("start"))
+        self.assertIsNotNone(first_error.get("end"))
+        self.assertIn("Did you mean", first_error["message"])
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
@@ -1396,55 +1409,80 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("formatted_results", data)
 
 
-class TestInferQueryTags(APIBaseTest):
-    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self) -> None:
-        # Mirrors the payload fired by the Cohort scene when listing members: the frontend's
-        # addTags attaches `tags.scene = "Cohort"` to every query issued from that scene.
-        query = ActorsQuery(
-            fixedProperties=[CohortPropertyFilter(value=1)],
-            select=["person_display_name -- Person", "id", "created_at"],
-            tags=QueryLogTags(scene="Cohort"),
+class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end tests that an MCP request to the /query endpoint ends up tagged as
+    product=mcp in `system.query_log` — *unless* a more specific product was set somewhere
+    along the way, in which case MCP must not override it."""
+
+    ENDPOINT = "query"
+
+    def _get_log_comment_for_team(self) -> dict:
+        """Return the log_comment of the most recent QueryFinish entry for this team."""
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            "SELECT log_comment FROM system.query_log "
+            "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
+            "AND type = 'QueryFinish' "
+            "ORDER BY event_time DESC LIMIT 1",
+            {"team_id": self.team.pk},
         )
-        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+        assert rows, f"No query_log entry found for team {self.team.pk}"
+        return json.loads(rows[0][0])
 
-    @parameterized.expand(
-        [
-            ("EndpointScene", ProductKey.ENDPOINTS),
-            ("EndpointsScene", ProductKey.ENDPOINTS),
-            ("Notebook", ProductKey.NOTEBOOKS),
-            ("SQLEditor", ProductKey.DATA_WAREHOUSE),
-        ]
-    )
-    def test_query_scenes_infer_product_and_query_feature(self, scene: str, product: ProductKey) -> None:
-        query = HogQLQuery(query="SELECT count() FROM events", tags=QueryLogTags(scene=scene))
-
-        assert _infer_query_tags(query) == {"product": product, "feature": Feature.QUERY}
-
-    def test_debug_query_scene_infers_internal_product_and_debug_feature(self) -> None:
-        # Mirrors a query payload fired from the DebugQuery scene. The scene tag is auto-attached
-        # by `addTags` in `dataNodeLogic.ts`.
-        scene = "DebugQuery"
-        query = ActorsQuery(select=["id"], tags=QueryLogTags(scene=scene))
-        assert _infer_query_tags(query) == {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY}
-
-    def test_product_key_only_defaults_feature_to_query(self) -> None:
-        # Scenes that only attach `tags.productKey` (e.g. Person, Group) rely on
-        # QueryRunner.run to tag `product` from the productKey. Without a feature default,
-        # those queries would trip UntaggedQueryError in DEBUG.
-        # `_infer_query_tags` returns the query_tagging Feature, not the monitoring one.
-        query = ActorsQuery(
-            select=["id"],
-            tags=QueryLogTags(productKey=ProductKey.CUSTOMER_ANALYTICS),
+    def test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped(self):
+        # Raw HogQLQuery has query_type="hogql_query" (not a NodeKind value) and no scene,
+        # so the fallback chain reaches the source=mcp branch and tags product=mcp.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
-        assert _infer_query_tags(query) == {"feature": TagFeature.QUERY}
 
-    def test_scene_mapping_takes_precedence_over_product_key_fallback(self) -> None:
-        query = ActorsQuery(
-            select=["id"],
-            tags=QueryLogTags(scene="Cohort", productKey=ProductKey.CUSTOMER_ANALYTICS),
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.MCP.value)
+
+    def test_mcp_request_with_kind_uses_kind_product_not_mcp(self):
+        # EventsQuery → product_analytics via kind_fallback_tags. The mcp source fallback
+        # must not override the kind-based attribution.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "EventsQuery", "select": ["event"]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
-        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": TagFeature.COHORT}
 
-    def test_unmapped_scene_and_no_product_key_returns_empty(self) -> None:
-        query = ActorsQuery(select=["id"], tags=QueryLogTags(scene="Unknown"))
-        assert _infer_query_tags(query) == {}
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.PRODUCT_ANALYTICS.value)
+
+    def test_mcp_request_with_inferred_product_keeps_inferred_product(self):
+        # `tags.scene="SQLEditor"` → product=warehouse via SCENE_TO_TAGS.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "tags": {"scene": "SQLEditor"},
+                }
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.WAREHOUSE.value)
+
+    def test_non_mcp_request_does_not_set_product_to_mcp(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertNotEqual(comment.get("source"), "mcp")
+        self.assertNotEqual(comment.get("product"), Product.MCP.value)

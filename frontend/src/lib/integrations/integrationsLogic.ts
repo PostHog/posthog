@@ -185,10 +185,29 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleGithubCallback: async ({ searchParams }) => {
-            const { state, installation_id, code } = searchParams
-            const { next, token } = fromParamsGivenUrl(state ?? '')
+            const { state, installation_id, code, setup_action } = searchParams
+            const { next, token, source } = fromParamsGivenUrl(state ?? '')
             const stateToken = token || state
+
+            // User-level GitHub flow (personal integrations / UserIntegration): redirect to the
+            // backend endpoint which handles UserIntegration creation server-side.
+            if (source === 'user_integration') {
+                const backendUrl = combineUrl('/complete/github-link/', {
+                    installation_id,
+                    code,
+                    state: stateToken,
+                }).url
+                window.location.href = backendUrl
+                return
+            }
+
             let replaceUrl: string = next || urls.settings('project-integrations')
+
+            // GitHub callback runs on a non-scoped route where currentTeamId may differ from the
+            // team that started the flow; recover it from `next`'s project_id.
+            const nextParams: Record<string, any> = next ? combineUrl(next).searchParams : {}
+            const projectIdFromNext = nextParams.project_id
+            const teamIdForIntegration = projectIdFromNext ? parseInt(projectIdFromNext, 10) : undefined
 
             try {
                 if (installation_id) {
@@ -196,16 +215,49 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw new Error('Invalid state token')
                     }
 
-                    const integration = await api.integrations.create({
-                        kind: 'github',
-                        config: { installation_id, state: stateToken, code },
-                    })
+                    // setup_action=update / missing code means the App was already installed on the org;
+                    // try cloning from a sibling team, and fall back to a User OAuth round-trip when the
+                    // server can't auto-link (orphan install, no personal GitHub yet, or stale token).
+                    const isAlreadyInstalled = setup_action === 'update' || !code
+
+                    let integration: IntegrationType | null = null
+                    if (isAlreadyInstalled) {
+                        try {
+                            integration = await api.integrations.githubLinkExisting(
+                                { installation_id: String(installation_id) },
+                                teamIdForIntegration
+                            )
+                        } catch (e) {
+                            const errorCode = e instanceof ApiError ? e.code : null
+                            const needsUserOAuth =
+                                errorCode === 'github_link_existing_orphan_installation' ||
+                                errorCode === 'github_link_existing_personal_github_required'
+                            if (!needsUserOAuth) {
+                                throw e
+                            }
+                            const { oauth_url } = await api.integrations.githubOAuthAuthorize(
+                                {
+                                    installation_id: String(installation_id),
+                                    next: replaceUrl,
+                                    connect_from: nextParams.connect_from ?? undefined,
+                                },
+                                teamIdForIntegration
+                            )
+                            window.location.href = oauth_url
+                            return
+                        }
+                    } else {
+                        integration = await api.integrations.create({
+                            kind: 'github',
+                            config: { installation_id, state: stateToken, code },
+                        })
+                    }
 
                     // Forward the ids so the `next` landing page (e.g. the PostHog Code
                     // deep link) knows which install was just completed.
                     replaceUrl = combineUrl(replaceUrl, {
                         installation_id: String(installation_id),
-                        integration_id: String(integration.id),
+                        integration_id: String(integration!.id),
                     }).url
 
                     actions.loadIntegrations()

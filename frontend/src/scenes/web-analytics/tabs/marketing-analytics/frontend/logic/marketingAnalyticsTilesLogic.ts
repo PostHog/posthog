@@ -19,6 +19,7 @@ import {
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     NodeKind,
+    getEffectiveExcludedColumns,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
@@ -245,23 +246,50 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
                     (c) => c.columnAlias
                 )
-                const staleGroupingColumns = allGroupingAliases.filter((c) => c !== groupingAlias)
-                // Columns excluded at the current drill-down level (e.g. ID/Campaign at Source level).
-                // Without this filter, switching drill-down levels leaves stale columns in the select,
-                // and the stale response data renders as raw JSON (no matching context.columns render fn).
-                const excludedColumns = new Set<string>(drillDownConfig.excludedBaseColumns)
+                // Effective excluded set = user-config + auto-excluded hierarchy columns at
+                // non-hierarchy levels. Without this filter, switching drill-down levels leaves
+                // stale columns in the select, and the stale response data renders as raw JSON
+                // (no matching context.columns render fn).
+                const excludedColumns = new Set<string>(getEffectiveExcludedColumns(drillDownLevel))
+                // A grouping alias is "stale" only when it isn't a valid base column at the new level.
+                // At AD_GROUP / AD, Campaign and Source are valid context columns, not stale. Without
+                // this guard, switching from Channel → Ad group would remap Campaign / Source onto
+                // the new grouping column and erase them from the select. Same idea also covers
+                // master's Source-vs-SOURCE collision case.
+                const validBaseColumnsAtLevel = new Set<string>(
+                    Object.values(MarketingAnalyticsBaseColumns).filter((c) => !excludedColumns.has(c))
+                )
+                const staleGroupingColumns = allGroupingAliases.filter(
+                    (c) => c !== groupingAlias && !validBaseColumnsAtLevel.has(c)
+                )
 
                 // Same rule as marketingAnalyticsTableLogic: at UTM levels the Cost metric is excluded
                 // so cost-per-conversion for the draft goal must be excluded too.
-                const costAvailable = !drillDownConfig.excludedBaseColumns.includes(MarketingAnalyticsBaseColumns.Cost)
+                const costAvailable = !excludedColumns.has(MarketingAnalyticsBaseColumns.Cost)
+
+                // At levels where conversion goals are excluded (AD_GROUP / AD), the previous
+                // select may carry conversion-goal column names from another level — those names
+                // pass through the base-column filter (they aren't grouping aliases or base
+                // columns, so the filter doesn't strip them). Force defaultColumns at those
+                // levels so we don't request columns the backend won't produce — without this
+                // the table flashes JSON cells while the new response is loading.
+                const previousSelect = drillDownConfig.excludesConversionGoals
+                    ? defaultColumns
+                    : marketingQuery?.select?.length
+                      ? marketingQuery.select
+                      : defaultColumns
 
                 const columnsWithDraftConversionGoal = [
-                    ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns)
+                    ...previousSelect
                         .filter((column) => !isDraftConversionGoalColumn(column, draftConversionGoal))
                         .map((column) => (staleGroupingColumns.includes(column) ? groupingAlias : column))
                         .filter((column) => column === groupingAlias || !excludedColumns.has(column))
                         .filter((column, index, arr) => arr.indexOf(column) === index),
-                    ...(draftConversionGoal
+                    // Skip the draft goal entirely when the level can't attribute events
+                    // to a specific row (ad-group / ad). This mirrors the same gate in
+                    // marketingAnalyticsTableLogic.defaultColumns; without it the user
+                    // sees a phantom column the backend won't produce.
+                    ...(draftConversionGoal && !drillDownConfig.excludesConversionGoals
                         ? costAvailable
                             ? [
                                   draftConversionGoal.conversion_goal_name,

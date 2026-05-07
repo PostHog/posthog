@@ -149,26 +149,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadPrimaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setPrimaryMetricsResultsLoading', 'setLegacyPrimaryMetricsResults'])
-                .toMatchValues({
-                    legacyPrimaryMetricsResults: [],
-                    primaryMetricsResultsLoading: true,
-                    primaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setPrimaryMetricsResultsLoading']).toMatchValues({
+                primaryMetricsResultsLoading: true,
+                primaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setPrimaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacyPrimaryMetricsResults: [
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                        null,
-                    ],
                     primaryMetricsResultsLoading: false,
                     primaryMetricsResultsErrors: [
                         null,
@@ -227,26 +217,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadSecondaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricsResults'])
-                .toMatchValues({
-                    legacySecondaryMetricsResults: [],
-                    secondaryMetricsResultsLoading: true,
-                    secondaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setSecondaryMetricsResultsLoading']).toMatchValues({
+                secondaryMetricsResultsLoading: true,
+                secondaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacySecondaryMetricsResults: [
-                        null,
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                    ],
                     secondaryMetricsResultsLoading: false,
                     secondaryMetricsResultsErrors: [
                         {
@@ -294,16 +274,76 @@ describe('experimentLogic', () => {
 
             await logic.asyncActions.refreshExperimentResults(true, 'manual')
 
+            // Verify loading states are properly reset after refresh completes
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+        })
+    })
 
-            const successfulCount =
-                logic.values.legacyPrimaryMetricsResults.filter(Boolean).length +
-                logic.values.primaryMetricsResults.filter(Boolean).length +
-                logic.values.legacySecondaryMetricsResults.filter(Boolean).length +
-                logic.values.secondaryMetricsResults.filter(Boolean).length
+    describe('currentRefresh tracking', () => {
+        it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
+            logic.actions.setExperiment(experiment)
 
-            expect(successfulCount).toBeGreaterThan(0)
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: experimentMetricResultsSuccessJson.query_status,
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+
+            const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
+            expect(logic.values.currentRefresh).toMatchObject({
+                state: 'in_progress',
+                triggered_by: 'manual',
+            })
+            expect(logic.values.currentRefresh?.refresh_id).toEqual(expect.any(String))
+
+            await promise
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                state: 'completed',
+                triggered_by: 'manual',
+            })
+        })
+
+        it.each(['completed', 'partial', 'errored'] as const)(
+            'transitions to %s when markRefreshFinished fires with that state',
+            (finalState) => {
+                logic.actions.markRefreshStarted('refresh-1', 'manual')
+                expect(logic.values.currentRefresh?.state).toBe('in_progress')
+
+                logic.actions.markRefreshFinished('refresh-1', finalState)
+
+                expect(logic.values.currentRefresh).toMatchObject({
+                    refresh_id: 'refresh-1',
+                    state: finalState,
+                    triggered_by: 'manual',
+                })
+            }
+        )
+
+        it('ignores markRefreshFinished for a stale refresh_id and preserves the in-flight snapshot', () => {
+            logic.actions.markRefreshStarted('refresh-1', 'manual')
+            logic.actions.markRefreshStarted('refresh-2', 'auto_refresh')
+
+            // Late completion from the previous refresh shouldn't clobber the new one.
+            logic.actions.markRefreshFinished('refresh-1', 'completed')
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                refresh_id: 'refresh-2',
+                state: 'in_progress',
+                triggered_by: 'auto_refresh',
+            })
         })
     })
 

@@ -8,11 +8,13 @@ from structlog import get_logger
 
 from posthog.approvals.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from posthog.approvals.notifications import send_approval_expired_notification
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def validate_pending_change_requests() -> dict[str, Any]:
     """
     Periodic staleness check for pending change requests.
@@ -82,6 +84,7 @@ def validate_pending_change_requests() -> dict[str, Any]:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def expire_old_change_requests() -> dict[str, Any]:
     """
     Scheduled task to expire old pending change requests.

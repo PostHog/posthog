@@ -1,0 +1,188 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "destination": {
+            "anyOf": [
+                {
+                    "description": "Request shape for creating or updating a Databricks batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a Databricks batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "catalog": {
+                                    "description": "Unity Catalog name.",
+                                    "type": "string"
+                                },
+                                "http_path": {
+                                    "description": "Databricks SQL warehouse HTTP path.",
+                                    "type": "string"
+                                },
+                                "schema": {
+                                    "description": "Schema (database) name inside the catalog.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "description": "Destination table name.",
+                                    "type": "string"
+                                },
+                                "use_automatic_schema_evolution": {
+                                    "default": true,
+                                    "description": "Whether to let Databricks evolve the destination table schema automatically.",
+                                    "type": "boolean"
+                                },
+                                "use_variant_type": {
+                                    "default": true,
+                                    "description": "Whether to use the Databricks VARIANT type for JSON-like columns.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["http_path", "catalog", "schema", "table_name"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Databricks"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating an Azure Blob Storage batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "compression": {
+                                    "anyOf": [
+                                        {
+                                            "anyOf": [
+                                                {
+                                                    "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                                    "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "const": null,
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
+                                },
+                                "container_name": {
+                                    "description": "Azure Blob Storage container name.",
+                                    "type": "string"
+                                },
+                                "file_format": {
+                                    "default": "JSONLines",
+                                    "description": "File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet",
+                                    "enum": ["JSONLines", "Parquet"],
+                                    "type": "string"
+                                },
+                                "max_file_size_mb": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                },
+                                "prefix": {
+                                    "default": "",
+                                    "description": "Object key prefix applied to every exported file.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["container_name"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["AzureBlob"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                }
+            ],
+            "description": "Destination configuration. Required integration_id is enforced per destination type."
+        },
+        "id": {
+            "description": "A UUID string identifying this batch export.",
+            "type": "string"
+        },
+        "interval": {
+            "description": "How often the batch export should run.\n\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes",
+            "enum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
+            "type": "string"
+        },
+        "model": {
+            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions",
+            "enum": ["events", "persons", "sessions"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable name for the batch export.",
+            "type": "string"
+        },
+        "offset_day": {
+            "anyOf": [
+                {
+                    "maximum": 6,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday)."
+        },
+        "offset_hour": {
+            "anyOf": [
+                {
+                    "maximum": 23,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Hour-of-day offset (0-23) for daily and weekly intervals."
+        },
+        "paused": {
+            "description": "Whether the batch export is paused.",
+            "type": "boolean"
+        },
+        "timezone": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
