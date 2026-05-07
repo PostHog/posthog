@@ -334,7 +334,7 @@ export function OverviewTab({
 
     const { bulkDeleteResponseLoading, matchingFlagIds, matchingFlagIdsLoading, bulkDeleteResponse } =
         useValues(flagSelectionLogic)
-    const { selectAllMatching, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { loadMatchingFlagIds, bulkDeleteFlags } = useActions(flagSelectionLogic)
 
     const selectionHandleRef = useRef<BulkSelectionHandle | null>(null)
     const lastAppliedMatchingFlagIdsRef = useRef<typeof matchingFlagIds>(null)
@@ -592,7 +592,7 @@ export function OverviewTab({
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        onClick={selectAllMatching}
+                                        onClick={loadMatchingFlagIds}
                                         loading={matchingFlagIdsLoading}
                                     >
                                         Select all {totalMatchingCount} matching flags

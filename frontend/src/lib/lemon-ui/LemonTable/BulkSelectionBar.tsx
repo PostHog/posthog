@@ -1,7 +1,6 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { BulkSelectionConfig } from './useBulkSelection'
-import { BulkSelectionContext } from './useBulkSelection'
+import { BulkSelectionConfig, BulkSelectionContext } from './useBulkSelection'
 
 export interface BulkSelectionBarProps<T extends Record<string, any>> {
     context: BulkSelectionContext<T>
