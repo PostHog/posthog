@@ -225,6 +225,15 @@ export const notebookLogic = kea<notebookLogicType>([
         openShareModal: true,
         closeShareModal: true,
         setAccessDeniedToNotebook: true,
+        showStaleConflict: (params: {
+            serverContent: JSONContent
+            serverText: string
+            localContent: JSONContent
+            localText: string
+        }) => params,
+        dismissStaleConflict: true,
+        discardLocalChanges: true,
+        forceSaveLocalChanges: true,
     }),
     reducers(({ props }) => ({
         isShareModalOpen: [
@@ -267,6 +276,18 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 showConflictWarning: () => true,
                 loadNotebookSuccess: () => false,
+            },
+        ],
+        staleConflict: [
+            null as {
+                serverContent: JSONContent
+                serverText: string
+                localContent: JSONContent
+                localText: string
+            } | null,
+            {
+                showStaleConflict: (_, params) => params,
+                dismissStaleConflict: () => null,
             },
         ],
         editingNodeIds: [
@@ -400,6 +421,13 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
+                    // While the stale-conflict modal is open, the user's local content has diverged
+                    // from the server beyond what we can merge. Don't keep retrying saves until
+                    // they choose to discard or force-save — otherwise we'd loop on 410s.
+                    if (values.staleConflict) {
+                        return values.notebook
+                    }
+
                     if (values.collabEnabled && values.ttEditor) {
                         const sendable = sendableSteps(values.ttEditor.state)
                         if (!sendable) {
@@ -448,8 +476,19 @@ export const notebookLogic = kea<notebookLogicType>([
                                 return values.notebook
                             }
                             if (error.status === 410) {
-                                actions.clearLocalContent()
-                                actions.loadNotebook()
+                                // Don't wipe local content. Surface the divergence in a modal so the
+                                // user can choose to discard or overwrite — their typing is preserved.
+                                try {
+                                    const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
+                                    actions.showStaleConflict({
+                                        serverContent: fresh.content ?? {},
+                                        serverText: fresh.text_content ?? '',
+                                        localContent: values.editor?.getJSON() ?? notebook.content,
+                                        localText: values.editor?.getText() ?? '',
+                                    })
+                                } catch {
+                                    lemonToast.error('Could not sync changes. Please reload.')
+                                }
                                 return values.notebook
                             }
                             throw error
@@ -1052,6 +1091,37 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+
+        discardLocalChanges: () => {
+            // User chose to drop their unsynced edits and reload the server state.
+            actions.dismissStaleConflict()
+            actions.clearLocalContent()
+            actions.loadNotebook()
+        },
+
+        forceSaveLocalChanges: async () => {
+            // Overwrite server with the user's local content via the legacy PATCH endpoint —
+            // it accepts a version-locked PATCH, so we fetch the latest version first and
+            // bump from there. This bypasses the collab step buffer entirely.
+            if (!values.notebook || !values.staleConflict) {
+                return
+            }
+            try {
+                const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
+                await api.notebooks.update(values.notebook.short_id, {
+                    version: fresh.version,
+                    content: values.staleConflict.localContent,
+                    text_content: values.staleConflict.localText,
+                    title: values.notebook.title,
+                })
+                actions.dismissStaleConflict()
+                actions.clearLocalContent()
+                actions.loadNotebook()
+                lemonToast.success('Your changes were saved.')
+            } catch {
+                lemonToast.error('Could not save your changes.')
+            }
         },
 
         onEditorSelectionUpdate: () => {

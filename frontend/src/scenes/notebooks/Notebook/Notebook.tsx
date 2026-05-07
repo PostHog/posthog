@@ -24,6 +24,7 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { NotebookStaleConflictModal } from './NotebookStaleConflictModal'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -126,6 +127,7 @@ export function Notebook({
                         </LemonBanner>
                     )}
                     <NotebookHistoryWarning />
+                    <NotebookStaleConflictModal />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
