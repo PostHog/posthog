@@ -15,6 +15,7 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from slack_sdk.errors import SlackApiError
 from temporalio.client import Client
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -709,6 +710,134 @@ async def test_validate_subscription_for_delivery(
     assert capture_mock.called is expects_failed_recipient
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is expected_final_enabled
+
+
+@pytest.mark.asyncio
+async def test_deliver_subscription_short_circuits_when_already_disabled(team, user):
+    """Activity retries that fire after the subscription is disabled must return
+    cleanly — re-entering the missing-integration branch would re-fire the
+    auto-disable side effects (event capture, email notification).
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis02", name="Already Disabled")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/already-disabled.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=False,
+    )
+
+    env = ActivityEnvironment()
+
+    with patch("posthog.temporal.subscriptions.activities.disable_invalid_subscription") as disable_mock:
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[asset.id],
+                total_insight_count=1,
+            ),
+        )
+
+    assert result.recipient_results == []
+    disable_mock.assert_not_called()
+
+
+async def _setup_slack_delivery_test_case(
+    team, user, slack_error_code: str
+) -> tuple[Subscription, DeliverSubscriptionInputs, MagicMock, SlackApiError]:
+    insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id=f"slk-{slack_error_code[:5]}", name=slack_error_code
+    )
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location=f"s3://bucket/{slack_error_code}.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=True,
+    )
+    mock_integration = MagicMock()
+    mock_integration.kind = "slack"
+    slack_error = SlackApiError("Slack API error", response={"error": slack_error_code, "ok": False})
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[asset.id],
+        total_insight_count=1,
+    )
+    return subscription, inputs, mock_integration, slack_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "slack_error_code, expect_auto_disable",
+    [
+        # User-config errors won't self-heal without user action — auto-disable.
+        ("invalid_auth", True),
+        ("account_inactive", True),
+        ("token_revoked", True),
+        ("is_archived", True),
+        ("channel_not_found", True),
+        ("not_in_channel", True),
+        # Transient errors propagate so Temporal retries.
+        ("internal_error", False),
+        ("rate_limited", False),
+    ],
+)
+async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_error_code, expect_auto_disable):
+    subscription, inputs, mock_integration, slack_error = await _setup_slack_delivery_test_case(
+        team, user, slack_error_code
+    )
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
+            return_value=mock_integration,
+        ),
+        patch(
+            "posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async",
+            new_callable=AsyncMock,
+            side_effect=slack_error,
+        ),
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+    ):
+        if expect_auto_disable:
+            result = await ActivityEnvironment().run(deliver_subscription, inputs)
+        else:
+            with pytest.raises(SlackApiError):
+                await ActivityEnvironment().run(deliver_subscription, inputs)
+            result = None
+
+    await sync_to_async(subscription.refresh_from_db)()
+    if expect_auto_disable:
+        # Two captures: the real SlackApiError, and the synthetic Exception from the auto-disable helper.
+        assert capture_mock.call_count == 2
+        assert subscription.enabled is False
+        send_mock.assert_called_once()
+        assert result is not None
+        assert result.recipient_results[0].status == "failed"
+        assert result.recipient_results[0].error == {
+            "message": "PostHog can no longer post to this Slack channel",
+            "type": "slack_permission_revoked",
+        }
+    else:
+        capture_mock.assert_called_once()
+        assert subscription.enabled is True
+        send_mock.assert_not_called()
 
 
 @patch("posthog.slo.events.posthoganalytics")
