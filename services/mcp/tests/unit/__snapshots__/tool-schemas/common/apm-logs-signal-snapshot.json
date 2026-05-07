@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "description": "Time window for both logs and span aggregates. Defaults to last 24 hours.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the range. ISO 8601 or relative (-1h, -24h, -7d). Defaults to -24h when omitted."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the range. Same format as date_from. Omit or null for \"now\"."
+                }
+            },
+            "type": "object"
+        },
+        "serviceNames": {
+            "description": "When set, restrict log and span aggregates to these service_name values.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "type": "object"
+}
