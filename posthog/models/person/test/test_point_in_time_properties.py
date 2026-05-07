@@ -9,7 +9,7 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized_class
 
@@ -21,9 +21,21 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 
-class TestPointInTimeProperties(TestCase):
+def _prop_row(
+    set_dict: dict | None = None,
+    set_once_dict: dict | None = None,
+    event: str = "$set",
+) -> tuple:
+    """Helper to build a property-update row matching the SELECT shape."""
+    return (
+        json.dumps(set_dict) if set_dict is not None else "",
+        json.dumps(set_once_dict) if set_once_dict is not None else "",
+        event,
+    )
+
+
+class TestPointInTimeProperties(SimpleTestCase):
     def test_build_person_properties_at_time_validation(self):
-        """Test input validation for build_person_properties_at_time."""
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
 
         # Test invalid team_id
@@ -55,73 +67,61 @@ class TestPointInTimeProperties(TestCase):
             build_person_properties_at_time(1, timestamp, ["user123", ""])
         self.assertIn("All distinct_ids must be non-empty strings", str(cm.exception))
 
+        # Invalid row_limit
+        with self.assertRaises(ValueError) as cm:
+            build_person_properties_at_time(1, timestamp, ["user123"], row_limit=0)
+        self.assertIn("row_limit must be a positive integer", str(cm.exception))
+
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_empty_result(self, mock_sync_execute):
-        """Test building properties when no events exist."""
+        """Zero rows means the person had no property activity at or before timestamp."""
         mock_sync_execute.return_value = []
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertEqual(result, {})
+        self.assertEqual(properties, {})
         mock_sync_execute.assert_called_once()
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_single_set(self, mock_sync_execute):
-        """Test building properties with a single $set event."""
-        # Mock ClickHouse response with a single $set event
-        properties = {"$set": {"name": "John Doe", "email": "john@example.com"}}
-        # ClickHouse toJSONString() returns double-encoded JSON
-        double_encoded_json = json.dumps(json.dumps(properties))
-        mock_sync_execute.return_value = [(double_encoded_json, datetime(2023, 1, 1, 10, 0, 0), "$set")]
+        mock_sync_execute.return_value = [
+            _prop_row(set_dict={"name": "John Doe", "email": "john@example.com"}, event="$set"),
+        ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        expected = {"name": "John Doe", "email": "john@example.com"}
-        self.assertEqual(result, expected)
+        self.assertEqual(properties, {"name": "John Doe", "email": "john@example.com"})
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_multiple_sets(self, mock_sync_execute):
-        """Test building properties with multiple $set events applied chronologically."""
-        # Mock ClickHouse response with multiple $set events
-        # ClickHouse toJSONString() returns double-encoded JSON
         mock_sync_execute.return_value = [
-            (json.dumps(json.dumps({"$set": {"name": "John", "age": 25}})), datetime(2023, 1, 1, 9, 0, 0), "$set"),
-            (
-                json.dumps(json.dumps({"$set": {"name": "John Doe", "location": "SF"}})),
-                datetime(2023, 1, 1, 10, 0, 0),
-                "$pageview",
-            ),
-            (json.dumps(json.dumps({"$set": {"age": 26}})), datetime(2023, 1, 1, 11, 0, 0), "$set"),
+            _prop_row(set_dict={"name": "John", "age": 25}, event="$set"),
+            _prop_row(set_dict={"name": "John Doe", "location": "SF"}, event="$pageview"),
+            _prop_row(set_dict={"age": 26}, event="$set"),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        expected = {"name": "John Doe", "age": 26, "location": "SF"}
-        self.assertEqual(result, expected)
+        self.assertEqual(properties, {"name": "John Doe", "age": 26, "location": "SF"})
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_malformed_json(self, mock_sync_execute):
-        """Test handling of malformed JSON in event properties."""
-        # ClickHouse toJSONString() returns double-encoded JSON
         mock_sync_execute.return_value = [
-            ("invalid json", datetime(2023, 1, 1, 9, 0, 0), "$set"),
-            (json.dumps(json.dumps({"$set": {"name": "John"}})), datetime(2023, 1, 1, 10, 0, 0), "$set"),
-            (json.dumps(json.dumps({"no_set_key": "value"})), datetime(2023, 1, 1, 11, 0, 0), "$pageview"),
+            ("invalid json", "", "$set"),
+            _prop_row(set_dict={"name": "John"}, event="$set"),
+            ("", "", "$pageview"),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        # Should only get the valid $set event
-        expected = {"name": "John"}
-        self.assertEqual(result, expected)
+        self.assertEqual(properties, {"name": "John"})
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_clickhouse_error(self, mock_sync_execute):
-        """Test handling of ClickHouse query errors."""
         mock_sync_execute.side_effect = Exception("ClickHouse connection failed")
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -131,89 +131,76 @@ class TestPointInTimeProperties(TestCase):
 
         self.assertIn("Failed to query ClickHouse events", str(cm.exception))
 
+    @patch("posthog.models.person.point_in_time_properties.sync_execute")
+    def test_row_limit_is_passed_to_query(self, mock_sync_execute):
+        mock_sync_execute.return_value = []
 
-class TestPointInTimePropertiesWithSetOnce(TestCase):
+        timestamp = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+        build_person_properties_at_time(1, timestamp, ["user123"], row_limit=500)
+
+        mock_sync_execute.assert_called_once()
+        args, _ = mock_sync_execute.call_args
+        query, params = args[0], args[1]
+
+        self.assertIn("LIMIT 500", query)
+        self.assertEqual(params["upper_bound"], timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"))
+
+
+class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_basic(self, mock_sync_execute):
-        """Test $set_once operations only set properties that don't exist."""
-        # ClickHouse toJSONString() returns double-encoded JSON
+        """$set_once only sets properties that don't exist yet."""
         mock_sync_execute.return_value = [
-            (json.dumps(json.dumps({"$set": {"name": "John"}})), datetime(2023, 1, 1, 9, 0, 0), "$set"),
-            (
-                json.dumps(json.dumps({"$set_once": {"name": "Jane", "email": "jane@example.com"}})),
-                datetime(2023, 1, 1, 10, 0, 0),
-                "$set_once",
-            ),
+            _prop_row(set_dict={"name": "John"}, event="$set"),
+            _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
-        # name should remain "John" (not overwritten by $set_once)
-        # email should be set by $set_once since it didn't exist
-        expected = {"name": "John", "email": "jane@example.com"}
-        self.assertEqual(result, expected)
+        # name stays as "John" (not overwritten by $set_once); email is set by $set_once since it didn't exist
+        self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_order_matters(self, mock_sync_execute):
-        """Test that order of $set and $set_once operations matters."""
-        # ClickHouse toJSONString() returns double-encoded JSON
         mock_sync_execute.return_value = [
-            (
-                json.dumps(json.dumps({"$set_once": {"name": "Jane", "email": "jane@example.com"}})),
-                datetime(2023, 1, 1, 9, 0, 0),
-                "$set_once",
-            ),
-            (json.dumps(json.dumps({"$set": {"name": "John"}})), datetime(2023, 1, 1, 10, 0, 0), "$set"),
+            _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
+            _prop_row(set_dict={"name": "John"}, event="$set"),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
         # $set_once sets name first, then $set overwrites it
-        expected = {"name": "John", "email": "jane@example.com"}
-        self.assertEqual(result, expected)
+        self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_multiple_set_once(self, mock_sync_execute):
-        """Test multiple $set_once operations - only first one should apply per property."""
-        # ClickHouse toJSONString() returns double-encoded JSON
         mock_sync_execute.return_value = [
-            (
-                json.dumps(json.dumps({"$set_once": {"name": "First", "email": "first@example.com"}})),
-                datetime(2023, 1, 1, 9, 0, 0),
-                "$set_once",
-            ),
-            (
-                json.dumps(json.dumps({"$set_once": {"name": "Second", "location": "SF"}})),
-                datetime(2023, 1, 1, 10, 0, 0),
-                "$set_once",
-            ),
+            _prop_row(set_once_dict={"name": "First", "email": "first@example.com"}, event="$set_once"),
+            _prop_row(set_once_dict={"name": "Second", "location": "SF"}, event="$set_once"),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
-        # First $set_once should win for name, second should set location
-        expected = {"name": "First", "email": "first@example.com", "location": "SF"}
-        self.assertEqual(result, expected)
+        self.assertEqual(
+            properties,
+            {"name": "First", "email": "first@example.com", "location": "SF"},
+        )
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_with_distinct_ids_direct(self, mock_sync_execute):
-        """Test building properties using distinct_ids parameter directly."""
-        # Mock ClickHouse response with a single $set event
-        properties = {"$set": {"name": "Jane Doe", "email": "jane@example.com"}}
-        # ClickHouse toJSONString() returns double-encoded JSON
-        double_encoded_json = json.dumps(json.dumps(properties))
-        mock_sync_execute.return_value = [(double_encoded_json, datetime(2023, 1, 1, 10, 0, 0), "$set")]
+        mock_sync_execute.return_value = [
+            _prop_row(set_dict={"name": "Jane Doe", "email": "jane@example.com"}, event="$set"),
+        ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
+        properties = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
 
-        expected = {"name": "Jane Doe", "email": "jane@example.com"}
-        self.assertEqual(result, expected)
+        self.assertEqual(properties, {"name": "Jane Doe", "email": "jane@example.com"})
 
-        # Verify the query was called with all distinct_ids
         mock_sync_execute.assert_called_once()
         call_args = mock_sync_execute.call_args
         self.assertEqual(call_args[0][1]["distinct_ids"], ["user123", "user456", "user789"])

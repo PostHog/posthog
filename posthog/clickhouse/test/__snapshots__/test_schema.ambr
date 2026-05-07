@@ -602,9 +602,8 @@
       `team_id` Int64,
       `property_type` LowCardinality(String),
       `property_key` String,
-      `property_value` String,
-      `_timestamp` DateTime
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
+      `property_value` String
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -2330,9 +2329,8 @@
       `team_id` Int64,
       `property_type` LowCardinality(String),
       `property_key` String,
-      `property_value` String,
-      `_timestamp` DateTime
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
+      `property_value` String
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -3383,7 +3381,7 @@
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       ,
-      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
+      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
   
   ORDER BY (team_id, property_type, property_key, property_value)
@@ -3421,7 +3419,7 @@
       property_key,
       property_value,
       toUInt64(1) as property_count,
-      _timestamp as last_seen
+      coalesce(_timestamp, now()) as last_seen
   FROM posthog_test.kafka_property_values
   WHERE lengthUTF8(property_key) > 0
     AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
@@ -7563,7 +7561,7 @@
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       ,
-      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
+      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
   
   ORDER BY (team_id, property_type, property_key, property_value)

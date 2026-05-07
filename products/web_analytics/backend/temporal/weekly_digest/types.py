@@ -6,6 +6,7 @@ class WAWeeklyDigestInput:
     """Top-level input for the WA weekly digest coordinator workflow."""
 
     dry_run: bool = False
+    max_concurrent: int = 10
 
 
 @dataclasses.dataclass

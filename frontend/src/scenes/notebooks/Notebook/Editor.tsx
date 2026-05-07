@@ -65,6 +65,7 @@ import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 import { notebookLogic } from './notebookLogic'
 import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
+import { RangeSelectedNodes } from './RangeSelectedNodes'
 import { RemotePresenceExtension } from './RemotePresenceExtension'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
@@ -173,6 +174,7 @@ export function Editor(): JSX.Element {
         NotebookNodeCustomerJourney,
         NotebookTrailingParagraph,
         NotebookDefaultBlockOnEnter,
+        RangeSelectedNodes,
     ]
 
     if (useCollab) {

@@ -292,7 +292,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .or_default()
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
-                    version: None, // This endpoint doesn't return version per distinct_id
+                    version: mapping.version,
                 });
         }
 

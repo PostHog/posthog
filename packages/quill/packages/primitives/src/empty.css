@@ -4,7 +4,7 @@
         text-align: center;
         text-wrap: balance;
         border: 1px dashed var(--border);
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-md);
     }
 
     .quill-empty__title {

@@ -1,6 +1,7 @@
 import './PlayerFrameOverlay.scss'
 
 import { useActions, useValues } from 'kea'
+import { MouseEvent } from 'react'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
@@ -69,6 +70,12 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { setPlay } = useActions(sessionRecordingPlayerLogic)
+
+    const handlePlay = (e: MouseEvent): void => {
+        e.stopPropagation()
+        setPlay()
+    }
 
     let content = null
     const pausedState =
@@ -119,6 +126,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 icon={<IconRewindPlay className="text-6xl text-white" />}
                 aria-label="Rewind recording"
                 data-attr="replay-overlay-rewind"
+                onClick={handlePlay}
             />
         ) : (
             <div className="flex flex-col items-center justify-center">
@@ -126,6 +134,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                     icon={<IconPlay className="text-6xl text-white" />}
                     aria-label="Resume recording"
                     data-attr="replay-overlay-resume"
+                    onClick={handlePlay}
                 />
                 {showActionsOnOverlay && <PlayerFrameOverlayActions />}
             </div>
