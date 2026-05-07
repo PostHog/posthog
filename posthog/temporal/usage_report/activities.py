@@ -16,7 +16,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.tasks.usage_report import build_org_reports, get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.usage_report.aggregator import (
@@ -70,7 +70,11 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     async with Heartbeater():
         spec = QUERY_INDEX[inputs.query_name]
 
-        @database_sync_to_async
+        # Use the pooled variant so concurrent query activities on the same
+        # worker actually run in parallel. The default thread_sensitive=True
+        # serializes everything onto a single shared thread, defeating the
+        # bounded fan-out in the workflow.
+        @database_sync_to_async_pool
         def run() -> Any:
             # Snapshot specs ignore the period (they read current state);
             # period specs filter on (begin, end). The signature is enforced
