@@ -11,7 +11,8 @@ use super::constants::{
 };
 use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
-use crate::event_restrictions::{EventContext, EventRestrictionService, Pipeline};
+use crate::event_restrictions::{EventContext, EventRestrictionService};
+use crate::v0_request::DataType;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use tracing::Level;
 
@@ -252,6 +253,15 @@ async fn apply_restrictions(
             continue;
         }
 
+        // v1 hasn't classified events into `DataType` yet, so derive the
+        // pipeline directly from the event name. `historical_migration` is
+        // irrelevant for pipeline lookup — `AnalyticsMain` and
+        // `AnalyticsHistorical` both map to `Pipeline::Analytics`.
+        let Some(pipeline) = DataType::from_event_name(&event.event.event, false).pipeline()
+        else {
+            continue;
+        };
+
         let event_ctx = EventContext {
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
@@ -261,7 +271,7 @@ async fn apply_restrictions(
         };
 
         let applied = service
-            .get_restrictions(token, &event_ctx, Pipeline::Analytics)
+            .get_restrictions(token, &event_ctx, pipeline)
             .await;
 
         if applied.should_drop() {

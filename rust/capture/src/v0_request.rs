@@ -170,6 +170,23 @@ pub enum DataType {
 }
 
 impl DataType {
+    /// Classify an event by its name (and historical-migration flag) into a
+    /// `DataType`. Used by both v0's `process_single_event` and v1's
+    /// `apply_restrictions` so the analytics → exception → heatmap →
+    /// ingestion-warning split stays in one place.
+    ///
+    /// `SnapshotMain` is not produced here — replay events arrive on a
+    /// separate endpoint and never flow through analytics processing.
+    pub fn from_event_name(event_name: &str, historical_migration: bool) -> Self {
+        match (event_name, historical_migration) {
+            ("$$client_ingestion_warning", _) => Self::ClientIngestionWarning,
+            ("$exception", _) => Self::ExceptionErrorTracking,
+            ("$$heatmap", _) => Self::HeatmapMain,
+            (_, true) => Self::AnalyticsHistorical,
+            (_, false) => Self::AnalyticsMain,
+        }
+    }
+
     /// Pipeline this event flows to, if any. Heatmaps, ingestion warnings,
     /// and snapshots have their own dedicated topics and consumers; they
     /// don't share Redis-backed restriction config with any other pipeline,

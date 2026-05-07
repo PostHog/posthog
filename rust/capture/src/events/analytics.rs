@@ -41,13 +41,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = match (event.event.as_str(), context.historical_migration) {
-        ("$$client_ingestion_warning", _) => DataType::ClientIngestionWarning,
-        ("$exception", _) => DataType::ExceptionErrorTracking,
-        ("$$heatmap", _) => DataType::HeatmapMain,
-        (_, true) => DataType::AnalyticsHistorical,
-        (_, false) => DataType::AnalyticsMain,
-    };
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
