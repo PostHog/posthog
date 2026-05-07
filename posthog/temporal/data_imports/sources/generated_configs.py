@@ -540,7 +540,7 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NotionSourceConfig(config.Config):
-    pass
+    notion_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

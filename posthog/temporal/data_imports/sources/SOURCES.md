@@ -66,6 +66,7 @@ the row lists both.
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql         | DB protocol                 | pymysql                                                         | ➖                          |
+| notion        | HTTP                        | requests                                                        | ✅                          |
 | paddle        | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads | HTTP                        | requests                                                        | ✅                          |
 | plain         | HTTP                        | requests                                                        | ✅                          |
@@ -110,7 +111,7 @@ chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, coppe
 drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
 instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
-microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
+microsoft_teams, mixpanel, monday, netsuite, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, polar, postmark, productboard, quickbooks, recharge,
 recurly, revenuecat, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
 square, surveymonkey, temporalio, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,

@@ -306,6 +306,7 @@ class OauthIntegration:
         "jira",
         "pinterest-ads",
         "stripe",
+        "notion",
     ]
     integration: Integration
 
@@ -511,6 +512,24 @@ class OauthIntegration:
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
             )
+        elif kind == "notion":
+            if not settings.NOTION_APP_CLIENT_ID or not settings.NOTION_APP_CLIENT_SECRET:
+                raise NotImplementedError("Notion app not configured")
+
+            # Notion's token exchange returns workspace_id / workspace_name / bot_id directly,
+            # so we don't need a token_info_url roundtrip. Notion OAuth tokens currently do
+            # not expire and don't provide refresh_token, so the access_token_expired() default
+            # (returns False without a refresh_token) is correct.
+            return OauthConfig(
+                authorize_url="https://api.notion.com/v1/oauth/authorize",
+                additional_authorize_params={"owner": "user"},
+                token_url="https://api.notion.com/v1/oauth/token",
+                client_id=settings.NOTION_APP_CLIENT_ID,
+                client_secret=settings.NOTION_APP_CLIENT_SECRET,
+                scope="",
+                id_path="workspace_id",
+                name_path="workspace_name",
+            )
         elif kind == "meta-ads":
             if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
                 raise NotImplementedError("Meta Ads app not configured")
@@ -707,6 +726,23 @@ class OauthIntegration:
                     "auth_code": params["code"],
                 },
                 headers={"Content-Type": "application/json"},
+            )
+        elif kind == "notion":
+            # Notion uses HTTP Basic auth with client_id:client_secret, requires the
+            # Notion-Version header on every API call (including this one), and expects
+            # a JSON body. https://developers.notion.com/docs/authorization
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                json={
+                    "grant_type": "authorization_code",
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Notion-Version": "2022-06-28",
+                },
             )
         elif kind == "stripe":
             # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
