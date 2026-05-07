@@ -54,8 +54,11 @@ export class CdpEventsConsumer<
             ttl: config.CDP_RATE_LIMITER_TTL,
         }
         this.hogRateLimiter = new HogRateLimiterService(rateLimiterConfig, this.redis)
+        // TEMPORARY: env-var toggle so we can flip the mirror between v2 (true mirror
+        // of the primary) and v3 (optimized lua) to compare. Defaults to v3.
+        const mirrorUseV3 = process.env.CDP_VALKEY_MIRROR_USE_V3 !== 'false'
         this.hogRateLimiterMirror = this.valkeyShadow
-            ? new HogRateLimiterService({ ...rateLimiterConfig, useV3: true }, this.valkeyShadow.writer)
+            ? new HogRateLimiterService({ ...rateLimiterConfig, useV3: mirrorUseV3 }, this.valkeyShadow.writer)
             : null
     }
 

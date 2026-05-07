@@ -353,10 +353,13 @@ export function createCdpCoreServices(
     // so it never emits duplicate billable team events on state transitions; the
     // Prom counter `cdp_hog_function_state_change` may double-emit when both pools
     // detect the same transition — rare, accepted during dual-write mode.
+    // TEMPORARY: env-var toggle so we can flip the mirror between v2 (true mirror
+    // of the primary) and v3 (optimized lua) to compare. Defaults to v3.
+    const mirrorUseV3 = process.env.CDP_VALKEY_MIRROR_USE_V3 !== 'false'
     const hogWatcherMirror: HogWatcherService | null = valkeyShadow
         ? new HogWatcherService(
               deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false, useV3: true },
+              { ...hogWatcherConfig, sendEvents: false, useV3: mirrorUseV3 },
               valkeyShadow.writer,
               valkeyShadow.reader
           )

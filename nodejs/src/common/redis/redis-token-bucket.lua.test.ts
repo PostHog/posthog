@@ -156,6 +156,16 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
             expect(before).toBe(70)
             expect(after).toBe(70)
         })
+
+        it('exposes available tokens via tokensBefore even when rate-limited', async () => {
+            await tick(1000, 70, 100, 10, 60) // pool=30
+            // Request 50 but only 30 available — call is rate-limited but
+            // tokensBefore tells the caller exactly how much they could have spent
+            // so they can compute partial allowance (e.g. allow 30/50 = 60%).
+            const [before, after] = await tick(1000, 50, 100, 10, 60)
+            expect(before).toBe(30)
+            expect(after).toBe(-1)
+        })
     })
 
     describe('refill over time', () => {
@@ -298,6 +308,27 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
                 [100, 90],
                 [90, 60],
                 [60, 55],
+            ])
+        })
+
+        it('threads state through the rate-limit boundary in a single pipeline', async () => {
+            const results = await redis.usePipeline({ name: 'pipeline-rate-limit' }, (pipeline) => {
+                onPipeline(pipeline, key, 1000, 90, 100, 10, 60) // 100 -> 10
+                onPipeline(pipeline, key, 1000, 9, 100, 10, 60) //  10 -> 1
+                onPipeline(pipeline, key, 1000, 2, 100, 10, 60) //   1 -> -1 (rate-limited)
+                onPipeline(pipeline, key, 1000, 1, 100, 10, 60) //  -1 -> -1 (still rate-limited)
+            })
+
+            expect(results).not.toBeNull()
+            const tuples = results!.map(([err, val]) => {
+                expect(err).toBeNull()
+                return val as [number, number]
+            })
+            expect(tuples).toEqual([
+                [100, 10],
+                [10, 1],
+                [1, -1],
+                [-1, -1],
             ])
         })
     })
