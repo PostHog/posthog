@@ -45,7 +45,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconDashboard />,
         getTitle: async (id: string) => {
             const dashboard = await api.dashboards.get(Number(id))
-            return dashboard.name ?? ''
+            return dashboard.name || id
         },
     },
     {
@@ -54,7 +54,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconGraph />,
         getTitle: async (id: string) => {
             const insight = await api.insights.loadInsight(id as QueryBasedInsightModel['short_id'])
-            return insight.results[0]?.name ?? ''
+            return insight.results[0]?.name || id
         },
     },
     {
@@ -63,7 +63,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconFlag />,
         getTitle: async (id: string) => {
             const flag = await api.featureFlags.get(Number(id))
-            return flag.name ?? ''
+            return flag.name || flag.key || id
         },
     },
     {
@@ -72,7 +72,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconFlask />,
         getTitle: async (id: string) => {
             const experiment = await api.experiments.get(Number(id))
-            return experiment.name ?? ''
+            return experiment.name || id
         },
     },
     {
@@ -81,7 +81,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconChat />,
         getTitle: async (id: string) => {
             const survey = await api.surveys.get(id)
-            return survey.name ?? ''
+            return survey.name || id
         },
     },
     {
@@ -90,16 +90,16 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconLive width="1em" height="1em" />,
         getTitle: async (id: string) => {
             const event = await api.eventDefinitions.get({ eventDefinitionId: id })
-            return event.name ?? ''
+            return event.name || id
         },
     },
     {
         type: 'persons',
-        regex: new RegExp(urls.personByDistinctId('([^/]+)')),
+        regex: new RegExp(urls.personByDistinctId('([^/]+)', false)),
         icon: <IconPerson />,
         getTitle: async (id: string) => {
             const response = await api.persons.list({ distinct_id: id })
-            return response.results[0]?.name ?? ''
+            return response.results[0]?.name || id
         },
     },
     {
@@ -108,7 +108,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconPeople />,
         getTitle: async (id: string) => {
             const cohort = await api.cohorts.get(Number(id))
-            return cohort.name ?? ''
+            return cohort.name || id
         },
     },
     {
@@ -117,7 +117,7 @@ export const BACKLINK_MAP: BackLinkMapper[] = [
         icon: <IconPlaylist />,
         getTitle: async (id: string) => {
             const playlist = await api.recordings.getPlaylist(id)
-            return playlist.name ?? 'None'
+            return playlist.name || id
         },
     },
     {
