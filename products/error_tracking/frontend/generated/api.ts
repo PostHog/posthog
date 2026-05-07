@@ -65,7 +65,6 @@ import type {
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
-    PatchedErrorTrackingSymbolSetApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
 
@@ -1339,24 +1338,6 @@ export const errorTrackingSymbolSetsList = async (
     })
 }
 
-export const getErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/error_tracking/symbol_sets/`
-}
-
-export const errorTrackingSymbolSetsCreate = async (
-    projectId: string,
-    errorTrackingSymbolSetApi?: NonReadonly<ErrorTrackingSymbolSetApi>,
-    options?: RequestInit
-): Promise<ErrorTrackingSymbolSetApi> => {
-    const formData = new FormData()
-
-    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: formData,
-    })
-}
-
 export const getErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
 }
@@ -1369,44 +1350,6 @@ export const errorTrackingSymbolSetsRetrieve = async (
     return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
-}
-
-export const errorTrackingSymbolSetsUpdate = async (
-    projectId: string,
-    id: string,
-    errorTrackingSymbolSetApi?: NonReadonly<ErrorTrackingSymbolSetApi>,
-    options?: RequestInit
-): Promise<ErrorTrackingSymbolSetApi> => {
-    const formData = new FormData()
-
-    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        body: formData,
-    })
-}
-
-export const getErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
-}
-
-export const errorTrackingSymbolSetsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedErrorTrackingSymbolSetApi?: NonReadonly<PatchedErrorTrackingSymbolSetApi>,
-    options?: RequestInit
-): Promise<ErrorTrackingSymbolSetApi> => {
-    const formData = new FormData()
-
-    return apiMutator<ErrorTrackingSymbolSetApi>(getErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        body: formData,
     })
 }
 
@@ -1509,23 +1452,5 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
-    })
-}
-
-export const getErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/error_tracking/symbol_sets/start_upload/`
-}
-
-export const errorTrackingSymbolSetsStartUploadCreate = async (
-    projectId: string,
-    errorTrackingSymbolSetApi?: NonReadonly<ErrorTrackingSymbolSetApi>,
-    options?: RequestInit
-): Promise<void> => {
-    const formData = new FormData()
-
-    return apiMutator<void>(getErrorTrackingSymbolSetsStartUploadCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: formData,
     })
 }

@@ -239,6 +239,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    # ModelViewSet provides update/partial_update by default, but the serializer is entirely
+    # read-only — there's nothing a client could set via PUT/PATCH. Hide them from the spec
+    # so generated typed clients don't surface unusable methods.
+    @extend_schema(exclude=True)
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
     @extend_schema(request=ErrorTrackingSymbolSetBulkDeleteSerializer)
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_delete(self, request, **kwargs):
@@ -291,7 +302,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    # DEPRECATED: newer versions of the CLI use bulk uploads
+    @extend_schema(exclude=True)  # deprecated; serializer has no settable fields, hidden from typed clients
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
@@ -321,8 +332,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False)
     # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False)
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)

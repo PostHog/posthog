@@ -912,40 +912,6 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
     results: ErrorTrackingSymbolSetApi[]
 }
 
-/**
- * Release associated with this symbol set, if any.
- * @nullable
- */
-export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
-
-export interface PatchedErrorTrackingSymbolSetApi {
-    /** Unique symbol set ID. */
-    readonly id?: string
-    /** Reference used to match stack frames to this symbol set. */
-    readonly ref?: string
-    /** Project/team ID that owns this symbol set. */
-    readonly team_id?: number
-    /** When this symbol set row was created. */
-    readonly created_at?: string
-    /**
-     * When this symbol set was last used to resolve a stack frame.
-     * @nullable
-     */
-    readonly last_used?: string | null
-    /**
-     * Reason symbol lookup failed, if the source map is missing or invalid.
-     * @nullable
-     */
-    readonly failure_reason?: string | null
-    /** Whether this symbol set has an uploaded source map file available to download. */
-    readonly has_uploaded_file?: boolean
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    readonly release?: PatchedErrorTrackingSymbolSetApiRelease
-}
-
 export interface _SymbolSetDownloadResponseApi {
     /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
     url: string

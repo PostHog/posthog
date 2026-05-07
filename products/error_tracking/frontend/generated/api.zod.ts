@@ -414,12 +414,6 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
     project: zod.string().optional(),
 })
 
-export const ErrorTrackingSymbolSetsCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ErrorTrackingSymbolSetsUpdateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ErrorTrackingSymbolSetsPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
-
 export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod.object({
     content_hash: zod.string().describe('Hash of the uploaded symbol set content.'),
 })
@@ -461,5 +455,3 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault)
         .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
 })
-
-export const ErrorTrackingSymbolSetsStartUploadCreateBody = /* @__PURE__ */ zod.looseObject({})
