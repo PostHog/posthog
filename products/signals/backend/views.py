@@ -875,7 +875,7 @@ class SignalReportViewSet(
             user = request.user
             artefact_content = {
                 "reason": dismissal_reason,
-                "note": dismissal_note or "",
+                "note": dismissal_note,
                 "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
                 "user_uuid": str(user.uuid)
                 if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
