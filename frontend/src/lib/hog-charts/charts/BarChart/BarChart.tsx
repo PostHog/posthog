@@ -33,6 +33,18 @@ function bandCenter(scales: BarChartPrivate['__barChart'], label: string): numbe
     return start == null ? undefined : start + scales.band.bandwidth() / 2
 }
 
+/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
+ *  to anchor on the current-period bar in compare-against-previous grouped layouts.
+ *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
+function groupedBarCenter(scales: BarChartPrivate['__barChart'], label: string, seriesKey: string): number | undefined {
+    const start = scales.band(label)
+    const groupOffset = scales.group?.(seriesKey)
+    if (start == null || groupOffset == null) {
+        return undefined
+    }
+    return start + groupOffset + (scales.group?.bandwidth() ?? 0) / 2
+}
+
 export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
@@ -147,7 +159,15 @@ function BarChartInner<Meta = unknown>({
             // calls `scales.y(tick)` for x-pixel positioning of value ticks).
             // For vertical, `y` is the value scale on the y-axis.
             return {
-                x: (label: string) => bandCenter(d3Scales, label),
+                x: (label: string, seriesKey?: string) => {
+                    if (seriesKey != null && barLayout === 'grouped') {
+                        const xForSeries = groupedBarCenter(d3Scales, label, seriesKey)
+                        if (xForSeries != null) {
+                            return xForSeries
+                        }
+                    }
+                    return bandCenter(d3Scales, label)
+                },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
                 _private: barChartPrivate,
