@@ -74,6 +74,36 @@ export function extractLayerIndex(name: string): number {
     return match ? parseInt(match[1], 10) : 0
 }
 
+export function extractStepIndex(stepId: string): number {
+    const match = stepId.match(/^step-([0-9]+)$/)
+    return match ? parseInt(match[1], 10) : -1
+}
+
+export function buildFunnelStepReplacementMap(
+    funnelSteps: { id: string; name: string }[],
+    sourceStepId: string | null,
+    targetStepId: string | null
+): Map<string, string> {
+    if (funnelSteps.length === 0) {
+        return new Map()
+    }
+
+    const firstAllowedIndex = sourceStepId ? extractStepIndex(sourceStepId) : 0
+    const lastAllowedIndex = targetStepId ? extractStepIndex(targetStepId) : funnelSteps.length - 1
+    const allowedSteps = funnelSteps.slice(firstAllowedIndex, lastAllowedIndex + 1)
+
+    const earliestMatchWins = sourceStepId !== null
+    const stepsInResolutionOrder = earliestMatchWins ? allowedSteps : allowedSteps.slice().reverse()
+
+    const replacementMap = new Map<string, string>()
+    for (const { id, name } of stepsInResolutionOrder) {
+        if (!replacementMap.has(name)) {
+            replacementMap.set(name, id)
+        }
+    }
+    return replacementMap
+}
+
 function formatDisplayName(rawName: string): string {
     const name = stripStepPrefix(rawName)
     try {

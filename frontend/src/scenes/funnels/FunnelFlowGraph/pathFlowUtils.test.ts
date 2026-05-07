@@ -3,6 +3,7 @@ import { FunnelPathType } from '~/types'
 
 import {
     bridgeConfigForExpansion,
+    buildFunnelStepReplacementMap,
     buildPathFlowElements,
     buildPathsQuery,
     PathExpansion,
@@ -380,6 +381,101 @@ describe('buildPathFlowElements with funnel step dedup', () => {
         const pathEdge = edges.find((e) => e.id.startsWith('path-edge-'))!
         expect(pathEdge.sourceHandle).toBe('step-0-source')
         expect(pathEdge.targetHandle).toBe('path-2_/other-target')
+    })
+})
+
+describe('buildFunnelStepReplacementMap', () => {
+    const FUNNEL_SIGNUP_TO_PAY = [
+        { id: 'step-0', name: 'customer analytics viewed' },
+        { id: 'step-1', name: 'query executed' },
+        { id: 'step-2', name: 'dashboard mode changed' },
+        { id: 'step-3', name: 'pay gate shown' },
+        { id: 'step-4', name: 'pay gate CTA clicked' },
+        { id: 'step-5', name: 'billing product activated' },
+    ]
+
+    it('after-step expansion: only the source step and forward steps are in the map', () => {
+        // Expanding paths AFTER "pay gate shown" (step-3). A path node named
+        // "query executed" (step-1) must NOT be in the map — redirecting to it
+        // would draw a backward edge step-3 → step-1.
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, 'step-3', null)
+
+        expect(Object.fromEntries(map)).toEqual({
+            'pay gate shown': 'step-3',
+            'pay gate CTA clicked': 'step-4',
+            'billing product activated': 'step-5',
+        })
+    })
+
+    it('before-step expansion: only the target step and earlier steps are in the map', () => {
+        // Expanding paths BEFORE "pay gate shown" (step-3). A path node named
+        // "billing product activated" (step-5) must NOT be in the map.
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, null, 'step-3')
+
+        expect(Object.fromEntries(map)).toEqual({
+            'customer analytics viewed': 'step-0',
+            'query executed': 'step-1',
+            'dashboard mode changed': 'step-2',
+            'pay gate shown': 'step-3',
+        })
+    })
+
+    it('between-step expansion: only the two adjacent anchor steps are in the map', () => {
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, 'step-2', 'step-3')
+
+        expect(Object.fromEntries(map)).toEqual({
+            'dashboard mode changed': 'step-2',
+            'pay gate shown': 'step-3',
+        })
+    })
+
+    it('after-step from the first step: every step is in the map', () => {
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, 'step-0', null)
+        expect(map.size).toBe(FUNNEL_SIGNUP_TO_PAY.length)
+    })
+
+    it('before-step to the last step: every step is in the map', () => {
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, null, 'step-5')
+        expect(map.size).toBe(FUNNEL_SIGNUP_TO_PAY.length)
+    })
+
+    it('empty funnel returns an empty map', () => {
+        const map = buildFunnelStepReplacementMap([], 'step-0', null)
+        expect(map.size).toBe(0)
+    })
+
+    it('after-step expansion with a duplicate event name: the closest forward step wins', () => {
+        // Funnel where "query executed" appears at step-1 and step-3.
+        // Expanding after step-2: the in-range candidate closest to the source
+        // (step-3) should win — NOT step-1 (out of range).
+        const funnel = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'dashboard mode changed' },
+            { id: 'step-3', name: 'query executed' },
+            { id: 'step-4', name: 'pay gate shown' },
+        ]
+
+        const map = buildFunnelStepReplacementMap(funnel, 'step-2', null)
+
+        expect(map.get('query executed')).toBe('step-3')
+    })
+
+    it('before-step expansion with a duplicate event name: the closest preceding step wins', () => {
+        // Mirror of the above. Expanding before step-4: among the in-range
+        // matches for "query executed" (step-1 and step-3), the largest
+        // in-range index wins — step-3, the most recent prior occurrence.
+        const funnel = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'dashboard mode changed' },
+            { id: 'step-3', name: 'query executed' },
+            { id: 'step-4', name: 'pay gate shown' },
+        ]
+
+        const map = buildFunnelStepReplacementMap(funnel, null, 'step-4')
+
+        expect(map.get('query executed')).toBe('step-3')
     })
 })
 
