@@ -38,6 +38,31 @@ def _write_schema(path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    "name,content",
+    [
+        ("not-gzip", b"this is not gzip data"),
+        ("empty", b""),
+        ("partial-header", b"\x1f\x8b"),
+    ],
+)
+def test_validate_gzip_rejects_corrupt_inputs(tmp_path: Path, name: str, content: bytes) -> None:
+    path = tmp_path / f"{name}.sql.gz"
+    path.write_bytes(content)
+    with pytest.raises(db_schema.SchemaRestoreError):
+        db_schema._validate_gzip(path)
+
+
+def test_validate_gzip_rejects_truncated_stream(tmp_path: Path) -> None:
+    full = tmp_path / "good.sql.gz"
+    _write_schema(full)
+    truncated = tmp_path / "truncated.sql.gz"
+    raw = full.read_bytes()
+    truncated.write_bytes(raw[: len(raw) // 2])
+    with pytest.raises(db_schema.SchemaRestoreError):
+        db_schema._validate_gzip(truncated)
+
+
+@pytest.mark.parametrize(
     "ancestor_shas,expected_index",
     [
         ({"older", "newer"}, 1),

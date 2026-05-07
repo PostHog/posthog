@@ -81,12 +81,15 @@ def _validate_db_identifier(target_db: str) -> str:
 
 
 def _validate_gzip(path: Path) -> None:
+    bytes_read = 0
     try:
         with gzip.open(path, "rb") as source:
-            while source.read(1024 * 1024):
-                pass
-    except OSError as exc:
+            while chunk := source.read(1024 * 1024):
+                bytes_read += len(chunk)
+    except (OSError, EOFError) as exc:
         raise SchemaRestoreError(f"schema dump is not valid gzip: {path}") from exc
+    if bytes_read == 0:
+        raise SchemaRestoreError(f"schema dump is not valid gzip: {path}")
 
 
 def _run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
