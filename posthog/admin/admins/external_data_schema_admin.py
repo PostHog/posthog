@@ -1,5 +1,4 @@
 import uuid
-import asyncio
 from dataclasses import asdict
 from typing import Any
 
@@ -9,6 +8,9 @@ from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils.html import format_html
 
+from asgiref.sync import async_to_sync
+
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_imports.compact_delta_table_job import CompactDeltaTableWorkflowInputs
 
@@ -101,7 +103,15 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
     def trigger_compact_delta_table(self, request, queryset):
         """Queue one Temporal workflow per selected schema. Compaction runs
         asynchronously — the admin response returns immediately with a count
-        of workflows started."""
+        of workflows started.
+
+        Uses `async_to_sync(temporal.start_workflow)` rather than
+        `asyncio.run(...)` because the admin can be served under an ASGI
+        runtime (Granian) where a running event loop in the calling thread
+        would make `asyncio.run` raise. `async_to_sync` runs the coroutine
+        in its own dedicated thread + loop and is safe under both WSGI and
+        ASGI.
+        """
         temporal = sync_connect()
         started = 0
         failed: list[tuple[str, str]] = []
@@ -113,17 +123,29 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 schema_id=str(schema.id),
             )
             try:
-                asyncio.run(
-                    temporal.start_workflow(
-                        "dwh-compact-delta-table",
-                        asdict(inputs),
-                        id=workflow_id,
-                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                    )
-                )
+                _start_compact_workflow(temporal, asdict(inputs), workflow_id)
                 started += 1
             except Exception as e:
                 failed.append((str(schema.id), str(e)))
+                continue
+
+            # Audit log the manual trigger so we can trace who kicked off
+            # which compaction. `log_activity` swallows its own errors so
+            # this never blocks the workflow that already started.
+            log_activity(
+                organization_id=schema.team.organization_id,
+                team_id=schema.team_id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=schema.id,
+                scope="ExternalDataSchema",
+                activity="admin_compact_triggered",
+                detail=Detail(
+                    name=schema.name,
+                    short_id=str(schema.id),
+                    type="admin_compact_delta",
+                ),
+            )
 
         if started:
             self.message_user(
@@ -133,6 +155,22 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             )
         for schema_id, err in failed:
             self.message_user(request, f"Failed to queue compaction for {schema_id}: {err}", level=messages.ERROR)
+
+
+def _start_compact_workflow(temporal: Any, inputs_dict: dict, workflow_id: str) -> None:
+    """Sync wrapper around `temporal.start_workflow` for the compact-delta job.
+
+    `temporal.start_workflow` is heavily overloaded; running it through
+    `async_to_sync` erases the overloads and confuses mypy. Localising the
+    call here keeps a single typed-ignore in one place rather than scattered
+    through every admin action.
+    """
+    async_to_sync(temporal.start_workflow)(
+        "dwh-compact-delta-table",
+        inputs_dict,
+        id=workflow_id,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
 
 
 def _get_delta_fragmentation_stats(schema: ExternalDataSchema) -> dict | None:

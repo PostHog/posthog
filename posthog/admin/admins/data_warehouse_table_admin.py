@@ -1,12 +1,12 @@
 import uuid
-import asyncio
 from dataclasses import asdict
 
-from django.conf import settings
 from django.contrib import admin, messages
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.admin.admins.external_data_schema_admin import _start_compact_workflow
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_imports.compact_delta_table_job import CompactDeltaTableWorkflowInputs
 
@@ -55,17 +55,29 @@ class DataWarehouseTableAdmin(admin.ModelAdmin):
                 schema_id=str(schema.id),
             )
             try:
-                asyncio.run(
-                    temporal.start_workflow(
-                        "dwh-compact-delta-table",
-                        asdict(inputs),
-                        id=workflow_id,
-                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                    )
-                )
+                # See ExternalDataSchemaAdmin._start_compact_workflow for why
+                # we route through that helper (async_to_sync + workflow-name
+                # encapsulation, plus mypy overload erasure).
+                _start_compact_workflow(temporal, asdict(inputs), workflow_id)
                 started += 1
             except Exception as e:
                 failed.append((str(table.id), str(e)))
+                continue
+
+            log_activity(
+                organization_id=schema.team.organization_id,
+                team_id=schema.team_id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=table.id,
+                scope="DataWarehouseTable",
+                activity="admin_compact_triggered",
+                detail=Detail(
+                    name=table.name,
+                    short_id=str(table.id),
+                    type="admin_compact_delta",
+                ),
+            )
 
         if started:
             self.message_user(request, f"Queued compaction for {started} table(s).", level=messages.INFO)
