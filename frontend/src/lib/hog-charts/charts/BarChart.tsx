@@ -268,27 +268,37 @@ function BarChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs) => {
+        ({
+            ctx,
+            scales,
+            series: coloredSeries,
+            labels: drawLabels,
+            hoverIndex,
+            hoverPosition,
+            theme,
+        }: ChartDrawArgs) => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = 'rgba(0, 0, 0, 0.2)'
+            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
-            // null = no cursor info (non-mousemove redraw); fall back to highlighting every bar.
-            const hitKeys = hoverPosition
-                ? seriesKeysAtCursor({
-                      series: coloredSeries,
-                      label: hoveredLabel,
-                      dataIndex: hoverIndex,
-                      cursor: hoverPosition,
-                      scales: d3Scales,
-                      layout: barLayout,
-                      isHorizontal,
-                      stackedData,
-                      topStackedKeyByAxis,
-                  })
-                : null
+            // Stacked/percent: highlight the whole column (matches chart.js mode='nearest').
+            // Grouped: per-bar so siblings at the same band don't all light up.
+            const hitKeys =
+                barLayout === 'grouped' && hoverPosition
+                    ? seriesKeysAtCursor({
+                          series: coloredSeries,
+                          label: hoveredLabel,
+                          dataIndex: hoverIndex,
+                          cursor: hoverPosition,
+                          scales: d3Scales,
+                          layout: barLayout,
+                          isHorizontal,
+                          stackedData,
+                          topStackedKeyByAxis,
+                      })
+                    : null
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
@@ -385,8 +395,10 @@ function BarTooltipShell<Meta>({
 }: BarTooltipShellProps<Meta>): React.ReactElement {
     const { scales } = useChartLayout()
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+    // Stacked/percent: keep all rows so the tooltip mirrors the whole hovered column —
+    // matches the legacy chart.js bar tooltip's default `mode: 'nearest'` for stacked bars.
     const narrowed =
-        d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0
+        layout === 'grouped' && d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0
             ? narrowSeriesByCursor(ctx, d3Scales, layout, isHorizontal, stackedData, topStackedKeyByAxis)
             : ctx
     return <>{userTooltip ? userTooltip(narrowed) : DefaultTooltip(narrowed)}</>

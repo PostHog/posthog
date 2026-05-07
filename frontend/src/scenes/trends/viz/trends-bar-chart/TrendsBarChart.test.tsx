@@ -79,7 +79,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
-    it('shows the hovered period row in compare mode', async () => {
+    it('shows current and previous period rows in compare mode', async () => {
         renderInsight({
             query: trendsBar({ compareFilter: { compare: true } }),
             featureFlags: HOG_CHARTS_FLAG,
@@ -91,8 +91,8 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         const tooltip = await chart.hoverTooltip(2)
 
-        // Per-bar narrowing — tooltip shows just the segment the cursor's y lands inside.
-        expect(tooltip.element.querySelectorAll('tbody tr')).toHaveLength(1)
+        expect(tooltip.row('Current')).toBeTruthy()
+        expect(tooltip.row('Previous')).toBeTruthy()
     })
 
     it('formats values as percentages in percent stack view', async () => {
