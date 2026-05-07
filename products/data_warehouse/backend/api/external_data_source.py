@@ -58,9 +58,11 @@ from products.data_warehouse.backend.api.external_data_schema import (
 )
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
+    delete_discover_schemas_schedule,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
@@ -1141,8 +1143,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # resources (Slack channels, Postgres tables, …) get picked up without
         # re-discovering on every per-schema sync tick.
         try:
-            from products.data_warehouse.backend.data_load.service import sync_discover_schemas_schedule
-
             sync_discover_schemas_schedule(new_source_model, create=True)
         except Exception as e:
             logger.exception("Could not create schema discovery schedule", exc_info=e)
@@ -1361,8 +1361,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             capture_exception(e)
 
         try:
-            from products.data_warehouse.backend.data_load.service import delete_discover_schemas_schedule
-
             delete_discover_schemas_schedule(str(instance.id))
         except Exception as e:
             capture_exception(e)
