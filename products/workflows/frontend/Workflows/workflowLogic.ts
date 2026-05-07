@@ -392,25 +392,6 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.workflowChanged, s.pendingSchedule],
             (formChanged, pendingSchedule): boolean => formChanged || pendingSchedule !== false,
         ],
-        autoSaveStatus: [
-            (s) => [s.originalWorkflowLoading, s.workflowChanged, s.logicProps],
-            (
-                saving: boolean,
-                changed: boolean,
-                logicProps: WorkflowLogicProps
-            ): 'synced' | 'saving' | 'unsaved' | 'disabled' => {
-                if (!logicProps.id || logicProps.id === 'new') {
-                    return 'disabled'
-                }
-                if (saving) {
-                    return 'saving'
-                }
-                if (changed) {
-                    return 'unsaved'
-                }
-                return 'synced'
-            },
-        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
