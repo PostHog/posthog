@@ -17,12 +17,14 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.tasks.usage_report import build_org_reports, get_instance_metadata
+from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.usage_report.aggregator import (
     batched,
     build_manifest,
+    build_org_reports,
     filter_org_reports,
+    get_org_user_counts,
     iter_chunk_lines,
     load_all_data,
     sort_org_reports,
@@ -110,7 +112,11 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
 
         @database_sync_to_async
         def aggregate_per_org() -> dict[str, Any]:
-            org_reports = build_org_reports(all_data, inputs.ctx.period_start)
+            # Bulk-fetch membership counts once instead of letting the org
+            # builder issue a Postgres count() per organization. See
+            # `aggregator.build_org_reports` for the rationale.
+            org_user_counts = get_org_user_counts()
+            org_reports = build_org_reports(all_data, inputs.ctx.period_start, org_user_counts)
             org_reports = filter_org_reports(org_reports, inputs.ctx.organization_ids)
             return org_reports
 

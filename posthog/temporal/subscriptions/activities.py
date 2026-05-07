@@ -38,6 +38,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
+    SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     UNSUPPORTED_TARGET_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
@@ -551,7 +552,8 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         except ApplicationError:
             raise
         except Exception as e:
-            is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
+            slack_error_code = e.response.get("error") if isinstance(e, SlackApiError) else None
+            is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS
             _capture_delivery_failed_event(subscription, e)
             LOGGER.error(
                 "deliver_subscription.slack_failed",
@@ -561,15 +563,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 exc_info=True,
             )
             capture_exception(e)
-            recipient_results.append(
-                RecipientResult(
-                    recipient=subscription.target_value,
-                    status="failed",
-                    error={"message": str(e), "type": type(e).__name__},
+            if is_user_config_error:
+                # Won't self-heal without user action — auto-disable so the subscription
+                # stops re-firing every cycle.
+                return await _auto_disable_and_return(
+                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
                 )
-            )
-            if not is_user_config_error:
-                raise  # Transient Slack errors — let Temporal retry
+            raise  # Transient Slack errors — let Temporal retry
 
     await LOGGER.ainfo(
         "deliver_subscription.completed",
