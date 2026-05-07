@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID,
+    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_PERSON_PROCESSING_DISABLED,
     FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::Response;
@@ -303,8 +303,9 @@ async fn apply_token_distinct_id_limits(
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
+            event.result = EventResult::Limited;
             event.force_disable_person_processing = true;
-            event.details = Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID);
+            event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
             allowed_count += 1;
@@ -1132,13 +1133,10 @@ mod tests {
         assert_eq!(ok_ev.destination, Destination::AnalyticsMain);
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
-        assert_eq!(limited_ev.result, EventResult::Ok);
+        assert_eq!(limited_ev.result, EventResult::Limited);
         assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
         assert!(limited_ev.force_disable_person_processing);
-        assert_eq!(
-            limited_ev.details,
-            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
-        );
+        assert_eq!(limited_ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     #[tokio::test]
@@ -1168,7 +1166,7 @@ mod tests {
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         for ev in &events {
-            assert_eq!(ev.result, EventResult::Ok, "should stay Ok");
+            assert_eq!(ev.result, EventResult::Limited, "should be Limited");
             assert_eq!(
                 ev.destination,
                 Destination::AnalyticsMain,
@@ -1180,7 +1178,7 @@ mod tests {
             );
             assert_eq!(
                 ev.details,
-                Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID),
+                Some(DETAIL_PERSON_PROCESSING_DISABLED),
                 "should have details"
             );
         }
@@ -1206,10 +1204,10 @@ mod tests {
         assert_eq!(dropped.destination, Destination::Drop);
         // Other event rate-limited (person processing disabled, stays on main topic)
         let limited = find_by_did(&events, "user-2");
-        assert_eq!(limited.result, EventResult::Ok);
+        assert_eq!(limited.result, EventResult::Limited);
         assert_eq!(limited.destination, Destination::AnalyticsMain);
         assert!(limited.force_disable_person_processing);
-        assert_eq!(limited.details, Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID));
+        assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     // --- apply_historical_rerouting ---
@@ -1501,16 +1499,12 @@ mod tests {
         );
         assert!(!events[0].force_disable_person_processing);
         assert!(events[1].force_disable_person_processing);
-        assert_eq!(
-            events[1].details,
-            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
-        );
+        assert_eq!(events[1].result, EventResult::Limited);
+        assert_eq!(events[1].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[2].force_disable_person_processing);
         assert!(events[3].force_disable_person_processing);
-        assert_eq!(
-            events[3].details,
-            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
-        );
+        assert_eq!(events[3].result, EventResult::Limited);
+        assert_eq!(events[3].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[4].force_disable_person_processing);
     }
 
