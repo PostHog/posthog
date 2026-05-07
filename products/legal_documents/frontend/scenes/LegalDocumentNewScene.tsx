@@ -81,7 +81,7 @@ export function LegalDocumentNewScene(): JSX.Element {
     const { isAdminOrOwner } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { setDocumentType, setDpaMode } = useActions(legalDocumentsLogic)
-    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
+    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS') || true
 
     if (!isCloudOrDev) {
         return (

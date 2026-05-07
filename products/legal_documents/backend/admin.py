@@ -12,7 +12,6 @@ from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 import structlog
-from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.storage import object_storage
@@ -99,6 +98,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "representative_email",
         "status",
         "pandadoc_link",
+        "download_link",
         "created_by",
         "created_at",
         "updated_at",
@@ -136,6 +136,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                     "document_type",
                     "status",
                     "pandadoc_link",
+                    "download_link",
                 )
             },
         ),
@@ -283,19 +284,22 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             id=document.pandadoc_document_id,
         )
 
+    @admin.display(description="Signed PDF")
+    def download_link(self, document: LegalDocument) -> str | SafeString:
+        # The PDF only exists once the row is signed (PandaDoc-signed rows get
+        # the file via the completion webhook; admin-uploaded rows write it
+        # synchronously on save). Hide the link until there's something to fetch.
+        if document.status != LegalDocument.Status.SIGNED:
+            return "—"
+        url = f"/api/organizations/{document.organization_id}/legal_documents/{document.id}/download"
+        return format_html('<a href="{}" target="_blank" rel="noopener">Download PDF</a>', url)
 
-class LegalDocumentInline(TabularInlinePaginated):
-    """
-    Read-only list of an organization's legal documents, rendered as an inline
-    on the Organization admin page. The "Upload signed document" button in the
-    inline header links to the LegalDocumentAdmin add view with the
-    organization pre-filled via `?organization=<id>`.
-    """
+
+class LegalDocumentInline(admin.TabularInline):
+    """List of an organization's legal documents on the Organization admin."""
 
     model = LegalDocument
     extra = 0
-    per_page = 20
-    pagination_key = "page-legal-document"
     show_change_link = True
     template = "admin/legal_documents/edit_inline/tabular.html"
 
@@ -304,23 +308,11 @@ class LegalDocumentInline(TabularInlinePaginated):
         "company_name",
         "status",
         "pandadoc_link",
+        "download_link",
         "created_at",
     )
     readonly_fields = fields
-
     can_delete = False
-    max_num = 0
-
-    def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        # Adding goes through the LegalDocumentAdmin add view via the upload
-        # button rendered in the inline template — never inline.
-        return False
-
-    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return False
-
-    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return False
 
     @admin.display(description="PandaDoc")
     def pandadoc_link(self, document: LegalDocument) -> str | SafeString:
@@ -330,3 +322,10 @@ class LegalDocumentInline(TabularInlinePaginated):
             '<a href="https://app.pandadoc.com/a/#/documents/{id}" target="_blank" rel="noopener">{id}</a>',
             id=document.pandadoc_document_id,
         )
+
+    @admin.display(description="Signed PDF")
+    def download_link(self, document: LegalDocument) -> str | SafeString:
+        if document.status != LegalDocument.Status.SIGNED:
+            return "—"
+        url = f"/api/organizations/{document.organization_id}/legal_documents/{document.id}/download"
+        return format_html('<a href="{}" target="_blank" rel="noopener">Download PDF</a>', url)

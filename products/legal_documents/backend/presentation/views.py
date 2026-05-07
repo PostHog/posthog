@@ -23,6 +23,17 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "legal_document"
     permission_classes = [IsCloudOrDevDeployment, permissions.IsAuthenticated, IsOrganizationAdminOrOwner]
 
+    def dangerously_get_permissions(self) -> list[permissions.BasePermission]:
+        # Staff users (Django admin) need to download signed PDFs from the
+        # admin change view without first joining the customer's organization.
+        # The default permission chain adds OrganizationMemberPermissions which
+        # rejects them; bypass it here for the download action only. The
+        # download still scopes by URL-provided org_id inside the view, so a
+        # staff user can't grab a document that doesn't belong to that org.
+        if self.action == "download" and getattr(self.request.user, "is_staff", False):
+            return [IsCloudOrDevDeployment(), permissions.IsAuthenticated()]
+        raise NotImplementedError()
+
     @extend_schema(responses={200: LegalDocumentSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
         documents = api.list_for_organization(self.organization.id)

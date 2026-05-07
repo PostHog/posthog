@@ -79,7 +79,7 @@ export function LegalDocumentsScene(): JSX.Element {
     const { legalDocuments, legalDocumentsLoading, existingDocumentTypes } = useValues(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
+    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS') || true
 
     if (!isCloudOrDev) {
         return (
