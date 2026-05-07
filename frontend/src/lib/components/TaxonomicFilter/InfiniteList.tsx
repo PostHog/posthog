@@ -600,6 +600,11 @@ export const InfiniteListRow = ({
                               : itemGroup.name}
                     </LemonTag>
                 )}
+                {!isCrossGroupItem && isSelected && (
+                    <LemonTag size="small" type="primary">
+                        Currently selected
+                    </LemonTag>
+                )}
                 {isPinnable && (
                     <div
                         className="taxonomic-list-row-pin"

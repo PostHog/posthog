@@ -793,6 +793,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.contextFilteredPinnedItems,
                 s.suggestedPinnedMatches,
                 s.keywordShortcutItems,
+                s.value,
+                s.groupType,
+                s.taxonomicGroups,
             ],
             (
                 remoteItems,
@@ -803,7 +806,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 contextFilteredRecentItems,
                 contextFilteredPinnedItems,
                 suggestedPinnedMatches,
-                keywordShortcutItems
+                keywordShortcutItems,
+                value,
+                groupType,
+                taxonomicGroups
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
@@ -855,7 +861,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
                 // Real events with the same name remain accessible below the shortcut.
-                const combinedResults = [
+                let combinedResults: TaxonomicDefinitionTypes[] = [
                     ...currentSelectionItems,
                     ...keywordShortcutItems,
                     ...recentPrefix,
@@ -865,6 +871,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...remoteItems.results,
                     ...topMatches,
                 ]
+                // For non-suggested tabs that don't have their own pinning machinery, lift the
+                // currently-selected row to the top of the list so the user can see at a glance
+                // what's already chosen — without this it sits in alphabetical position.
+                // DataWarehouse has its own pin lifecycle via `getInitialPinnedRowIndex`; leaving
+                // its row order alone keeps that flow working.
+                if (
+                    !isSuggested &&
+                    listGroupType !== TaxonomicFilterGroupType.DataWarehouse &&
+                    value != null &&
+                    listGroupType === groupType
+                ) {
+                    const listGroup = taxonomicGroups.find((g) => g.type === listGroupType)
+                    const selectedIndex = combinedResults.findIndex((result) => {
+                        if (!result || isSkeletonItem(result)) {
+                            return false
+                        }
+                        const resultValue = listGroup?.getValue?.(result)
+                        if (resultValue == null) {
+                            return false
+                        }
+                        const normalizedValue =
+                            typeof resultValue === 'number' && typeof value === 'string' ? Number(value) : value
+                        return resultValue === normalizedValue
+                    })
+                    if (selectedIndex > 0) {
+                        const [selected] = combinedResults.splice(selectedIndex, 1)
+                        combinedResults = [selected, ...combinedResults]
+                    }
+                }
                 return {
                     results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
                     count:
