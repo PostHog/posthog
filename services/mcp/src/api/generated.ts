@@ -23425,6 +23425,46 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface _ObservabilityDateRange {
+      /**
+       * Start of the range. ISO 8601 or relative (-1h, -24h, -7d). Defaults to -24h when omitted.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * End of the range. Same format as date_from. Omit or null for "now".
+       * @nullable
+       */
+      date_to?: string | null;
+    }
+
+    export interface ObservabilitySignalSnapshotRequest {
+      /** Time window for both logs and span aggregates. Defaults to last 24 hours. */
+      dateRange?: _ObservabilityDateRange;
+      /** When set, restrict log and span aggregates to these service_name values. */
+      serviceNames?: string[];
+    }
+
+    export type ObservabilitySignalSnapshotResponseResolvedDateRange = {[key: string]: string};
+
+    export interface _LogServiceRow {
+      service_name: string;
+      count: number;
+    }
+
+    export interface ObservabilitySignalSnapshotResponse {
+      resolvedDateRange: ObservabilitySignalSnapshotResponseResolvedDateRange;
+      logServiceNames: _LogServiceRow[];
+      traceServiceNames: string[];
+      serviceNamesOverlap: string[];
+      logOnlyServiceNames: string[];
+      traceOnlyServiceNames: string[];
+      logsTotal: number;
+      logsWithJoinableTraceId: number;
+      joinableTraceIdPercent: number;
+      sampleJoinableTraceIds: string[];
+    }
+
     /**
      * * `later` - Later
     * `other` - Other

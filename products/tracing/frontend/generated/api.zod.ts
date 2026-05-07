@@ -9,6 +9,29 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Aggregates logs + trace_spans joinability and service-name overlap for agents.
+ */
+export const ObservabilitySignalSnapshotCreateBody = /* @__PURE__ */ zod.object({
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe('Start of the range. ISO 8601 or relative (-1h, -24h, -7d). Defaults to -24h when omitted.'),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the range. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('Time window for both logs and span aggregates. Defaults to last 24 hours.'),
+    serviceNames: zod
+        .array(zod.string())
+        .optional()
+        .describe('When set, restrict log and span aggregates to these service_name values.'),
+})
+
 export const tracingSpansQueryCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansQueryCreateBodyQueryOneLimitDefault = 100
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true

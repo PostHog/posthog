@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ObservabilitySignalSnapshotRequestApi,
+    ObservabilitySignalSnapshotResponseApi,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
@@ -16,6 +18,26 @@ import type {
     _TracingSparklineRequestApi,
     _TracingTraceRequestApi,
 } from './api.schemas'
+
+/**
+ * Aggregates logs + trace_spans joinability and service-name overlap for agents.
+ */
+export const getObservabilitySignalSnapshotCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/observability/signal-snapshot/`
+}
+
+export const observabilitySignalSnapshotCreate = async (
+    projectId: string,
+    observabilitySignalSnapshotRequestApi: ObservabilitySignalSnapshotRequestApi,
+    options?: RequestInit
+): Promise<ObservabilitySignalSnapshotResponseApi> => {
+    return apiMutator<ObservabilitySignalSnapshotResponseApi>(getObservabilitySignalSnapshotCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observabilitySignalSnapshotRequestApi),
+    })
+}
 
 export const getTracingSpansAttributesRetrieveUrl = (
     projectId: string,

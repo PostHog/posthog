@@ -159,3 +159,4 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
+- `investigating-apm-and-logs` — cross-signal triage with APM traces and logs (`products/posthog_ai/skills/investigating-apm-and-logs/SKILL.md`)

@@ -7,6 +7,46 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface _ObservabilityDateRangeApi {
+    /**
+     * Start of the range. ISO 8601 or relative (-1h, -24h, -7d). Defaults to -24h when omitted.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the range. Same format as date_from. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+export interface ObservabilitySignalSnapshotRequestApi {
+    /** Time window for both logs and span aggregates. Defaults to last 24 hours. */
+    dateRange?: _ObservabilityDateRangeApi
+    /** When set, restrict log and span aggregates to these service_name values. */
+    serviceNames?: string[]
+}
+
+export type ObservabilitySignalSnapshotResponseApiResolvedDateRange = { [key: string]: string }
+
+export interface _LogServiceRowApi {
+    service_name: string
+    count: number
+}
+
+export interface ObservabilitySignalSnapshotResponseApi {
+    resolvedDateRange: ObservabilitySignalSnapshotResponseApiResolvedDateRange
+    logServiceNames: _LogServiceRowApi[]
+    traceServiceNames: string[]
+    serviceNamesOverlap: string[]
+    logOnlyServiceNames: string[]
+    traceOnlyServiceNames: string[]
+    logsTotal: number
+    logsWithJoinableTraceId: number
+    joinableTraceIdPercent: number
+    sampleJoinableTraceIds: string[]
+}
+
 export interface _TracingDateRangeApi {
     /**
      * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.

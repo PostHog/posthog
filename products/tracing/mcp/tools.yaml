@@ -18,6 +18,30 @@ ui_apps:
         item_name_field: name
         click_prop: onSpanClick
 tools:
+    apm-logs-signal-snapshot:
+        operation: observability_signal_snapshot_create
+        enabled: true
+        scopes:
+            - tracing:read
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: APM and logs signal snapshot
+        description_file: ./prompts/apm-logs-signal-snapshot.md
+        response:
+            include:
+                - resolvedDateRange
+                - logServiceNames
+                - traceServiceNames
+                - serviceNamesOverlap
+                - logOnlyServiceNames
+                - traceOnlyServiceNames
+                - logsTotal
+                - logsWithJoinableTraceId
+                - joinableTraceIdPercent
+                - sampleJoinableTraceIds
     apm-attribute-values-list:
         operation: tracing_spans_values_retrieve
         enabled: true

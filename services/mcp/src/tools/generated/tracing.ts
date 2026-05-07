@@ -1,7 +1,9 @@
 // AUTO-GENERATED from products/tracing/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
+    ObservabilitySignalSnapshotCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
@@ -13,6 +15,44 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ApmLogsSignalSnapshotSchema = ObservabilitySignalSnapshotCreateBody
+
+const apmLogsSignalSnapshot = (): ToolBase<
+    typeof ApmLogsSignalSnapshotSchema,
+    Schemas.ObservabilitySignalSnapshotResponse
+> => ({
+    name: 'apm-logs-signal-snapshot',
+    schema: ApmLogsSignalSnapshotSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmLogsSignalSnapshotSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.dateRange !== undefined) {
+            body['dateRange'] = params.dateRange
+        }
+        if (params.serviceNames !== undefined) {
+            body['serviceNames'] = params.serviceNames
+        }
+        const result = await context.api.request<Schemas.ObservabilitySignalSnapshotResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/observability/signal-snapshot/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'resolvedDateRange',
+            'logServiceNames',
+            'traceServiceNames',
+            'serviceNamesOverlap',
+            'logOnlyServiceNames',
+            'traceOnlyServiceNames',
+            'logsTotal',
+            'logsWithJoinableTraceId',
+            'joinableTraceIdPercent',
+            'sampleJoinableTraceIds',
+        ]) as typeof result
+        return filtered
+    },
+})
 
 const ApmAttributeValuesListSchema = TracingSpansValuesRetrieveQueryParams
 
@@ -158,6 +198,7 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
     })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'apm-logs-signal-snapshot': apmLogsSignalSnapshot,
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,

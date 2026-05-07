@@ -185,6 +185,7 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
+from .observability import ObservabilitySignalSnapshotViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -1301,6 +1302,13 @@ environments_router.register(
     r"tracing/spans",
     TracingSpansViewSet,
     "environment_tracing_spans",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"observability/signal-snapshot",
+    ObservabilitySignalSnapshotViewSet,
+    "environment_observability_signal_snapshot",
     ["team_id"],
 )
 

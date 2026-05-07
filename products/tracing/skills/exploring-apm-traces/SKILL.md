@@ -14,6 +14,8 @@ PostHog captures distributed traces from OpenTelemetry. Each trace is a tree of 
 
 **Disambiguation:** This skill is for **APM / OpenTelemetry traces**. Do not confuse with **LLM analytics traces** (agent/model `$ai_*` events and LLM observability tools). **Logs** are a separate signal; use `posthog:query-logs` alongside spans when correlating (see below).
 
+**Cross-signal triage (logs + traces):** when the question is explicitly about _both_ signals—joinability, service-name mismatch, OTEL vs HTTP vs log severity, or infra vs app—load **`investigating-apm-and-logs`** ([`investigating-apm-and-logs`](../../../posthog_ai/skills/investigating-apm-and-logs/SKILL.md)) first; it composes this skill’s tools with logs MCP and optional `apm-logs-signal-snapshot`.
+
 ## MCP tools
 
 | Tool                                | Purpose                                                                                 |

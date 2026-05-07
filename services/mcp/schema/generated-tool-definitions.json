@@ -314,6 +314,21 @@
             "readOnlyHint": true
         }
     },
+    "apm-logs-signal-snapshot": {
+        "description": "Returns a **single JSON summary** of how well **logs** and **OpenTelemetry trace spans** overlap for a time window — not a full investigation.\n\nUse **`posthog:apm-logs-signal-snapshot`** at the start of cross-signal triage (before burning tokens on large `query-logs` or span pages).\n\n## Request body\n\n- **`dateRange`** (optional): `date_from` / `date_to` as ISO timestamps or relative strings (`-24h`, `-7d`). Defaults to last 24 hours when omitted.\n- **`serviceNames`** (optional): restrict both log and span aggregates to these `service_name` values.\n\n## Response fields (read these first)\n\n- **`resolvedDateRange`**: UTC bounds actually applied.\n- **`logsTotal`** / **`logsWithJoinableTraceId`** / **`joinableTraceIdPercent`**: share of log rows whose `trace_id` looks non-placeholder (non-empty, not all literal `0` characters after lowercasing). Low percent means you usually **cannot** jump from arbitrary log lines to `apm-trace-get`.\n- **`logServiceNames`**: `{ service_name, count }[]` from logs (top 100 by volume).\n- **`traceServiceNames`**: distinct span `service_name` values (up to 200).\n- **`serviceNamesOverlap`**, **`logOnlyServiceNames`**, **`traceOnlyServiceNames`**: set difference helpers — log “services” and trace “services” are **not** the same namespace.\n- **`sampleJoinableTraceIds`**: up to 10 example `trace_id` strings you can try with **`apm-trace-get`** when joinability is meaningful.\n\n## What this tool does **not** do\n\n- It does not return log bodies or span rows — use **`query-logs`** and **`query-apm-spans`** after you know whether correlation by `trace_id` is realistic.\n- It does not prove application health — empty or skewed results can mean missing instrumentation, different `service_name` labels, or proxy-only errors.\n\n## Required OAuth / API key scopes\n\nBoth **`tracing:read`** and **`logs:read`** are required.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "APM and logs signal snapshot",
+        "title": "APM and logs signal snapshot",
+        "required_scopes": ["tracing:read", "logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "apm-services-list": {
         "description": "List distinct service names that have emitted trace spans. Use to discover available services before filtering spans by service name.",
         "category": "Tracing",
