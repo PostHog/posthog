@@ -149,6 +149,8 @@ impl<O> BulkBatch<O> {
             .unwrap_or(false)
     }
 
+    /// Pre-size the buffer; floor at `items.len() * 256` so tiny-doc batches
+    /// still get sane capacity. Over-allocates worst-case, never reallocates.
     fn build_payload(&self) -> Vec<u8> {
         let mut payload = Vec::with_capacity(self.bytes_estimate.max(self.items.len() * 256));
         for item in &self.items {
@@ -228,10 +230,14 @@ impl<O: OffsetKey> BulkBatch<O> {
             }
         }
 
+        // Skips also gate against the barrier: a skip above LW must not commit
+        // ahead of an unresolved retryable below it.
         for offset in std::mem::take(&mut self.skip_offsets) {
             consider_for_commit(&mut commit, &low_water, offset);
         }
 
+        // Recompute anchors from retained items so the next age trigger
+        // reflects the oldest still-pending doc.
         self.items = retained;
         self.bytes_estimate = self
             .items
@@ -256,12 +262,16 @@ pub(crate) struct ProcessResult<O> {
     pub counts: OutcomeCounts,
 }
 
+/// Per-partition barrier: lowest retryable offset. Anything at or above this
+/// must not commit, or a crash would lose the retryable on restart. No entry
+/// means no barrier (all offsets free to commit).
 fn compute_low_water<O: OffsetKey>(
     items: &[PendingItem<O>],
     outcomes: &[ItemOutcome],
 ) -> HashMap<i32, i64> {
     let mut low_water: HashMap<i32, i64> = HashMap::new();
     for (item, outcome) in items.iter().zip(outcomes.iter()) {
+        // Only retryables establish the barrier; resolved items don't replay.
         if matches!(outcome, ItemOutcome::Retryable { .. }) {
             let p = item.offset.partition();
             let v = item.offset.value();
@@ -278,6 +288,9 @@ fn compute_low_water<O: OffsetKey>(
     low_water
 }
 
+/// Gate one offset against its partition's barrier. Offsets at or above the
+/// barrier are held back (even if resolved) so we don't skip past an
+/// unresolved retryable below them.
 fn consider_for_commit<O: OffsetKey>(
     commit: &mut HashMap<i32, O>,
     low_water: &HashMap<i32, i64>,
@@ -291,6 +304,8 @@ fn consider_for_commit<O: OffsetKey>(
     insert_max(commit, offset);
 }
 
+/// Keep the max-eligible offset per partition. Kafka offsets are monotonic,
+/// so storing the max covers every value below it.
 fn insert_max<O: OffsetKey>(map: &mut HashMap<i32, O>, candidate: O) {
     let key = candidate.partition();
     match map.get(&key) {
@@ -301,6 +316,8 @@ fn insert_max<O: OffsetKey>(map: &mut HashMap<i32, O>, candidate: O) {
     }
 }
 
+/// Conservative size estimate (never undercount). Heavy text fields exact,
+/// `+ 4` per tool covers quoting and separators, fudge absorbs the rest.
 fn approx_doc_bytes(doc: &IndexDoc) -> usize {
     let text_len = doc.input.as_ref().map(String::len).unwrap_or(0)
         + doc.output.as_ref().map(String::len).unwrap_or(0)
@@ -323,11 +340,10 @@ fn write_action_line(buf: &mut Vec<u8>, doc: &IndexDoc) {
 }
 
 /// Retries 5xx and transport errors with `1s → 60s` exponential backoff
-/// (uncapped attempt count — channel back-pressure pauses the consumer).
-/// When `shutdown_token` is wired and fires, both the retry sleeps and any
-/// in-flight POST are cancelled, returning `FlushError::ShutdownAborted` so
-/// the final flush can't outlive the lifecycle Manager's graceful-shutdown
-/// deadline.
+/// (uncapped: channel back-pressure pauses the consumer). With a shutdown
+/// token wired, retry sleeps and in-flight POSTs cancel into
+/// `FlushError::ShutdownAborted` so flushes can't outlive the lifecycle
+/// Manager's deadline.
 pub struct BulkWriter {
     client: reqwest::Client,
     url: String,
@@ -374,6 +390,8 @@ impl BulkWriter {
         }
     }
 
+    /// Three branches: empty (no-op), skip-only (commit offsets, no POST),
+    /// has items (full path: serialize, POST, classify, commit).
     pub async fn flush<O: StoreOffset>(
         &self,
         batch: &mut BulkBatch<O>,
@@ -473,6 +491,9 @@ impl BulkWriter {
         }
     }
 
+    /// Single attempt. Non-2xx becomes `HttpStatus`; `is_retryable` decides
+    /// retry vs bail. A 200 with `errors: true` is not an error here: it's the
+    /// "some items failed" case, classified per-item upstream.
     async fn try_post(&self, body: Bytes) -> Result<BulkResponse, FlushError> {
         let resp = self
             .client
@@ -493,6 +514,8 @@ impl BulkWriter {
     }
 }
 
+/// Mismatched response counts mean we can't safely zip outcomes to items.
+/// Bail (non-retryable); batch state is preserved for the next flush.
 fn check_item_count(received: usize, sent: usize) -> Result<(), FlushError> {
     if received == sent {
         Ok(())
@@ -563,7 +586,7 @@ struct BulkResponse {
 
 /// Each item is `{"index": {...}}`. We only emit `index` actions; if a future
 /// change adds `create`/`update`, this required field will fail to deserialize
-/// for those rows — `FlushError::Parse` is intentional so the change must be
+/// for those rows. `FlushError::Parse` is intentional so the change must be
 /// deliberate, not a silent miss in classification.
 #[derive(Debug, Deserialize)]
 struct BulkResponseItem {
@@ -1168,7 +1191,7 @@ mod tests {
         push_indexed(&mut b, 4, 0, 15);
         assert_eq!(b.items.len(), 2);
 
-        // Phase 2: both succeed — offset 15 wins per partition, 13 also resolves.
+        // Phase 2: both succeed; offset 15 wins per partition, 13 also resolves.
         let phase2 = vec![ItemOutcome::Success, ItemOutcome::Success];
         let r2 = b.process_response(phase2);
         assert_eq!(r2.counts.success, 2);
@@ -1319,7 +1342,7 @@ mod tests {
     #[tokio::test]
     async fn post_with_retry_aborts_during_in_flight_call_on_cancel() {
         // Token wired but not yet cancelled. Mock holds the response 5s.
-        // Cancel the token after 50ms — `try_post_with_cancel` must preempt
+        // Cancel the token after 50ms; `try_post_with_cancel` must preempt
         // the in-flight call within ~500ms, well under the held delay.
         // Without the wrapper, the call would wait the reqwest 120s timeout.
         let server = MockServer::start_async().await;
@@ -1400,7 +1423,7 @@ mod tests {
 
     #[tokio::test]
     async fn post_with_retry_succeeds_pre_shutdown_even_when_token_present() {
-        // Token wired but not cancelled — first attempt succeeds normally.
+        // Token wired but not cancelled; first attempt succeeds normally.
         let server = MockServer::start_async().await;
         let mock = server
             .mock_async(|when, then| {
@@ -1523,7 +1546,7 @@ mod tests {
             other => panic!("expected ItemCountMismatch, got {other:?}"),
         }
 
-        // Batch state is intact — items must remain so a follow-up flush can
+        // Batch state is intact: items must remain so a follow-up flush can
         // try again. Offsets must NOT have been stored.
         assert_eq!(batch.items.len(), 2);
         assert!(rec.lock().unwrap().is_empty());

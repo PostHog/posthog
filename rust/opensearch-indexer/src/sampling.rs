@@ -65,7 +65,7 @@ const COUNTER_TTL_SECONDS: u64 = 25 * 3600;
 
 /// Wall-clock budget for graceful drain of in-flight per-decision Redis writes
 /// during shutdown. Composed with the bulk writer's retry-and-cancel budget
-/// against the lifecycle Manager's `with_global_shutdown_timeout` (60s) — keep
+/// against the lifecycle Manager's `with_global_shutdown_timeout` (60s). Keep
 /// the sum well under that ceiling so the lifecycle backstop stays a backstop,
 /// not the primary exit mechanism.
 pub const DECISION_WRITE_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
@@ -189,7 +189,7 @@ pub(crate) async fn decide(
     if config.deny_teams.contains(&doc.team_id) {
         // Deny is observable so ops can see how much volume the rule is
         // suppressing per team. The decision write is the only Redis op for
-        // a denied event — we skip the floor INCR because no further logic
+        // a denied event; we skip the floor INCR because no further logic
         // depends on the count.
         spawn_per_decision_write(
             config.decision_writes.as_ref(),
@@ -215,7 +215,7 @@ pub(crate) async fn decide(
 }
 
 /// Spawn the per-team×decision daily counter write off the consumer's critical
-/// path. The consumer must not wait on this Redis op — its failure is an
+/// path. The consumer must not wait on this Redis op: its failure is an
 /// observability degradation, not a correctness signal, and a slow Redis would
 /// otherwise halve consumer throughput.
 ///
@@ -223,7 +223,7 @@ pub(crate) async fn decide(
 /// shared tokio Mutex briefly to register the spawn. Uncontended (only the
 /// consumer task spawns; the drain only runs after consumer exits) so the
 /// per-event cost is sub-microsecond. Revisit this design if sustained QPS
-/// approaches ~10k/sec — at that point a bounded mpsc channel + dedicated
+/// approaches ~10k/sec; at that point a bounded mpsc channel + dedicated
 /// consumer task is cheaper than the lock.
 ///
 /// **Unbounded growth:** the joinset has no upper bound. Under a Redis
@@ -299,11 +299,15 @@ async fn compute_active_decision(
         return Ok(Decision::IndexFloor);
     }
 
+    // Bucket on trace_id for cohesion; fall back to event_uuid when absent.
+    // Cow skips allocation in the trace_id case.
     let bucket_key: Cow<'_, str> = match &doc.trace_id {
         Some(t) => Cow::Borrowed(t.as_str()),
         None => Cow::Owned(doc.event_uuid.to_string()),
     };
     let bucket = stable_hash_bucket(&bucket_key);
+    // Integer compare avoids float precision at boundaries. Clamp guards a
+    // misconfigured global default (per-team overrides validate at startup).
     let threshold = (rate.clamp(0.0, 1.0) * 1_000.0) as u64;
     Ok(if bucket < threshold {
         Decision::IndexSample
@@ -798,7 +802,7 @@ mod tests {
 
     #[tokio::test]
     async fn decide_swallows_hincrby_failure() {
-        // The per-decision HINCRBY runs in a spawned task — its failure must
+        // The per-decision HINCRBY runs in a spawned task; its failure must
         // not affect the decision returned to the caller. Without spawn, an
         // awaited HINCRBY would block the consumer; with spawn, the decision
         // is returned before the task is even polled.
@@ -852,7 +856,7 @@ mod tests {
     fn decision_label_strings_are_pinned() {
         // These strings are persisted in Redis hash fields and exposed as
         // Prometheus label values. A rename here re-buckets historical data
-        // silently — keep this test in lockstep with `Decision::label()` and
+        // silently. Keep this test in lockstep with `Decision::label()` and
         // think hard about migrations before changing any value.
         assert_eq!(Decision::Drop.label(), "drop");
         assert_eq!(Decision::IndexFloor.label(), "floor");

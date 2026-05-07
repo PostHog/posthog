@@ -20,7 +20,7 @@ use crate::{
 /// of the consumer loop so the fail-open behavior is unit-testable without
 /// constructing a Kafka consumer.
 ///
-/// Anything other than `Ok(Decision::Drop | Decision::Deny)` indexes —
+/// Anything other than `Ok(Decision::Drop | Decision::Deny)` indexes,
 /// including any `Err(_)`, which is the fail-open commit. Reversing the
 /// `Err(_)` arm to `SinkMsg::Skip` would silently drop events during a
 /// Redis outage.
@@ -36,7 +36,7 @@ fn classify_for_sink(
 
 /// Map a `decide()` result onto the value used as the `decision` label on the
 /// aggregate Prometheus counter. `Err` is its own label ("redis_error") rather
-/// than collapsing onto an Ok variant — the fail-open IndexFloor commit and a
+/// than collapsing onto an Ok variant: the fail-open IndexFloor commit and a
 /// Redis outage are operationally distinct events.
 fn decision_label(result: &Result<Decision, CustomRedisError>) -> &'static str {
     match result {
@@ -51,7 +51,7 @@ fn decision_label(result: &Result<Decision, CustomRedisError>) -> &'static str {
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 
 // Timer cadence for the sink's age-based flush check. Independent of the configured
-// max-age threshold — the timer just wakes us up to evaluate `should_flush_age`.
+// max-age threshold; the timer just wakes us up to evaluate `should_flush_age`.
 // Picking 250ms keeps worst-case flush latency under (max_age + 250ms) without
 // burning CPU on a hot loop.
 const SINK_TIMER_INTERVAL: Duration = Duration::from_millis(250);
@@ -66,7 +66,7 @@ const RETRY_AFTER_JITTER_MAX: Duration = Duration::from_millis(500);
 
 /// Send `item` on `tx`, but bail with `ControlFlow::Break` if the shutdown
 /// token cancels first. `biased` ensures cancellation deterministically wins
-/// over a blocked send (channel full, sink slow) — without it, dropping the
+/// over a blocked send (channel full, sink slow). Without it, dropping the
 /// `biased` keyword or reordering the arms would silently re-introduce the
 /// "SIGTERM during blocked send drops in-flight item" race.
 async fn send_or_shutdown<T>(
@@ -93,7 +93,7 @@ async fn send_or_shutdown<T>(
 /// Drain `clickhouse_events_json`, classify each event, and forward the result
 /// (with its Kafka offset) to the sink so offsets commit in receive order.
 ///
-/// Both `$ai_*` matches and skips travel through the channel — the sink commits
+/// Both `$ai_*` matches and skips travel through the channel; the sink commits
 /// each offset only after the message ahead of it on that partition has been
 /// processed. Committing offsets in the consumer would let a skipped event at
 /// offset N+1 advance the partition past an in-flight `IndexDoc` at offset N

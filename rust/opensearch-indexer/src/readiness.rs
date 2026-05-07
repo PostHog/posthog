@@ -7,7 +7,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_WAIT: Duration = Duration::from_secs(60);
 
 /// Block until `GET /_alias/<alias>` returns 200, or fail after `MAX_WAIT`.
-/// The indexer refuses to start if the alias is missing — auto-creating an
+/// The indexer refuses to start if the alias is missing: auto-creating an
 /// index would silently produce wrong mappings, so we'd rather page the
 /// operator than ingest into a bad target.
 ///
@@ -106,7 +106,7 @@ mod tests {
         let gate =
             tokio::spawn(async move { wait_for_alias(&client(), &url, "llm-traces", token).await });
 
-        // After ~1.5s replace the 404 mock with a 200 mock — the gate's next
+        // After ~1.5s replace the 404 mock with a 200 mock; the gate's next
         // poll (POLL_INTERVAL = 2s) will succeed.
         tokio::time::sleep(Duration::from_millis(1500)).await;
         miss.delete_async().await;

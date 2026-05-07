@@ -165,10 +165,10 @@ mod tests {
     }
 }
 
-/// Channel message between the consumer and the sink. `Skip` carries no payload —
-/// it just lets the sink advance the partition offset in receive order so a
-/// non-`$ai_*` event landing after an in-flight `Index(...)` can't commit ahead of
-/// it.
+/// Channel message between the consumer and the sink. `Skip` carries no
+/// payload; it just lets the sink advance the partition offset in receive
+/// order so a non-`$ai_*` event landing after an in-flight `Index(...)` can't
+/// commit ahead of it.
 ///
 /// `IndexDoc` is boxed so each channel slot is pointer-sized; otherwise mpsc
 /// pre-allocates the largest variant on every slot, including the cheap `Skip`s.

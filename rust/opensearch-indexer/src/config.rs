@@ -53,7 +53,7 @@ pub struct Config {
 
     // JSON map of per-team overrides for floor + above-floor rate. Empty string
     // means no overrides. Format: {"42":{"floor":50000,"rate":0.5}, ...}.
-    // Invalid JSON or invalid team_id key fails startup so a typo is loud, not silent.
+    // Invalid JSON or invalid team_id key fails startup.
     #[envconfig(default = "")]
     pub team_overrides: TeamOverridesEnv,
 }
