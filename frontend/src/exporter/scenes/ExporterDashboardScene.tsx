@@ -1,4 +1,5 @@
-import { useCallback, useEffect } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -7,25 +8,35 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { scheduleSharedDashboardStaleAutoForceIfEligible } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardPlacement } from '~/types'
+import { DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { ExportType, ExportedData } from '../types'
 
-function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
-    const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public })
-    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = logic.actions
+function SharedDashboardAutoRefresh({
+    dashboardId,
+    dashboard,
+}: {
+    dashboardId: number
+    dashboard: DashboardType<QueryBasedInsightModel>
+}): JSX.Element | null {
+    // Pass `dashboard` so dashboardLogic.afterMount uses the cached branch
+    // (loadDashboardSuccess) instead of firing an unauthenticated loadDashboard,
+    // matching the props <Dashboard> binds with via BindLogic.
+    const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public, dashboard })
+    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = useActions(logic)
+    const { effectiveLastRefresh } = useValues(logic)
 
     const onVisibilityChange = useCallback(
         (visible: boolean) => {
             setPageVisibility(visible)
             if (visible) {
                 scheduleSharedDashboardStaleAutoForceIfEligible({
-                    effectiveLastRefresh: logic.values.effectiveLastRefresh,
+                    effectiveLastRefresh,
                     triggerDashboardRefresh: () => void triggerDashboardRefresh(),
                 })
             }
         },
-        [setPageVisibility, triggerDashboardRefresh, logic]
+        [setPageVisibility, triggerDashboardRefresh, effectiveLastRefresh]
     )
     usePageVisibilityCb(onVisibilityChange)
 
@@ -45,12 +56,15 @@ export default function ExporterDashboardScene({
     type: ExportedData['type']
     themes: ExportedData['themes']
 }): JSX.Element {
+    const queryBasedDashboard = useMemo(() => getQueryBasedDashboard(dashboard)!, [dashboard])
     return (
         <>
-            {type !== ExportType.Image && <SharedDashboardAutoRefresh dashboardId={dashboard.id} />}
+            {type !== ExportType.Image && (
+                <SharedDashboardAutoRefresh dashboardId={dashboard.id} dashboard={queryBasedDashboard} />
+            )}
             <Dashboard
                 id={String(dashboard.id)}
-                dashboard={getQueryBasedDashboard(dashboard)!}
+                dashboard={queryBasedDashboard}
                 placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 themes={themes}
             />
