@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
@@ -8,8 +8,6 @@ import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { BotEventsPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
-
-const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 export const LiveBotTiles = (): JSX.Element => {
     const { chartData, botBreakdown, totalBotEvents, totalBotEligibleEvents, isLoading } =
@@ -25,6 +23,7 @@ export const LiveBotTiles = (): JSX.Element => {
         }
     }, [isVisible, resumeStream, pauseStream])
 
+    const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
     const botShare = totalBotEligibleEvents > 0 ? Math.round((totalBotEvents / totalBotEligibleEvents) * 100) : null
 
     return (
@@ -40,7 +39,7 @@ export const LiveBotTiles = (): JSX.Element => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <LiveChartCard
                     title="Bot requests per minute"
-                    subtitle={TIMEZONE}
+                    subtitle={timezone}
                     subtitleTooltip="Metrics are shown in your local timezone"
                     isLoading={isLoading}
                     contentClassName="h-64 md:h-80"
