@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -19,16 +19,15 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ApiConfig } from '~/lib/api'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MarkdownOutline } from '../components/MarkdownOutline'
-import { llmSkillsNameFilesRetrieve } from '../generated/api'
-import type { LLMSkillFileApi, LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
+import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
+import { skillFileLogic } from './skillFileLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
@@ -533,52 +532,21 @@ function SkillFileViewer({
     version?: number
     autoOpen?: boolean
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(autoOpen)
-    const [content, setContent] = useState<string | null>(null)
-    const [loading, setLoading] = useState(false)
+    const logicProps = { skillName, filePath: file.path, version }
+    const { expanded, content, contentLoading } = useValues(skillFileLogic(logicProps))
+    const { toggleExpand, autoOpen: triggerAutoOpen } = useActions(skillFileLogic(logicProps))
     const containerRef = useRef<HTMLDivElement | null>(null)
-
-    const loadFileContent = useCallback(async () => {
-        setLoading(true)
-        try {
-            const fileData: LLMSkillFileApi = await llmSkillsNameFilesRetrieve(
-                String(ApiConfig.getCurrentTeamId()),
-                skillName,
-                file.path,
-                { version }
-            )
-            setContent(fileData.content)
-        } catch (e) {
-            console.error('Failed to load file content', e)
-            setContent('Failed to load file content.')
-        } finally {
-            setLoading(false)
-        }
-    }, [skillName, file.path, version])
-
-    const toggleExpand = useCallback(async () => {
-        if (expanded) {
-            setExpanded(false)
-            return
-        }
-        if (content === null) {
-            await loadFileContent()
-        }
-        setExpanded(true)
-    }, [expanded, content, loadFileContent])
 
     useEffect(() => {
         if (!autoOpen) {
             return
         }
-        setExpanded(true)
-        // Refetch when version (and thus loadFileContent identity) changes, so we don't show stale content from a previous version.
-        void loadFileContent()
+        triggerAutoOpen()
         const id = requestAnimationFrame(() => {
             containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         })
         return () => cancelAnimationFrame(id)
-    }, [autoOpen, loadFileContent])
+    }, [autoOpen, triggerAutoOpen])
 
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
@@ -588,7 +556,7 @@ function SkillFileViewer({
             <button
                 type="button"
                 className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-sm hover:bg-fill-secondary"
-                onClick={toggleExpand}
+                onClick={() => toggleExpand()}
                 data-attr={`llma-skill-file-toggle-${file.path}`}
             >
                 <IconChevronRight
@@ -600,7 +568,7 @@ function SkillFileViewer({
             </button>
             {expanded && (
                 <div className="border-t bg-bg-light px-3 py-2">
-                    {loading ? (
+                    {contentLoading ? (
                         <div className="space-y-2">
                             <LemonSkeleton active className="h-3 w-full" />
                             <LemonSkeleton active className="h-3 w-3/4" />
