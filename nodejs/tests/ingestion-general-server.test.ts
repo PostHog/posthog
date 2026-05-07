@@ -40,13 +40,4 @@ describe('ingestion general server', () => {
         await server.start()
         expect(process.exit).not.toHaveBeenCalledWith(1)
     })
-
-    it('should not error on startup - ingestion_v2_testing', async () => {
-        server = new IngestionGeneralServer({
-            LOG_LEVEL: 'debug',
-            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2_testing,
-        })
-        await server.start()
-        expect(process.exit).not.toHaveBeenCalledWith(1)
-    })
 })

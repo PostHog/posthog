@@ -34,7 +34,6 @@ export enum PluginServerMode {
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
-    ingestion_v2_testing = 'ingestion-v2-testing',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',

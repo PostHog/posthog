@@ -38,10 +38,8 @@ import {
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
-import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -196,84 +194,65 @@ export class IngestionGeneralServer implements NodeServer {
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
-        const isTestingMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_testing
         const isCombinedMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_combined
 
-        if (isTestingMode) {
-            serviceLoaders.push(async () => {
-                const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
+        // Build producer registry — producer creation blocks until the broker
+        // is reachable (rdkafka retries indefinitely), so the server will hang
+        // here if a broker is down and the pod never becomes healthy.
+        this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+        const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
-                const consumer = new IngestionTestingConsumer(this.config, {
-                    kafkaProducer: kafkaWarpStreamProducer,
-                    teamManager,
-                })
-                await consumer.start()
-                return consumer.service
-            })
-        } else {
-            // Build producer registry — producer creation blocks until the broker
-            // is reachable (rdkafka retries indefinitely), so the server will hang
-            // here if a broker is down and the pod never becomes healthy.
-            this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
-                this.config
-            )
-            const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
-            const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+        const hogTransformerDeps: HogTransformerServiceDeps = {
+            geoipService,
+            postgres: this.postgres,
+            pubSub: this.pubsub,
+            encryptedFields,
+            integrationManager,
+            monitoringOutputs: ingestionOutputs,
+            teamManager,
+        }
 
-            const hogTransformerDeps: HogTransformerServiceDeps = {
-                geoipService,
-                postgres: this.postgres,
-                pubSub: this.pubsub,
-                encryptedFields,
-                integrationManager,
-                monitoringOutputs: ingestionOutputs,
-                teamManager,
-            }
+        const ingestionDeps: IngestionConsumerDeps = {
+            postgres: this.postgres,
+            redisPool: this.redisPool,
+            outputs: ingestionOutputs,
+            teamManager,
+            groupTypeManager,
+            groupRepository,
+            clickhouseGroupRepository,
+            personRepository,
+            cookielessManager: this.cookielessManager,
+            hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+        }
 
-            const ingestionDeps: IngestionConsumerDeps = {
-                postgres: this.postgres,
-                redisPool: this.redisPool,
-                outputs: ingestionOutputs,
-                teamManager,
-                groupTypeManager,
-                groupRepository,
-                clickhouseGroupRepository,
-                personRepository,
-                cookielessManager: this.cookielessManager,
-                hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-            }
+        if (isCombinedMode) {
+            // Local dev / hobby: run multiple consumers for all ingestion topics in one process
+            const consumersOptions = [
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
+                { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
+            ]
 
-            if (isCombinedMode) {
-                // Local dev / hobby: run multiple consumers for all ingestion topics in one process
-                const consumersOptions = [
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-                    { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
-                    { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
-                ]
-
-                for (const consumerOption of consumersOptions) {
-                    serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(this.config, ingestionDeps, {
-                            INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                            INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                        })
-                        await consumer.start()
-                        return consumer.service
-                    })
-                }
-            } else {
-                // Production ingestion-v2: single consumer using config-provided topic
+            for (const consumerOption of consumersOptions) {
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                    const consumer = new IngestionConsumer(this.config, ingestionDeps, {
+                        INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                        INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                    })
                     await consumer.start()
                     return consumer.service
                 })
             }
+        } else {
+            // Production ingestion-v2: single consumer using config-provided topic
+            serviceLoaders.push(async () => {
+                const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                await consumer.start()
+                return consumer.service
+            })
         }
 
         // ServerCommands is always created

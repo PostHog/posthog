@@ -25,11 +25,3 @@ export {
     AnalyticsPipelineDeps,
     AnalyticsPipelineInput,
 } from './pipeline'
-
-export {
-    createTestingJoinedIngestionPipeline,
-    TestingJoinedIngestionPipelineConfig,
-    TestingJoinedIngestionPipelineContext,
-    TestingJoinedIngestionPipelineDeps,
-    TestingJoinedIngestionPipelineInput,
-} from './testing-joined-ingestion-pipeline'

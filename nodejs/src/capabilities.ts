@@ -167,7 +167,6 @@ export function getPluginServerCapabilities(
                 cdpCyclotronV2Janitor: true,
             }
         case PluginServerMode.ingestion_v2:
-        case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
         case PluginServerMode.ingestion_api:
