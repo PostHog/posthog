@@ -1,12 +1,12 @@
 import datetime
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
