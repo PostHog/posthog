@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconWithCount } from 'lib/lemon-ui/icons'
@@ -16,11 +17,13 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
+import { BulkSelectionBar } from './BulkSelectionBar'
 import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
-import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
+import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
+import { BulkSelectionConfig, useBulkSelection } from './useBulkSelection'
 
 export interface LemonTableProps<T extends Record<string, any>> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -96,6 +99,9 @@ export interface LemonTableProps<T extends Record<string, any>> {
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
     hideSortingIndicatorWhenInactive?: boolean
+    /** Enable bulk-selection — adds a leading checkbox column and renders the consumer-provided
+     *  action bar above the table whenever any rows are selected. */
+    bulkSelection?: BulkSelectionConfig<T>
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -136,7 +142,13 @@ export function LemonTable<T extends Record<string, any>>({
     allowContentScroll = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
+    bulkSelection,
 }: LemonTableProps<T>): JSX.Element {
+    if (bulkSelection && !bulkSelection.getKey && rowKey === undefined) {
+        throw new Error(
+            'LemonTable `bulkSelection` requires either `bulkSelection.getKey` or a `rowKey` (string or function) to identify rows'
+        )
+    }
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
 
@@ -167,7 +179,7 @@ export function LemonTable<T extends Record<string, any>>({
         [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
-    const columnGroups = useMemo(
+    const baseColumnGroups = useMemo(
         () =>
             (rawColumns.length > 0 && 'children' in rawColumns[0]
                 ? rawColumns
@@ -178,14 +190,14 @@ export function LemonTable<T extends Record<string, any>>({
                   ]) as LemonTableColumnGroup<T>[],
         [rawColumns]
     )
-    const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
+    const baseColumns = useMemo(() => baseColumnGroups.flatMap((group) => group.children), [baseColumnGroups])
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
         columnKeys: pinnedColumns,
-        columns,
+        columns: baseColumns,
     })
 
     /** Sorting. */
@@ -207,7 +219,7 @@ export function LemonTable<T extends Record<string, any>>({
     const sortedDataSource = useMemo(() => {
         if (currentSorting) {
             const { columnKey: sortColumnKey, order: sortOrder } = currentSorting
-            const sorter = columns.find(
+            const sorter = baseColumns.find(
                 (searchColumn) => searchColumn.sorter && determineColumnKey(searchColumn, 'sorting') === sortColumnKey
             )?.sorter
             if (typeof sorter === 'function') {
@@ -215,9 +227,84 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting, columns])
+    }, [dataSource, currentSorting, baseColumns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
+
+    const resolveRowKey = useMemo(() => {
+        if (bulkSelection?.getKey) {
+            return bulkSelection.getKey
+        }
+        if (typeof rowKey === 'function') {
+            return (record: T): string | number => rowKey(record, 0)
+        }
+        if (typeof rowKey === 'string') {
+            const key = rowKey
+            return (record: T): string | number => record[key]
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        return (_record: T): string | number => 0
+    }, [bulkSelection, rowKey])
+
+    const bulk = useBulkSelection<T>({
+        pageRecords: paginationState.dataSourcePage,
+        getKey: resolveRowKey,
+        isRowSelectable: bulkSelection?.isRowSelectable,
+        handleRef: bulkSelection?.handleRef,
+    })
+
+    const selectionColumn = useMemo<LemonTableColumn<T, undefined> | null>(() => {
+        if (!bulkSelection) {
+            return null
+        }
+        return {
+            key: '__bulk-selection__',
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
+                    onChange={bulk.toggleAllOnPage}
+                    aria-label={bulkSelection.headerAriaLabel ?? 'Select all on this page'}
+                    disabledReason={!bulk.pageHasSelectableRows ? 'No rows on this page can be selected' : null}
+                />
+            ),
+            render: function RenderBulkSelectionCell(_, record: T, recordIndex: number) {
+                const key = resolveRowKey(record)
+                const pageIndex = recordIndex - paginationState.currentStartIndex
+                const gate = bulkSelection.isRowSelectable ? bulkSelection.isRowSelectable(record, pageIndex) : true
+                const disabledReason: string | null =
+                    gate === false
+                        ? 'Selection disabled'
+                        : typeof gate === 'object' && gate !== null
+                          ? gate.disabledReason
+                          : null
+                return (
+                    <LemonCheckbox
+                        checked={bulk.selectedKeysSet.has(key)}
+                        onChange={() => bulk.toggleRow(key, pageIndex)}
+                        disabledReason={disabledReason}
+                        aria-label={bulkSelection.rowAriaLabel?.(record)}
+                    />
+                )
+            },
+        }
+    }, [bulkSelection, bulk, resolveRowKey, paginationState.currentStartIndex])
+
+    const columnGroups = useMemo<LemonTableColumnGroup<T>[]>(() => {
+        if (!selectionColumn) {
+            return baseColumnGroups
+        }
+        return baseColumnGroups.map((group, index) =>
+            index === 0
+                ? {
+                      ...group,
+                      children: [selectionColumn as LemonTableColumn<T, keyof T | undefined>, ...group.children],
+                  }
+                : group
+        )
+    }, [baseColumnGroups, selectionColumn])
+
+    const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
     const previousPageRef = useRef<number | null>(null)
 
     useEffect(() => {
@@ -279,6 +366,7 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
+            {bulkSelection && <BulkSelectionBar context={bulk.context} config={bulkSelection} />}
             <ScrollableShadows
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction={allowContentScroll ? undefined : 'horizontal'}

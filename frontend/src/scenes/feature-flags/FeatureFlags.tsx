@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
-import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -18,7 +17,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { BulkSelectionHandle, LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -312,7 +311,7 @@ export const scene: SceneExport = {
     productKey: ProductKey.FEATURE_FLAGS,
 }
 
-export function OverViewTab({
+export function OverviewTab({
     flagPrefix = '',
     searchPlaceholder = 'Search for feature flags (or experiment keys)',
     nouns = ['feature flag', 'feature flags'],
@@ -334,20 +333,39 @@ export function OverViewTab({
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const {
-        selectedCount,
-        isAllSelected,
-        isSomeSelected,
         bulkDeleteResponseLoading,
-        showSelectAllMatchingBanner,
-        totalMatchingCount,
-        allMatchingSelected,
+        matchingFlagIds,
         matchingFlagIdsLoading,
+        bulkDeleteResponse,
+        allMatchingSelected,
     } = useValues(flagSelectionLogic)
-    const { selectAllOnPage, selectAllMatching, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { selectAllMatching, bulkDeleteFlags, setAllMatchingSelected } = useActions(flagSelectionLogic)
 
-    const allPageItems = displayedFlags
-        .filter((f: FeatureFlagType) => f.id !== null)
-        .map((f: FeatureFlagType) => ({ id: f.id as number, isEditable: f.can_edit }))
+    const selectionHandleRef = useRef<BulkSelectionHandle | null>(null)
+    const lastAppliedMatchingFlagIdsRef = useRef<typeof matchingFlagIds>(null)
+    const lastSeenBulkDeleteResponseRef = useRef<typeof bulkDeleteResponse>(null)
+
+    useEffect(() => {
+        if (
+            matchingFlagIds &&
+            matchingFlagIds !== lastAppliedMatchingFlagIdsRef.current &&
+            selectionHandleRef.current
+        ) {
+            selectionHandleRef.current.setSelectedKeys(matchingFlagIds.ids)
+            lastAppliedMatchingFlagIdsRef.current = matchingFlagIds
+        }
+    }, [matchingFlagIds])
+
+    useEffect(() => {
+        if (
+            bulkDeleteResponse &&
+            bulkDeleteResponse !== lastSeenBulkDeleteResponseRef.current &&
+            selectionHandleRef.current
+        ) {
+            selectionHandleRef.current.clearSelection()
+            lastSeenBulkDeleteResponseRef.current = bulkDeleteResponse
+        }
+    }, [bulkDeleteResponse])
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -356,34 +374,6 @@ export function OverViewTab({
     const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
-        {
-            key: 'selection',
-            width: 32,
-            title: (
-                <LemonCheckbox
-                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
-                    onChange={() => selectAllOnPage(allPageItems)}
-                    aria-label="Select all feature flags on this page"
-                />
-            ),
-            render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
-                if (featureFlag.id === null) {
-                    return null
-                }
-                return (
-                    <SelectionCheckbox
-                        resource="feature_flags"
-                        id={featureFlag.id}
-                        index={index}
-                        allPageItems={allPageItems}
-                        disabledReason={
-                            !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
-                        }
-                        ariaLabel={`Select feature flag ${featureFlag.key}`}
-                    />
-                )
-            },
-        },
         {
             title: 'Key',
             dataIndex: 'key',
@@ -552,52 +542,6 @@ export function OverViewTab({
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
-            {selectedCount > 0 && (
-                <div className="flex items-center justify-end gap-2 min-h-9">
-                    <BulkActionToolbar resource="feature_flags">
-                        {allMatchingSelected && (
-                            <span className="text-muted text-sm">All {selectedCount} matching flags selected</span>
-                        )}
-                        {showSelectAllMatchingBanner && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={selectAllMatching}
-                                loading={matchingFlagIdsLoading}
-                            >
-                                Select all {totalMatchingCount} matching flags
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            type="primary"
-                            status="danger"
-                            size="small"
-                            icon={<IconTrash />}
-                            loading={bulkDeleteResponseLoading}
-                            onClick={() => {
-                                const description = `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
-                                LemonDialog.open({
-                                    title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
-                                    description,
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => bulkDeleteFlags(),
-                                        size: 'small',
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'tertiary',
-                                        size: 'small',
-                                    },
-                                })
-                            }}
-                        >
-                            {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
-                        </LemonButton>
-                    </BulkActionToolbar>
-                </div>
-            )}
             <BulkDeleteResultsModal />
 
             <LemonTable
@@ -622,6 +566,84 @@ export function OverViewTab({
                         page: 1,
                     })
                 }
+                bulkSelection={{
+                    getKey: (flag: FeatureFlagType) => flag.id ?? -1,
+                    isRowSelectable: (flag: FeatureFlagType) =>
+                        flag.id === null
+                            ? false
+                            : flag.can_edit
+                              ? true
+                              : { disabledReason: "You don't have permission to edit this feature flag." },
+                    rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
+                    headerAriaLabel: 'Select all feature flags on this page',
+                    noun: ['flag', 'flags'],
+                    handleRef: selectionHandleRef,
+                    renderActions: (ctx) => {
+                        const totalMatchingCount = effectiveCount
+                        const showSelectAllMatchingBanner =
+                            !allMatchingSelected &&
+                            ctx.selectedCount >= FLAGS_PER_PAGE &&
+                            totalMatchingCount > ctx.selectedCount
+                        return (
+                            <>
+                                {allMatchingSelected && (
+                                    <span className="text-muted text-sm">
+                                        All {ctx.selectedCount} matching flags selected
+                                    </span>
+                                )}
+                                {showSelectAllMatchingBanner && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={selectAllMatching}
+                                        loading={matchingFlagIdsLoading}
+                                    >
+                                        Select all {totalMatchingCount} matching flags
+                                    </LemonButton>
+                                )}
+                                <BulkUpdateTagsButton
+                                    resource="feature_flags"
+                                    selectedIds={ctx.selectedKeys as ReadonlyArray<number>}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        setAllMatchingSelected(false)
+                                    }}
+                                />
+                                <LemonButton
+                                    type="primary"
+                                    status="danger"
+                                    size="small"
+                                    icon={<IconTrash />}
+                                    loading={bulkDeleteResponseLoading}
+                                    onClick={() => {
+                                        const description = `Are you sure you want to delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
+                                        LemonDialog.open({
+                                            title: `Delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}?`,
+                                            description,
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () =>
+                                                    bulkDeleteFlags({
+                                                        ids: ctx.selectedKeys as number[],
+                                                        allMatching: allMatchingSelected,
+                                                    }),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
+                                </LemonButton>
+                            </>
+                        )
+                    },
+                }}
             />
         </SceneContent>
     )
@@ -698,7 +720,7 @@ export function FeatureFlags(): JSX.Element {
                     {
                         key: FeatureFlagsTab.OVERVIEW,
                         label: 'Overview',
-                        content: <OverViewTab />,
+                        content: <OverviewTab />,
                     },
                     ...(showProjectsTab
                         ? [
