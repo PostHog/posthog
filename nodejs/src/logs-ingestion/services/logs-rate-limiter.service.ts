@@ -67,15 +67,10 @@ export class LogsRateLimiterService {
         this.disabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_DISABLED_FOR_TEAMS)
         this.enabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_ENABLED_TEAMS)
         this.rateLimiter = new KeyedRateLimiterService(
-            {
-                name: LIMITER_NAME,
-                bucketSize: config.LOGS_LIMITER_BUCKET_SIZE_KB,
-                refillRate: config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
-                ttlSeconds: config.LOGS_LIMITER_TTL_SECONDS,
-                // Preserves the legacy behaviour: the consumer relies on the throw to
-                // surface Redis outages rather than silently letting all logs through.
-                failOpen: false,
-            },
+            // Bucket params are passed per-request so live `this.config` mutations
+            // (used in tests) take effect. failOpen=false preserves the legacy
+            // throw-on-Redis-outage behaviour.
+            { name: LIMITER_NAME, failOpen: false },
             redis
         )
     }
@@ -144,8 +139,9 @@ export class LogsRateLimiterService {
                 id,
                 cost,
                 now: nowSeconds,
-                bucketSize: this.teamBucketSizes.get(teamId),
-                refillRate: this.teamRefillRates.get(teamId),
+                bucketSize: this.teamBucketSizes.get(teamId) ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB,
+                refillRate: this.teamRefillRates.get(teamId) ?? this.config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
+                ttlSeconds: this.config.LOGS_LIMITER_TTL_SECONDS,
             }
         })
         const results = await this.rateLimiter.rateLimitMany(requests)
