@@ -47,6 +47,20 @@ class TestLinkedinAdsHelperFunctions:
 
         assert result == ("sponsoredCampaign", 12345678)
 
+    @pytest.mark.parametrize(
+        "malformed",
+        [
+            "not-a-urn",
+            "urn:li:sponsoredCampaign",  # missing id segment
+            "urn:li:sponsoredCampaign:not-an-int",
+            "urn:li:sponsoredCampaign:123:extra",  # too many segments
+            "",
+        ],
+    )
+    def test_extract_type_and_id_from_urn_malformed_returns_none(self, malformed):
+        """Bad URNs return None instead of raising."""
+        assert _extract_type_and_id_from_urn(malformed) is None
+
     def test_convert_date_object_to_date_valid(self):
         """Test converting LinkedIn date object to Python date."""
         date_obj = {"year": 2024, "month": 3, "day": 15}
@@ -239,7 +253,86 @@ class TestFlattenLinkedinRecord:
 
         result = _flatten_linkedin_record(record, schema)
 
+        assert result is not None
         assert result["missing_field"] is None
+
+    def test_flatten_creative_id_urn_extracted_to_int(self):
+        """Creative `id` URN → int, so it joins with `creative_id` in creative_stats."""
+        record = {"id": "urn:li:sponsoredCreative:147756353"}
+        schema = LinkedinAdsSchema(
+            name="creatives",
+            primary_keys=["id"],
+            field_names=["id"],
+            partition_keys=[],
+            partition_mode=None,
+            partition_format=None,
+            is_stats=False,
+            partition_size=1,
+        )
+
+        result = _flatten_linkedin_record(record, schema)
+
+        assert result is not None
+        assert result["id"] == 147756353
+        assert isinstance(result["id"], int)
+
+    def test_flatten_drops_record_when_pk_urn_is_malformed(self):
+        """Malformed PK URN → return None so the caller drops the row."""
+        record = {"id": "urn:li:sponsoredCreative:not-an-int"}
+        schema = LinkedinAdsSchema(
+            name="creatives",
+            primary_keys=["id"],
+            field_names=["id"],
+            partition_keys=[],
+            partition_mode=None,
+            partition_format=None,
+            is_stats=False,
+            partition_size=1,
+        )
+
+        result = _flatten_linkedin_record(record, schema)
+
+        assert result is None
+
+    def test_flatten_created_at_long_to_virtual_columns(self):
+        """`createdAt` / `lastModifiedAt` longs → `created_time` / `last_modified_time` virtual cols."""
+        # 1625668063000 ms = 2021-07-07 (UTC)
+        record = {"createdAt": 1625668063000, "lastModifiedAt": 1656592925000}
+        schema = LinkedinAdsSchema(
+            name="creatives",
+            primary_keys=[],
+            field_names=["createdAt", "lastModifiedAt"],
+            partition_keys=[],
+            partition_mode=None,
+            partition_format=None,
+            is_stats=False,
+            partition_size=1,
+        )
+
+        result = _flatten_linkedin_record(record, schema)
+
+        assert result is not None
+        assert result["created_time"] == dt.date(2021, 7, 7)
+        assert result["last_modified_time"] == dt.date(2022, 6, 30)
+
+    def test_flatten_created_at_missing_yields_none(self):
+        """Missing/non-int `createdAt` → virtual column is None."""
+        record: dict[str, typing.Any] = {"createdAt": None}
+        schema = LinkedinAdsSchema(
+            name="creatives",
+            primary_keys=[],
+            field_names=["createdAt"],
+            partition_keys=[],
+            partition_mode=None,
+            partition_format=None,
+            is_stats=False,
+            partition_size=1,
+        )
+
+        result = _flatten_linkedin_record(record, schema)
+
+        assert result is not None
+        assert result["created_time"] is None
 
 
 @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration")

@@ -123,9 +123,8 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.Creatives: {
         "resource_name": "creatives",
-        # CreativeV11 has no `type` (use the polymorphic `content` union instead) and
-        # no `changeAuditStamps` — timestamps are bare longs that the flattener
-        # normalizes into created_time / last_modified_time virtual columns.
+        # CreativeV11 has no `type` or `changeAuditStamps`; timestamps are bare
+        # longs the flattener turns into created_time / last_modified_time.
         "field_names": [
             "id",
             "account",
@@ -202,8 +201,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.CreativeStats: {
         "resource_name": "creative_stats",
-        # Same metric set as the other Stats resources — LinkedIn's analytics
-        # endpoint returns a uniform schema regardless of pivot.
+        # Same metric set as the other Stats resources (uniform analytics schema).
         "field_names": [
             "impressions",
             "clicks",

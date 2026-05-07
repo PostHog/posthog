@@ -4,6 +4,7 @@ import collections.abc
 from dataclasses import dataclass
 
 import pyarrow as pa
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.models.integration import Integration
@@ -19,14 +20,14 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 from .client import LinkedinAdsClient, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
+module_logger = structlog.get_logger(__name__)
+
 
 @dataclass
 class LinkedInAdsResumeConfig:
-    """Resume state for LinkedIn Ads sync.
-
-    page_token is the LinkedIn Marketing API `nextPageToken` that points to the next
-    page to fetch. Only paginated resources (campaigns, campaign_groups) produce a
-    meaningful token; single-shot resources (accounts, analytics) never save state.
+    """Resume state for LinkedIn Ads sync — `nextPageToken` from the entity
+    finders (campaigns, campaign_groups, creatives). Other endpoints don't save
+    state (accounts is single-shot, analytics paginates by date-range chunking).
     """
 
     page_token: str
@@ -56,11 +57,8 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
 
 
 def _extract_type_and_id_from_urn(urn: str) -> tuple[str, int] | None:
-    """Extract (type, integer ID) from a LinkedIn URN like
-    "urn:li:sponsoredCampaign:12345678". Returns None if the URN doesn't have the
-    expected `urn:li:<type>:<int>` shape — callers already guard on None and the
-    alternative is crashing the whole record flatten on a single malformed URN.
-    """
+    """Extract (type, int ID) from a LinkedIn URN like `urn:li:sponsoredCampaign:123`.
+    Returns None on malformed input so callers can skip the row instead of crashing."""
     try:
         _, _, urn_type, id_str = urn.split(":")
         return urn_type, int(id_str)
@@ -186,7 +184,10 @@ def linkedin_ads_source(
         pending_next_page_token: str | None = None
 
         for page, next_page_token in data_pages:
-            flattened_records = [_flatten_linkedin_record(record, schema) for record in page]
+            # None signals an unflattenable PK (malformed creative URN) — drop the row.
+            flattened_records = [
+                flat for record in page if (flat := _flatten_linkedin_record(record, schema)) is not None
+            ]
             for record in flattened_records:
                 batcher.batch(record)
                 if batcher.should_yield():
@@ -235,8 +236,9 @@ def _convert_timestamp_to_date(last_modified: dict[str, int] | None) -> dt.date 
 def _flatten_linkedin_record(
     record: dict[str, typing.Any],
     schema: LinkedinAdsSchema,
-) -> dict[str, typing.Any]:
-    """Flatten a LinkedIn API record to match schema."""
+) -> dict[str, typing.Any] | None:
+    """Flatten a LinkedIn API record to match schema. Returns None when the PK
+    URN can't be parsed (would corrupt parquet schema inference)."""
     flattened: dict[str, typing.Any] = {}
 
     for field_name in schema.field_names:
@@ -309,12 +311,18 @@ def _flatten_linkedin_record(
         if value is not None:
             if field_name in FLOAT_FIELDS:
                 value = float(value)
-            # Creatives return `id` as a URN; extract the int so it lines up with
-            # the `creative_id` virtual column in creative_stats.
+            # Creatives ship `id` as a URN; extract the int so it joins with
+            # `creative_id` in creative_stats. Other resources pass through.
             elif field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
                 urn_result = _extract_type_and_id_from_urn(value)
-                if urn_result is not None:
-                    _, value = urn_result
+                if urn_result is None:
+                    module_logger.warning(
+                        "linkedin_ads.malformed_pk_urn",
+                        resource=schema.name,
+                        raw_id=value,
+                    )
+                    return None
+                _, value = urn_result
 
         flattened[field_name] = value
 

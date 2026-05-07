@@ -1,10 +1,10 @@
 import json
-import logging
 import datetime as dt
 from collections.abc import Generator
 from typing import Any, Optional
 
 import requests
+import structlog
 from linkedin_api.clients.restli.client import RestliClient
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -16,14 +16,13 @@ from .schemas import (
     LinkedinAdsResource,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
-CREATIVES_PAGE_SIZE = 100  # creatives backend has been seen returning transient 500s on heavier requests
+CREATIVES_PAGE_SIZE = 100  # creatives backend returns transient 500s on heavier requests
 API_VERSION = "202508"
-# `q=analytics` truncates at 15k rows and offset pagination can't go past the cap —
-# we slice the date range instead. Weekly chunks balance call volume vs headroom.
+# `q=analytics` truncates at 15k rows; we slice the date range to stay under it.
 ANALYTICS_RESPONSE_CAP = 15000
 ANALYTICS_CHUNK_DAYS = 7
 
@@ -73,8 +72,8 @@ class LinkedinAdsClient:
     def get_creatives(
         self, account_id: str, starting_page_token: Optional[str] = None
     ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
-        """Get creatives with pagination. Uses `q=criteria` (the only finder this
-        endpoint accepts) and a reduced page size to dodge transient backend 500s."""
+        """Get creatives with pagination. Uses `q=criteria` and reduced page size
+        (the creatives backend 500s on heavier requests)."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         creatives_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Creatives]
         yield from self._make_paginated_request(
@@ -92,9 +91,10 @@ class LinkedinAdsClient:
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
     ) -> Generator[tuple[list[dict[str, Any]], None], None, None]:
-        """Fetch analytics, sliced into weekly chunks to stay under the 15k-row
-        response cap. Yields `(elements, None)` tuples to match the pagination
-        protocol of the entity finders — the chunking IS the pagination."""
+        """Fetch analytics in weekly chunks to stay under the 15k-row response
+        cap. Capped chunks yield partial data and log a warning — we don't
+        retry/split because extra calls under rate-limit pressure cost more
+        than the missing rows recover."""
         resource_by_pivot = {
             LinkedinAdsPivot.CAMPAIGN: LinkedinAdsResource.CampaignStats,
             LinkedinAdsPivot.CAMPAIGN_GROUP: LinkedinAdsResource.CampaignGroupStats,
@@ -123,10 +123,8 @@ class LinkedinAdsClient:
             )
             return
 
-        start_date = dt.date.fromisoformat(date_start)
+        chunk_start = dt.date.fromisoformat(date_start)
         end_date = dt.date.fromisoformat(date_end)
-
-        chunk_start = start_date
         while chunk_start <= end_date:
             chunk_end = min(chunk_start + dt.timedelta(days=ANALYTICS_CHUNK_DAYS - 1), end_date)
             elements = self._make_request(
@@ -135,17 +133,12 @@ class LinkedinAdsClient:
                 extra_params=_build_params(chunk_start.isoformat(), chunk_end.isoformat()),
             )
             if len(elements) >= ANALYTICS_RESPONSE_CAP:
-                # Cap hit means rows in this window were silently dropped — surface it
-                # so we can shrink ANALYTICS_CHUNK_DAYS for this account.
                 logger.warning(
                     "linkedin_ads.analytics_chunk_capped",
-                    extra={
-                        "pivot": pivot.value,
-                        "chunk_start": chunk_start.isoformat(),
-                        "chunk_end": chunk_end.isoformat(),
-                        "cap": ANALYTICS_RESPONSE_CAP,
-                        "received": len(elements),
-                    },
+                    pivot=pivot.value,
+                    chunk_start=chunk_start.isoformat(),
+                    chunk_end=chunk_end.isoformat(),
+                    received=len(elements),
                 )
             yield elements, None
             chunk_start = chunk_end + dt.timedelta(days=1)
