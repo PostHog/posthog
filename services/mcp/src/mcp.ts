@@ -29,6 +29,7 @@ import { handleToolError, wrapError } from '@/lib/errors'
 import { type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { initMcpCatObservability } from '@/lib/mcpcat'
+import { initPostHogMcpAnalytics } from '@/lib/posthog-mcp-analytics'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -41,6 +42,7 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
 const instructionsFormatter = new InstructionsFormatter()
+const POSTHOG_MCP_ANALYTICS_FLAG = 'mcp-posthog-analytics-sdk'
 
 export type RequestProperties = {
     userHash: string
@@ -500,6 +502,7 @@ export class MCP extends McpAgent<Env> {
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
+        const posthogMcpAnalyticsPromise = this.resolvePostHogMcpAnalyticsFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -528,10 +531,11 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn, posthogMcpAnalyticsOn] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
+            posthogMcpAnalyticsPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
@@ -699,7 +703,7 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        await initMcpCatObservability(this.server, {
+        const mcpAnalyticsIdentity = {
             getDistinctId: () => this.getDistinctId(),
             getSessionUuid: async () =>
                 this.requestProperties.sessionId
@@ -714,14 +718,36 @@ export class MCP extends McpAgent<Env> {
             getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
             getClientUserAgent: async () => this.requestProperties.clientUserAgent,
             // Server-resolved version (may differ from the client-reported one because of
-            // the `mcp-version-2` feature flag), so mcpcat events line up with ours.
+            // the `mcp-version-2` feature flag), so observability events line up with ours.
             getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.requestProperties.transport,
             getMcpConsumer: async () => this.requestProperties.mcpConsumer,
             getMcpMode: async () => this.mcpMode,
-        })
+        }
+
+        console.info(
+            '[MCP]',
+            JSON.stringify({
+                event: 'mcp_analytics_provider_selected',
+                provider: posthogMcpAnalyticsOn ? 'posthog_mcp_analytics' : 'mcpcat',
+                flagKey: POSTHOG_MCP_ANALYTICS_FLAG,
+                flagEnabled: posthogMcpAnalyticsOn,
+                mcpVersion: version,
+                mcpMode: this.mcpMode,
+                transport: this.requestProperties.transport,
+                mcpConsumer: this.requestProperties.mcpConsumer,
+            })
+        )
+
+        if (posthogMcpAnalyticsOn) {
+            await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
+                contextEnabled: true,
+            })
+        } else {
+            await initMcpCatObservability(this.server, mcpAnalyticsIdentity)
+        }
 
         const initDurationMs = this.requestProperties.requestStartTime
             ? Date.now() - this.requestProperties.requestStartTime
@@ -750,7 +776,7 @@ export class MCP extends McpAgent<Env> {
 
     /**
      * Decide single-exec mode and the protocol version for this connection,
-     * stashing both on the instance so `trackEvent` and the mcpcat identity
+     * stashing both on the instance so `trackEvent` and observability identity
      * provider can emit `mcp_mode` / `mcp_version` on every downstream event
      * without re-deriving them.
      *
@@ -801,6 +827,25 @@ export class MCP extends McpAgent<Env> {
             const distinctId = await this.getDistinctId()
             return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
         } catch {
+            return false
+        }
+    }
+
+    private async resolvePostHogMcpAnalyticsFlag(): Promise<boolean> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return !!(await isFeatureFlagEnabled(POSTHOG_MCP_ANALYTICS_FLAG, distinctId))
+        } catch (error) {
+            console.warn(
+                '[MCP]',
+                JSON.stringify({
+                    event: 'mcp_analytics_provider_flag_error',
+                    flagKey: POSTHOG_MCP_ANALYTICS_FLAG,
+                    flagEnabled: false,
+                    errorName: error instanceof Error ? error.name : 'UnknownError',
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                })
+            )
             return false
         }
     }
