@@ -178,6 +178,22 @@ describe('TaxonomicFilter', () => {
             }
         )
 
+        it('pins the currently-selected series even when the event is not in the team taxonomy', async () => {
+            renderFilter({
+                suggestedFiltersLabel: 'Suggested series',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                eventNames: ['not_yet_defined'],
+                currentSelection: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    value: 'not_yet_defined',
+                    name: 'not_yet_defined',
+                },
+            })
+            await waitFor(() => {
+                expect(screen.getByText('Events - currently selected')).toBeInTheDocument()
+            })
+        })
+
         it('does not render a "currently selected" tag when currentSelection is omitted', async () => {
             renderFilter({
                 suggestedFiltersLabel: 'Suggested series',

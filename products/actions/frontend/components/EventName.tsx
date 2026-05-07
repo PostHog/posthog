@@ -1,5 +1,5 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CurrentSelection, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 interface EventNamePropsWithoutAllEvents {
@@ -27,6 +27,9 @@ export function EventName({
     ...props
 }: (EventNamePropsWithAllEvents | EventNamePropsWithoutAllEvents) &
     Pick<TaxonomicPopoverProps, 'placement' | 'groupTypes'>): JSX.Element {
+    const currentSelection: CurrentSelection | null = value
+        ? { groupType: TaxonomicFilterGroupType.Events, value, name: value }
+        : null
     return (
         <TaxonomicPopover
             groupType={TaxonomicFilterGroupType.Events}
@@ -43,6 +46,7 @@ export function EventName({
             excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
             size="small"
             selectingKeyOnly
+            currentSelection={currentSelection}
             {...props}
         />
     )
