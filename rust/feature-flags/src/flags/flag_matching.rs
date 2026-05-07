@@ -364,16 +364,14 @@ impl FlagSnapshot {
 }
 
 /// Mirrors Python's `add_local_person_and_group_properties` so flag conditions
-/// matching on `distinct_id` evaluate without a DB lookup. Empty strings are
-/// skipped so a `distinct_id == ""` flag does not match every empty-distinct_id
-/// request that slips past the request decoder.
+/// matching on `distinct_id` evaluate without a DB lookup. Always injects the
+/// request `distinct_id` (including `""`) unless an explicit
+/// `person_property_overrides["distinct_id"]` is already present, in which case
+/// the explicit override wins.
 fn merge_distinct_id_into_person_properties(
     distinct_id: &str,
     overrides: Option<HashMap<String, Value>>,
 ) -> Option<HashMap<String, Value>> {
-    if distinct_id.is_empty() {
-        return overrides;
-    }
     let mut overrides = overrides.unwrap_or_default();
     overrides
         .entry("distinct_id".to_string())
@@ -2561,13 +2559,40 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_distinct_id_skips_empty_string() {
-        assert_eq!(merge_distinct_id_into_person_properties("", None), None);
+    fn test_merge_distinct_id_injects_empty_string_when_overrides_absent() {
+        let result = merge_distinct_id_into_person_properties("", None)
+            .expect("expected overrides to be returned");
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String(String::new()))
+        );
+        assert_eq!(result.len(), 1);
+    }
 
+    #[test]
+    fn test_merge_distinct_id_injects_empty_string_when_overrides_lack_distinct_id() {
         let overrides = HashMap::from([("foo".to_string(), Value::String("bar".to_string()))]);
-        let result = merge_distinct_id_into_person_properties("", Some(overrides.clone()))
-            .expect("non-empty overrides should be returned unchanged");
-        assert!(result.get("distinct_id").is_none());
+        let result = merge_distinct_id_into_person_properties("", Some(overrides))
+            .expect("expected overrides to be returned");
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String(String::new()))
+        );
         assert_eq!(result.get("foo"), Some(&Value::String("bar".to_string())));
+    }
+
+    #[test]
+    fn test_merge_distinct_id_explicit_override_wins_over_empty_request_distinct_id() {
+        let overrides = HashMap::from([(
+            "distinct_id".to_string(),
+            Value::String("explicit".to_string()),
+        )]);
+        let result = merge_distinct_id_into_person_properties("", Some(overrides))
+            .expect("expected overrides to be returned");
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String("explicit".to_string())),
+            "person_properties.distinct_id should win even when the request distinct_id is empty"
+        );
     }
 }
