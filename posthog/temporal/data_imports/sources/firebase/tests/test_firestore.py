@@ -1,6 +1,8 @@
 import json
 import base64
+from collections.abc import Iterable
 from datetime import datetime
+from typing import cast
 
 import pytest
 from unittest import mock
@@ -100,7 +102,9 @@ class TestParseTimestamp:
 
     def test_truncates_subsecond_precision_beyond_microseconds(self):
         # Firestore can return up to 9 fractional-second digits.
-        assert _parse_timestamp("2025-01-02T03:04:05.123456789Z").microsecond == 123456
+        parsed = _parse_timestamp("2025-01-02T03:04:05.123456789Z")
+        assert parsed is not None
+        assert parsed.microsecond == 123456
 
     def test_invalid_returns_none(self):
         assert _parse_timestamp("not-a-date") is None
@@ -253,7 +257,7 @@ class TestFirestoreSourcePagination:
                     logger=mock.MagicMock(),
                     resumable_source_manager=manager,
                 )
-                rows = list(response.items())
+                rows = list(cast(Iterable[dict], response.items()))
 
         return rows, session, manager
 
