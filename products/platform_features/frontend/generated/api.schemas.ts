@@ -43,8 +43,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -63,7 +64,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export interface ApprovalPolicyApi {
@@ -236,6 +237,10 @@ export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
 
+export const OrganizationApiDefaultExperimentStatsMethod = {
+    ...DefaultExperimentStatsMethodEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -270,7 +275,9 @@ export interface OrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    default_experiment_stats_method?:
+        | (typeof OrganizationApiDefaultExperimentStatsMethod)[keyof typeof OrganizationApiDefaultExperimentStatsMethod]
+        | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -310,6 +317,10 @@ export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type PatchedOrganizationApiMetadata = { [key: string]: string }
 
+export const PatchedOrganizationApiDefaultExperimentStatsMethod = {
+    ...DefaultExperimentStatsMethodEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface PatchedOrganizationApi {
     readonly id?: string
     /** @maxLength 64 */
@@ -344,7 +355,9 @@ export interface PatchedOrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    default_experiment_stats_method?:
+        | (typeof PatchedOrganizationApiDefaultExperimentStatsMethod)[keyof typeof PatchedOrganizationApiDefaultExperimentStatsMethod]
+        | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**

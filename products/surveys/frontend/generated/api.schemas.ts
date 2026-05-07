@@ -58,6 +58,8 @@ export const BucketingIdentifierEnumApi = {
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
+export const MinimalFeatureFlagApiEvaluationRuntime = { ...EvaluationRuntimeEnumApi, ...BlankEnumApi } as const
+export const MinimalFeatureFlagApiBucketingIdentifier = { ...BucketingIdentifierEnumApi, ...BlankEnumApi } as const
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -82,12 +84,16 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?:
+        | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
+        | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?:
+        | (typeof MinimalFeatureFlagApiBucketingIdentifier)[keyof typeof MinimalFeatureFlagApiBucketingIdentifier]
+        | null
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -117,8 +123,9 @@ export const RoleAtOrganizationEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -137,7 +144,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -157,10 +164,14 @@ export const ResponseSamplingIntervalTypeEnumApi = {
 /**
  * @nullable
  */
-export type SurveyApiConditions = { [key: string]: unknown } | null | null
+export type SurveyApiConditions = { [key: string]: unknown } | null
 
 export type SurveyApiFeatureFlagKeysItem = { [key: string]: string | null }
 
+export const SurveyApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+} as const
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -333,7 +344,9 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?:
+        | (typeof SurveyApiResponseSamplingIntervalType)[keyof typeof SurveyApiResponseSamplingIntervalType]
+        | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -382,6 +395,11 @@ export const ScheduleEnumApi = {
     Always: 'always',
 } as const
 
+export const SurveySerializerCreateUpdateOnlySchemaApiSchedule = { ...ScheduleEnumApi } as const
+export const SurveySerializerCreateUpdateOnlySchemaApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+} as const
 /**
  * * `cohort` - cohort
  * `person` - person
@@ -1236,7 +1254,9 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
 * `once` - once
 * `recurring` - recurring
 * `always` - always */
-    schedule?: ScheduleEnumApi | NullEnumApi | null
+    schedule?:
+        | (typeof SurveySerializerCreateUpdateOnlySchemaApiSchedule)[keyof typeof SurveySerializerCreateUpdateOnlySchemaApiSchedule]
+        | null
     readonly linked_flag: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1421,7 +1441,9 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?:
+        | (typeof SurveySerializerCreateUpdateOnlySchemaApiResponseSamplingIntervalType)[keyof typeof SurveySerializerCreateUpdateOnlySchemaApiResponseSamplingIntervalType]
+        | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1447,6 +1469,10 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     form_content?: unknown | null
 }
 
+export const SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface SurveySerializerCreateUpdateOnlyApi {
     readonly id: string
     /** @maxLength 400 */
@@ -1618,7 +1644,9 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?:
+        | (typeof SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType)[keyof typeof SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType]
+        | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1641,6 +1669,11 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     form_content?: unknown | null
 }
 
+export const PatchedSurveySerializerCreateUpdateOnlySchemaApiSchedule = { ...ScheduleEnumApi } as const
+export const PatchedSurveySerializerCreateUpdateOnlySchemaApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     readonly id?: string
     /**
@@ -1663,7 +1696,9 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
 * `once` - once
 * `recurring` - recurring
 * `always` - always */
-    schedule?: ScheduleEnumApi | NullEnumApi | null
+    schedule?:
+        | (typeof PatchedSurveySerializerCreateUpdateOnlySchemaApiSchedule)[keyof typeof PatchedSurveySerializerCreateUpdateOnlySchemaApiSchedule]
+        | null
     readonly linked_flag?: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1848,7 +1883,9 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?:
+        | (typeof PatchedSurveySerializerCreateUpdateOnlySchemaApiResponseSamplingIntervalType)[keyof typeof PatchedSurveySerializerCreateUpdateOnlySchemaApiResponseSamplingIntervalType]
+        | null
     /**
      * @minimum 0
      * @maximum 2147483647

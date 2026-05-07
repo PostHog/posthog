@@ -43,8 +43,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -63,7 +64,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -80,6 +81,7 @@ export const DashboardTemplateScopeEnumApi = {
     FeatureFlag: 'feature_flag',
 } as const
 
+export const DashboardTemplateApiScope = { ...DashboardTemplateScopeEnumApi, ...BlankEnumApi } as const
 export interface DashboardTemplateApi {
     readonly id: string
     /**
@@ -109,7 +111,7 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: (typeof DashboardTemplateApiScope)[keyof typeof DashboardTemplateApiScope] | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
@@ -220,17 +222,17 @@ export type DashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type DashboardApiVariables = { [key: string]: unknown } | null | null
+export type DashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -338,17 +340,17 @@ export type PatchedDashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type PatchedDashboardApiVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 

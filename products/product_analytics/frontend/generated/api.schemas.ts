@@ -699,7 +699,7 @@ export const GroupPropertyFilterApiType = {
 /**
  * @nullable
  */
-export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
 
 export interface GroupPropertyFilterApi {
     /** @nullable */
@@ -1317,7 +1317,7 @@ export const EventsNodeApiMath = {
 /**
  * @nullable
  */
-export type EventsNodeApiResponse = { [key: string]: unknown } | null | null
+export type EventsNodeApiResponse = { [key: string]: unknown } | null
 
 export interface EventsNodeApi {
     /** @nullable */
@@ -1434,7 +1434,7 @@ export const ActionsNodeApiMath = {
 /**
  * @nullable
  */
-export type ActionsNodeApiResponse = { [key: string]: unknown } | null | null
+export type ActionsNodeApiResponse = { [key: string]: unknown } | null
 
 export interface ActionsNodeApi {
     /** @nullable */
@@ -1540,7 +1540,7 @@ export const DataWarehouseNodeApiMath = {
 /**
  * @nullable
  */
-export type DataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+export type DataWarehouseNodeApiResponse = { [key: string]: unknown } | null
 
 export interface DataWarehouseNodeApi {
     /** @nullable */
@@ -1646,7 +1646,7 @@ export const GroupNodeApiMath = {
 /**
  * @nullable
  */
-export type GroupNodeApiResponse = { [key: string]: unknown } | null | null
+export type GroupNodeApiResponse = { [key: string]: unknown } | null
 
 export interface GroupNodeApi {
     /** @nullable */
@@ -2069,7 +2069,7 @@ export const FunnelExclusionEventsNodeApiMath = {
 /**
  * @nullable
  */
-export type FunnelExclusionEventsNodeApiResponse = { [key: string]: unknown } | null | null
+export type FunnelExclusionEventsNodeApiResponse = { [key: string]: unknown } | null
 
 export interface FunnelExclusionEventsNodeApi {
     /** @nullable */
@@ -2189,7 +2189,7 @@ export const FunnelExclusionActionsNodeApiMath = {
 /**
  * @nullable
  */
-export type FunnelExclusionActionsNodeApiResponse = { [key: string]: unknown } | null | null
+export type FunnelExclusionActionsNodeApiResponse = { [key: string]: unknown } | null
 
 export interface FunnelExclusionActionsNodeApi {
     /** @nullable */
@@ -2325,7 +2325,7 @@ export const FunnelLayoutApi = {
  * Customizations for the appearance of result datasets.
  * @nullable
  */
-export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null | null
+export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface FunnelsFilterApi {
     /** @nullable */
@@ -2435,7 +2435,7 @@ export const FunnelsDataWarehouseNodeApiMath = {
 /**
  * @nullable
  */
-export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
 
 export interface FunnelsDataWarehouseNodeApi {
     aggregation_target_field: string
@@ -3304,7 +3304,7 @@ export const LifecycleDataWarehouseNodeApiMath = {
 /**
  * @nullable
  */
-export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
 
 export interface LifecycleDataWarehouseNodeApi {
     aggregation_target_field: string
@@ -5392,7 +5392,7 @@ export const PersonsNodeApiKind = {
 /**
  * @nullable
  */
-export type PersonsNodeApiResponse = { [key: string]: unknown } | null | null
+export type PersonsNodeApiResponse = { [key: string]: unknown } | null
 
 export interface PersonsNodeApi {
     /** @nullable */
@@ -5493,7 +5493,7 @@ export interface FunnelsActorsQueryApi {
      */
     funnelStep?: number | null
     /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
-    funnelStepBreakdown?: number | string | number | (number | string | number)[] | null
+    funnelStepBreakdown?: number | string | (number | string)[] | null
     /** @nullable */
     funnelTrendsDropOff?: boolean | null
     /**
@@ -5678,7 +5678,7 @@ export const ExperimentEventExposureConfigApiKind = {
 /**
  * @nullable
  */
-export type ExperimentEventExposureConfigApiResponse = { [key: string]: unknown } | null | null
+export type ExperimentEventExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentEventExposureConfigApi {
     event: string
@@ -5774,7 +5774,7 @@ export const ExperimentDataWarehouseNodeApiMath = {
 /**
  * @nullable
  */
-export type ExperimentDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+export type ExperimentDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentDataWarehouseNodeApi {
     /** @nullable */
@@ -5867,7 +5867,7 @@ export interface ExperimentDataWarehouseNodeApi {
 /**
  * @nullable
  */
-export type ExperimentMeanMetricApiResponse = { [key: string]: unknown } | null | null
+export type ExperimentMeanMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentMeanMetricApi {
     breakdownFilter?: BreakdownFilterApi | null
@@ -5920,7 +5920,7 @@ export const ExperimentFunnelMetricApiMetricType = {
 /**
  * @nullable
  */
-export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null | null
+export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentFunnelMetricApi {
     breakdownFilter?: BreakdownFilterApi | null
@@ -5968,7 +5968,7 @@ export const ExperimentRatioMetricApiMetricType = {
 /**
  * @nullable
  */
-export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null | null
+export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentRatioMetricApi {
     breakdownFilter?: BreakdownFilterApi | null
@@ -6023,7 +6023,7 @@ export const StartHandlingApi = {
 /**
  * @nullable
  */
-export type ExperimentRetentionMetricApiResponse = { [key: string]: unknown } | null | null
+export type ExperimentRetentionMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentRetentionMetricApi {
     breakdownFilter?: BreakdownFilterApi | null
@@ -6196,7 +6196,7 @@ export interface ExperimentBreakdownResultApi {
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidatedApi
     /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
-    breakdown_value: (string | number | number)[]
+    breakdown_value: (string | number)[]
     /** Test variant results with statistical comparisons for this breakdown */
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
@@ -6211,14 +6211,14 @@ export const ExperimentQueryResponseApiKind = {
 /**
  * @nullable
  */
-export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null | null
+export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
 
 export type ExperimentQueryResponseApiInsightItem = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type ExperimentQueryResponseApiProbability = { [key: string]: number } | null | null
+export type ExperimentQueryResponseApiProbability = { [key: string]: number } | null
 
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
@@ -6297,7 +6297,7 @@ export interface ExperimentActorsQueryApi {
      */
     funnelStep?: number | null
     /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
-    funnelStepBreakdown?: number | string | number | (number | string | number)[] | null
+    funnelStepBreakdown?: number | string | (number | string)[] | null
     /** @nullable */
     includeRecordings?: boolean | null
     kind?: ExperimentActorsQueryApiKind
@@ -6450,13 +6450,13 @@ export interface HogQLVariableApi {
  * Constant values that can be referenced with the {placeholder} syntax in the query
  * @nullable
  */
-export type HogQLQueryApiValues = { [key: string]: unknown } | null | null
+export type HogQLQueryApiValues = { [key: string]: unknown } | null
 
 /**
  * Variables to be substituted into the query
  * @nullable
  */
-export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null | null
+export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
     /**
@@ -7678,7 +7678,7 @@ export const ConversionGoalFilter1ApiMath = {
 /**
  * @nullable
  */
-export type ConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null | null
+export type ConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null
 
 export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknown }
 
@@ -7801,7 +7801,7 @@ export const ConversionGoalFilter2ApiMath = {
 /**
  * @nullable
  */
-export type ConversionGoalFilter2ApiResponse = { [key: string]: unknown } | null | null
+export type ConversionGoalFilter2ApiResponse = { [key: string]: unknown } | null
 
 export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknown }
 
@@ -7913,7 +7913,7 @@ export const ConversionGoalFilter3ApiMath = {
 /**
  * @nullable
  */
-export type ConversionGoalFilter3ApiResponse = { [key: string]: unknown } | null | null
+export type ConversionGoalFilter3ApiResponse = { [key: string]: unknown } | null
 
 export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknown }
 
@@ -9515,8 +9515,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -9535,7 +9536,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export type EffectivePrivilegeLevelEnumApi =
@@ -9552,7 +9553,7 @@ export const EffectivePrivilegeLevelEnumApi = {
 export type InsightApiResolvedDateRange = {
     readonly date_from?: string
     readonly date_to?: string
-} | null | null
+} | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
@@ -9670,7 +9671,7 @@ export interface PaginatedInsightListApi {
 export type PatchedInsightApiResolvedDateRange = {
     readonly date_from?: string
     readonly date_to?: string
-} | null | null
+} | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
@@ -9806,7 +9807,7 @@ export interface DetailApi {
 /**
  * @nullable
  */
-export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
 
 export interface ActivityLogEntryApi {
     readonly id: string

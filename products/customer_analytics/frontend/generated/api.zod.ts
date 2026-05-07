@@ -21,7 +21,7 @@ export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
         .describe(
-            '* `person` - Person\n* `group_0` - Group 0\n* `group_1` - Group 1\n* `group_2` - Group 2\n* `group_3` - Group 3\n* `group_4` - Group 4'
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
         ),
     content: zod.unknown().nullish(),
     sidebar: zod.unknown().nullish(),
@@ -42,10 +42,10 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the usage metric. Must be unique per group type within the project.'),
     format: zod
         .enum(['numeric', 'currency'])
-        .describe('* `numeric` - numeric\n* `currency` - currency')
+        .describe('\* `numeric` - numeric\n\* `currency` - currency')
         .default(groupsTypesMetricsCreateBodyFormatDefault)
         .describe(
-            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency'
+            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n\* `numeric` - numeric\n\* `currency` - currency'
         ),
     interval: zod
         .number()
@@ -53,22 +53,22 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Rolling time window in days used to compute the metric. Defaults to 7.'),
     display: zod
         .enum(['number', 'sparkline'])
-        .describe('* `number` - number\n* `sparkline` - sparkline')
+        .describe('\* `number` - number\n\* `sparkline` - sparkline')
         .default(groupsTypesMetricsCreateBodyDisplayDefault)
         .describe(
-            'Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline'
+            'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
-        .describe('* `count` - count\n* `sum` - sum')
+        .describe('\* `count` - count\n\* `sum` - sum')
         .default(groupsTypesMetricsCreateBodyMathDefault)
         .describe(
-            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum'
+            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n\* `count` - count\n\* `sum` - sum'
         ),
     math_property: zod
         .string()
@@ -94,10 +94,10 @@ export const GroupsTypesMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the usage metric. Must be unique per group type within the project.'),
     format: zod
         .enum(['numeric', 'currency'])
-        .describe('* `numeric` - numeric\n* `currency` - currency')
+        .describe('\* `numeric` - numeric\n\* `currency` - currency')
         .default(groupsTypesMetricsUpdateBodyFormatDefault)
         .describe(
-            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency'
+            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n\* `numeric` - numeric\n\* `currency` - currency'
         ),
     interval: zod
         .number()
@@ -105,22 +105,22 @@ export const GroupsTypesMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Rolling time window in days used to compute the metric. Defaults to 7.'),
     display: zod
         .enum(['number', 'sparkline'])
-        .describe('* `number` - number\n* `sparkline` - sparkline')
+        .describe('\* `number` - number\n\* `sparkline` - sparkline')
         .default(groupsTypesMetricsUpdateBodyDisplayDefault)
         .describe(
-            'Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline'
+            'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
-        .describe('* `count` - count\n* `sum` - sum')
+        .describe('\* `count` - count\n\* `sum` - sum')
         .default(groupsTypesMetricsUpdateBodyMathDefault)
         .describe(
-            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum'
+            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n\* `count` - count\n\* `sum` - sum'
         ),
     math_property: zod
         .string()
@@ -147,10 +147,10 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the usage metric. Must be unique per group type within the project.'),
     format: zod
         .enum(['numeric', 'currency'])
-        .describe('* `numeric` - numeric\n* `currency` - currency')
+        .describe('\* `numeric` - numeric\n\* `currency` - currency')
         .default(groupsTypesMetricsPartialUpdateBodyFormatDefault)
         .describe(
-            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency'
+            'How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n\* `numeric` - numeric\n\* `currency` - currency'
         ),
     interval: zod
         .number()
@@ -158,23 +158,23 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Rolling time window in days used to compute the metric. Defaults to 7.'),
     display: zod
         .enum(['number', 'sparkline'])
-        .describe('* `number` - number\n* `sparkline` - sparkline')
+        .describe('\* `number` - number\n\* `sparkline` - sparkline')
         .default(groupsTypesMetricsPartialUpdateBodyDisplayDefault)
         .describe(
-            'Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline'
+            'Visual representation in the UI. One of `number` or `sparkline`.\n\n\* `number` - number\n\* `sparkline` - sparkline'
         ),
     filters: zod
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n\*\*Events\*\* (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n\*\*Data warehouse\*\* (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
-        .describe('* `count` - count\n* `sum` - sum')
+        .describe('\* `count` - count\n\* `sum` - sum')
         .default(groupsTypesMetricsPartialUpdateBodyMathDefault)
         .describe(
-            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum'
+            'Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n\* `count` - count\n\* `sum` - sum'
         ),
     math_property: zod
         .string()

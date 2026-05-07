@@ -35,6 +35,7 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 export const NullEnumApi = {} as const
 
+export const NotificationEventApiSourceType = { ...NotificationEventSourceTypeEnumApi } as const
 export interface NotificationEventApi {
     id: string
     /** @nullable */
@@ -50,7 +51,7 @@ export interface NotificationEventApi {
     resource_type: string | null
     resource_id: string
     source_url: string
-    source_type: NotificationEventSourceTypeEnumApi | NullEnumApi | null
+    source_type: (typeof NotificationEventApiSourceType)[keyof typeof NotificationEventApiSourceType] | null
     /** @nullable */
     source_id: string | null
     created_at: string

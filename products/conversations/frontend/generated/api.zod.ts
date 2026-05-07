@@ -44,7 +44,7 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `product_analytics` - product_analytics\n* `sql` - sql\n* `session_replay` - session_replay\n* `error_tracking` - error_tracking\n* `plan` - plan\n* `execution` - execution\n* `survey` - survey\n* `research` - research\n* `flags` - flags\n* `llm_analytics` - llm_analytics\n* `sandbox` - sandbox'
+                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox'
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
         resume_payload: zod.unknown().nullish(),
@@ -89,21 +89,21 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
         status: zod
             .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
             .describe(
-                '* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved'
+                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
+                zod.enum(['low', 'medium', 'high']).describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
+                'Ticket priority: low, medium, or high. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'
             ),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
@@ -122,21 +122,21 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
         status: zod
             .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
             .describe(
-                '* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved'
+                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
+                zod.enum(['low', 'medium', 'high']).describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
+                'Ticket priority: low, medium, or high. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'
             ),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
@@ -152,21 +152,21 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         status: zod
             .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
             .describe(
-                '* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved'
+                '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
+                zod.enum(['low', 'medium', 'high']).describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
+                'Ticket priority: low, medium, or high. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'
             ),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
@@ -197,9 +197,9 @@ export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.
         .describe('List of object IDs to update tags on.'),
     action: zod
         .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
         .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })

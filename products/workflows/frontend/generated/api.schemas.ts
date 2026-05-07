@@ -101,6 +101,7 @@ export interface HogFunctionFiltersApi {
     bytecode_error?: string
 }
 
+export const HogFlowTemplateActionApiOnError = { ...OnErrorEnumApi } as const
 /**
  * Custom action serializer for templates that skips input validation
 (since templates should have default/empty values).
@@ -110,7 +111,7 @@ export interface HogFlowTemplateActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    on_error?: OnErrorEnumApi | NullEnumApi | null
+    on_error?: (typeof HogFlowTemplateActionApiOnError)[keyof typeof HogFlowTemplateActionApiOnError] | null
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
@@ -123,7 +124,7 @@ export interface HogFlowTemplateActionApi {
 /**
  * @nullable
  */
-export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -173,7 +174,7 @@ export interface PaginatedHogFlowTemplateListApi {
 /**
  * @nullable
  */
-export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -256,8 +257,9 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -276,7 +278,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export interface HogFlowMinimalApi {
@@ -312,12 +314,13 @@ export interface PaginatedHogFlowMinimalListApi {
 
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
+export const HogFlowActionApiOnError = { ...OnErrorEnumApi } as const
 export interface HogFlowActionApi {
     id: string
     /** @maxLength 400 */
     name: string
     description?: string
-    on_error?: OnErrorEnumApi | NullEnumApi | null
+    on_error?: (typeof HogFlowActionApiOnError)[keyof typeof HogFlowActionApiOnError] | null
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null

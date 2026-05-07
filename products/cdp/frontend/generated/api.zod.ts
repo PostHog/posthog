@@ -41,13 +41,13 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -77,7 +77,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         'posthog_business_hours',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -102,7 +102,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             zod.string(),
             zod.object({
                 value: zod.unknown().optional(),
-                templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
+                templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
@@ -115,7 +115,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             source: zod
                 .enum(['events', 'person-updates', 'data-warehouse-table'])
                 .describe(
-                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsCreateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -166,7 +166,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                     'posthog_business_hours',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -199,7 +199,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                             templating: zod
                                 .enum(['hog', 'liquid'])
                                 .optional()
-                                .describe('* `hog` - hog\n* `liquid` - liquid'),
+                                .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
@@ -211,7 +211,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsCreateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -275,13 +275,13 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -311,7 +311,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         'posthog_business_hours',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -336,7 +336,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
             zod.string(),
             zod.object({
                 value: zod.unknown().optional(),
-                templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
+                templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
@@ -349,7 +349,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
             source: zod
                 .enum(['events', 'person-updates', 'data-warehouse-table'])
                 .describe(
-                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsUpdateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -400,7 +400,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                                     'posthog_business_hours',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -433,7 +433,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                             templating: zod
                                 .enum(['hog', 'liquid'])
                                 .optional()
-                                .describe('* `hog` - hog\n* `liquid` - liquid'),
+                                .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
@@ -445,7 +445,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsUpdateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -509,13 +509,13 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -545,7 +545,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'posthog_business_hours',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -570,7 +570,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.string(),
             zod.object({
                 value: zod.unknown().optional(),
-                templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
+                templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
@@ -583,7 +583,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             source: zod
                 .enum(['events', 'person-updates', 'data-warehouse-table'])
                 .describe(
-                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsPartialUpdateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -634,7 +634,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'posthog_business_hours',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -667,7 +667,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             templating: zod
                                 .enum(['hog', 'liquid'])
                                 .optional()
-                                .describe('* `hog` - hog\n* `liquid` - liquid'),
+                                .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
@@ -679,7 +679,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsPartialUpdateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -743,13 +743,13 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                     'transformation',
                 ])
                 .describe(
-                    '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
         ),
     name: zod
         .string()
@@ -783,7 +783,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         'posthog_business_hours',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -808,7 +808,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
             zod.string(),
             zod.object({
                 value: zod.unknown().optional(),
-                templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
+                templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
@@ -821,7 +821,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
             source: zod
                 .enum(['events', 'person-updates', 'data-warehouse-table'])
                 .describe(
-                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                 )
                 .default(hogFunctionsEnableBackfillsCreateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -872,7 +872,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                                     'posthog_business_hours',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -911,7 +911,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                             templating: zod
                                 .enum(['hog', 'liquid'])
                                 .optional()
-                                .describe('* `hog` - hog\n* `liquid` - liquid'),
+                                .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
@@ -923,7 +923,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFunctionsEnableBackfillsCreateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1008,13 +1008,13 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             'transformation',
                         ])
                         .describe(
-                            '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                         ),
                     zod.literal(null),
                 ])
                 .nullish()
                 .describe(
-                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
+                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
                 ),
             name: zod
                 .string()
@@ -1055,7 +1055,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'other',
                             ])
                             .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
                             ),
                         zod.enum(['']),
                         zod.literal(null),
@@ -1091,7 +1091,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'posthog_business_hours',
                             ])
                             .describe(
-                                '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
@@ -1125,7 +1125,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         templating: zod
                             .enum(['hog', 'liquid'])
                             .optional()
-                            .describe('* `hog` - hog\n* `liquid` - liquid'),
+                            .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                         bytecode: zod.array(zod.unknown()),
                         order: zod.number(),
                         transpiled: zod.unknown(),
@@ -1138,7 +1138,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     source: zod
                         .enum(['events', 'person-updates', 'data-warehouse-table'])
                         .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                         )
                         .default(hogFunctionsInvocationsCreateBodyConfigurationOneFiltersOneSourceDefault),
                     actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1192,7 +1192,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             'posthog_business_hours',
                                         ])
                                         .describe(
-                                            '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours'
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
@@ -1231,7 +1231,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     templating: zod
                                         .enum(['hog', 'liquid'])
                                         .optional()
-                                        .describe('* `hog` - hog\n* `liquid` - liquid'),
+                                        .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                                     bytecode: zod.array(zod.unknown()),
                                     order: zod.number(),
                                     transpiled: zod.unknown(),
@@ -1243,7 +1243,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 source: zod
                                     .enum(['events', 'person-updates', 'data-warehouse-table'])
                                     .describe(
-                                        '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                     )
                                     .default(
                                         hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemFiltersSourceDefault
@@ -1334,7 +1334,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             zod.literal(11),
                             zod.literal(12),
                         ])
-                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                        .describe('\* `0` - 0\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `11` - 11\n\* `12` - 12'),
                     tokens: zod.number(),
                 })
                 .nullable(),

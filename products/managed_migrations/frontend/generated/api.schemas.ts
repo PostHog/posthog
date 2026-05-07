@@ -25,7 +25,7 @@ export const BatchImportStatusEnumApi = {
 /**
  * @nullable
  */
-export type BatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+export type BatchImportApiCreatedBy = { [key: string]: unknown } | null
 
 /**
  * Serializer for BatchImport model
@@ -56,7 +56,7 @@ export interface PaginatedBatchImportListApi {
 /**
  * @nullable
  */
-export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null
 
 /**
  * Serializer for BatchImport model

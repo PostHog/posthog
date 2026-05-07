@@ -56,8 +56,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -76,7 +77,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -381,12 +382,12 @@ export const PriorityEnumApi = {
 /**
  * @nullable
  */
-export type TicketAssignmentApiUser = { [key: string]: string } | null | null
+export type TicketAssignmentApiUser = { [key: string]: string } | null
 
 /**
  * @nullable
  */
-export type TicketAssignmentApiRole = { [key: string]: string } | null | null
+export type TicketAssignmentApiRole = { [key: string]: string } | null
 
 /**
  * Serializer for ticket assignment (user or role).
@@ -415,6 +416,8 @@ export interface TicketPersonApi {
     readonly is_identified: boolean
 }
 
+export const TicketApiChannelDetail = { ...ChannelDetailEnumApi } as const
+export const TicketApiPriority = { ...PriorityEnumApi, ...BlankEnumApi } as const
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -422,7 +425,7 @@ export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
-    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
+    readonly channel_detail: (typeof TicketApiChannelDetail)[keyof typeof TicketApiChannelDetail] | null
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
@@ -437,7 +440,7 @@ export interface TicketApi {
 * `low` - Low
 * `medium` - Medium
 * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    priority?: (typeof TicketApiPriority)[keyof typeof TicketApiPriority] | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -493,6 +496,8 @@ export interface PaginatedTicketListApi {
     results: TicketApi[]
 }
 
+export const PatchedTicketApiChannelDetail = { ...ChannelDetailEnumApi } as const
+export const PatchedTicketApiPriority = { ...PriorityEnumApi, ...BlankEnumApi } as const
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -500,7 +505,7 @@ export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
-    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
+    readonly channel_detail?: (typeof PatchedTicketApiChannelDetail)[keyof typeof PatchedTicketApiChannelDetail] | null
     readonly distinct_id?: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
@@ -515,7 +520,7 @@ export interface PatchedTicketApi {
 * `low` - Low
 * `medium` - Medium
 * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    priority?: (typeof PatchedTicketApiPriority)[keyof typeof PatchedTicketApiPriority] | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown

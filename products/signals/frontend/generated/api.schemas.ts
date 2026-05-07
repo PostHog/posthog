@@ -184,14 +184,6 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: string | null
 }
 
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
-
 /**
  * * `P0` - P0
  * `P1` - P1
@@ -215,6 +207,15 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
+export const SignalUserAutonomyConfigApiAutostartPriority = { ...AutostartPriorityEnumApi, ...BlankEnumApi } as const
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 export const NullEnumApi = {} as const
@@ -222,7 +223,9 @@ export const NullEnumApi = {} as const
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
-    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    autostart_priority?:
+        | (typeof SignalUserAutonomyConfigApiAutostartPriority)[keyof typeof SignalUserAutonomyConfigApiAutostartPriority]
+        | null
     readonly created_at: string
     readonly updated_at: string
 }

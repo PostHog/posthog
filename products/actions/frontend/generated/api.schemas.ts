@@ -405,6 +405,9 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
 export const NullEnumApi = {} as const
 
+export const ActionStepJSONApiTextMatching = { ...ActionStepMatchingEnumApi } as const
+export const ActionStepJSONApiHrefMatching = { ...ActionStepMatchingEnumApi } as const
+export const ActionStepJSONApiUrlMatching = { ...ActionStepMatchingEnumApi } as const
 export interface ActionStepJSONApi {
     /**
      * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
@@ -438,7 +441,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    text_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
+    text_matching?: (typeof ActionStepJSONApiTextMatching)[keyof typeof ActionStepJSONApiTextMatching] | null
     /**
      * Link href attribute to match.
      * @nullable
@@ -449,7 +452,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    href_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
+    href_matching?: (typeof ActionStepJSONApiHrefMatching)[keyof typeof ActionStepJSONApiHrefMatching] | null
     /**
      * Page URL to match.
      * @nullable
@@ -460,7 +463,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    url_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
+    url_matching?: (typeof ActionStepJSONApiUrlMatching)[keyof typeof ActionStepJSONApiUrlMatching] | null
 }
 
 /**
@@ -495,8 +498,9 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -515,7 +519,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**

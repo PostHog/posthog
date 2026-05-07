@@ -43,8 +43,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -63,7 +64,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -109,7 +110,7 @@ export interface EndpointColumnApi {
  * Per-column bucket overrides for range variable materialization.
  * @nullable
  */
-export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Full endpoint representation returned by list/retrieve/create/update.
@@ -193,7 +194,7 @@ export interface PaginatedEndpointResponseListApi {
  * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
  * @nullable
  */
-export type EndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointRequestApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -252,7 +253,7 @@ export interface EndpointRequestApi {
  * Per-column bucket overrides for range variable materialization.
  * @nullable
  */
-export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Extended endpoint representation when viewing a specific version.
@@ -342,7 +343,7 @@ export interface EndpointVersionResponseApi {
  * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
  * @nullable
  */
-export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -401,7 +402,7 @@ export interface PatchedEndpointRequestApi {
  * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
  * @nullable
  */
-export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null | null
+export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null
 
 export interface MaterializationPreviewRequestApi {
     version?: number
@@ -440,7 +441,7 @@ For materialized insight endpoints:   - Use the breakdown property name as the k
 Unknown variable names will return a 400 error.
  * @nullable
  */
-export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null | null
+export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null
 
 export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
 
@@ -711,7 +712,7 @@ export const GroupPropertyFilterApiType = {
 /**
  * @nullable
  */
-export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
 
 export interface GroupPropertyFilterApi {
     /** @nullable */

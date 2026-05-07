@@ -56,10 +56,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -88,20 +88,20 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -113,9 +113,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
-                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
                                             .describe(
-                                                'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                                'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                             ),
                                         value: zod
                                             .unknown()
@@ -128,10 +128,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -144,10 +144,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                                '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
                                             )
                                             .describe(
-                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
                                             ),
                                         value: zod
                                             .string()
@@ -157,10 +157,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -183,10 +183,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -194,10 +194,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -210,10 +210,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
-                                                '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             )
                                             .describe(
-                                                'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             ),
                                         value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
                                     }),
@@ -221,9 +221,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort'])
-                                            .describe('* `cohort` - cohort')
+                                            .describe('\* `cohort` - cohort')
                                             .describe(
-                                                'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                                'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -235,9 +235,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['in', 'not_in'])
-                                            .describe('* `in` - in\n* `not_in` - not_in')
+                                            .describe('\* `in` - in\n\* `not_in` - not_in')
                                             .describe(
-                                                'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                                'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                             ),
                                         value: zod
                                             .unknown()
@@ -247,9 +247,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['flag'])
-                                            .describe('* `flag` - flag')
+                                            .describe('\* `flag` - flag')
                                             .describe(
-                                                'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                                'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -261,9 +261,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
-                                            .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                            .describe('\* `flag_evaluates_to` - flag_evaluates_to')
                                             .describe(
-                                                'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                                'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                             ),
                                         value: zod.unknown().describe('Value to compare flag evaluation against.'),
                                     }),
@@ -314,7 +314,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .nullish()
                 .describe(
-                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment\/{flag_key}.'
                 ),
         })
         .optional()
@@ -366,11 +366,11 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
                 'product_tours',
             ])
             .describe(
-                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -378,25 +378,25 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod
                     .enum(['server', 'client', 'all'])
-                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
             ),
         bucketing_identifier: zod
             .union([
                 zod
                     .enum(['distinct_id', 'device_id'])
-                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
         last_called_at: zod.iso
             .datetime({})
@@ -430,10 +430,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -462,20 +462,20 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -487,9 +487,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
-                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
                                             .describe(
-                                                'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                                'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                             ),
                                         value: zod
                                             .unknown()
@@ -502,10 +502,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -518,10 +518,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                                '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
                                             )
                                             .describe(
-                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
                                             ),
                                         value: zod
                                             .string()
@@ -531,10 +531,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -557,10 +557,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -568,10 +568,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -584,10 +584,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
-                                                '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             )
                                             .describe(
-                                                'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             ),
                                         value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
                                     }),
@@ -595,9 +595,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort'])
-                                            .describe('* `cohort` - cohort')
+                                            .describe('\* `cohort` - cohort')
                                             .describe(
-                                                'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                                'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -609,9 +609,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['in', 'not_in'])
-                                            .describe('* `in` - in\n* `not_in` - not_in')
+                                            .describe('\* `in` - in\n\* `not_in` - not_in')
                                             .describe(
-                                                'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                                'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                             ),
                                         value: zod
                                             .unknown()
@@ -621,9 +621,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['flag'])
-                                            .describe('* `flag` - flag')
+                                            .describe('\* `flag` - flag')
                                             .describe(
-                                                'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                                'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -635,9 +635,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
-                                            .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                            .describe('\* `flag_evaluates_to` - flag_evaluates_to')
                                             .describe(
-                                                'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                                'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                             ),
                                         value: zod.unknown().describe('Value to compare flag evaluation against.'),
                                     }),
@@ -688,7 +688,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .nullish()
                 .describe(
-                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment\/{flag_key}.'
                 ),
         })
         .optional()
@@ -740,11 +740,11 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
                 'product_tours',
             ])
             .describe(
-                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -752,25 +752,25 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .union([
                 zod
                     .enum(['server', 'client', 'all'])
-                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
             ),
         bucketing_identifier: zod
             .union([
                 zod
                     .enum(['distinct_id', 'device_id'])
-                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
         last_called_at: zod.iso
             .datetime({})
@@ -822,11 +822,11 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
                 'product_tours',
             ])
             .describe(
-                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -834,25 +834,25 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
             .union([
                 zod
                     .enum(['server', 'client', 'all'])
-                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
             ),
         bucketing_identifier: zod
             .union([
                 zod
                     .enum(['distinct_id', 'device_id'])
-                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
         last_called_at: zod.iso
             .datetime({})
@@ -904,11 +904,11 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
                 'product_tours',
             ])
             .describe(
-                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -916,25 +916,25 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
             .union([
                 zod
                     .enum(['server', 'client', 'all'])
-                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
             ),
         bucketing_identifier: zod
             .union([
                 zod
                     .enum(['distinct_id', 'device_id'])
-                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
         last_called_at: zod.iso
             .datetime({})
@@ -1018,11 +1018,11 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod
                 'product_tours',
             ])
             .describe(
-                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -1030,25 +1030,25 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .union([
                 zod
                     .enum(['server', 'client', 'all'])
-                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
             ),
         bucketing_identifier: zod
             .union([
                 zod
                     .enum(['distinct_id', 'device_id'])
-                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
         last_called_at: zod.iso
             .datetime({})
@@ -1099,11 +1099,11 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
                 'product_tours',
             ])
             .describe(
-                '* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -1111,25 +1111,25 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
             .union([
                 zod
                     .enum(['server', 'client', 'all'])
-                    .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
+                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
             ),
         bucketing_identifier: zod
             .union([
                 zod
                     .enum(['distinct_id', 'device_id'])
-                    .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
             .nullish()
             .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
+                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
         last_called_at: zod.iso
             .datetime({})
@@ -1162,9 +1162,9 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('List of object IDs to update tags on.'),
     action: zod
         .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
         .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })
@@ -1197,14 +1197,14 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The ID of the record to modify (e.g. the feature flag ID).'),
     model_name: zod
         .enum(['FeatureFlag'])
-        .describe('* `FeatureFlag` - feature flag')
+        .describe('\* `FeatureFlag` - feature flag')
         .describe(
-            'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n* `FeatureFlag` - feature flag'
+            'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n\* `FeatureFlag` - feature flag'
         ),
     payload: zod
         .unknown()
         .describe(
-            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
+            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true\/false to enable\/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
         .datetime({})
@@ -1217,12 +1217,12 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
+                .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly\n\* `yearly` - yearly'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
+            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly\n\* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
@@ -1246,14 +1246,14 @@ export const ScheduledChangesUpdateBody = /* @__PURE__ */ zod.object({
         .describe('The ID of the record to modify (e.g. the feature flag ID).'),
     model_name: zod
         .enum(['FeatureFlag'])
-        .describe('* `FeatureFlag` - feature flag')
+        .describe('\* `FeatureFlag` - feature flag')
         .describe(
-            'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n* `FeatureFlag` - feature flag'
+            'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n\* `FeatureFlag` - feature flag'
         ),
     payload: zod
         .unknown()
         .describe(
-            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
+            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true\/false to enable\/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
         .datetime({})
@@ -1266,12 +1266,12 @@ export const ScheduledChangesUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
+                .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly\n\* `yearly` - yearly'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
+            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly\n\* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
@@ -1296,16 +1296,16 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('The ID of the record to modify (e.g. the feature flag ID).'),
     model_name: zod
         .enum(['FeatureFlag'])
-        .describe('* `FeatureFlag` - feature flag')
+        .describe('\* `FeatureFlag` - feature flag')
         .optional()
         .describe(
-            'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n* `FeatureFlag` - feature flag'
+            'The type of record to modify. Currently only \"FeatureFlag\" is supported.\n\n\* `FeatureFlag` - feature flag'
         ),
     payload: zod
         .unknown()
         .optional()
         .describe(
-            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
+            "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true\/false to enable\/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
         .datetime({})
@@ -1319,12 +1319,12 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
+                .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly\n\* `yearly` - yearly'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
+            'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly\n\* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso

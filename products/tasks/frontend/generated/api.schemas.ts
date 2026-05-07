@@ -76,8 +76,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -96,7 +97,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export interface SandboxEnvironmentListApi {
@@ -231,7 +232,7 @@ export const SignalReportTaskRelationshipEnumApi = {
  * Latest run details for this task
  * @nullable
  */
-export type TaskApiLatestRun = { [key: string]: unknown } | null | null
+export type TaskApiLatestRun = { [key: string]: unknown } | null
 
 export interface TaskApi {
     readonly id: string
@@ -293,7 +294,7 @@ export interface PaginatedTaskListApi {
  * Latest run details for this task
  * @nullable
  */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null
 
 export interface PatchedTaskApi {
     readonly id?: string
@@ -812,6 +813,9 @@ export const TaskRunDetailProviderEnumApi = {
     Openai: 'openai',
 } as const
 
+export const TaskRunDetailApiRuntimeAdapter = { ...RuntimeAdapterEnumApi } as const
+export const TaskRunDetailApiProvider = { ...TaskRunDetailProviderEnumApi } as const
+export const TaskRunDetailApiReasoningEffort = { ...ReasoningEffortEnumApi } as const
 export interface TaskRunDetailApi {
     readonly id: string
     readonly task: string
@@ -834,16 +838,20 @@ export interface TaskRunDetailApi {
 * `cloud` - Cloud */
     environment?: TaskRunEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
+    readonly runtime_adapter:
+        | (typeof TaskRunDetailApiRuntimeAdapter)[keyof typeof TaskRunDetailApiRuntimeAdapter]
+        | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-    readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
+    readonly provider: (typeof TaskRunDetailApiProvider)[keyof typeof TaskRunDetailApiProvider] | null
     /**
      * Configured LLM model identifier for this run.
      * @nullable
      */
     readonly model: string | null
     /** Configured reasoning effort for this run when the selected model supports it. */
-    readonly reasoning_effort: ReasoningEffortEnumApi | NullEnumApi | null
+    readonly reasoning_effort:
+        | (typeof TaskRunDetailApiReasoningEffort)[keyof typeof TaskRunDetailApiReasoningEffort]
+        | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -1431,9 +1439,11 @@ export interface TaskSummariesRequestApi {
     ids: string[]
 }
 
+export const TaskRunSummaryApiStatus = { ...TaskRunStatusEnumApi } as const
+export const TaskRunSummaryApiEnvironment = { ...TaskRunEnvironmentEnumApi } as const
 export interface TaskRunSummaryApi {
-    status: TaskRunStatusEnumApi | NullEnumApi | null
-    environment: TaskRunEnvironmentEnumApi | NullEnumApi | null
+    status: (typeof TaskRunSummaryApiStatus)[keyof typeof TaskRunSummaryApiStatus] | null
+    environment: (typeof TaskRunSummaryApiEnvironment)[keyof typeof TaskRunSummaryApiEnvironment] | null
 }
 
 export interface TaskSummaryApi {

@@ -57,8 +57,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -77,7 +78,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -94,6 +95,7 @@ export const SessionRecordingPlaylistTypeEnumApi = {
 
 export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
 
+export const SessionRecordingPlaylistApiType = { ...SessionRecordingPlaylistTypeEnumApi } as const
 export interface SessionRecordingPlaylistApi {
     readonly id: number
     readonly short_id: string
@@ -125,7 +127,7 @@ export interface SessionRecordingPlaylistApi {
 
 * `collection` - Collection
 * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+    type?: (typeof SessionRecordingPlaylistApiType)[keyof typeof SessionRecordingPlaylistApiType] | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
@@ -144,6 +146,7 @@ export type PatchedSessionRecordingPlaylistApiRecordingsCounts = {
     [key: string]: { [key: string]: number | boolean | null }
 }
 
+export const PatchedSessionRecordingPlaylistApiType = { ...SessionRecordingPlaylistTypeEnumApi } as const
 export interface PatchedSessionRecordingPlaylistApi {
     readonly id?: number
     readonly short_id?: string
@@ -175,7 +178,7 @@ export interface PatchedSessionRecordingPlaylistApi {
 
 * `collection` - Collection
 * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+    type?: (typeof PatchedSessionRecordingPlaylistApiType)[keyof typeof PatchedSessionRecordingPlaylistApiType] | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string

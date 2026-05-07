@@ -86,8 +86,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -106,7 +107,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -161,6 +162,8 @@ export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
 
+export const FeatureFlagApiEvaluationRuntime = { ...EvaluationRuntimeEnumApi, ...BlankEnumApi } as const
+export const FeatureFlagApiBucketingIdentifier = { ...BucketingIdentifierEnumApi, ...BlankEnumApi } as const
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -219,12 +222,14 @@ export interface FeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?: (typeof FeatureFlagApiEvaluationRuntime)[keyof typeof FeatureFlagApiEvaluationRuntime] | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?:
+        | (typeof FeatureFlagApiBucketingIdentifier)[keyof typeof FeatureFlagApiBucketingIdentifier]
+        | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -728,7 +733,7 @@ export interface DetailApi {
 /**
  * @nullable
  */
-export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
 
 export interface ActivityLogEntryApi {
     readonly id: string
@@ -859,6 +864,11 @@ export interface ErrorResponseApi {
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
 
+export const FeatureFlagVersionResponseApiEvaluationRuntime = { ...EvaluationRuntimeEnumApi, ...BlankEnumApi } as const
+export const FeatureFlagVersionResponseApiBucketingIdentifier = {
+    ...BucketingIdentifierEnumApi,
+    ...BlankEnumApi,
+} as const
 /**
  * Feature flag state at a given version plus reconstruction metadata.
  */
@@ -892,12 +902,16 @@ export interface FeatureFlagVersionResponseApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?:
+        | (typeof FeatureFlagVersionResponseApiEvaluationRuntime)[keyof typeof FeatureFlagVersionResponseApiEvaluationRuntime]
+        | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?:
+        | (typeof FeatureFlagVersionResponseApiBucketingIdentifier)[keyof typeof FeatureFlagVersionResponseApiBucketingIdentifier]
+        | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -970,6 +984,8 @@ export type LocalEvaluationResponseApiCohorts = { [key: string]: unknown }
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
+export const MinimalFeatureFlagApiEvaluationRuntime = { ...EvaluationRuntimeEnumApi, ...BlankEnumApi } as const
+export const MinimalFeatureFlagApiBucketingIdentifier = { ...BucketingIdentifierEnumApi, ...BlankEnumApi } as const
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -994,12 +1010,16 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?:
+        | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
+        | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?:
+        | (typeof MinimalFeatureFlagApiBucketingIdentifier)[keyof typeof MinimalFeatureFlagApiBucketingIdentifier]
+        | null
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -1061,6 +1081,7 @@ export const RecurrenceIntervalEnumApi = {
     Yearly: 'yearly',
 } as const
 
+export const ScheduledChangeApiRecurrenceInterval = { ...RecurrenceIntervalEnumApi } as const
 export interface ScheduledChangeApi {
     readonly id: number
     readonly team_id: number
@@ -1095,7 +1116,9 @@ export interface ScheduledChangeApi {
 * `weekly` - weekly
 * `monthly` - monthly
 * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    recurrence_interval?:
+        | (typeof ScheduledChangeApiRecurrenceInterval)[keyof typeof ScheduledChangeApiRecurrenceInterval]
+        | null
     /**
      * @maxLength 100
      * @nullable
@@ -1121,6 +1144,7 @@ export interface PaginatedScheduledChangeListApi {
     results: ScheduledChangeApi[]
 }
 
+export const PatchedScheduledChangeApiRecurrenceInterval = { ...RecurrenceIntervalEnumApi } as const
 export interface PatchedScheduledChangeApi {
     readonly id?: number
     readonly team_id?: number
@@ -1155,7 +1179,9 @@ export interface PatchedScheduledChangeApi {
 * `weekly` - weekly
 * `monthly` - monthly
 * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    recurrence_interval?:
+        | (typeof PatchedScheduledChangeApiRecurrenceInterval)[keyof typeof PatchedScheduledChangeApiRecurrenceInterval]
+        | null
     /**
      * @maxLength 100
      * @nullable

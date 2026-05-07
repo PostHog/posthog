@@ -239,8 +239,12 @@ export const CdcTableModeEnumApi = {
 /**
  * @nullable
  */
-export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
+export const ExternalDataSchemaApiSyncType = { ...SyncTypeEnumApi } as const
+export const ExternalDataSchemaApiIncrementalFieldType = { ...IncrementalFieldTypeEnumApi } as const
+export const ExternalDataSchemaApiSyncFrequency = { ...SyncFrequencyEnumApi } as const
+export const ExternalDataSchemaApiCdcTableMode = { ...CdcTableModeEnumApi } as const
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -266,7 +270,7 @@ export interface ExternalDataSchemaApi {
 * `append` - append
 * `webhook` - webhook
 * `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    sync_type?: (typeof ExternalDataSchemaApiSyncType)[keyof typeof ExternalDataSchemaApiSyncType] | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -280,7 +284,9 @@ export interface ExternalDataSchemaApi {
 * `date` - date
 * `timestamp` - timestamp
 * `objectid` - objectid */
-    incremental_field_type?: IncrementalFieldTypeEnumApi | NullEnumApi | null
+    incremental_field_type?:
+        | (typeof ExternalDataSchemaApiIncrementalFieldType)[keyof typeof ExternalDataSchemaApiIncrementalFieldType]
+        | null
     /** How often to sync.
 
 * `never` - never
@@ -294,7 +300,7 @@ export interface ExternalDataSchemaApi {
 * `24hour` - 24hour
 * `7day` - 7day
 * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | NullEnumApi | null
+    sync_frequency?: (typeof ExternalDataSchemaApiSyncFrequency)[keyof typeof ExternalDataSchemaApiSyncFrequency] | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -312,7 +318,7 @@ export interface ExternalDataSchemaApi {
 * `consolidated` - consolidated
 * `cdc_only` - cdc_only
 * `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    cdc_table_mode?: (typeof ExternalDataSchemaApiCdcTableMode)[keyof typeof ExternalDataSchemaApiCdcTableMode] | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -327,8 +333,12 @@ export interface PaginatedExternalDataSchemaListApi {
 /**
  * @nullable
  */
-export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
+export const PatchedExternalDataSchemaApiSyncType = { ...SyncTypeEnumApi } as const
+export const PatchedExternalDataSchemaApiIncrementalFieldType = { ...IncrementalFieldTypeEnumApi } as const
+export const PatchedExternalDataSchemaApiSyncFrequency = { ...SyncFrequencyEnumApi } as const
+export const PatchedExternalDataSchemaApiCdcTableMode = { ...CdcTableModeEnumApi } as const
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
     readonly name?: string
@@ -354,7 +364,7 @@ export interface PatchedExternalDataSchemaApi {
 * `append` - append
 * `webhook` - webhook
 * `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    sync_type?: (typeof PatchedExternalDataSchemaApiSyncType)[keyof typeof PatchedExternalDataSchemaApiSyncType] | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -368,7 +378,9 @@ export interface PatchedExternalDataSchemaApi {
 * `date` - date
 * `timestamp` - timestamp
 * `objectid` - objectid */
-    incremental_field_type?: IncrementalFieldTypeEnumApi | NullEnumApi | null
+    incremental_field_type?:
+        | (typeof PatchedExternalDataSchemaApiIncrementalFieldType)[keyof typeof PatchedExternalDataSchemaApiIncrementalFieldType]
+        | null
     /** How often to sync.
 
 * `never` - never
@@ -382,7 +394,9 @@ export interface PatchedExternalDataSchemaApi {
 * `24hour` - 24hour
 * `7day` - 7day
 * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | NullEnumApi | null
+    sync_frequency?:
+        | (typeof PatchedExternalDataSchemaApiSyncFrequency)[keyof typeof PatchedExternalDataSchemaApiSyncFrequency]
+        | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -400,7 +414,9 @@ export interface PatchedExternalDataSchemaApi {
 * `consolidated` - consolidated
 * `cdc_only` - cdc_only
 * `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    cdc_table_mode?:
+        | (typeof PatchedExternalDataSchemaApiCdcTableMode)[keyof typeof PatchedExternalDataSchemaApiCdcTableMode]
+        | null
 }
 
 /**
@@ -739,6 +755,7 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     include_invoiceless_charges?: boolean
 }
 
+export const ExternalDataSourceSerializersApiEngine = { ...EngineEnumApi } as const
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
@@ -776,7 +793,9 @@ export interface ExternalDataSourceSerializersApi {
 
 * `duckdb` - duckdb
 * `postgres` - postgres */
-    readonly engine: EngineEnumApi | NullEnumApi | null
+    readonly engine:
+        | (typeof ExternalDataSourceSerializersApiEngine)[keyof typeof ExternalDataSourceSerializersApiEngine]
+        | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
@@ -979,6 +998,7 @@ export interface ExternalDataSourceCreateApi {
     created_via?: CreatedViaEnumApi
 }
 
+export const PatchedExternalDataSourceSerializersApiEngine = { ...EngineEnumApi } as const
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
@@ -1016,7 +1036,9 @@ export interface PatchedExternalDataSourceSerializersApi {
 
 * `duckdb` - duckdb
 * `postgres` - postgres */
-    readonly engine?: EngineEnumApi | NullEnumApi | null
+    readonly engine?:
+        | (typeof PatchedExternalDataSourceSerializersApiEngine)[keyof typeof PatchedExternalDataSourceSerializersApiEngine]
+        | null
     /** @nullable */
     readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
@@ -1030,6 +1052,8 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_webhooks?: boolean
 }
 
+export const ExternalDataSourceBulkUpdateSchemaApiSyncType = { ...SyncTypeEnumApi } as const
+export const ExternalDataSourceBulkUpdateSchemaApiCdcTableMode = { ...CdcTableModeEnumApi } as const
 export interface ExternalDataSourceBulkUpdateSchemaApi {
     /** Schema identifier to update. */
     id: string
@@ -1042,7 +1066,9 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 * `append` - append
 * `webhook` - webhook
 * `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    sync_type?:
+        | (typeof ExternalDataSourceBulkUpdateSchemaApiSyncType)[keyof typeof ExternalDataSourceBulkUpdateSchemaApiSyncType]
+        | null
     /**
      * Incremental cursor field for incremental or append syncs.
      * @nullable
@@ -1068,7 +1094,9 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 * `consolidated` - consolidated
 * `cdc_only` - cdc_only
 * `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    cdc_table_mode?:
+        | (typeof ExternalDataSourceBulkUpdateSchemaApiCdcTableMode)[keyof typeof ExternalDataSourceBulkUpdateSchemaApiCdcTableMode]
+        | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -1076,6 +1104,7 @@ export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
     schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
 }
 
+export const ExternalDataSourceConnectionOptionApiEngine = { ...EngineEnumApi } as const
 export interface ExternalDataSourceConnectionOptionApi {
     readonly id: string
     /** @nullable */
@@ -1084,7 +1113,9 @@ export interface ExternalDataSourceConnectionOptionApi {
 
 * `duckdb` - duckdb
 * `postgres` - postgres */
-    readonly engine: EngineEnumApi | NullEnumApi | null
+    readonly engine:
+        | (typeof ExternalDataSourceConnectionOptionApiEngine)[keyof typeof ExternalDataSourceConnectionOptionApiEngine]
+        | null
 }
 
 export interface PaginatedExternalDataSourceConnectionOptionListApi {
@@ -1410,8 +1441,9 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -1430,7 +1462,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -1488,6 +1520,8 @@ export const OriginEnumApi = {
 
 export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
 
+export const DataWarehouseSavedQueryMinimalApiStatus = { ...SavedQueryStatusEnumApi } as const
+export const DataWarehouseSavedQueryMinimalApiOrigin = { ...OriginEnumApi } as const
 /**
  * Lightweight serializer for list views - excludes large query field to reduce memory usage.
  */
@@ -1508,7 +1542,9 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
+    readonly status:
+        | (typeof DataWarehouseSavedQueryMinimalApiStatus)[keyof typeof DataWarehouseSavedQueryMinimalApiStatus]
+        | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1526,7 +1562,9 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi | null
+    readonly origin:
+        | (typeof DataWarehouseSavedQueryMinimalApiOrigin)[keyof typeof DataWarehouseSavedQueryMinimalApiOrigin]
+        | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
     /**
@@ -1552,6 +1590,8 @@ export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export const DataWarehouseSavedQueryApiStatus = { ...SavedQueryStatusEnumApi } as const
+export const DataWarehouseSavedQueryApiOrigin = { ...OriginEnumApi } as const
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
 
@@ -1580,7 +1620,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
+    readonly status: (typeof DataWarehouseSavedQueryApiStatus)[keyof typeof DataWarehouseSavedQueryApiStatus] | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1621,7 +1661,7 @@ export interface DataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi | null
+    readonly origin: (typeof DataWarehouseSavedQueryApiOrigin)[keyof typeof DataWarehouseSavedQueryApiOrigin] | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1638,6 +1678,8 @@ export interface DataWarehouseSavedQueryApi {
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export const PatchedDataWarehouseSavedQueryApiStatus = { ...SavedQueryStatusEnumApi } as const
+export const PatchedDataWarehouseSavedQueryApiOrigin = { ...OriginEnumApi } as const
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
 
@@ -1666,7 +1708,9 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: SavedQueryStatusEnumApi | NullEnumApi | null
+    readonly status?:
+        | (typeof PatchedDataWarehouseSavedQueryApiStatus)[keyof typeof PatchedDataWarehouseSavedQueryApiStatus]
+        | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1707,7 +1751,9 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | NullEnumApi | null
+    readonly origin?:
+        | (typeof PatchedDataWarehouseSavedQueryApiOrigin)[keyof typeof PatchedDataWarehouseSavedQueryApiOrigin]
+        | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1805,7 +1851,7 @@ export type TableApiColumnsItem = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type TableApiExternalSchema = { [key: string]: unknown } | null | null
+export type TableApiExternalSchema = { [key: string]: unknown } | null
 
 export type TableApiOptions = { [key: string]: unknown }
 

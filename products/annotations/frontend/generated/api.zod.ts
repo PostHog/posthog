@@ -26,10 +26,10 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
     creation_type: zod
         .enum(['USR', 'GIT'])
-        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .describe('\* `USR` - user\n\* `GIT` - GitHub')
         .optional()
         .describe(
-            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
@@ -40,11 +40,11 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
         .describe(
-            '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         ),
 })
 
@@ -65,10 +65,10 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
     creation_type: zod
         .enum(['USR', 'GIT'])
-        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .describe('\* `USR` - user\n\* `GIT` - GitHub')
         .optional()
         .describe(
-            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
@@ -79,11 +79,11 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
         .describe(
-            '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         ),
 })
 
@@ -104,10 +104,10 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
     creation_type: zod
         .enum(['USR', 'GIT'])
-        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .describe('\* `USR` - user\n\* `GIT` - GitHub')
         .optional()
         .describe(
-            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
@@ -118,10 +118,10 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
         .describe(
-            '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         ),
 })

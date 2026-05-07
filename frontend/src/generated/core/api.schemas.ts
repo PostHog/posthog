@@ -211,8 +211,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -231,7 +232,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export interface OrganizationInviteApi {
@@ -335,6 +336,18 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+/**
+ * * `0` - Sunday
+ * `1` - Monday
+ */
+export type WeekStartDayEnumApi = (typeof WeekStartDayEnumApi)[keyof typeof WeekStartDayEnumApi]
+
+export const WeekStartDayEnumApi = {
+    Number0: 0,
+    Number1: 1,
+} as const
+
+export const ProjectBackwardCompatApiWeekStartDay = { ...WeekStartDayEnumApi } as const
 export type ProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type ProjectBackwardCompatApiProductIntentsItem = {
@@ -345,6 +358,20 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+/**
+ * * `b2b` - B2B
+ * `b2c` - B2C
+ * `other` - Other
+ */
+export type BusinessModelEnumApi = (typeof BusinessModelEnumApi)[keyof typeof BusinessModelEnumApi]
+
+export const BusinessModelEnumApi = {
+    B2b: 'b2b',
+    B2c: 'b2c',
+    Other: 'other',
+} as const
+
+export const ProjectBackwardCompatApiBusinessModel = { ...BusinessModelEnumApi, ...BlankEnumApi } as const
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -368,30 +395,6 @@ export const SessionRecordingRetentionPeriodEnumApi = {
     '90d': '90d',
     '1y': '1y',
     '5y': '5y',
-} as const
-
-/**
- * * `0` - Sunday
- * `1` - Monday
- */
-export type WeekStartDayEnumApi = (typeof WeekStartDayEnumApi)[keyof typeof WeekStartDayEnumApi]
-
-export const WeekStartDayEnumApi = {
-    Number0: 0,
-    Number1: 1,
-} as const
-
-/**
- * * `b2b` - B2B
- * `b2c` - B2C
- * `other` - Other
- */
-export type BusinessModelEnumApi = (typeof BusinessModelEnumApi)[keyof typeof BusinessModelEnumApi]
-
-export const BusinessModelEnumApi = {
-    B2b: 'b2b',
-    B2c: 'b2c',
-    Other: 'other',
 } as const
 
 /**
@@ -1256,7 +1259,9 @@ export interface ProjectBackwardCompatApi {
 
 * `0` - Sunday
 * `1` - Monday */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
+    week_start_day?:
+        | (typeof ProjectBackwardCompatApiWeekStartDay)[keyof typeof ProjectBackwardCompatApiWeekStartDay]
+        | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
      * @nullable
@@ -1303,7 +1308,9 @@ export interface ProjectBackwardCompatApi {
 * `b2b` - B2B
 * `b2c` - B2C
 * `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
+    business_model?:
+        | (typeof ProjectBackwardCompatApiBusinessModel)[keyof typeof ProjectBackwardCompatApiBusinessModel]
+        | null
     /**
      * Enables the customer conversations / live chat product for this project.
      * @nullable
@@ -1318,6 +1325,7 @@ export interface ProjectBackwardCompatApi {
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export const PatchedProjectBackwardCompatApiWeekStartDay = { ...WeekStartDayEnumApi } as const
 export type PatchedProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type PatchedProjectBackwardCompatApiProductIntentsItem = {
@@ -1328,6 +1336,7 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+export const PatchedProjectBackwardCompatApiBusinessModel = { ...BusinessModelEnumApi, ...BlankEnumApi } as const
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
@@ -2052,7 +2061,9 @@ export interface PatchedProjectBackwardCompatApi {
 
 * `0` - Sunday
 * `1` - Monday */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
+    week_start_day?:
+        | (typeof PatchedProjectBackwardCompatApiWeekStartDay)[keyof typeof PatchedProjectBackwardCompatApiWeekStartDay]
+        | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
      * @nullable
@@ -2099,7 +2110,9 @@ export interface PatchedProjectBackwardCompatApi {
 * `b2b` - B2B
 * `b2c` - B2C
 * `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
+    business_model?:
+        | (typeof PatchedProjectBackwardCompatApiBusinessModel)[keyof typeof PatchedProjectBackwardCompatApiBusinessModel]
+        | null
     /**
      * Enables the customer conversations / live chat product for this project.
      * @nullable
@@ -2126,6 +2139,7 @@ export const DashboardTemplateScopeEnumApi = {
     FeatureFlag: 'feature_flag',
 } as const
 
+export const DashboardTemplateApiScope = { ...DashboardTemplateScopeEnumApi, ...BlankEnumApi } as const
 export interface DashboardTemplateApi {
     readonly id: string
     /**
@@ -2155,13 +2169,14 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: (typeof DashboardTemplateApiScope)[keyof typeof DashboardTemplateApiScope] | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
 }
 
+export const PatchedDashboardTemplateApiScope = { ...DashboardTemplateScopeEnumApi, ...BlankEnumApi } as const
 export interface PatchedDashboardTemplateApi {
     readonly id?: string
     /**
@@ -2191,7 +2206,7 @@ export interface PatchedDashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id?: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: (typeof PatchedDashboardTemplateApiScope)[keyof typeof PatchedDashboardTemplateApiScope] | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
@@ -2396,6 +2411,10 @@ export const PropertyDefinitionTypeEnumApi = {
     Duration: 'Duration',
 } as const
 
+export const EnterprisePropertyDefinitionApiPropertyType = {
+    ...PropertyDefinitionTypeEnumApi,
+    ...BlankEnumApi,
+} as const
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -2410,7 +2429,9 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?:
+        | (typeof EnterprisePropertyDefinitionApiPropertyType)[keyof typeof EnterprisePropertyDefinitionApiPropertyType]
+        | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -2428,6 +2449,10 @@ export interface PaginatedEnterprisePropertyDefinitionListApi {
     results: EnterprisePropertyDefinitionApi[]
 }
 
+export const PatchedEnterprisePropertyDefinitionApiPropertyType = {
+    ...PropertyDefinitionTypeEnumApi,
+    ...BlankEnumApi,
+} as const
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -2442,7 +2467,9 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?:
+        | (typeof PatchedEnterprisePropertyDefinitionApiPropertyType)[keyof typeof PatchedEnterprisePropertyDefinitionApiPropertyType]
+        | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -2819,6 +2846,10 @@ export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
 
+export const OrganizationApiDefaultExperimentStatsMethod = {
+    ...DefaultExperimentStatsMethodEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -2853,7 +2884,9 @@ export interface OrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    default_experiment_stats_method?:
+        | (typeof OrganizationApiDefaultExperimentStatsMethod)[keyof typeof OrganizationApiDefaultExperimentStatsMethod]
+        | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -2976,6 +3009,10 @@ export interface PendingInviteApi {
  */
 export type UserApiNotificationSettings = { [key: string]: unknown }
 
+export const UserApiToolbarMode = { ...ToolbarModeEnumApi, ...BlankEnumApi } as const
+export const UserApiThemeMode = { ...ThemeModeEnumApi, ...BlankEnumApi } as const
+export const UserApiShortcutPosition = { ...ShortcutPositionEnumApi, ...BlankEnumApi } as const
+export const UserApiOnboardingSkippedReason = { ...OnboardingSkippedReasonEnumApi } as const
 export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
@@ -3000,7 +3037,7 @@ export interface UserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi | null
+    toolbar_mode?: (typeof UserApiToolbarMode)[keyof typeof UserApiToolbarMode] | null
     readonly has_password: boolean
     readonly id: number
     /** Designates whether the user can log into this admin site. */
@@ -3028,11 +3065,11 @@ export interface UserApi {
     readonly has_sso_enforcement: boolean
     has_seen_product_intro_for?: unknown | null
     readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
-    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
+    theme_mode?: (typeof UserApiThemeMode)[keyof typeof UserApiThemeMode] | null
     hedgehog_config?: unknown | null
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
+    shortcut_position?: (typeof UserApiShortcutPosition)[keyof typeof UserApiShortcutPosition] | null
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3041,7 +3078,9 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
     readonly onboarding_skipped_at: string | null
-    readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    readonly onboarding_skipped_reason:
+        | (typeof UserApiOnboardingSkippedReason)[keyof typeof UserApiOnboardingSkippedReason]
+        | null
     /** @nullable */
     readonly onboarding_skipped_organization_id: string | null
     /** @nullable */
@@ -3074,6 +3113,10 @@ export interface PaginatedUserListApi {
  */
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
 
+export const PatchedUserApiToolbarMode = { ...ToolbarModeEnumApi, ...BlankEnumApi } as const
+export const PatchedUserApiThemeMode = { ...ThemeModeEnumApi, ...BlankEnumApi } as const
+export const PatchedUserApiShortcutPosition = { ...ShortcutPositionEnumApi, ...BlankEnumApi } as const
+export const PatchedUserApiOnboardingSkippedReason = { ...OnboardingSkippedReasonEnumApi } as const
 export interface PatchedUserApi {
     readonly date_joined?: string
     readonly uuid?: string
@@ -3098,7 +3141,7 @@ export interface PatchedUserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi | null
+    toolbar_mode?: (typeof PatchedUserApiToolbarMode)[keyof typeof PatchedUserApiToolbarMode] | null
     readonly has_password?: boolean
     readonly id?: number
     /** Designates whether the user can log into this admin site. */
@@ -3126,11 +3169,11 @@ export interface PatchedUserApi {
     readonly has_sso_enforcement?: boolean
     has_seen_product_intro_for?: unknown | null
     readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
-    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
+    theme_mode?: (typeof PatchedUserApiThemeMode)[keyof typeof PatchedUserApiThemeMode] | null
     hedgehog_config?: unknown | null
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
+    shortcut_position?: (typeof PatchedUserApiShortcutPosition)[keyof typeof PatchedUserApiShortcutPosition] | null
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3139,7 +3182,9 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
-    readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    readonly onboarding_skipped_reason?:
+        | (typeof PatchedUserApiOnboardingSkippedReason)[keyof typeof PatchedUserApiOnboardingSkippedReason]
+        | null
     /** @nullable */
     readonly onboarding_skipped_organization_id?: string | null
     /** @nullable */

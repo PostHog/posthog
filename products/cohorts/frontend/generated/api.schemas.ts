@@ -180,8 +180,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -200,7 +201,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -220,6 +221,7 @@ export const CohortTypeEnumApi = {
     Analytical: 'analytical',
 } as const
 
+export const CohortApiCohortType = { ...CohortTypeEnumApi, ...BlankEnumApi } as const
 export interface CohortApi {
     readonly id: number
     /**
@@ -258,7 +260,7 @@ export interface CohortApi {
 * `behavioral` - behavioral
 * `realtime` - realtime
 * `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    cohort_type?: (typeof CohortApiCohortType)[keyof typeof CohortApiCohortType] | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -273,6 +275,7 @@ export interface PaginatedCohortListApi {
     results: CohortApi[]
 }
 
+export const PatchedCohortApiCohortType = { ...CohortTypeEnumApi, ...BlankEnumApi } as const
 export interface PatchedCohortApi {
     readonly id?: number
     /**
@@ -311,7 +314,7 @@ export interface PatchedCohortApi {
 * `behavioral` - behavioral
 * `realtime` - realtime
 * `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    cohort_type?: (typeof PatchedCohortApiCohortType)[keyof typeof PatchedCohortApiCohortType] | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]

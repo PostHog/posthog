@@ -125,8 +125,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -145,7 +146,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
@@ -204,6 +205,28 @@ export interface PaginatedHogFunctionMinimalListApi {
 }
 
 /**
+ * * `destination` - Destination
+ * `site_destination` - Site Destination
+ * `internal_destination` - Internal Destination
+ * `source_webhook` - Source Webhook
+ * `warehouse_source_webhook` - Warehouse Source Webhook
+ * `site_app` - Site App
+ * `transformation` - Transformation
+ */
+export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
+
+export const HogFunctionTypeEnumApi = {
+    Destination: 'destination',
+    SiteDestination: 'site_destination',
+    InternalDestination: 'internal_destination',
+    SourceWebhook: 'source_webhook',
+    WarehouseSourceWebhook: 'warehouse_source_webhook',
+    SiteApp: 'site_app',
+    Transformation: 'transformation',
+} as const
+
+export const HogFunctionApiType = { ...HogFunctionTypeEnumApi } as const
+/**
  * * `hog` - hog
  * `liquid` - liquid
  */
@@ -227,27 +250,6 @@ export interface InputsItemApi {
  * Values for each input defined in inputs_schema.
  */
 export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
-
-/**
- * * `destination` - Destination
- * `site_destination` - Site Destination
- * `internal_destination` - Internal Destination
- * `source_webhook` - Source Webhook
- * `warehouse_source_webhook` - Warehouse Source Webhook
- * `site_app` - Site App
- * `transformation` - Transformation
- */
-export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
-
-export const HogFunctionTypeEnumApi = {
-    Destination: 'destination',
-    SiteDestination: 'site_destination',
-    InternalDestination: 'internal_destination',
-    SourceWebhook: 'source_webhook',
-    WarehouseSourceWebhook: 'warehouse_source_webhook',
-    SiteApp: 'site_app',
-    Transformation: 'transformation',
-} as const
 
 /**
  * * `string` - string
@@ -374,7 +376,7 @@ export interface HogFunctionApi {
 * `warehouse_source_webhook` - Warehouse Source Webhook
 * `site_app` - Site App
 * `transformation` - Transformation */
-    type?: HogFunctionTypeEnumApi | NullEnumApi | null
+    type?: (typeof HogFunctionApiType)[keyof typeof HogFunctionApiType] | null
     /**
      * Display name for the function.
      * @maxLength 400
@@ -433,6 +435,7 @@ export interface HogFunctionApi {
     readonly batch_export_id: string | null
 }
 
+export const PatchedHogFunctionApiType = { ...HogFunctionTypeEnumApi } as const
 /**
  * Values for each input defined in inputs_schema.
  */
@@ -449,7 +452,7 @@ export interface PatchedHogFunctionApi {
 * `warehouse_source_webhook` - Warehouse Source Webhook
 * `site_app` - Site App
 * `transformation` - Transformation */
-    type?: HogFunctionTypeEnumApi | NullEnumApi | null
+    type?: (typeof PatchedHogFunctionApiType)[keyof typeof PatchedHogFunctionApiType] | null
     /**
      * Display name for the function.
      * @maxLength 400

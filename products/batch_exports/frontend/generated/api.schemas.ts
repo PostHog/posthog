@@ -109,6 +109,7 @@ export const FileFormatEnumApi = {
     Parquet: 'Parquet',
 } as const
 
+export const AzureBlobDestinationConfigApiCompression = { ...CompressionEnumApi } as const
 /**
  * Typed configuration for an Azure Blob Storage batch-export destination.
 
@@ -127,7 +128,9 @@ export interface AzureBlobDestinationConfigApi {
 * `lz4` - lz4
 * `snappy` - snappy
 * `zstd` - zstd */
-    compression?: CompressionEnumApi | NullEnumApi | null
+    compression?:
+        | (typeof AzureBlobDestinationConfigApiCompression)[keyof typeof AzureBlobDestinationConfigApiCompression]
+        | null
     /** File format used for exported objects.
 
 * `JSONLines` - JSONLines
@@ -304,6 +307,7 @@ export interface BatchExportRunApi {
     backfill?: string | null
 }
 
+export const BatchExportApiModel = { ...ModelEnumApi, ...BlankEnumApi } as const
 /**
  * Serializer for a BatchExport model.
  */
@@ -318,7 +322,7 @@ export interface BatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
+    model?: (typeof BatchExportApiModel)[keyof typeof BatchExportApiModel] | null
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
     /** How often the batch export should run.
@@ -1105,7 +1109,7 @@ export type BatchExportBackfillApiProgress = {
     readonly finished_runs?: number | null
     /** @nullable */
     readonly progress?: number | null
-} | null | null
+} | null
 
 export interface BatchExportBackfillApi {
     readonly id: string

@@ -43,6 +43,8 @@ export const BucketingIdentifierEnumApi = {
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
+export const MinimalFeatureFlagApiEvaluationRuntime = { ...EvaluationRuntimeEnumApi, ...BlankEnumApi } as const
+export const MinimalFeatureFlagApiBucketingIdentifier = { ...BucketingIdentifierEnumApi, ...BlankEnumApi } as const
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -67,12 +69,16 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?:
+        | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
+        | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?:
+        | (typeof MinimalFeatureFlagApiBucketingIdentifier)[keyof typeof MinimalFeatureFlagApiBucketingIdentifier]
+        | null
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -102,8 +108,9 @@ export const RoleAtOrganizationEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -122,14 +129,14 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 /**
  * Return the targeting flag filters, excluding the base exclusion properties.
  * @nullable
  */
-export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null | null
+export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null
 
 /**
  * Read-only serializer for ProductTour.

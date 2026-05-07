@@ -77,13 +77,13 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     is_ai_data_processing_approved: zod.boolean().nullish(),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -107,13 +107,13 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     is_ai_data_processing_approved: zod.boolean().nullish(),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -137,13 +137,13 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     is_ai_data_processing_approved: zod.boolean().nullish(),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -159,14 +159,14 @@ export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
+        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
 export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
+        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
 export const rolesCreateBodyNameMax = 200
@@ -222,7 +222,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
                 zod
                     .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
                     .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
                     ),
                 zod.enum(['']),
                 zod.literal(null),
@@ -324,7 +324,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe(
-                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                     ),
                 search: zod
                     .string()
@@ -358,7 +358,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .nullish()
                     .describe(
-                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                     ),
                 sceneKey: zod
                     .string()
@@ -392,7 +392,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe(
-                    'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                    'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                 ),
             search: zod
                 .string()
@@ -424,7 +424,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .nullish()
                 .describe(
-                    'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                    'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                 ),
             sceneKey: zod
                 .string()
@@ -445,6 +445,6 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         })
         .nullish()
         .describe(
-            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
+            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `\/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
         ),
 })

@@ -43,8 +43,9 @@ export const NullEnumApi = {} as const
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -63,7 +64,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
 export interface ExperimentHoldoutApi {
@@ -440,6 +441,8 @@ export const ExperimentStatusEnumApi = {
 
 export type ExperimentApiFeatureFlag = { [key: string]: unknown }
 
+export const ExperimentApiType = { ...ExperimentTypeEnumApi } as const
+export const ExperimentApiConclusion = { ...ConclusionEnumApi } as const
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -492,7 +495,7 @@ export interface ExperimentApi {
 
 * `web` - web
 * `product` - product */
-    type?: ExperimentTypeEnumApi | NullEnumApi | null
+    type?: (typeof ExperimentApiType)[keyof typeof ExperimentApiType] | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
     /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
@@ -511,7 +514,7 @@ export interface ExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: (typeof ExperimentApiConclusion)[keyof typeof ExperimentApiConclusion] | null
     /**
      * Comment about the experiment conclusion.
      * @nullable
@@ -542,6 +545,8 @@ export interface PaginatedExperimentListApi {
 
 export type PatchedExperimentApiFeatureFlag = { [key: string]: unknown }
 
+export const PatchedExperimentApiType = { ...ExperimentTypeEnumApi } as const
+export const PatchedExperimentApiConclusion = { ...ConclusionEnumApi } as const
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -594,7 +599,7 @@ export interface PatchedExperimentApi {
 
 * `web` - web
 * `product` - product */
-    type?: ExperimentTypeEnumApi | NullEnumApi | null
+    type?: (typeof PatchedExperimentApiType)[keyof typeof PatchedExperimentApiType] | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
     /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
@@ -613,7 +618,7 @@ export interface PatchedExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: (typeof PatchedExperimentApiConclusion)[keyof typeof PatchedExperimentApiConclusion] | null
     /**
      * Comment about the experiment conclusion.
      * @nullable
@@ -642,6 +647,7 @@ export interface CopyExperimentToProjectApi {
     name?: string
 }
 
+export const EndExperimentApiConclusion = { ...ConclusionEnumApi } as const
 export interface EndExperimentApi {
     /** The conclusion of the experiment.
 
@@ -650,7 +656,7 @@ export interface EndExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: (typeof EndExperimentApiConclusion)[keyof typeof EndExperimentApiConclusion] | null
     /**
      * Optional comment about the experiment conclusion.
      * @nullable
@@ -658,6 +664,7 @@ export interface EndExperimentApi {
     conclusion_comment?: string | null
 }
 
+export const ShipVariantApiConclusion = { ...ConclusionEnumApi } as const
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
 
@@ -666,7 +673,7 @@ export interface ShipVariantApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: (typeof ShipVariantApiConclusion)[keyof typeof ShipVariantApiConclusion] | null
     /**
      * Optional comment about the experiment conclusion.
      * @nullable

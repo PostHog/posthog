@@ -45,20 +45,22 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional().describe('Survey description.'),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api')
         .describe(
-            'Survey type.\n\n* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        )
+        .describe(
+            'Survey type.\n\n\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
         ),
     schedule: zod
         .union([
             zod
                 .enum(['once', 'recurring', 'always'])
-                .describe('* `once` - once\n* `recurring` - recurring\n* `always` - always'),
+                .describe('\* `once` - once\n\* `recurring` - recurring\n\* `always` - always'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n* `once` - once\n* `recurring` - recurring\n* `always` - always"
+            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n\* `once` - once\n\* `recurring` - recurring\n\* `always` - always"
         ),
     linked_flag_id: zod.number().nullish().describe('The feature flag linked to this survey.'),
     linked_insight_id: zod.number().nullish(),
@@ -75,10 +77,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -107,20 +109,20 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -132,9 +134,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
-                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
                                             .describe(
-                                                'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                                'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                             ),
                                         value: zod
                                             .unknown()
@@ -147,10 +149,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -163,10 +165,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                                '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
                                             )
                                             .describe(
-                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
                                             ),
                                         value: zod
                                             .string()
@@ -176,10 +178,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -202,10 +204,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -213,10 +215,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -229,10 +231,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
-                                                '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             )
                                             .describe(
-                                                'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             ),
                                         value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
                                     }),
@@ -240,9 +242,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort'])
-                                            .describe('* `cohort` - cohort')
+                                            .describe('\* `cohort` - cohort')
                                             .describe(
-                                                'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                                'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -254,9 +256,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['in', 'not_in'])
-                                            .describe('* `in` - in\n* `not_in` - not_in')
+                                            .describe('\* `in` - in\n\* `not_in` - not_in')
                                             .describe(
-                                                'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                                'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                             ),
                                         value: zod
                                             .unknown()
@@ -266,9 +268,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['flag'])
-                                            .describe('* `flag` - flag')
+                                            .describe('\* `flag` - flag')
                                             .describe(
-                                                'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                                'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -280,9 +282,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
-                                            .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                            .describe('\* `flag_evaluates_to` - flag_evaluates_to')
                                             .describe(
-                                                'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                                'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                             ),
                                         value: zod.unknown().describe('Value to compare flag evaluation against.'),
                                     }),
@@ -333,7 +335,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .nullish()
                 .describe(
-                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment\/{flag_key}.'
                 ),
         })
         .nullish()
@@ -350,47 +352,47 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
-                    type: zod.enum(['open']).describe('* `open` - open'),
+                    type: zod.enum(['open']).describe('\* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
-                    type: zod.enum(['link']).describe('* `link` - link'),
+                    type: zod.enum(['link']).describe('\* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
-                    type: zod.enum(['rating']).describe('* `rating` - rating'),
+                    type: zod.enum(['rating']).describe('\* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     display: zod
                         .enum(['number', 'emoji'])
-                        .describe('* `number` - number\n* `emoji` - emoji')
+                        .describe('\* `number` - number\n\* `emoji` - emoji')
                         .optional()
                         .describe(
-                            "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.\n\n* `number` - number\n* `emoji` - emoji"
+                            "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.\n\n\* `number` - number\n\* `emoji` - emoji"
                         ),
                     scale: zod.number().min(1).optional().describe('Rating scale can be one of 3, 5, or 7'),
                     lowerBoundLabel: zod
@@ -406,23 +408,23 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['next_question'])
-                                    .describe('* `next_question` - next_question')
+                                    .describe('\* `next_question` - next_question')
                                     .describe(
-                                        'Continue to the next question in sequence.\n\n* `next_question` - next_question'
+                                        'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
                                     ),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['end'])
-                                    .describe('* `end` - end')
-                                    .describe('End the survey.\n\n* `end` - end'),
+                                    .describe('\* `end` - end')
+                                    .describe('End the survey.\n\n\* `end` - end'),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['specific_question'])
-                                    .describe('* `specific_question` - specific_question')
+                                    .describe('\* `specific_question` - specific_question')
                                     .describe(
-                                        'Jump to a specific question index.\n\n* `specific_question` - specific_question'
+                                        'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
                                     ),
                                 index: zod
                                     .number()
@@ -432,9 +434,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['response_based'])
-                                    .describe('* `response_based` - response_based')
+                                    .describe('\* `response_based` - response_based')
                                     .describe(
-                                        'Branch based on the selected or entered response.\n\n* `response_based` - response_based'
+                                        'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
                                     ),
                                 responseValues: zod
                                     .record(
@@ -454,14 +456,14 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .nullish(),
                 }),
                 zod.object({
-                    type: zod.enum(['single_choice']).describe('* `single_choice` - single_choice'),
+                    type: zod.enum(['single_choice']).describe('\* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     choices: zod
@@ -484,23 +486,23 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['next_question'])
-                                    .describe('* `next_question` - next_question')
+                                    .describe('\* `next_question` - next_question')
                                     .describe(
-                                        'Continue to the next question in sequence.\n\n* `next_question` - next_question'
+                                        'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
                                     ),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['end'])
-                                    .describe('* `end` - end')
-                                    .describe('End the survey.\n\n* `end` - end'),
+                                    .describe('\* `end` - end')
+                                    .describe('End the survey.\n\n\* `end` - end'),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['specific_question'])
-                                    .describe('* `specific_question` - specific_question')
+                                    .describe('\* `specific_question` - specific_question')
                                     .describe(
-                                        'Jump to a specific question index.\n\n* `specific_question` - specific_question'
+                                        'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
                                     ),
                                 index: zod
                                     .number()
@@ -510,9 +512,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['response_based'])
-                                    .describe('* `response_based` - response_based')
+                                    .describe('\* `response_based` - response_based')
                                     .describe(
-                                        'Branch based on the selected or entered response.\n\n* `response_based` - response_based'
+                                        'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
                                     ),
                                 responseValues: zod
                                     .record(
@@ -532,14 +534,14 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .nullish(),
                 }),
                 zod.object({
-                    type: zod.enum(['multiple_choice']).describe('* `multiple_choice` - multiple_choice'),
+                    type: zod.enum(['multiple_choice']).describe('\* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     choices: zod
@@ -576,11 +578,11 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
             urlMatchType: zod
                 .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
-                    "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains"
+                    "URL\/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains"
                 ),
             events: zod
                 .object({
@@ -604,18 +606,18 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod
                         .enum(['Desktop', 'Mobile', 'Tablet'])
-                        .describe('* `Desktop` - Desktop\n* `Mobile` - Mobile\n* `Tablet` - Tablet')
+                        .describe('\* `Desktop` - Desktop\n\* `Mobile` - Mobile\n\* `Tablet` - Tablet')
                 )
                 .optional()
                 .describe('Device types that should match for this survey to be shown.'),
             deviceTypesMatchType: zod
                 .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
-                    "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains"
+                    "URL\/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains"
                 ),
             linkedFlagVariant: zod
                 .string()
@@ -643,7 +645,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
             thankYouMessageDescriptionContentType: zod
                 .enum(['html', 'text'])
                 .optional()
-                .describe('* `html` - html\n* `text` - text'),
+                .describe('\* `html` - html\n\* `text` - text'),
             thankYouMessageCloseButtonText: zod.string().optional(),
             borderColor: zod.string().optional(),
             placeholder: zod.string().optional(),
@@ -652,7 +654,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
             widgetType: zod
                 .enum(['button', 'tab', 'selector'])
                 .optional()
-                .describe('* `button` - button\n* `tab` - tab\n* `selector` - selector'),
+                .describe('\* `button` - button\n\* `tab` - tab\n\* `selector` - selector'),
             widgetSelector: zod.string().optional(),
             widgetLabel: zod.string().optional(),
             widgetColor: zod.string().optional(),
@@ -705,7 +707,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])
@@ -760,7 +762,7 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod
         type: zod
             .enum(['popover', 'widget', 'external_survey', 'api'])
             .describe(
-                '* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'
+                '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
             ),
         schedule: zod.string().nullish(),
         linked_flag_id: zod.number().nullish(),
@@ -800,7 +802,7 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod
         response_sampling_start_date: zod.iso.datetime({}).nullish(),
         response_sampling_interval_type: zod
             .union([
-                zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+                zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
                 zod.enum(['']),
                 zod.literal(null),
             ])
@@ -859,21 +861,23 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional().describe('Survey description.'),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api')
+        .describe(
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        )
         .optional()
         .describe(
-            'Survey type.\n\n* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'
+            'Survey type.\n\n\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
         ),
     schedule: zod
         .union([
             zod
                 .enum(['once', 'recurring', 'always'])
-                .describe('* `once` - once\n* `recurring` - recurring\n* `always` - always'),
+                .describe('\* `once` - once\n\* `recurring` - recurring\n\* `always` - always'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n* `once` - once\n* `recurring` - recurring\n* `always` - always"
+            "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n\* `once` - once\n\* `recurring` - recurring\n\* `always` - always"
         ),
     linked_flag_id: zod.number().nullish().describe('The feature flag linked to this survey.'),
     linked_insight_id: zod.number().nullish(),
@@ -890,10 +894,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -922,20 +926,20 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -947,9 +951,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
-                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
                                             .describe(
-                                                'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                                'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                             ),
                                         value: zod
                                             .unknown()
@@ -962,10 +966,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -978,10 +982,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                                '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
                                             )
                                             .describe(
-                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
                                             ),
                                         value: zod
                                             .string()
@@ -991,10 +995,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -1017,10 +1021,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -1028,10 +1032,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort', 'person', 'group'])
-                                            .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                            .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -1044,10 +1048,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
-                                                '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             )
                                             .describe(
-                                                'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                                'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                             ),
                                         value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
                                     }),
@@ -1055,9 +1059,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['cohort'])
-                                            .describe('* `cohort` - cohort')
+                                            .describe('\* `cohort` - cohort')
                                             .describe(
-                                                'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                                'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -1069,9 +1073,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['in', 'not_in'])
-                                            .describe('* `in` - in\n* `not_in` - not_in')
+                                            .describe('\* `in` - in\n\* `not_in` - not_in')
                                             .describe(
-                                                'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                                'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                             ),
                                         value: zod
                                             .unknown()
@@ -1081,9 +1085,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
                                         type: zod
                                             .enum(['flag'])
-                                            .describe('* `flag` - flag')
+                                            .describe('\* `flag` - flag')
                                             .describe(
-                                                'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                                'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -1095,9 +1099,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
-                                            .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                            .describe('\* `flag_evaluates_to` - flag_evaluates_to')
                                             .describe(
-                                                'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                                'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                             ),
                                         value: zod.unknown().describe('Value to compare flag evaluation against.'),
                                     }),
@@ -1148,7 +1152,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .nullish()
                 .describe(
-                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                    'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment\/{flag_key}.'
                 ),
         })
         .nullish()
@@ -1165,47 +1169,47 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
-                    type: zod.enum(['open']).describe('* `open` - open'),
+                    type: zod.enum(['open']).describe('\* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
-                    type: zod.enum(['link']).describe('* `link` - link'),
+                    type: zod.enum(['link']).describe('\* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
-                    type: zod.enum(['rating']).describe('* `rating` - rating'),
+                    type: zod.enum(['rating']).describe('\* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     display: zod
                         .enum(['number', 'emoji'])
-                        .describe('* `number` - number\n* `emoji` - emoji')
+                        .describe('\* `number` - number\n\* `emoji` - emoji')
                         .optional()
                         .describe(
-                            "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.\n\n* `number` - number\n* `emoji` - emoji"
+                            "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.\n\n\* `number` - number\n\* `emoji` - emoji"
                         ),
                     scale: zod.number().min(1).optional().describe('Rating scale can be one of 3, 5, or 7'),
                     lowerBoundLabel: zod
@@ -1221,23 +1225,23 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['next_question'])
-                                    .describe('* `next_question` - next_question')
+                                    .describe('\* `next_question` - next_question')
                                     .describe(
-                                        'Continue to the next question in sequence.\n\n* `next_question` - next_question'
+                                        'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
                                     ),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['end'])
-                                    .describe('* `end` - end')
-                                    .describe('End the survey.\n\n* `end` - end'),
+                                    .describe('\* `end` - end')
+                                    .describe('End the survey.\n\n\* `end` - end'),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['specific_question'])
-                                    .describe('* `specific_question` - specific_question')
+                                    .describe('\* `specific_question` - specific_question')
                                     .describe(
-                                        'Jump to a specific question index.\n\n* `specific_question` - specific_question'
+                                        'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
                                     ),
                                 index: zod
                                     .number()
@@ -1247,9 +1251,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['response_based'])
-                                    .describe('* `response_based` - response_based')
+                                    .describe('\* `response_based` - response_based')
                                     .describe(
-                                        'Branch based on the selected or entered response.\n\n* `response_based` - response_based'
+                                        'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
                                     ),
                                 responseValues: zod
                                     .record(
@@ -1269,14 +1273,14 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .nullish(),
                 }),
                 zod.object({
-                    type: zod.enum(['single_choice']).describe('* `single_choice` - single_choice'),
+                    type: zod.enum(['single_choice']).describe('\* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     choices: zod
@@ -1299,23 +1303,23 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['next_question'])
-                                    .describe('* `next_question` - next_question')
+                                    .describe('\* `next_question` - next_question')
                                     .describe(
-                                        'Continue to the next question in sequence.\n\n* `next_question` - next_question'
+                                        'Continue to the next question in sequence.\n\n\* `next_question` - next_question'
                                     ),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['end'])
-                                    .describe('* `end` - end')
-                                    .describe('End the survey.\n\n* `end` - end'),
+                                    .describe('\* `end` - end')
+                                    .describe('End the survey.\n\n\* `end` - end'),
                             }),
                             zod.object({
                                 type: zod
                                     .enum(['specific_question'])
-                                    .describe('* `specific_question` - specific_question')
+                                    .describe('\* `specific_question` - specific_question')
                                     .describe(
-                                        'Jump to a specific question index.\n\n* `specific_question` - specific_question'
+                                        'Jump to a specific question index.\n\n\* `specific_question` - specific_question'
                                     ),
                                 index: zod
                                     .number()
@@ -1325,9 +1329,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 type: zod
                                     .enum(['response_based'])
-                                    .describe('* `response_based` - response_based')
+                                    .describe('\* `response_based` - response_based')
                                     .describe(
-                                        'Branch based on the selected or entered response.\n\n* `response_based` - response_based'
+                                        'Branch based on the selected or entered response.\n\n\* `response_based` - response_based'
                                     ),
                                 responseValues: zod
                                     .record(
@@ -1347,14 +1351,14 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .nullish(),
                 }),
                 zod.object({
-                    type: zod.enum(['multiple_choice']).describe('* `multiple_choice` - multiple_choice'),
+                    type: zod.enum(['multiple_choice']).describe('\* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
                         .enum(['html', 'text'])
-                        .describe('* `html` - html\n* `text` - text')
+                        .describe('\* `html` - html\n\* `text` - text')
                         .optional()
-                        .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     choices: zod
@@ -1391,11 +1395,11 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
             urlMatchType: zod
                 .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
-                    "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains"
+                    "URL\/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains"
                 ),
             events: zod
                 .object({
@@ -1419,18 +1423,18 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod
                         .enum(['Desktop', 'Mobile', 'Tablet'])
-                        .describe('* `Desktop` - Desktop\n* `Mobile` - Mobile\n* `Tablet` - Tablet')
+                        .describe('\* `Desktop` - Desktop\n\* `Mobile` - Mobile\n\* `Tablet` - Tablet')
                 )
                 .optional()
                 .describe('Device types that should match for this survey to be shown.'),
             deviceTypesMatchType: zod
                 .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
-                    "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains"
+                    "URL\/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains"
                 ),
             linkedFlagVariant: zod
                 .string()
@@ -1458,7 +1462,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
             thankYouMessageDescriptionContentType: zod
                 .enum(['html', 'text'])
                 .optional()
-                .describe('* `html` - html\n* `text` - text'),
+                .describe('\* `html` - html\n\* `text` - text'),
             thankYouMessageCloseButtonText: zod.string().optional(),
             borderColor: zod.string().optional(),
             placeholder: zod.string().optional(),
@@ -1467,7 +1471,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
             widgetType: zod
                 .enum(['button', 'tab', 'selector'])
                 .optional()
-                .describe('* `button` - button\n* `tab` - tab\n* `selector` - selector'),
+                .describe('\* `button` - button\n\* `tab` - tab\n\* `selector` - selector'),
             widgetSelector: zod.string().optional(),
             widgetLabel: zod.string().optional(),
             widgetColor: zod.string().optional(),
@@ -1520,7 +1524,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])
@@ -1579,7 +1583,9 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
+        .describe(
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        ),
     schedule: zod.string().nullish(),
     linked_flag_id: zod.number().nullish(),
     linked_insight_id: zod.number().nullish(),
@@ -1622,7 +1628,7 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])
@@ -1692,7 +1698,9 @@ export const SurveysResponsesArchiveCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
+        .describe(
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        ),
     schedule: zod.string().nullish(),
     linked_flag_id: zod.number().nullish(),
     linked_insight_id: zod.number().nullish(),
@@ -1735,7 +1743,7 @@ export const SurveysResponsesArchiveCreateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])
@@ -1786,7 +1794,9 @@ export const SurveysResponsesUnarchiveCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
+        .describe(
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        ),
     schedule: zod.string().nullish(),
     linked_flag_id: zod.number().nullish(),
     linked_insight_id: zod.number().nullish(),
@@ -1829,7 +1839,7 @@ export const SurveysResponsesUnarchiveCreateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])
@@ -1877,7 +1887,9 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
+        .describe(
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        ),
     schedule: zod.string().nullish(),
     linked_flag_id: zod.number().nullish(),
     linked_insight_id: zod.number().nullish(),
@@ -1920,7 +1932,7 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])
@@ -1968,7 +1980,9 @@ export const SurveysSummaryHeadlineCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
+        .describe(
+            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
+        ),
     schedule: zod.string().nullish(),
     linked_flag_id: zod.number().nullish(),
     linked_insight_id: zod.number().nullish(),
@@ -2011,7 +2025,7 @@ export const SurveysSummaryHeadlineCreateBody = /* @__PURE__ */ zod.object({
     response_sampling_start_date: zod.iso.datetime({}).nullish(),
     response_sampling_interval_type: zod
         .union([
-            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
             zod.enum(['']),
             zod.literal(null),
         ])

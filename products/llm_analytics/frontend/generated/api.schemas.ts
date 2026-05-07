@@ -139,8 +139,9 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi } as const
 export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
@@ -159,9 +160,10 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization] | null
 }
 
+export const EvaluationApiStatusReason = { ...StatusReasonEnumApi } as const
 /**
  * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
  */
@@ -201,7 +203,7 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason: (typeof EvaluationApiStatusReason)[keyof typeof EvaluationApiStatusReason] | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
 * `llm_judge` - LLM as a judge
@@ -234,6 +236,7 @@ export interface PaginatedEvaluationListApi {
     results: EvaluationApi[]
 }
 
+export const PatchedEvaluationApiStatusReason = { ...StatusReasonEnumApi } as const
 /**
  * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
  */
@@ -273,7 +276,9 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason?:
+        | (typeof PatchedEvaluationApiStatusReason)[keyof typeof PatchedEvaluationApiStatusReason]
+        | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
 * `llm_judge` - LLM as a judge
