@@ -263,6 +263,131 @@ def _create_mock_catalog():
     return mock_catalog
 
 
+def test_resolve_data_imports_staging_uri_returns_none_in_dev(monkeypatch):
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=True),
+    )
+    mock_get_catalog = MagicMock(side_effect=AssertionError("catalog lookup should not run in dev mode"))
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        mock_get_catalog,
+    )
+
+    result = ducklake_module._resolve_data_imports_staging_uri("s3://source/team_1/customers", team_id=1)
+
+    assert result is None
+    mock_get_catalog.assert_not_called()
+
+
+def test_resolve_data_imports_staging_uri_raises_without_prod_catalog(monkeypatch):
+    from temporalio.exceptions import ApplicationError
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        MagicMock(return_value=None),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        ducklake_module._resolve_data_imports_staging_uri("s3://source/team_1/customers", team_id=1)
+
+    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
+
+
+def test_resolve_data_imports_staging_uri_uses_prod_catalog(monkeypatch):
+    catalog = _create_mock_catalog()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        MagicMock(return_value=catalog),
+    )
+
+    result = ducklake_module._resolve_data_imports_staging_uri("s3://source/team_1/customers", team_id=1)
+
+    assert result == "s3://test-bucket/__posthog_staging/team_1/customers"
+
+
+def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
+        MagicMock(return_value=mock_conn),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
+        MagicMock(return_value={"DUCKLAKE_BUCKET": "ducklake-dev"}),
+    )
+    mock_configure_connection = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
+        mock_configure_connection,
+    )
+    mock_ensure_bucket = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.ensure_ducklake_bucket_exists",
+        mock_ensure_bucket,
+    )
+    mock_attach_catalog = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        mock_attach_catalog,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.stage_delta_table",
+        MagicMock(side_effect=AssertionError("stage_delta_table should not be used in dev mode")),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.connect_to_duckgres",
+        MagicMock(side_effect=AssertionError("duckgres should not be used in dev mode")),
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    copy_data_imports_to_ducklake_activity(inputs)
+
+    mock_configure_connection.assert_called_once_with(mock_conn)
+    mock_ensure_bucket.assert_called_once_with(config={"DUCKLAKE_BUCKET": "ducklake-dev"}, team_id=1)
+    mock_attach_catalog.assert_called_once_with(mock_conn, {"DUCKLAKE_BUCKET": "ducklake-dev"}, alias="ducklake")
+    execute_calls = mock_conn.execute.call_args_list
+    assert any(
+        "CREATE SCHEMA IF NOT EXISTS ducklake.posthog_data_imports_team_1" in str(call) for call in execute_calls
+    )
+    assert any("delta_scan(?)" in str(call) for call in execute_calls)
+    table_call = next(call for call in execute_calls if "delta_scan" in str(call))
+    assert "s3://bucket/team_1/customers" in str(table_call)
+
+
 def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
@@ -361,6 +486,87 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
     results = verify_data_imports_ducklake_copy_activity(inputs)
 
     assert results == []
+
+
+def test_verify_data_imports_ducklake_copy_activity_uses_duckdb_in_dev(monkeypatch):
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execute.return_value.fetchone.return_value = (0,)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
+        MagicMock(return_value=mock_conn),
+    )
+    mock_configure_connection = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
+        mock_configure_connection,
+    )
+    mock_attach_catalog = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        mock_attach_catalog,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
+        MagicMock(return_value={"DUCKLAKE_BUCKET": "ducklake-dev"}),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.connect_to_duckgres",
+        MagicMock(side_effect=AssertionError("duckgres should not be used in dev mode")),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        MagicMock(return_value=None),
+    )
+
+    query = DuckLakeCopyVerificationQuery(
+        name="row_count_check",
+        sql="SELECT ABS((SELECT COUNT(*) FROM delta_scan(?)) - (SELECT COUNT(*) FROM {ducklake_table})) AS diff",
+        description="Compare row counts",
+        parameters=(DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI,),
+        expected_value=0.0,
+        tolerance=0.0,
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[query],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    results = verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert len(results) == 1
+    assert results[0].passed is True
+    mock_configure_connection.assert_called_once_with(mock_conn)
+    mock_attach_catalog.assert_called_once_with(mock_conn, {"DUCKLAKE_BUCKET": "ducklake-dev"}, alias="ducklake")
+    executed_sql, executed_params = mock_conn.execute.call_args.args
+    assert "ducklake.posthog_data_imports_team_1.postgres_customers_abc12345" in executed_sql
+    assert "delta_scan(?)" in executed_sql
+    assert executed_params == ["s3://bucket/team_1/customers"]
 
 
 def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(monkeypatch):
