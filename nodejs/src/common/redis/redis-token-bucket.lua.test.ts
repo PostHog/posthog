@@ -167,12 +167,32 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
             expect(after).toBe(50)
         })
 
-        it('caps refilled tokens at poolMax', async () => {
-            await tick(1000, 50, 100, 10, 60) // pool=50
-            const [before, after] = await tick(2000, 0, 100, 10, 60)
-            // 1000s * 10/s = 10000 owed but cap is 100
-            expect(before).toBe(100)
+        it('exposes accrued credit in tokensBefore but caps stored pool at poolMax', async () => {
+            await tick(1000, 10, 100, 10, 60) // pool=90 stored
+            // 5s * 10/s = 50 tokens accrued. tokensBefore reflects the un-capped
+            // accrued credit (90 + 50 = 140); tokensAfter is capped at poolMax for
+            // storage so silent periods don't let saved credit grow unbounded.
+            const [before, after] = await tick(1005, 0, 100, 10, 60)
+            expect(before).toBe(140)
             expect(after).toBe(100)
+        })
+
+        it('allows a single catch-up call to spend more than poolMax (PR 57920)', async () => {
+            await tick(1000, 100, 100, 10, 60) // pool=0
+            // 20s of refill at 10/s = 200 accrued credit, double the poolMax.
+            // A single catch-up call should be able to redeem all of it.
+            const [before, after] = await tick(1020, 199, 100, 10, 60)
+            expect(before).toBe(200)
+            expect(after).toBe(1)
+            expect(after).not.toBe(-1) // not rate-limited
+        })
+
+        it('still rate-limits when a catch-up cost exceeds the accrued credit', async () => {
+            await tick(1000, 100, 100, 10, 60) // pool=0
+            // 5s * 10/s = 50 accrued. Cost of 60 exceeds it.
+            const [before, after] = await tick(1005, 60, 100, 10, 60)
+            expect(before).toBe(50)
+            expect(after).toBe(-1)
         })
 
         it('lets a previously-exhausted bucket recover after enough time', async () => {
