@@ -7,7 +7,7 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES
+from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
 
 class DisableReason(NamedTuple):
@@ -30,19 +30,12 @@ UNSUPPORTED_TARGET_DISABLE_REASON = DisableReason(
     description="Unsupported delivery channel",
     user_message="Cannot re-enable {target_type} subscription: this delivery channel is not currently supported.",
 )
-# `user_message` left as None: this reason is set only by runtime detection in
-# the delivery activity, never by `get_subscription_disable_reason`. Re-enable
-# round-trips to Slack — if the auth has been re-granted the next delivery
-# succeeds, otherwise the activity auto-disables again.
+# `user_message` is None — only set by the delivery activity, never returned
+# by `get_subscription_disable_reason`, so the API never needs a re-enable rejection.
 SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     key="slack_permission_revoked",
     description="PostHog can no longer post to this Slack channel",
 )
-
-# Subset of SLACK_USER_CONFIG_ERRORS that won't self-heal — auto-disable on
-# these. Excludes `not_in_channel` (admin can re-add the bot). Computed from
-# SLACK_USER_CONFIG_ERRORS so the subset relationship is enforced by code.
-TERMINAL_SLACK_ERROR_CODES = SLACK_USER_CONFIG_ERRORS - frozenset({"not_in_channel"})
 
 logger = structlog.get_logger(__name__)
 

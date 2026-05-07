@@ -9,12 +9,12 @@ logger = structlog.get_logger(__name__)
 
 # Slack errors that are user configuration issues, not system failures —
 # don't trigger Temporal retries (delivery won't succeed without user action).
-# `TERMINAL_SLACK_ERROR_CODES` in auto_disable.py is the subset that also
-# auto-disables; `not_in_channel` is the only entry that doesn't (admin can
-# re-add the bot).
 SLACK_USER_CONFIG_ERRORS = frozenset(
     {"not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth", "token_revoked"}
 )
+# Subset of SLACK_USER_CONFIG_ERRORS that won't self-heal — auto-disable on these.
+# Excludes `not_in_channel` (admin can re-add the bot).
+TERMINAL_SLACK_ERROR_CODES = SLACK_USER_CONFIG_ERRORS - frozenset({"not_in_channel"})
 
 
 # Temporal metrics for temporal workers
