@@ -6,6 +6,7 @@ import {
     buildFunnelStepReplacementMap,
     buildPathFlowElements,
     buildPathsQuery,
+    extractStepIndex,
     PathExpansion,
     pathExpansionCacheKey,
     PATH_NODE_HEIGHT,
@@ -381,6 +382,88 @@ describe('buildPathFlowElements with funnel step dedup', () => {
         const pathEdge = edges.find((e) => e.id.startsWith('path-edge-'))!
         expect(pathEdge.sourceHandle).toBe('step-0-source')
         expect(pathEdge.targetHandle).toBe('path-2_/other-target')
+    })
+
+    it('after-step expansion: a path event matching an earlier funnel step stays as an auxiliary node (no backward edge)', () => {
+        // Funnel:
+        //   step-0 (customer analytics viewed)
+        //     → step-1 (query executed)
+        //       → step-2 (pay gate shown)
+        //
+        // Expansion: paths AFTER step-2.
+        // Path data includes an event named "query executed" — same name as step-1.
+        // Expected: "query executed" stays as path-2_query executed; no edge points to step-1.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'pay gate shown' },
+        ]
+        const links: PathsLink[] = [
+            { source: '1_pay gate shown', target: '2_query executed', value: 10, average_conversion_time: 1000 },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, 'step-2', null)
+
+        const { nodes, edges } = buildPathFlowElements(links, 'step-2', null, undefined, stepMap)
+
+        expect(nodes.map((n) => n.id)).toContain('path-2_query executed')
+        expect(edges.every((e) => e.target !== 'step-1')).toBe(true)
+        expect(edges.every((e) => e.source !== 'step-1')).toBe(true)
+    })
+
+    it('before-step expansion: a path event matching a later funnel step stays as an auxiliary node (no forward jump)', () => {
+        // Mirror of the above for the before-expansion direction.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'pay gate shown' },
+            { id: 'step-2', name: 'billing product activated' },
+        ]
+        const links: PathsLink[] = [
+            {
+                source: '1_billing product activated',
+                target: '2_pay gate shown',
+                value: 10,
+                average_conversion_time: 1000,
+            },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, null, 'step-1')
+
+        const { nodes, edges } = buildPathFlowElements(links, null, 'step-1', undefined, stepMap)
+
+        expect(nodes.map((n) => n.id)).toContain('path-1_billing product activated')
+        expect(edges.every((e) => e.target !== 'step-2')).toBe(true)
+        expect(edges.every((e) => e.source !== 'step-2')).toBe(true)
+    })
+
+    it('every step→step edge in the resulting graph runs forward (DAG invariant)', () => {
+        // Strongest regression assertion. For any edge whose source AND target
+        // are both funnel-step IDs, the target index must be >= source index.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'dashboard mode changed' },
+            { id: 'step-3', name: 'pay gate shown' },
+        ]
+        const links: PathsLink[] = [
+            { source: '1_pay gate shown', target: '2_query executed', value: 10, average_conversion_time: 1000 },
+            {
+                source: '2_query executed',
+                target: '3_dashboard mode changed',
+                value: 5,
+                average_conversion_time: 500,
+            },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, 'step-3', null)
+
+        const { edges } = buildPathFlowElements(links, 'step-3', null, undefined, stepMap)
+
+        for (const edge of edges) {
+            const sourceIdx = extractStepIndex(edge.source)
+            const targetIdx = extractStepIndex(edge.target)
+            if (sourceIdx === -1 || targetIdx === -1) {
+                continue
+            }
+            expect(targetIdx).toBeGreaterThanOrEqual(sourceIdx)
+        }
     })
 })
 
