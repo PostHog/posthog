@@ -177,6 +177,7 @@ export const workflowLogic = kea<workflowLogicType>([
         discardChanges: true,
         duplicate: true,
         autoSaveWorkflow: true,
+        markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -336,7 +337,7 @@ export const workflowLogic = kea<workflowLogicType>([
         isAutoSave: [
             false as boolean,
             {
-                autoSaveWorkflow: () => true,
+                markAutoSave: (_, { isAutoSave }) => isAutoSave,
                 submitWorkflow: () => false,
                 saveWorkflowPartial: () => false,
             },
@@ -789,6 +790,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
+            actions.markAutoSave(true)
             actions.saveWorkflow(values.workflow)
         },
         duplicate: async () => {
@@ -876,7 +878,9 @@ export const workflowLogic = kea<workflowLogicType>([
     beforeUnmount(({ values, props }) => {
         if (props.id && props.id !== 'new' && values.workflowChanged && !values.workflowHasErrors) {
             const workflow = sanitizeWorkflow(values.workflow, values.hogFunctionTemplatesById)
-            api.hogFlows.updateHogFlow(props.id, workflow).catch(() => {})
+            api.hogFlows.updateHogFlow(props.id, workflow).catch((e) => {
+                console.error('Failed to auto-save workflow on unmount', e)
+            })
         }
     }),
 ])
