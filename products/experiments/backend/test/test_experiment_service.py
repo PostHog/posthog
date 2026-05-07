@@ -3117,6 +3117,7 @@ class TestExperimentService(APIBaseTest):
         # Stored row is untouched — stripping happens on read.
         stored = ExperimentMetricResult.objects.first()
         assert stored is not None
+        assert stored.result is not None
         assert "step_sessions" in stored.result["baseline"]
 
         formatted = result["formatted_results"]
