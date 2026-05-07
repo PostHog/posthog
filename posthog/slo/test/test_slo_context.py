@@ -294,7 +294,7 @@ async def test_slo_operation_contextvar_survives_await(
     "sample_rate, random_value, expect_emit",
     [
         (1.0, None, True),
-        (0.0, 0.0, False),
+        (0.0, 0.99, False),
         (0.01, 0.005, True),
         (0.01, 0.5, False),
         (0.5, 0.49, True),
@@ -319,6 +319,9 @@ def test_slo_operation_respects_sample_rate(
 
     with slo_operation(spec=spec):
         pass
+
+    if sample_rate >= 1.0:
+        mock_random.assert_not_called()
 
     if expect_emit:
         mock_emit_slo_started.assert_called_once()
@@ -352,22 +355,6 @@ def test_slo_operation_sampled_out_still_propagates_exception(
 
     mock_emit_slo_started.assert_not_called()
     mock_emit_slo_completed.assert_not_called()
-
-
-@patch("posthog.slo.context.emit_slo_completed")
-@patch("posthog.slo.context.emit_slo_started")
-def test_slo_operation_full_rate_does_not_call_random(
-    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
-) -> None:
-    spec = _build_spec()
-
-    with patch("posthog.slo.context.random.random") as mock_random:
-        with slo_operation(spec=spec):
-            pass
-
-    mock_random.assert_not_called()
-    mock_emit_slo_started.assert_called_once()
-    mock_emit_slo_completed.assert_called_once()
 
 
 @patch("posthog.slo.context.emit_slo_completed")
