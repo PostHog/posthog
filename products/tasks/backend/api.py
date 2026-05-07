@@ -196,18 +196,20 @@ def _resolve_cloud_pr_authorship_mode(
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
-def task_visibility_q(user_id: int | None, prefix: str = "") -> Q:
+def task_visibility_q(user_id: int | None) -> Q:
     """Filter for tasks visible to the given user.
 
     A task is visible if its creator matches `user_id`, or if it has no
     creator at all (legacy unowned tasks remain visible to any team member —
     they cannot be executed in any case because oauth.py requires
     `task.created_by` to mint OAuth tokens).
-
-    `prefix` lets callers traverse from related models (e.g. "task__" when
-    filtering a TaskRun or TaskAutomation queryset).
     """
-    return Q(**{f"{prefix}created_by_id": user_id}) | Q(**{f"{prefix}created_by__isnull": True})
+    return Q(created_by_id=user_id) | Q(created_by__isnull=True)
+
+
+def task_run_visibility_q(user_id: int | None) -> Q:
+    """`task_visibility_q` traversed via the `task` FK on TaskRun / TaskAutomation."""
+    return Q(task__created_by_id=user_id) | Q(task__created_by__isnull=True)
 
 
 class TasksAccessPermission(BasePermission):
@@ -850,7 +852,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         return (
             queryset.filter(task__team=self.team)
-            .filter(task_visibility_q(getattr(self.request.user, "id", None), prefix="task__"))
+            .filter(task_run_visibility_q(getattr(self.request.user, "id", None)))
             .order_by("task__title", "-created_at")
         )
 
