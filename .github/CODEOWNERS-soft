@@ -29,7 +29,6 @@ posthog/tests/test_product_tour.py @PostHog/team-surveys
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
-nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
 nodejs/src/session-replay/ @PostHog/team-replay
 nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
 
@@ -139,8 +138,38 @@ frontend/src/layout/navigation-3000/sidepanel/panels/SdkDoctor @PostHog/team-gro
 # Weekly digest - owned by @PostHog/team-growth
 posthog/temporal/weekly-digest @PostHog/team-growth
 
+# LLM Analytics - owned by @PostHog/team-llm-analytics
+Dockerfile.llm-analytics @PostHog/team-llm-analytics
+docs/onboarding/llm-analytics/** @PostHog/team-llm-analytics
+frontend/src/scenes/onboarding/sdks/llm-analytics/ @PostHog/team-llm-analytics
+nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
+nodejs/src/llm-analytics/ @PostHog/team-llm-analytics
+posthog/hogql/database/schema/ai_events.py @PostHog/team-llm-analytics
+posthog/hogql_queries/ai/ @PostHog/team-llm-analytics
+posthog/models/ai_events/ @PostHog/team-llm-analytics
+posthog/tasks/llm_analytics_usage_report.py @PostHog/team-llm-analytics
+posthog/tasks/test/test_llm_analytics_usage_report.py @PostHog/team-llm-analytics
+posthog/templates/email/llm_analytics_*.html @PostHog/team-llm-analytics
+posthog/temporal/llm_analytics/ @PostHog/team-llm-analytics
+products/llm_analytics/** @PostHog/team-llm-analytics
+services/mcp/src/generated/llm_analytics/ @PostHog/team-llm-analytics
+services/mcp/src/tools/generated/llm_analytics.ts @PostHog/team-llm-analytics
+services/mcp/src/tools/llmAnalytics/ @PostHog/team-llm-analytics
+services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-llm-analytics
+
+# LLM Gateway - owned by @PostHog/team-llm-gateway
+nodejs/src/ingestion/ai/costs/ @PostHog/team-llm-analytics @PostHog/team-llm-gateway
+products/llm_analytics/backend/api/proxy.py @PostHog/team-llm-gateway
+products/llm_analytics/backend/api/test/test_proxy.py @PostHog/team-llm-gateway
+products/llm_analytics/frontend/playground/ @PostHog/team-llm-gateway
+services/llm-gateway/ @PostHog/team-llm-gateway
+
 # DevEx-adjacent files - owned by @PostHog/team-devex
 .github/workflows/** @PostHog/team-devex
+.github/workflows/ci-llm-gateway.yml @PostHog/team-devex @PostHog/team-llm-gateway
+.github/workflows/llm-gateway-cd.yml @PostHog/team-devex @PostHog/team-llm-gateway
+.github/workflows/update-ai-costs.yml @PostHog/team-devex @PostHog/team-llm-gateway
+.github/workflows/cd-llm-analytics-image.yml @PostHog/team-devex @PostHog/team-llm-analytics
 .github/actions/** @PostHog/team-devex
 .github/dependabot.yml @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
@@ -154,6 +183,7 @@ tools/hogli-commands/ @PostHog/team-devex
 hogli.yaml @PostHog/team-devex
 tach.toml @PostHog/team-devex
 bin/ @PostHog/team-devex
+bin/start-llm-gateway @PostHog/team-devex @PostHog/team-llm-gateway
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
