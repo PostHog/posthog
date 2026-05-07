@@ -234,7 +234,6 @@ if [ -n "$_news" ]; then
     printf '  {orange}{bold}News:{reset}\\n'
     echo "$_news" | \\
       awk '/^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}[[:space:]]*$/ {{ date=$1; next }} /^[[:space:]]*$/ {{ next }} date != "" {{ print date "|" $0 }}' | \\
-      sort -r | head -8 | \\
       while IFS='|' read -r _d _c; do
         printf '    {gray}%s{reset}  %s\\n' "$_d" "$_c"
       done
