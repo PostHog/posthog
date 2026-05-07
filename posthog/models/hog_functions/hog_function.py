@@ -130,18 +130,18 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
-        href = f"/pipeline/destinations/hog-{self.pk}/configuration"
+        href = f"/pipeline/destinations/hog-{self.pk}?tab=configuration"
         type = self.type
 
         if self.type == HogFunctionType.SITE_APP:
             folder = "Unfiled/Site apps"
-            href = f"/pipeline/site-apps/hog-{self.pk}/configuration"
+            href = f"/pipeline/site-apps/hog-{self.pk}?tab=configuration"
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
-            href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+            href = f"/pipeline/transformations/hog-{self.pk}?tab=configuration"
         elif self.type == HogFunctionType.SOURCE_WEBHOOK:
             folder = "Unfiled/Sources"
-            href = f"/functions/{self.pk}/configuration"
+            href = f"/functions/{self.pk}?tab=configuration"
 
         return FileSystemRepresentation(
             base_folder=self._get_assigned_folder(folder),

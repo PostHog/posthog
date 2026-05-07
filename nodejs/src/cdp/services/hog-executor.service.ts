@@ -237,7 +237,7 @@ export class HogExecutorService {
                     ...triggerGlobals,
                     source: {
                         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
+                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}?tab=configuration`,
                     },
                 }
 
