@@ -2,7 +2,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
-import { CyclotronV2JobInit, CyclotronV2ManagerConfig } from './types'
+import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
 
 export class CyclotronV2Manager {
     private pool: Pool
@@ -26,7 +26,8 @@ export class CyclotronV2Manager {
         client.release()
     }
 
-    async createJob(job: CyclotronV2JobInit): Promise<string> {
+    async createJob(input: CyclotronV2JobInit): Promise<string> {
+        const job = CyclotronV2JobInitSchema.parse(input)
         await this.insertGuard()
 
         const id = job.id ?? uuidv7()
@@ -35,10 +36,10 @@ export class CyclotronV2Manager {
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state)
+              parent_run_id, state, distinct_id, person_id, action_id)
              VALUES ($1, $2, $3, $4, 'available', $5, $6, $7,
                      NULL, NULL, 0, 0, $7,
-                     $8, $9)`,
+                     $8, $9, $10, $11, $12)`,
             [
                 id,
                 job.teamId,
@@ -49,15 +50,20 @@ export class CyclotronV2Manager {
                 now,
                 job.parentRunId ?? null,
                 job.state ?? null,
+                job.distinctId ?? null,
+                job.personId ?? null,
+                job.actionId ?? null,
             ]
         )
         return id
     }
 
-    async bulkCreateJobs(jobs: CyclotronV2JobInit[]): Promise<string[]> {
-        if (jobs.length === 0) {
+    async bulkCreateJobs(inputs: CyclotronV2JobInit[]): Promise<string[]> {
+        if (inputs.length === 0) {
             return []
         }
+
+        const jobs = inputs.map((input) => CyclotronV2JobInitSchema.parse(input))
 
         await this.insertGuard()
 
@@ -69,6 +75,9 @@ export class CyclotronV2Manager {
         const scheduleds: Date[] = []
         const parentRunIds: (string | null)[] = []
         const states: (Buffer | null)[] = []
+        const distinctIds: (string | null)[] = []
+        const personIds: (string | null)[] = []
+        const actionIds: (string | null)[] = []
 
         const now = new Date()
 
@@ -82,13 +91,16 @@ export class CyclotronV2Manager {
             scheduleds.push(job.scheduled ?? now)
             parentRunIds.push(job.parentRunId ?? null)
             states.push(job.state ?? null)
+            distinctIds.push(job.distinctId ?? null)
+            personIds.push(job.personId ?? null)
+            actionIds.push(job.actionId ?? null)
         }
 
         await this.pool.query(
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state)
+              parent_run_id, state, distinct_id, person_id, action_id)
              SELECT
                 unnest($1::uuid[]),
                 unnest($2::int[]),
@@ -97,15 +109,31 @@ export class CyclotronV2Manager {
                 'available'::CyclotronJobStatus,
                 unnest($5::smallint[]),
                 unnest($6::timestamptz[]),
-                $9::timestamptz,
+                $12::timestamptz,
                 NULL::uuid,
                 NULL::timestamptz,
                 0::smallint,
                 0::smallint,
-                $9::timestamptz,
+                $12::timestamptz,
                 unnest($7::text[]),
-                unnest($8::bytea[])`,
-            [ids, teamIds, functionIds, queueNames, priorities, scheduleds, parentRunIds, states, now]
+                unnest($8::bytea[]),
+                unnest($9::text[]),
+                unnest($10::uuid[]),
+                unnest($11::text[])`,
+            [
+                ids,
+                teamIds,
+                functionIds,
+                queueNames,
+                priorities,
+                scheduleds,
+                parentRunIds,
+                states,
+                distinctIds,
+                personIds,
+                actionIds,
+                now,
+            ]
         )
 
         return ids

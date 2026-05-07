@@ -700,6 +700,8 @@ class ModalSandbox(SandboxBase):
             )
 
         try:
+            # Modal can report the sandbox as running before filesystem snapshotting is ready.
+            self._sandbox.exec("true", timeout=30).wait()
             image = self._sandbox.snapshot_filesystem()
 
             snapshot_id = image.object_id

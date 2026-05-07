@@ -5,13 +5,11 @@ This module provides the public interface for other products to interact with ex
 """
 
 from .api import create_experiment
-from .contracts import CreateExperimentInput, CreateFeatureFlagInput, Experiment, FeatureFlag, FeatureFlagVariant
+from .contracts import CreateExperimentInput, Experiment, FeatureFlag
 
 __all__ = [
     "create_experiment",
     "CreateExperimentInput",
-    "CreateFeatureFlagInput",
     "Experiment",
     "FeatureFlag",
-    "FeatureFlagVariant",
 ]
