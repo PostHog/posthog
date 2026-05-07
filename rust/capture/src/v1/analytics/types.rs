@@ -105,14 +105,9 @@ impl SinkEvent for WrappedEvent {
         self.uuid
     }
 
-    // Helps the Sink implementations filter events that were marked
-    // as ineligible for publishing in the request preprocessing step.
-    // Limited events DO publish (e.g. token:distinct_id rate limiting:
-    // event accepted with person processing disabled per RFC), unless
-    // they were also routed to Drop (e.g. scoped billing quota).
+    // Publish Ok and Limited events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        self.result != EventResult::Drop
-            && self.result != EventResult::Retry
+        (self.result == EventResult::Ok || self.result == EventResult::Limited)
             && self.destination != Destination::Drop
     }
 
@@ -707,48 +702,30 @@ mod tests {
         test_utils::wrapped_event(event_name, distinct_id)
     }
 
-    #[test]
-    fn should_publish_ok_and_non_drop() {
-        let ev = ok_wrapped("$pageview", "user-1");
+    #[rstest::rstest]
+    #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
+    #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
+    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::limited_main(EventResult::Limited, Destination::AnalyticsMain)]
+    #[case::limited_historical(EventResult::Limited, Destination::AnalyticsHistorical)]
+    fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = result;
+        ev.destination = dest;
         assert!(ev.should_publish());
     }
 
-    #[test]
-    fn should_publish_false_when_dropped() {
+    #[rstest::rstest]
+    #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
+    #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
+    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
+    #[case::limited_dest_drop(EventResult::Limited, Destination::Drop)]
+    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
+    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
+    fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_false_when_destination_drop() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_true_when_limited_and_main_destination() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Limited;
-        assert!(
-            ev.should_publish(),
-            "Limited+main must publish per RFC: event accepted, person processing disabled"
-        );
-    }
-
-    #[test]
-    fn should_publish_false_when_limited_and_destination_drop() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Limited;
-        ev.destination = Destination::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_false_when_retry() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Retry;
+        ev.result = result;
+        ev.destination = dest;
         assert!(!ev.should_publish());
     }
 
