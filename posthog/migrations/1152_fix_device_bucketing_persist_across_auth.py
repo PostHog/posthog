@@ -5,7 +5,7 @@ import functools
 from django.conf import settings
 from django.db import migrations, transaction
 
-BATCH_SIZE = 1000
+BULK_BATCH_SIZE = 500
 
 
 def fix_device_bucketing_persist_across_auth(apps, schema_editor):
@@ -14,82 +14,67 @@ def fix_device_bucketing_persist_across_auth(apps, schema_editor):
     device_id bucketing with ensure_experience_continuity=True.
 
     This combination is now incompatible and validation prevents it,
-    so we disable persist across auth for these flags. Bulk updates
-    bypass post_save signals, so cache invalidation is dispatched
-    explicitly per affected team.
+    so we disable persist across auth for these flags.
 
-    Idempotency / retry safety: `Migration.atomic = False` allows per-batch
-    transactions to keep lock windows small on large instances. The migration
-    is safe to retry because the queryset filter (`bucketing_identifier="device_id"`,
-    `ensure_experience_continuity=True`) naturally excludes any flag a previous
-    partial run already fixed, so re-runs only create ActivityLog rows for flags
-    that haven't been processed yet — no duplicates.
+    The dataset is small in practice (only flags created before validation
+    was added that ended up in the invalid combination), so we run inside the
+    default migration transaction (atomic=True) using a single bulk UPDATE plus
+    a single bulk_create for activity logs. bulk_update bypasses post_save
+    signals, so we dispatch cache invalidation explicitly per affected team
+    after the outer transaction commits.
     """
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
     ActivityLog = apps.get_model("posthog", "ActivityLog")
 
-    invalid_flags = (
-        FeatureFlag.objects.filter(bucketing_identifier="device_id", ensure_experience_continuity=True)
-        .select_related("team__organization")
-        .iterator(chunk_size=BATCH_SIZE)
+    invalid_flags = list(
+        FeatureFlag.objects.filter(bucketing_identifier="device_id", ensure_experience_continuity=True).select_related(
+            "team__organization"
+        )
     )
 
-    flag_id_buffer: list = []
-    activity_log_buffer: list = []
-    affected_team_ids: set[int] = set()
+    if not invalid_flags:
+        return
 
-    def flush():
-        if not flag_id_buffer:
-            return
-        team_ids_in_batch = set(affected_team_ids)
-        with transaction.atomic():
-            FeatureFlag.objects.filter(id__in=flag_id_buffer).update(ensure_experience_continuity=False)
-            ActivityLog.objects.bulk_create(activity_log_buffer, batch_size=BATCH_SIZE)
-            transaction.on_commit(functools.partial(_invalidate_flag_caches, team_ids_in_batch))
-        flag_id_buffer.clear()
-        activity_log_buffer.clear()
-        affected_team_ids.clear()
+    flag_ids = [flag.id for flag in invalid_flags]
+    affected_team_ids = {flag.team_id for flag in invalid_flags}
 
-    for flag in invalid_flags:
-        flag_id_buffer.append(flag.id)
-        affected_team_ids.add(flag.team_id)
-        activity_log_buffer.append(
-            ActivityLog(
-                team_id=flag.team_id,
-                organization_id=flag.team.organization_id,
-                user=None,
-                is_system=True,
-                scope="FeatureFlag",
-                item_id=str(flag.id),
-                activity="updated",
-                detail={
-                    "name": flag.key,
-                    "changes": [
-                        {
-                            "type": "FeatureFlag",
-                            "action": "changed",
-                            "field": "ensure_experience_continuity",
-                            "before": True,
-                            "after": False,
-                        }
-                    ],
-                    # Use the documented `trigger` shape so DetailSerializer surfaces this
-                    # in the activity log UI; a top-level `reason` would be silently dropped.
-                    "trigger": {
-                        "job_type": "migration",
-                        "job_id": "1152_fix_device_bucketing_persist_across_auth",
-                        "payload": {
-                            "reason": "Auto-disabled persist across auth due to incompatibility with device ID bucketing",
-                        },
+    activity_logs = [
+        ActivityLog(
+            team_id=flag.team_id,
+            organization_id=flag.team.organization_id,
+            user=None,
+            is_system=True,
+            scope="FeatureFlag",
+            item_id=str(flag.id),
+            activity="updated",
+            detail={
+                "name": flag.key,
+                "changes": [
+                    {
+                        "type": "FeatureFlag",
+                        "action": "changed",
+                        "field": "ensure_experience_continuity",
+                        "before": True,
+                        "after": False,
+                    }
+                ],
+                # Use the documented `trigger` shape so DetailSerializer surfaces this
+                # in the activity log UI; a top-level `reason` would be silently dropped.
+                "trigger": {
+                    "job_type": "migration",
+                    "job_id": "1152_fix_device_bucketing_persist_across_auth",
+                    "payload": {
+                        "reason": "Auto-disabled persist across auth due to incompatibility with device ID bucketing",
                     },
                 },
-            )
+            },
         )
+        for flag in invalid_flags
+    ]
 
-        if len(flag_id_buffer) >= BATCH_SIZE:
-            flush()
-
-    flush()
+    FeatureFlag.objects.filter(id__in=flag_ids).update(ensure_experience_continuity=False)
+    ActivityLog.objects.bulk_create(activity_logs, batch_size=BULK_BATCH_SIZE)
+    transaction.on_commit(functools.partial(_invalidate_flag_caches, affected_team_ids))
 
 
 def _invalidate_flag_caches(team_ids):
@@ -105,8 +90,6 @@ def _invalidate_flag_caches(team_ids):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("posthog", "1151_cimd_followup_hardening"),
     ]
