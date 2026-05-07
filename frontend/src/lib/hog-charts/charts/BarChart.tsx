@@ -24,6 +24,7 @@ import type {
     TooltipContext,
 } from '../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import { computeVisibleXLabels } from '../overlays/AxisLabels'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
@@ -67,8 +68,9 @@ function BarChartInner<Meta = unknown>({
         yScaleType = 'linear',
         showGrid = false,
         barLayout = 'stacked',
-        barCornerRadius = 4,
+        barCornerRadius = 0,
         axisOrientation = 'vertical',
+        xTickFormatter,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
@@ -168,9 +170,27 @@ function BarChartInner<Meta = unknown>({
             }
 
             if (showGrid) {
+                // Square grid: draw cross-axis lines at the same coords as visible category labels
+                // so the grid aligns with the labels the user sees, not at every band.
+                let categoryTicks: number[] = []
+                if (isHorizontal) {
+                    for (const label of drawLabels) {
+                        const coord = bandCenter(d3Scales, label)
+                        if (coord != null && isFinite(coord)) {
+                            categoryTicks.push(coord)
+                        }
+                    }
+                } else {
+                    categoryTicks = computeVisibleXLabels(
+                        drawLabels,
+                        (label) => bandCenter(d3Scales, label),
+                        xTickFormatter
+                    ).map((entry) => entry.x)
+                }
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
                     orientation: isHorizontal ? 'horizontal' : 'vertical',
+                    categoryTicks,
                 })
             }
 
@@ -198,16 +218,18 @@ function BarChartInner<Meta = unknown>({
                 )
             }
         },
-        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
+        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, xTickFormatter]
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex }: ChartDrawArgs) => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.4)'
+            // Translucent dark overlay layered on top of the static bar — composites with the
+            // bar pixel underneath to produce the "darker on hover" effect for any series color.
+            const highlightColor = 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
