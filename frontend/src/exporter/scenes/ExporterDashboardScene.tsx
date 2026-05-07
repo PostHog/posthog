@@ -1,4 +1,3 @@
-import { useActions } from 'kea'
 import { useCallback, useEffect } from 'react'
 
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
@@ -14,7 +13,7 @@ import { ExportType, ExportedData } from '../types'
 
 function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
     const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public })
-    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = useActions(logic)
+    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = logic.actions
 
     const onVisibilityChange = useCallback(
         (visible: boolean) => {
