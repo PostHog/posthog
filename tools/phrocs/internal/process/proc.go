@@ -203,12 +203,6 @@ func (p *Process) IsRunning() bool {
 	return p.Status().IsRunning()
 }
 
-// IsCrashed reports whether the process exited with a non-zero status (or was
-// killed by a signal).
-func (p *Process) IsCrashed() bool {
-	return p.Status() == StatusCrashed
-}
-
 // IsRestartable reports whether the proc was started at least once in this
 // session and is not currently running. This is the predicate behind the
 // "restart all" hotkey — narrower than "is not running" because it must

@@ -567,6 +567,39 @@ func TestProcess_IsRunning(t *testing.T) {
 	}
 }
 
+func TestIsRestartable(t *testing.T) {
+	// Non-zero time stands in for "Start() was called this session".
+	started := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		startedAt time.Time
+		status    Status
+		want      bool
+	}{
+		{"never started, stopped (autostart=false placeholder)", time.Time{}, StatusStopped, false},
+		{"never started, standby", time.Time{}, StatusStandby, false},
+		{"started, running", started, StatusRunning, false},
+		{"started, pending (treated as running)", started, StatusPending, false},
+		{"started, manually stopped", started, StatusStopped, true},
+		{"started, crashed", started, StatusCrashed, true},
+		{"started, done (one-shot exited)", started, StatusDone, true},
+		// Defensive: standby procs never reach Start() so startedAt should be zero;
+		// the predicate must still reject them if status is somehow Standby.
+		{"started but standby (defensive)", started, StatusStandby, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewProcess("svc", config.ProcConfig{Shell: "true"}, 100, "")
+			p.startedAt = tt.startedAt
+			p.status = tt.status
+			if got := p.IsRestartable(); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildCmd_cwd(t *testing.T) {
 	dir := t.TempDir()
 	p := NewProcess("svc", config.ProcConfig{Shell: "echo hi", Cwd: dir}, 100, "")

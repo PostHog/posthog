@@ -345,9 +345,10 @@ func (m *Model) restartAll() int {
 			continue
 		}
 		m.dbg("restart all: proc=%s", p.Name)
-		// Each Start blocks until the proc has fully exited, so fan out — we
-		// don't want one slow start to delay the rest. Capture p locally to
-		// avoid the closure-over-loop-variable pitfall on older Go versions.
+		// Fan out so we don't block the TUI event loop while Start allocates
+		// a PTY and forks the child. As a side benefit, spawns happen in
+		// parallel rather than serially. Capture p locally to avoid the
+		// closure-over-loop-variable pitfall on older Go versions.
 		proc := p
 		go func() { _ = proc.Start(send) }()
 		count++
