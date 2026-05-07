@@ -31218,12 +31218,19 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    /**
+     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
+     */
+    export type PatchedSessionSummariesConfigCustomTags = {[key: string]: string};
+
     export interface PatchedSessionSummariesConfig {
       /**
        * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
        * @maxLength 10000
        */
       product_context?: string;
+      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
+      custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -37029,12 +37036,19 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    /**
+     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
+     */
+    export type SessionSummariesConfigCustomTags = {[key: string]: string};
+
     export interface SessionSummariesConfig {
       /**
        * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
        * @maxLength 10000
        */
       product_context?: string;
+      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
+      custom_tags?: SessionSummariesConfigCustomTags;
     }
 
     /**
