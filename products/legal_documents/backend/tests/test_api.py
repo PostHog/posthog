@@ -462,20 +462,18 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
-    def test_draft_event_dispatches_send_and_fires_slack(self) -> None:
+    def test_draft_event_dispatches_send(self) -> None:
         body = json.dumps(self._draft_payload()).encode("utf-8")
         with (
             self._override(),
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
-        slack_mock.assert_called_once()
 
-    def test_draft_event_skips_slack_if_pandadoc_send_fails(self) -> None:
+    def test_draft_event_swallows_pandadoc_send_failure(self) -> None:
         from products.legal_documents.backend.logic import pandadoc as pandadoc_client
 
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -485,12 +483,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document",
                 side_effect=pandadoc_client.PandaDocError("boom"),
             ),
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        # Endpoint still 2xx (we don't want PandaDoc to retry) but Slack is skipped.
+        # Endpoint still 2xx — we don't want PandaDoc to retry.
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        slack_mock.assert_not_called()
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
@@ -500,12 +496,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with (
             self._override(),
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         send_mock.assert_not_called()
-        slack_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
         # Completed event with BAA template id for what's actually a DPA row in the DB
@@ -543,8 +537,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
 
-        # Replay: must not re-stream the PDF, re-upload, or re-fire Slack /
-        # analytics. PandaDoc retries / cross-instance fan-out both land here.
+        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
+        # PandaDoc retries / cross-instance fan-out both land here.
         replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
@@ -552,22 +546,20 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
             ) as stream_spy,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
-            patch("products.legal_documents.backend.logic.notify_slack_on_signed") as slack_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
-        slack_spy.assert_not_called()
         event_spy.assert_not_called()
 
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
 class TestLegalDocumentsSelfHostedGate(APIBaseTest):
     """
-    Self-hosted instances must never hit the PandaDoc / Slack integrations. The
-    API should 404 regardless of auth, and the PandaDoc webhook should 404 even
+    Self-hosted instances must never hit the PandaDoc integration. The API
+    should 404 regardless of auth, and the PandaDoc webhook should 404 even
     with a valid signature.
     """
 

@@ -105,11 +105,8 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         return form
 
     @parameterized.expand([("DPA",), ("BAA",), ("MSA",)])
-    @patch("products.legal_documents.backend.admin.slack_notifier.notify_admin_uploaded")
     @patch("products.legal_documents.backend.admin.object_storage")
-    def test_admin_upload_creates_signed_row_and_writes_to_s3(
-        self, document_type: str, mock_storage: Any, mock_slack: Any
-    ) -> None:
+    def test_admin_upload_creates_signed_row_and_writes_to_s3(self, document_type: str, mock_storage: Any) -> None:
         form = self._bound_form(document_type=document_type)
         instance = form.save(commit=False)
 
@@ -128,13 +125,8 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.assertTrue(write_args[0].endswith(f"{row.id}.pdf"))
         self.assertEqual(write_kwargs.get("extras"), {"ContentType": "application/pdf"})
 
-        mock_slack.assert_called_once()
-        _, slack_kwargs = mock_slack.call_args
-        self.assertEqual(slack_kwargs["uploaded_by_email"], self.user.email)
-
-    @patch("products.legal_documents.backend.admin.slack_notifier.notify_admin_uploaded")
     @patch("products.legal_documents.backend.admin.object_storage")
-    def test_s3_failure_rolls_back_row(self, mock_storage: Any, mock_slack: Any) -> None:
+    def test_s3_failure_rolls_back_row(self, mock_storage: Any) -> None:
         mock_storage.write_stream.side_effect = RuntimeError("s3 unreachable")
 
         form = self._bound_form()
@@ -144,8 +136,6 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
         # Row was not persisted — transaction.atomic rolled it back when ValidationError fired.
         self.assertFalse(LegalDocument.objects.filter(id=instance.id).exists())
-        # No Slack notification on failure.
-        mock_slack.assert_not_called()
 
     def test_pre_existing_row_blocks_form_validation(self) -> None:
         # Django's ModelForm.validate_unique catches the unique-per-org-per-type

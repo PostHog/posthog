@@ -23,7 +23,6 @@ from posthog.storage import object_storage
 
 from ee.billing.billing_manager import BillingManager
 
-from .. import slack as slack_notifier
 from ..facade.enums import DocumentType
 from ..models import LegalDocument
 from ..storage import signed_pdf_storage_key
@@ -313,33 +312,6 @@ def send_pandadoc_envelope(document: LegalDocument) -> bool:
         return False
 
 
-def notify_slack_on_submit(document: LegalDocument) -> None:
-    try:
-        slack_notifier.notify_submitted(
-            document_type=document.document_type,
-            company_name=document.company_name,
-            representative_email=document.representative_email,
-            pandadoc_document_id=document.pandadoc_document_id or None,
-        )
-    except Exception as exc:
-        # Slack errors are already swallowed inside the notifier, but protect
-        # the submit path from unexpected import/attr errors too.
-        logger.exception("legal_document_slack_submit_notify_failed", error=str(exc))
-        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
-
-
-def notify_slack_on_signed(document: LegalDocument) -> None:
-    try:
-        slack_notifier.notify_signed(
-            document_type=document.document_type,
-            company_name=document.company_name,
-            pandadoc_document_id=document.pandadoc_document_id or None,
-        )
-    except Exception as exc:
-        logger.exception("legal_document_slack_signed_notify_failed", error=str(exc))
-        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
-
-
 SUBMITTED_EVENT = "legal document submitted"
 SIGNED_EVENT = "legal document signed"
 
@@ -347,8 +319,8 @@ SIGNED_EVENT = "legal document signed"
 def fire_legal_document_submitted_event(document: LegalDocument, distinct_id: str) -> None:
     """
     Capture the submission to PostHog for analytics. No longer a critical path —
-    the customer-facing work (PandaDoc + Slack) is driven directly by the
-    submit handler. This event is kept for product analytics on the
+    the customer-facing work (PandaDoc) is driven directly by the submit
+    handler. This event is kept for product analytics on the
     `/legal/new/:type` funnel.
     """
     _capture_lifecycle_event(document, SUBMITTED_EVENT, distinct_id)

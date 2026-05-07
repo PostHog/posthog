@@ -15,10 +15,8 @@ import structlog
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
-from posthog.exceptions_capture import capture_exception
 from posthog.storage import object_storage
 
-from . import slack as slack_notifier
 from .models import LegalDocument
 from .storage import signed_pdf_storage_key
 
@@ -227,21 +225,6 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 f"This organization already has a {obj.document_type}. Delete the existing row first."
             ) from exc
 
-        try:
-            # AnonymousUser has no .email attribute; staff-only gating means we
-            # always have an authenticated User here, but mypy can't narrow
-            # request.user across has_add_permission, so use getattr.
-            slack_notifier.notify_admin_uploaded(
-                document_type=obj.document_type,
-                company_name=obj.company_name,
-                uploaded_by_email=getattr(request.user, "email", "") or "",
-            )
-        except Exception as exc:
-            # Slack errors must never break the admin save — the row + PDF are
-            # already persisted at this point.
-            logger.exception("legal_document_slack_admin_upload_notify_failed", error=str(exc))
-            capture_exception(exc, additional_properties={"legal_document_id": str(obj.id)})
-
     def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
         self._delete_signed_pdf(obj)
         super().delete_model(request, obj)
@@ -270,7 +253,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 request,
                 "Legal documents are only generated on PostHog Cloud. On self-hosted "
                 "deployments, listed rows (if any) are read-only historical records and "
-                "the PandaDoc / Slack integrations are disabled.",
+                "the PandaDoc integration is disabled.",
             )
         return super().changelist_view(request, extra_context=extra_context)
 
@@ -282,7 +265,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 request,
                 "Legal documents are only generated on PostHog Cloud. On self-hosted "
                 "deployments, listed rows (if any) are read-only historical records and "
-                "the PandaDoc / Slack integrations are disabled.",
+                "the PandaDoc integration is disabled.",
             )
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
