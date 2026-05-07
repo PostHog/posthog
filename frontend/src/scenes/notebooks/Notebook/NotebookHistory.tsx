@@ -27,6 +27,7 @@ const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
 
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
     const { shortId, notebook, previewContent } = useValues(notebookLogic)
+    const { clearPreviewContent } = useActions(notebookLogic)
 
     const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
     const { activity, pagination, activityLoading } = useValues(logic)
@@ -46,12 +47,16 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         <LemonSkeleton className="w-full h-10" repeat={10} />
                     </div>
                 ) : (
-                    activityWithChangedContent?.map((logItem: ActivityLogItem) => {
+                    activityWithChangedContent?.map((logItem: ActivityLogItem, idx: number) => {
                         const name = userNameForLogItem(logItem)
-                        const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
-                        const changedContent = getFieldChange(logItem, 'content')
-                        const isButton = changedContent && !isCurrent
                         const isRejected = logItem.activity.startsWith('save_rejected_')
+                        const isLastSaved = !isRejected && getFieldChange(logItem, 'version') === notebook?.version
+                        // Top of the chronological list = most recent save attempt (accepted or rejected),
+                        // which is what the editor is currently showing.
+                        const isCurrent = idx === 0
+                        const changedContent = getFieldChange(logItem, 'content')
+                        // Current entry is also clickable
+                        const isButton = !!changedContent
 
                         let actionLabel: string
                         if (isRejected) {
@@ -78,7 +83,13 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
                                 </span>
-                                {isCurrent ? <span className="text-secondary">(Current)</span> : null}
+                                {isCurrent && isLastSaved ? (
+                                    <span className="text-secondary">(Current, saved)</span>
+                                ) : isCurrent ? (
+                                    <span className="text-secondary">(Current)</span>
+                                ) : isLastSaved ? (
+                                    <span className="text-secondary">(Last saved)</span>
+                                ) : null}
                             </span>
                         )
 
@@ -88,8 +99,8 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     <LemonButton
                                         fullWidth
                                         size="small"
-                                        active={previewContent === changedContent}
-                                        onClick={() => onItemClick(logItem)}
+                                        active={isCurrent ? !previewContent : previewContent === changedContent}
+                                        onClick={() => (isCurrent ? clearPreviewContent() : onItemClick(logItem))}
                                         noPadding
                                     >
                                         {buttonContent}
