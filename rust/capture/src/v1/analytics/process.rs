@@ -1058,11 +1058,11 @@ mod tests {
 
     // --- restrictions bypass non-analytics events ---
 
-    #[tokio::test]
     #[rstest::rstest]
     #[case("$exception", Destination::ExceptionErrorTracking)]
     #[case("$$heatmap", Destination::HeatmapMain)]
     #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    #[tokio::test]
     async fn restrictions_skip_non_analytics_events(
         #[case] event_name: &str,
         #[case] expected_dest: Destination,
