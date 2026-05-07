@@ -1,6 +1,11 @@
 from zoneinfo import ZoneInfo
 
-from posthog.schema import TraceSpansQueryResponse, TraceSpansSparklineBreakdownBy
+from posthog.schema import (
+    CachedTraceSpansQueryResponse,
+    TraceSpansQuery,
+    TraceSpansQueryResponse,
+    TraceSpansSparklineBreakdownBy,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -16,6 +21,9 @@ from products.tracing.backend.logic import TraceSpansQueryRunnerMixin
 
 class TraceSpansSparklineQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     """Aggregates trace spans over time for the tracing chart (volume or latency heatmap)."""
+
+    query: TraceSpansQuery
+    cached_response: CachedTraceSpansQueryResponse
 
     @property
     def _breakdown(self) -> TraceSpansSparklineBreakdownBy:
