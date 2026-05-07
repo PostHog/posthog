@@ -44,9 +44,9 @@ def _collect_help_text() -> str:
 def _collect_command_help() -> list[tuple[str, str]]:
     root_ctx = click.Context(cli, info_name="hogli", terminal_width=TERMINAL_WIDTH, color=False)
     command_help_sections: list[tuple[str, str]] = []
-    for command_name, command in sorted(cli.commands.items()):
-        config = getattr(command, "hogli_config", {})
-        if config.get("hidden", False):
+    for command_name in cli.list_commands(root_ctx):
+        command = cli.get_command(root_ctx, command_name)
+        if command is None or command.hidden:
             continue
 
         sub_ctx = click.Context(
@@ -101,8 +101,8 @@ def _render(help_text: str, command_help_sections: list[tuple[str, str]]) -> str
             "\\fItools/hogli/src/hogli/cli.py\\fR",
             "CLI group and command registration.",
             ".TP",
-            "\\fItools/hogli-commands/hogli_commands/commands.py\\fR",
-            "Custom Click commands.",
+            "\\fItools/hogli-commands/hogli_commands/\\fR",
+            "PostHog-specific lazy Click command modules.",
             "",
         ]
     )

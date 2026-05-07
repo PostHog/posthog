@@ -1,11 +1,11 @@
 CLI-style command string. Supported commands:
 
 ```text
-tools                                    — list available tool names
-search <regex_pattern>                   — search tools by JavaScript regex (matches name, title, description)
-info <tool_name>                         — show tool name, description, and input schema (summarized if too large)
-schema <tool_name> [field_path]          — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] <tool_name> <json_input>   — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
+tools — list available tool names
+search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
+info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
+schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
+call [--json] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -37,7 +37,9 @@ For query tools, you will typically need:
 `call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
 per team. If the event isn't in the schema, tell the user instead of querying a guessed name.
 
-- Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed)
+Always run `info read-data-schema` first — the recipes below are common cases, not the full schema.
+
+- Events/Actions: `call read-data-schema {"query": {"kind": "events"/"actions"}}` (paginate with `limit`/`offset` if needed)
 - Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
 
@@ -214,15 +216,15 @@ Search rules:
 
 <example>
 User: Do we have any insights tracking revenue?
-Assistant: [Runs `posthog:exec({ "command": "call execute-sql {\"query\":\"SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20\"}" })`]
-[Picks the most plausible match by name, then runs `posthog:exec({ "command": "call insight-get {\"id\": <id>}" })` (or pass the `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
+Assistant: [Calls `execute-sql` with `SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20`]
+[Picks the most plausible match by name, then calls `insight-get` with the candidate's `id` (or `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
 <reasoning>SQL surfaces candidates fast; `insight-get` confirms the authoritative shape in one call — re-running `execute-sql ... WHERE id = <id>` would skip the dedicated tool and miss dashboards/ownership joins.</reasoning>
 </example>
 
 <bad-example>
 User: Find me a graph of MAUs.
-Assistant: [Runs `call execute-sql {"query":"SELECT * FROM system.insights WHERE id = 33800 LIMIT 1"}` after a search SELECT already surfaced id 33800]
-WRONG — verify with `call insight-get {"id": 33800}` instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
+Assistant: [Calls `execute-sql` with `SELECT * FROM system.insights WHERE id = 33800 LIMIT 1` after a search SELECT already surfaced id 33800]
+WRONG — verify with `insight-get` (passing `id: 33800`) instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
 </bad-example>
 
 #### Available insight query tools
@@ -361,11 +363,13 @@ Key URL patterns:
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
 
-### Sharing feedback on this MCP server (optional)
+### Sharing feedback on this MCP server
 
-The `agent-feedback` tool may be available if you'd like to leave optional feedback about this MCP server. It is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. Use it when something stands out — but only when you have something specific to say. There is no expectation to call it after every task; skip it for routine work where nothing is worth flagging.
+The `agent-feedback` tool is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. We rely on it to find and fix the rough edges you hit in real work.
 
-Good moments to consider it:
+**When you finish a task on which you hit friction, please call `agent-feedback` before handing back to the user.** Friction means anything that slowed you down or made you guess — examples below. You are not required to call it, and you should skip it for smooth, routine work where nothing stood out. But if something was awkward, missing, or wrong, a short report is the most useful thing you can do for the next agent.
+
+Friction worth reporting (any one is enough):
 
 - A tool description was unclear or ambiguous and you had to guess.
 - An input schema was confusing or surprising.
@@ -376,9 +380,9 @@ Good moments to consider it:
 - These instructions led you down the wrong path.
 - A tool worked particularly well — concrete praise is just as useful as criticism.
 
-If you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+When you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
 
-Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about your experience with the tools — after calling it, keep going and finish the user's task using the other available tools.
+Submitting feedback is **not** a way to end your turn or skip work, and it is **not** a substitute for finishing the user's request. It is a side report to the PostHog team about your experience with the tools — call it once at the end of a task when warranted, then keep going and finish the user's task using the other available tools.
 
 ### Examples
 

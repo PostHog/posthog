@@ -29,6 +29,12 @@
         }
 
         .NotebookNode__settings {
+            // Sits above .NotebookNode__content's z-index: 1 so that wrapped toolbar
+            // controls (e.g. the chart-type picker on Trends insights at narrow widths)
+            // stay clickable when the chart canvas underneath would otherwise win the
+            // hit test.
+            position: relative;
+            z-index: 2;
             border-bottom: 1px solid var(--color-border-primary);
         }
 

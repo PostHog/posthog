@@ -186,6 +186,17 @@ case "$RS_SVC" in
     export METRICS_PORT=9101
     ;;
 
+  flags-consumer)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export FLAGS_READ_STORE_DATABASE_URL="${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}"
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export METRICS_PORT=9105
+    export DEBUG=1
+    ;;
+
   personhog-router-leader)
     export RUST_LOG=debug
     export RUST_BACKTRACE=1

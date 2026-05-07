@@ -36,8 +36,8 @@ For deeper investigation, hand off to other skills and tools:
   search across signals, or to inspect every signal that contributed to a report.
 - **PostHog's product-specific MCP tools** — when a report points at a specific error, log line,
   session, person, or time range, reach for the matching domain tool to pull richer context:
-  - Error tracking: `query-error-tracking-issues`, `error-tracking-issues-retrieve` for
-    error-tracking-sourced reports
+  - Error tracking: `query-error-tracking-issues-list`, `query-error-tracking-issue`,
+    `query-error-tracking-issue-events` for error-tracking-sourced reports
   - Logs: `query-logs`, `logs-count-ranges` to find log activity around the issue
   - Session replays: `query-session-recordings-list`, `session-recording-get` to find
     recordings of affected users

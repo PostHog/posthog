@@ -9,6 +9,22 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Manage CIMD verification tokens for an organization.
+
+A partner embeds the plaintext token in their CIMD metadata document under
+`posthog_verification_token`. When PostHog fetches the metadata, matching
+the token links the partner app to this organization and grants a higher
+default rate limit for account provisioning.
+
+The plaintext value is only available on creation; we store a hash.
+ */
+export const cimdVerificationTokensCreateBodyLabelMax = 40
+
+export const CimdVerificationTokensCreateBody = /* @__PURE__ */ zod.object({
+    label: zod.string().max(cimdVerificationTokensCreateBodyLabelMax),
+})
+
 export const domainsCreateBodyDomainMax = 128
 
 export const domainsCreateBodySsoEnforcementMax = 28
@@ -2614,6 +2630,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsCreateBodyTitleMax)
@@ -2714,6 +2736,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsUpdateBodyTitleMax)
@@ -2817,6 +2845,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsPartialUpdateBodyTitleMax)

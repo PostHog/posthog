@@ -47,7 +47,7 @@ const AssistantTrendsBreakdownFilter = z.object({
             "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings."
         )
         .optional(),
-    breakdowns: z.array(AssistantMultipleBreakdownFilter).describe('Use this field to define breakdowns.'),
+    breakdowns: z.array(AssistantMultipleBreakdownFilter).max(3).describe('Use this field to define breakdowns.'),
 })
 
 const CompareFilter = z.object({
@@ -447,6 +447,7 @@ const AssistantTrendsGroupNode = z.object({
     name: z.string().describe('Display name for the combined series.').optional(),
     nodes: z
         .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
+        .min(2)
         .describe(
             "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time."
         ),
@@ -717,6 +718,7 @@ const AssistantFunnelsGroupNode = z.object({
     name: z.string().describe('Display name for the combined step.').optional(),
     nodes: z
         .array(z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]))
+        .min(2)
         .describe(
             'Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.'
         ),
@@ -1129,6 +1131,7 @@ const AssistantLifecycleQuery = z.object({
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
         .array(AssistantLifecycleSeriesNode)
+        .max(1)
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 

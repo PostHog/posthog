@@ -103,15 +103,20 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 ### Commands
 
-**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Without `--auto-approve`, exits 1 if unapproved changes are detected (gating). With `--auto-approve`, approves everything, writes the signed baseline, and exits 0.
+**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (won't block, won't prompt for approval). Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
 
-**`vr verify`** — local baseline check without API.
+**`vr verify`** — local baseline check without API. Hashes PNGs in a directory and compares against `snapshots.yml`. No backend involvement.
 
-**`vr run create`** — creates an empty pending run, outputs the run ID to stdout. Call once before shards.
+**`vr run create`** — creates an empty pending run, outputs the run ID to stdout. Call once before shards. Default `--purpose review`; pass `--purpose observe` on master to make the run tracking-only (non-approvable, no PR comment).
 
 **`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts.
 
-**`vr run complete`** — triggers completion (classification, removal detection, diffs). Same exit code semantics as `vr submit`: exits 1 on unapproved changes, 0 if clean or `--auto-approve` is set.
+**`vr run complete`** — triggers completion (classification, removal detection, diffs). On `review` runs: exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set. On `observe` runs: always exits 0 (non-gating).
+
+### Run purposes
+
+- **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". Use on master pushes where there's no PR to approve.
 
 ## Current state
 

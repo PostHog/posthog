@@ -636,7 +636,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 interval_data = breakdown_data[start_interval]
                 interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0) + corrected_count
 
-                if self.has_property_aggregation and aggregation_value is not None:
+                if self.has_property_aggregation:
+                    assert isinstance(aggregation_value, int | float)
                     corrected_aggregation_value = correct_result_for_sampling(
                         aggregation_value, self.query.samplingFactor
                     )

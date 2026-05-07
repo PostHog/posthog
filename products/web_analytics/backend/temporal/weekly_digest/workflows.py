@@ -47,9 +47,11 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
 
         workflow.logger.info("Fanning out WA digest to %d orgs", len(org_ids))
 
-        results = await asyncio.gather(
-            *[
-                workflow.execute_activity(
+        semaphore = asyncio.Semaphore(input.max_concurrent)
+
+        async def _run_for_org(org_id: str) -> dict:
+            async with semaphore:
+                return await workflow.execute_activity(
                     build_and_send_wa_digest_for_org,
                     BuildAndSendDigestForOrgInput(org_id=org_id, dry_run=input.dry_run),
                     start_to_close_timeout=timedelta(minutes=30),
@@ -59,21 +61,20 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
                         initial_interval=timedelta(minutes=2),
                     ),
                 )
-                for org_id in org_ids
-            ],
+
+        results = await asyncio.gather(
+            *[_run_for_org(org_id) for org_id in org_ids],
             return_exceptions=True,
         )
 
-        successes = sum(1 for r in results if not isinstance(r, BaseException))
-        failures = sum(1 for r in results if isinstance(r, BaseException))
-
-        for i, result in enumerate(results):
+        successes = 0
+        failures = 0
+        for org_id, result in zip(org_ids, results):
             if isinstance(result, BaseException):
-                workflow.logger.error(
-                    "WA digest failed for org %s: %s",
-                    org_ids[i],
-                    str(result),
-                )
+                failures += 1
+                workflow.logger.error("WA digest failed for org %s: %s", org_id, str(result))
+            else:
+                successes += 1
 
         workflow.logger.info(
             "WA weekly digest complete: %d succeeded, %d failed",
