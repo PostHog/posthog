@@ -78,7 +78,8 @@ export function createExecTool(
     toolDescription: string,
     commandReference: string,
     mcpConsumer: string | undefined,
-    trackInnerCall?: ExecInnerCallTracker
+    trackInnerCall?: ExecInnerCallTracker,
+    primePayload?: string
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -98,6 +99,13 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
+                case 'prime': {
+                    return (
+                        primePayload ??
+                        'No prime payload available — environment may not be initialized for this session.'
+                    )
+                }
+
                 case 'tools': {
                     return JSON.stringify(allTools.map((t) => t.name))
                 }

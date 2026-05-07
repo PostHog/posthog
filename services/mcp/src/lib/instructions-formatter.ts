@@ -4,7 +4,6 @@ import {
     buildQueryToolsBlock,
     buildQueryToolsCompact,
     buildSkillStoreBlock,
-    buildSkillStoreCompact,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     type QueryToolInfo,
@@ -83,9 +82,12 @@ export class InstructionsFormatter {
 
     /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
      *  The bulk of the system prompt lives on the exec tool's `command` parameter
-     *  description (`buildExecCommandReference`) — this is just env + tool index. */
+     *  description (`buildExecCommandReference`) — this is just env + tool index +
+     *  the directive that tells the model to load the skill catalog on session start. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        return this.compose([COMPACT_INSTRUCTIONS, ...(this.skillStoreEnabled(ctx.skills) ? [SKILL_STORE] : [])], ctx, {
+            compact: true,
+        })
     }
 
     /** Build the top-level description of the `posthog:exec` tool. */
@@ -93,13 +95,54 @@ export class InstructionsFormatter {
         return EXEC_TOOL_BLURB.trim()
     }
 
+    /** Assemble the response body for the `prime` exec verb. The model is told to
+     *  call `prime` before doing anything else this session — the response carries
+     *  everything that won't fit in the 2KB-capped `instructions` field: the active
+     *  environment block, the tool index, the query-tool catalog, defined group
+     *  types, and the team skill catalog (name + description per skill).
+     *
+     *  Returning this from a tool result rather than embedding it in `instructions`
+     *  bypasses the 2KB cap entirely — the model gets the full catalog into its
+     *  context once and refers back to it for the rest of the session. */
+    buildPrimePayload(ctx: InstructionsContext): string {
+        const sections: string[] = []
+
+        if (ctx.metadata?.trim()) {
+            sections.push(ctx.metadata.trim())
+        }
+
+        if (ctx.groupTypes && ctx.groupTypes.length > 0) {
+            sections.push(`### Defined group types\n\n${ctx.groupTypes.map((g) => g.group_type).join(', ')}`)
+        }
+
+        if (ctx.tools && ctx.tools.length > 0) {
+            sections.push(`### Tool domains\n\n${buildToolDomainsCompact(ctx.tools)}`)
+        }
+
+        if (ctx.queryTools && ctx.queryTools.length > 0) {
+            sections.push(`### Query tools\n\n${buildQueryToolsBlock(ctx.queryTools)}`)
+        }
+
+        if (this.skillStoreEnabled(ctx.skills)) {
+            sections.push(
+                `### Team skills (${ctx.skills?.length})\n\n` +
+                    `${buildSkillStoreBlock(ctx.skills)}\n\n` +
+                    "When the user's request matches a skill description, call `llma-skill-get` with `skill_name` set to the skill name and follow the body before doing anything else. Do not announce skills — use them naturally."
+            )
+        }
+
+        return sections.join('\n\n')
+    }
+
     /** Build the `command` parameter description for the exec tool. When
      *  `stripEnvContext` is true (the client already received env via the
      *  `instructions` field), the env-related placeholders resolve to empty
      *  strings to avoid duplication. */
     buildExecCommandReference(ctx: InstructionsContext, opts: { stripEnvContext: boolean }): string {
-        // The skill catalog rides with env-context: when the client honors `instructions`,
-        // both move into that field and the command reference omits them.
+        // The skill-store directive rides with env-context: when the client honors
+        // `instructions`, both move into that field and the command reference omits them
+        // to avoid duplication. The directive is short — it tells the model to call
+        // `llma-skill-list` once at session start to load the catalog into context.
         const skillsForReference = opts.stripEnvContext ? undefined : ctx.skills
         const sections = [
             CLI_SYNTAX,
@@ -139,14 +182,12 @@ export class InstructionsFormatter {
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
         const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
         const renderQueryTools = opts.compact ? buildQueryToolsCompact : buildQueryToolsBlock
-        const renderSkillStore = opts.compact ? buildSkillStoreCompact : buildSkillStoreBlock
         const vars = {
             guidelines: ctx.guidelines.trim(),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? renderQueryTools(ctx.queryTools) : '',
-            skill_store: renderSkillStore(ctx.skills),
         }
         const body = sections
             .map((s) => s.trim())

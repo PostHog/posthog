@@ -684,13 +684,15 @@ export class MCP extends McpAgent<Env> {
                 )
             }
 
+            const primePayload = instructionsFormatter.buildPrimePayload(instructionsContext)
             const execTool = createExecTool(
                 allTools,
                 context,
                 instructionsFormatter.buildExecToolDescription(),
                 commandReference,
                 this.requestProperties.mcpConsumer,
-                trackInnerCall
+                trackInnerCall,
+                primePayload
             )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
@@ -790,17 +792,13 @@ export class MCP extends McpAgent<Env> {
     }
 
     /**
-     * Fetch the team's published skill catalog (name + description only) so the
-     * system prompt can advertise them upfront instead of requiring the agent
-     * to discover the skill store via `llma-skill-list`. The discovery handshake
-     * was the point of friction the team feedback called out — agents only
-     * surface team skills when explicitly told to look.
+     * Fetch the slim team skill catalog (name + description per skill) for the
+     * `prime` exec verb. The model is instructed to call `prime` before doing
+     * anything else; the response embeds this catalog so the model can match
+     * user phrasing to skill descriptions without any further round-trip.
      *
      * Returns `undefined` on missing project, missing scope, or any fetch error
-     * so `init()` continues without skills rather than failing the connection
-     * over an optional prompt enrichment. The catalog is bounded by the API's
-     * default page size; teams with very large skill libraries will see a
-     * truncated catalog and can still discover the rest via `llma-skill-list`.
+     * so `init()` continues without skills rather than failing the connection.
      */
     private async fetchSkillCatalog(context: Context, projectId: string | undefined): Promise<SkillInfo[] | undefined> {
         if (!projectId) {
@@ -814,7 +812,7 @@ export class MCP extends McpAgent<Env> {
             const response = await context.api.request<{ results: { name: string; description: string }[] }>({
                 method: 'GET',
                 path: `/api/environments/${encodeURIComponent(projectId)}/llm_skills/`,
-                query: { limit: 100 },
+                query: { limit: 200 },
             })
             return (response.results ?? []).map((s) => ({
                 name: s.name,

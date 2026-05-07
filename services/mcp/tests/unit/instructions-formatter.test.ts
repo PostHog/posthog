@@ -117,21 +117,20 @@ describe('InstructionsFormatter', () => {
             }
         })
 
-        it('renders the team skill catalog when skills are present', () => {
+        it('renders the skill-store directive when skills are present', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildV2Instructions(fullCtx)
-            expect(result).toContain('### Team skill store')
-            expect(result).toContain('- `growth-review` —')
-            expect(result).toContain('- `product-usage` —')
-            expect(result).toContain('llma-skill-get')
+            expect(result).toContain('REQUIRED FIRST STEP — call `prime`')
+            // No enumeration — the catalog is loaded via tool result, not prompt content.
+            expect(result).not.toContain('- `growth-review` —')
+            expect(result).not.toContain('- `product-usage` —')
         })
 
-        it('omits the team skill catalog when no skills are advertised', () => {
+        it('omits the skill-store directive when no skills are advertised', () => {
             const formatter = new InstructionsFormatter()
             for (const skills of [undefined, []]) {
                 const result = formatter.buildV2Instructions({ ...fullCtx, skills })
-                expect(result).not.toContain('### Team skill store')
-                expect(result).not.toContain('{skill_store}')
+                expect(result).not.toContain('REQUIRED FIRST STEP')
             }
         })
     })
@@ -145,8 +144,25 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).not.toMatch(
-                /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}|\{skill_store\}/
+                /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
             )
+        })
+
+        it('renders the skill-store directive in the instructions field', () => {
+            // The directive (a few hundred chars) fits the 2KB cap; the catalog itself
+            // loads into tool-result context when the model calls llma-skill-list.
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecInstructions(fullCtx)
+            expect(result).toContain('REQUIRED FIRST STEP — call `prime`')
+            expect(result).not.toContain('- `growth-review` —')
+        })
+
+        it('omits the skill-store directive when no skills exist', () => {
+            const formatter = new InstructionsFormatter()
+            for (const skills of [undefined, []]) {
+                const result = formatter.buildExecInstructions({ ...fullCtx, skills })
+                expect(result).not.toContain('REQUIRED FIRST STEP')
+            }
         })
 
         // Claude Code caps MCP `instructions` at 2048 chars — stay under the budget with
@@ -244,14 +260,23 @@ describe('InstructionsFormatter', () => {
             }
         })
 
-        it('hosts the skill catalog only when env-context is also inlined', () => {
+        it('hosts the skill-store directive only when env-context is also inlined', () => {
+            // Like the env block, the directive moves into `instructions` when the
+            // client honors that field and stays in command ref otherwise (Codex).
             const formatter = new InstructionsFormatter()
             const inlined = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
-            expect(inlined).toContain('### Team skill store')
-            expect(inlined).toContain('- `growth-review` —')
+            expect(inlined).toContain('REQUIRED FIRST STEP — call `prime`')
 
             const stripped = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: true })
-            expect(stripped).not.toContain('### Team skill store')
+            expect(stripped).not.toContain('REQUIRED FIRST STEP')
+        })
+
+        it('omits the skill-store directive when no skills exist', () => {
+            const formatter = new InstructionsFormatter()
+            for (const skills of [undefined, []]) {
+                const result = formatter.buildExecCommandReference({ ...fullCtx, skills }, { stripEnvContext: false })
+                expect(result).not.toContain('REQUIRED FIRST STEP')
+            }
         })
     })
 
@@ -279,16 +304,19 @@ describe('InstructionsFormatter', () => {
                 expect(instructions).toContain("The user's name is Jane Doe")
                 expect(instructions).toContain('dashboard|execute-sql|feature-flag')
                 expect(instructions).toContain('Defined group types: organization')
+                expect(instructions).toContain('REQUIRED FIRST STEP')
                 expect(commandReference).not.toContain("The user's name is Jane Doe")
                 expect(commandReference).not.toContain('Defined group types: organization')
                 expect(commandReference).not.toContain('- `query-trends` — time series')
                 expect(commandReference).not.toContain('\n- dashboard\n')
+                expect(commandReference).not.toContain('REQUIRED FIRST STEP')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
                 expect(commandReference).toContain("The user's name is Jane Doe")
                 expect(commandReference).toContain('- dashboard')
                 expect(commandReference).toContain('Defined group types: organization')
+                expect(commandReference).toContain('REQUIRED FIRST STEP')
             }
         })
     })
