@@ -185,14 +185,17 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         ssim_score=result.ssim_score,
     )
 
-    # Auto-populate tolerance cache so future runs skip diffing for this hash
+    # Auto-populate tolerance cache so future runs skip diffing for this hash.
+    # Explicit team_id in the lookup (not just defaults) so the IDOR audit
+    # rule sees the scope; ProductTeamManager also auto-filters by canonical
+    # team — both belt and suspenders.
     ToleratedHash.objects.get_or_create(
+        team_id=snapshot.team_id,
         repo_id=snapshot.run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
         alternate_hash=snapshot.current_hash,
         defaults={
-            "team_id": snapshot.team_id,
             "reason": ToleratedReason.AUTO_THRESHOLD,
             "source_run": snapshot.run,
             "diff_percentage": result.diff_percentage,

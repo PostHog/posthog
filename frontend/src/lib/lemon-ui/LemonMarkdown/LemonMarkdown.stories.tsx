@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonMarkdown as LemonMarkdownComponent, LemonMarkdownProps } from './LemonMarkdown'
+import { LemonMarkdownWithMermaid } from './LemonMarkdownWithMermaid'
 
 type Story = StoryObj<LemonMarkdownProps>
 const meta: Meta<LemonMarkdownProps> = {
@@ -137,6 +138,38 @@ export const TaskLists: Story = {
 - Use [x] for completed tasks
 - Use [ ] for pending tasks
 - Tasks can be nested and combined with other markdown`,
+    },
+}
+
+export const MermaidDiagrams: Story = {
+    render: (args) => <LemonMarkdownWithMermaid {...args}>{args.children}</LemonMarkdownWithMermaid>,
+    args: {
+        children: `# Mermaid diagrams
+
+Code fences with the \`mermaid\` language are rendered as diagrams when the surface uses \`LemonMarkdownWithMermaid\`.
+
+## Flowchart
+
+\`\`\`mermaid
+flowchart LR
+    A[User] --> B{Has skill?}
+    B -- Yes --> C[Render markdown]
+    B -- No --> D[Show empty state]
+    C --> E[Done]
+    D --> E
+\`\`\`
+
+## Sequence diagram
+
+\`\`\`mermaid
+sequenceDiagram
+    participant U as User
+    participant S as Skill
+    participant L as LemonMarkdown
+    U->>S: Open skill
+    S->>L: Render body
+    L-->>U: Diagram + text
+\`\`\``,
     },
 }
 

@@ -264,6 +264,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
           : 'boolean'
 
     const onSelectFlagType = (value: string): void => {
+        // Leaving remote config: the backend invariant requires
+        // has_encrypted_payloads=true only on remote config flags,
+        // and the prior ciphertext is no longer valid.
+        const wasLeavingRemoteConfig =
+            featureFlag?.is_remote_configuration === true &&
+            value !== 'remote_config' &&
+            featureFlag?.has_encrypted_payloads
+
         if (value === 'remote_config') {
             setFeatureFlag({
                 ...featureFlag,
@@ -286,6 +294,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 is_remote_configuration: false,
             })
             setMultivariateEnabled(false)
+        }
+
+        if (wasLeavingRemoteConfig) {
+            resetEncryptedPayload()
         }
     }
 

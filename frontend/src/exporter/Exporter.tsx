@@ -20,10 +20,10 @@ import { ExportType, ExportedData } from '~/exporter/types'
 import { exporterViewLogic } from './exporterViewLogic'
 
 const LazyDashboardScene = lazy(() => import('./scenes/ExporterDashboardScene'))
-const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
-const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
 const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
 const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
+const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
+const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
 
 function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dark' | null {
     if (theme === 'light' || theme === 'dark') {

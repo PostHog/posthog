@@ -1247,6 +1247,52 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(field_mismatch_diffs) == 1
         assert field_mismatch_diffs[0]["flag_key"] == "test-flag"
 
+    @parameterized.expand(
+        [
+            (
+                "extra_key_in_cache_is_tolerated",
+                lambda flag: flag.__setitem__("legacy_field_that_no_longer_exists", True),
+                "match",
+                None,
+            ),
+            (
+                "missing_key_in_cache_still_flagged",
+                lambda flag: flag.pop("filters"),
+                "mismatch",
+                "filters",
+            ),
+        ]
+    )
+    def test_verify_handles_key_drift_between_cache_and_db(
+        self, _name, mutate_cached_flag, expected_status, expected_diff_field
+    ):
+        """The DB serialization is the source of truth: stale extras in the
+        cache must be ignored (otherwise a benign serializer field removal
+        rewrites every team's cache), but a key the DB has and the cache
+        doesn't is a real divergence and must still be flagged."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flag_definitions_cache(self.team)
+
+        cached_data, _source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        assert len(cached_data["flags"]) == 1
+        mutate_cached_flag(cached_data["flags"][0])
+        flag_definitions_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == expected_status
+        if expected_diff_field is not None:
+            field_mismatch_diffs = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+            assert len(field_mismatch_diffs) == 1
+            assert field_mismatch_diffs[0]["flag_key"] == "test-flag"
+            assert expected_diff_field in field_mismatch_diffs[0]["diff_fields"]
+
     def test_verify_both_variants_independently(self):
         FeatureFlag.objects.create(
             team=self.team,

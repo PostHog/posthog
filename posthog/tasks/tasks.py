@@ -26,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -72,6 +73,7 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
 def delete_expired_delegation_invites() -> None:
     """Delete delegation invites that have passed their expiry.
 
@@ -185,6 +187,7 @@ def kill_stale_queued_task_runs() -> None:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def clear_expired_sessions() -> None:
     from django.contrib.sessions.models import Session
 
@@ -368,6 +371,7 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
@@ -611,6 +615,7 @@ _TASKS_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
 def capture_task_run_state_metrics() -> None:
     """Emit gauges describing the current state of the Tasks product's TaskRun table"""
     from django.db.models import Count, Min
@@ -715,6 +720,7 @@ def update_event_partitions() -> None:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
@@ -1224,6 +1230,7 @@ def delete_project_data_and_notify_task(
     retry_backoff=60,
     retry_backoff_max=300,
 )
+@skip_team_scope_audit
 def delete_organization_data_and_notify_task(
     team_ids: list[int],
     organization_id: str,
@@ -1298,6 +1305,7 @@ def delete_organization_data_and_notify_task(
     retry_backoff_max=120,
     max_retries=3,
 )
+@skip_team_scope_audit
 def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
@@ -1595,6 +1603,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
 
 @shared_task(ignore_result=True, time_limit=7200)
+@skip_team_scope_audit
 def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14) -> None:
     """
     Refresh fields cache for large organizations.
@@ -1703,6 +1712,7 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def sync_user_product_lists_for_new_team(team_id: int) -> None:
     """
     Sync UserProductList for all users who have access to a new team.
