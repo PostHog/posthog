@@ -12,7 +12,7 @@ const SELECTED_IDS = [1, 2, 3]
 const meta: Meta<typeof BulkUpdateTagsButton> = {
     title: 'Components/BulkUpdateTagsButton',
     component: BulkUpdateTagsButton,
-    parameters: { layout: 'centered' },
+    parameters: { layout: 'fullscreen' },
     decorators: [
         function MocksDecorator(Story) {
             useStorybookMocks({
@@ -20,7 +20,13 @@ const meta: Meta<typeof BulkUpdateTagsButton> = {
                     '/api/projects/:team_id/tags': ['production', 'staging', 'beta', 'internal'],
                 },
             })
-            return <Story />
+            // Reserve enough viewport for the popover (placement: 'bottom-end') to render
+            // entirely within the snapshot. The popover content is ~320px wide and ~360px tall.
+            return (
+                <div className="flex justify-end p-4" style={{ minHeight: 480, minWidth: 420 }}>
+                    <Story />
+                </div>
+            )
         },
     ],
     args: { resource: RESOURCE, selectedIds: SELECTED_IDS },
