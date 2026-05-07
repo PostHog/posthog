@@ -100,6 +100,7 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
         kind: score.definition_kind,
         archived: score.definition_archived,
         current_version: score.definition_version,
+        current_version_id: score.definition_version_id,
         config: score.definition_config,
         created_by: null,
         created_at: score.created_at,

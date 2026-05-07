@@ -426,7 +426,11 @@ class ExperimentService:
             raise ValidationError(
                 f"Event(s) {unknown_str} not found. "
                 "No events with these names have been ingested by this project. "
-                "If this is intentional, set allow_unknown_events=True."
+                "If you meant a different event, please correct it. "
+                "Only if the user has explicitly confirmed they want to proceed with "
+                "the unknown event (e.g. they will instrument it shortly), "
+                "call again with allow_unknown_events=True. "
+                "Do not flip the flag silently to bypass this check."
             )
 
     @transaction.atomic
