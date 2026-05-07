@@ -352,7 +352,7 @@ class SignupResendInviteThrottle(UserOrEmailRateThrottle):
 
     Resending an invite triggers a real email side effect, so the per-email cap
     bounds inbox spam to a victim regardless of how many IPs an attacker rotates
-    through. The IP-keyed precheck throttle still applies via the shared scope.
+    through.
     """
 
     scope = "signup_resend_invite"
