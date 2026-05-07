@@ -10,11 +10,10 @@ Selectors:
   - `returning` — users active in the previous period and active in this one.
   - `resurrecting` — users inactive for one or more periods and active again now.
   - `dormant` — users active in the previous period but inactive now.
-- `includeRecordings`: defaults to `true`. Set to `false` to skip fetching matched session recordings.
 
 Response:
 
-Each returned row contains `distinct_id`, `email`, and `name`. When `includeRecordings` is `true`, a `recordings` column is also returned with PostHog replay URLs. Results are limited to the top 100 actors.
+Each returned row contains `distinct_id`, `email`, and `name`. Results are limited to the top 100 actors. Matched session recordings are not returned — the lifecycle runner does not project per-actor matching events.
 
 Guidance:
 

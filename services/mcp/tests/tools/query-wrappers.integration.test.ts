@@ -434,23 +434,16 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(Array.isArray(result.results.results)).toBe(true)
         })
 
-        it.each([
-            [true, ['distinct_id', 'email', 'name', 'recordings']],
-            [false, ['distinct_id', 'email', 'name']],
-        ] as const)(
-            'returns expected columns when includeRecordings=%s',
-            async (includeRecordings, expectedColumns) => {
-                const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
-                const result = (await tool.handler(context, {
-                    source: lifecycleSource,
-                    day: '2026-03-25',
-                    status: 'new',
-                    includeRecordings,
-                })) as any
+        it('returns the persons projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            const result = (await tool.handler(context, {
+                source: lifecycleSource,
+                day: '2026-03-25',
+                status: 'new',
+            })) as any
 
-                expect(result.results.columns).toEqual(expectedColumns)
-            }
-        )
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name'])
+        })
 
         it('wraps the source query in an outer ActorsQuery with select=["actor"] and no orderBy', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
@@ -458,7 +451,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 source: lifecycleSource,
                 day: '2026-03-25',
                 status: 'returning',
-                includeRecordings: false,
             })) as any
 
             expect(result.query.kind).toBe('ActorsQuery')

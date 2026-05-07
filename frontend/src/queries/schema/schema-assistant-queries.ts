@@ -1258,7 +1258,9 @@ export type AssistantLifecycleStatus = 'new' | 'returning' | 'resurrecting' | 'd
 
 /**
  * Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows
- * are `distinct_id`, `email`, `name`, and optionally matched session recordings.
+ * are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no
+ * per-actor `event_count` or matched recordings are projected — the underlying lifecycle
+ * runner does not surface a `matching_events` column.
  *
  * Use the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight
  * is a 4-row stack (new / returning / resurrecting / dormant) per day.
@@ -1280,12 +1282,6 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
-
-    /**
-     * Whether to include matched session recordings for each actor.
-     * @default true
-     */
-    includeRecordings?: boolean
 }
 
 /**

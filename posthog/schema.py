@@ -20105,10 +20105,6 @@ class AssistantLifecycleActorsQuery(BaseModel):
         ...,
         description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
     )
-    includeRecordings: bool | None = Field(
-        default=True,
-        description="Whether to include matched session recordings for each actor.",
-    )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     source: AssistantLifecycleQuery = Field(
         ...,

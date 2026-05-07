@@ -1208,11 +1208,6 @@ const AssistantLifecycleActorsQuery = z.object({
     day: z
         .string()
         .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
-    includeRecordings: z.coerce
-        .boolean()
-        .describe('Whether to include matched session recordings for each actor.')
-        .default(true)
-        .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
     source: AssistantLifecycleQuery.describe('The source lifecycle insight query whose bucket we are drilling into.'),
     status: AssistantLifecycleStatus.describe(
