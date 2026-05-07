@@ -73,6 +73,7 @@ from posthog.tasks.tasks import (
     verify_persons_data_in_sync,
 )
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
+from posthog.tasks.web_analytics_bot_warming import schedule_bot_analytics_warming_task
 from posthog.utils import get_crontab, get_instance_region
 
 from products.conversations.backend.tasks import wake_snoozed_tickets
@@ -183,6 +184,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
+    )
+
+    # Bot analytics precomputation warming - hourly at minute 45 to spread load
+    sender.add_periodic_task(
+        crontab(hour="*", minute="45"),
+        schedule_bot_analytics_warming_task.s(),
+        name="schedule bot analytics precomputation warming",
     )
 
     # Team metadata cache sync - hourly
