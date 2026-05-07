@@ -59,6 +59,14 @@ html.export-type-image {
             'Emoji Flags Polyfill', Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
             'Segoe UI Emoji', 'Segoe UI Symbol';
     }
+
+    // content-visibility:auto on dashboard tiles defers off-screen rendering, leaving below-the-fold tiles
+    // as intrinsic-size placeholders during the headless screenshot. The same problem was hit and worked
+    // around in the Storybook test-runner; mirror that here for PNG exports.
+    .react-grid-layout.dashboard-view-mode .react-grid-item {
+        content-visibility: visible;
+        contain-intrinsic-size: auto;
+    }
 }
 
 html.export-type-embed {
