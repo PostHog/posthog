@@ -72,6 +72,8 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
+export POSTHOG_SCHEMA_RESTORE_IN_DEV=${POSTHOG_SCHEMA_RESTORE_IN_DEV:-auto}
+
 # Ducklake
 export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
 export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}

@@ -1,282 +1,552 @@
-"""Restore the CI migrated Postgres schema when the local dev DB is empty."""
+"""Postgres schema restore helpers for hogli."""
 
 from __future__ import annotations
 
 import os
-import json
+import re
+import gzip
+import shlex
 import shutil
 import zipfile
 import tempfile
 import subprocess
-import urllib.request
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from io import BytesIO
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import click
-from hogli.manifest import REPO_ROOT
+import requests
 
-ARTIFACT_API_URL = "https://api.github.com/repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10"
-BACKUP_DIR = REPO_ROOT / ".postgres-backups"
-SCHEMA_PATH = BACKUP_DIR / "schema-latest.sql.gz"
-MIN_SCHEMA_ARTIFACT_SIZE_BYTES = 10_000
-RESTORE_TIMEOUT_SECONDS = 300
+ArtifactMode = Literal["off", "auto", "on"]
+
+GITHUB_REPOSITORY = "PostHog/posthog"
+SCHEMA_ARTIFACT_NAME = "migrated-schema"
+SCHEMA_DUMP_NAME = "schema.sql.gz"
+LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
+MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
+DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+
+class SchemaRestoreError(Exception):
+    """Base exception for schema restore failures."""
+
+
+class SchemaRestoreUnavailable(SchemaRestoreError):
+    """Raised when a schema restore is not possible in the current environment."""
 
 
 @dataclass(frozen=True)
 class SchemaArtifact:
     id: int
-    workflow_run_id: int
-    head_sha: str
+    name: str
+    expired: bool
+    size_in_bytes: int
     archive_download_url: str
+    head_sha: str
     created_at: str
 
 
-def _normalize_mode(raw_mode: str | None) -> str:
-    mode = (raw_mode if raw_mode is not None else os.environ.get("POSTHOG_SCHEMA_RESTORE_IN_DEV", "")).strip().lower()
-    if mode == "auto":
-        return "auto"
-    if mode in {"1", "true", "yes", "on"}:
-        return "on"
-    if mode in {"0", "false", "no", "off", ""}:
-        return "off"
-    raise click.ClickException("POSTHOG_SCHEMA_RESTORE_IN_DEV must be auto, on, or off")
+def _find_repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "hogli.yaml").exists():
+            return parent
+    return Path.cwd()
 
 
-def _should_attempt_restore(mode: str) -> bool:
-    return mode in {"auto", "on"}
+REPO_ROOT = _find_repo_root()
 
 
-def _run_capture(
-    args: list[str], *, input_text: str | None = None, timeout: int = 20
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
+def _resolve_repo_path(path: Path) -> Path:
+    if path.is_absolute():
+        return path
+    return REPO_ROOT / path
+
+
+def _run(command: list[str], *, env: Mapping[str, str] | None = None) -> None:
+    subprocess.run(
+        command,
         cwd=REPO_ROOT,
-        input=input_text,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
+        env={**os.environ, **dict(env or {})},
+        check=True,
     )
 
 
-def _psql_scalar(sql: str) -> str:
-    result = _run_capture(
-        ["docker", "compose", "exec", "-T", "db", "psql", "-U", "posthog", "-d", "posthog", "-Atc", sql]
+def _run_shell(command: str) -> None:
+    subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=os.environ.copy(),
+        executable="/bin/bash",
+        shell=True,
+        check=True,
     )
-    if result.returncode != 0:
-        raise click.ClickException(result.stderr.strip() or "Failed to query local Postgres")
-    return result.stdout.strip()
 
 
-def _database_is_fresh() -> bool:
-    applied_migrations = _psql_scalar(
-        "SELECT CASE WHEN to_regclass('public.django_migrations') IS NULL "
-        "THEN 0 ELSE (SELECT count(*) FROM django_migrations) END"
-    )
-    if applied_migrations and int(applied_migrations) > 0:
-        return False
-
-    non_migration_objects = _psql_scalar(
-        "SELECT count(*) FROM pg_class c "
-        "JOIN pg_namespace n ON n.oid = c.relnamespace "
-        "WHERE n.nspname = 'public' "
-        "AND c.relkind IN ('r', 'p', 'v', 'm', 'f') "
-        "AND c.relname <> 'django_migrations'"
-    )
-    return int(non_migration_objects or "0") == 0
+def _validate_db_identifier(target_db: str) -> str:
+    if not DB_IDENTIFIER_RE.fullmatch(target_db):
+        raise SchemaRestoreError(f"target database must be a simple SQL identifier (got: {target_db})")
+    return target_db
 
 
-def _token_from_command(args: list[str]) -> str | None:
-    if shutil.which(args[0]) is None:
-        return None
+def _validate_gzip(path: Path) -> None:
     try:
-        result = _run_capture(args, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0:
-        return None
-    token = result.stdout.strip()
-    return token or None
+        with gzip.open(path, "rb") as source:
+            while source.read(1024 * 1024):
+                pass
+    except OSError as exc:
+        raise SchemaRestoreError(f"schema dump is not valid gzip: {path}") from exc
+
+
+def _run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
+    command = [*DOCKER_COMPOSE, "exec", "-T", "db", "psql", "-q", "-U", "posthog", target_db]
+    process = subprocess.Popen(
+        command,
+        cwd=REPO_ROOT,
+        env=os.environ.copy(),
+        stdin=subprocess.PIPE,
+    )
+    if process.stdin is None:
+        raise SchemaRestoreError("failed to open psql stdin")
+
+    try:
+        with gzip.open(gzip_path, "rb") as source:
+            shutil.copyfileobj(source, process.stdin)
+    except Exception:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        try:
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+
+    returncode = process.wait()
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, command)
+
+
+def _ensure_migration_defaults(target_db: str) -> None:
+    _run(
+        ["python", "manage.py", "ensure_migration_defaults"],
+        env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
+    )
+
+
+def restore_schema_dump(
+    *,
+    target_db: str,
+    recreate: bool,
+    schema_path: Path = LOCAL_SCHEMA_PATH,
+    ensure_defaults: bool = True,
+) -> None:
+    target_db = _validate_db_identifier(target_db)
+    resolved_schema_path = _resolve_repo_path(schema_path)
+    if not resolved_schema_path.is_file():
+        raise SchemaRestoreError(f"no schema at {schema_path}; run db:download-schema first")
+
+    _validate_gzip(resolved_schema_path)
+
+    if recreate:
+        _run(
+            [
+                *DOCKER_COMPOSE,
+                "exec",
+                "-T",
+                "db",
+                "psql",
+                "-U",
+                "posthog",
+                "postgres",
+                "-c",
+                f"DROP DATABASE IF EXISTS {target_db};",
+            ]
+        )
+        _run(
+            [
+                *DOCKER_COMPOSE,
+                "exec",
+                "-T",
+                "db",
+                "psql",
+                "-U",
+                "posthog",
+                "postgres",
+                "-c",
+                f"CREATE DATABASE {target_db};",
+            ]
+        )
+
+    _run_psql_with_gzip_input(resolved_schema_path, target_db)
+
+    if ensure_defaults:
+        _ensure_migration_defaults(target_db)
+
+    click.echo(f"Restored {target_db} from {schema_path}")
 
 
 def _github_token() -> str | None:
     for env_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-        if token := os.environ.get(env_var):
+        token = os.environ.get(env_var)
+        if token:
             return token
 
-    if token := _token_from_command(["gh", "auth", "token"]):
-        return token
+    gh_path = shutil.which("gh")
+    if gh_path is None:
+        return None
 
+    try:
+        result = subprocess.run(
+            [gh_path, "auth", "token"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    token = result.stdout.strip()
+    if result.returncode == 0 and token:
+        return token
     return None
 
 
-def _github_request(url: str, token: str) -> bytes:
-    if not url.startswith("https://api.github.com/"):
-        raise click.ClickException(f"Refusing non-GitHub URL: {url}")
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "posthog-hogli",
-        },
-    )
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected (URL pinned to api.github.com above)
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+def _github_headers(token: str | None) -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
-def _artifact_from_api_item(item: dict[str, object]) -> SchemaArtifact | None:
-    if item.get("expired") is True:
-        return None
-    if int(cast(int | float | str | None, item.get("size_in_bytes")) or 0) <= MIN_SCHEMA_ARTIFACT_SIZE_BYTES:
+def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
+    workflow_run = raw.get("workflow_run")
+    if not isinstance(workflow_run, Mapping):
         return None
 
-    workflow_run = item.get("workflow_run")
-    if not isinstance(workflow_run, dict):
-        return None
-
-    artifact_id = item.get("id")
-    workflow_run_id = workflow_run.get("id")
+    artifact_id = raw.get("id")
+    size_in_bytes = raw.get("size_in_bytes")
+    expired = raw.get("expired")
+    name = raw.get("name")
+    archive_download_url = raw.get("archive_download_url")
     head_sha = workflow_run.get("head_sha")
-    archive_download_url = item.get("archive_download_url")
-    created_at = item.get("created_at")
+    created_at = raw.get("created_at")
 
-    if not (
-        isinstance(artifact_id, int)
-        and isinstance(workflow_run_id, int)
-        and isinstance(head_sha, str)
-        and isinstance(archive_download_url, str)
-        and isinstance(created_at, str)
-    ):
+    if not isinstance(artifact_id, int):
+        return None
+    if not isinstance(size_in_bytes, int):
+        return None
+    if not isinstance(expired, bool):
+        return None
+    if not isinstance(name, str):
+        return None
+    if not isinstance(archive_download_url, str):
+        return None
+    if not isinstance(head_sha, str):
+        return None
+    if not isinstance(created_at, str):
         return None
 
     return SchemaArtifact(
         id=artifact_id,
-        workflow_run_id=workflow_run_id,
-        head_sha=head_sha,
+        name=name,
+        expired=expired,
+        size_in_bytes=size_in_bytes,
         archive_download_url=archive_download_url,
+        head_sha=head_sha,
         created_at=created_at,
     )
 
 
-def _latest_schema_artifact(token: str) -> SchemaArtifact:
-    raw = _github_request(ARTIFACT_API_URL, token)
-    payload = cast(dict[str, object], json.loads(raw))
-    raw_artifacts = payload.get("artifacts")
-    if not isinstance(raw_artifacts, list):
-        raise click.ClickException("GitHub artifacts response was missing artifacts")
-
-    artifacts = [
-        artifact
-        for item in raw_artifacts
-        if isinstance(item, dict)
-        if (artifact := _artifact_from_api_item(cast(dict[str, object], item))) is not None
-    ]
-    if not artifacts:
-        raise click.ClickException("No migrated-schema artifact found")
-
-    return max(artifacts, key=lambda artifact: artifact.created_at)
+def _parse_github_datetime(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=UTC)
 
 
-def _download_schema_artifact(artifact: SchemaArtifact, token: str) -> None:
-    archive = _github_request(artifact.archive_download_url, token)
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-
-    with zipfile.ZipFile(BytesIO(archive)) as artifact_zip:
-        try:
-            schema_bytes = artifact_zip.read("schema.sql.gz")
-        except KeyError:
-            raise click.ClickException("migrated-schema artifact did not contain schema.sql.gz")
-
-    with tempfile.NamedTemporaryFile(dir=BACKUP_DIR, delete=False) as tmp_schema:
-        tmp_schema.write(schema_bytes)
-        tmp_schema_path = Path(tmp_schema.name)
-    tmp_schema_path.replace(SCHEMA_PATH)
-
-
-def _fetch_schema_artifact() -> SchemaArtifact:
-    # Always re-download — no local cache. Avoids any stale-cache class of bug.
-    token = _github_token()
-    if not token:
-        raise click.ClickException("No GitHub token available for migrated-schema download")
-
-    artifact = _latest_schema_artifact(token)
-    _download_schema_artifact(artifact, token)
-    return artifact
-
-
-def _schema_sha_is_ancestor(head_sha: str) -> bool:
-    if not head_sha:
-        return False
-
-    result = _run_capture(["git", "merge-base", "--is-ancestor", head_sha, "HEAD"])
+def _is_git_ancestor(base_sha: str, head_ref: str) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base_sha, head_ref],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
     return result.returncode == 0
 
 
-def _restore_schema() -> None:
-    # `db:restore-test-db` DROPs+CREATEs the target — safe here because the caller
-    # only reaches this point after `_database_is_fresh()` returned True.
-    env = {**os.environ, "TARGET_DB": "posthog"}
+def select_newest_compatible_artifact(
+    artifacts: Iterable[SchemaArtifact],
+    *,
+    head_ref: str = "HEAD",
+    is_ancestor: Callable[[str, str], bool] = _is_git_ancestor,
+) -> SchemaArtifact | None:
+    candidates = [
+        artifact
+        for artifact in artifacts
+        if artifact.name == SCHEMA_ARTIFACT_NAME
+        and not artifact.expired
+        and artifact.size_in_bytes > MIN_SCHEMA_ARTIFACT_BYTES
+        and artifact.head_sha
+    ]
+    candidates.sort(key=lambda artifact: (_parse_github_datetime(artifact.created_at), artifact.id), reverse=True)
+
+    for artifact in candidates:
+        if is_ancestor(artifact.head_sha, head_ref):
+            return artifact
+
+    return None
+
+
+def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
+    http = session or requests.Session()
+    artifacts: list[SchemaArtifact] = []
+    page = 1
+
+    while True:
+        response = http.get(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
+            params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
+            headers=_github_headers(token),
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, Mapping):
+            raise SchemaRestoreError("GitHub artifacts API returned an unexpected payload")
+
+        raw_artifacts = payload.get("artifacts")
+        if not isinstance(raw_artifacts, list):
+            raise SchemaRestoreError("GitHub artifacts API returned no artifact list")
+
+        for raw_artifact in raw_artifacts:
+            if isinstance(raw_artifact, Mapping):
+                artifact = _artifact_from_api(raw_artifact)
+                if artifact is not None:
+                    artifacts.append(artifact)
+
+        if "next" not in response.links:
+            break
+        page += 1
+
+    return artifacts
+
+
+def download_schema_artifact(
+    artifact: SchemaArtifact,
+    *,
+    token: str | None,
+    destination: Path = LOCAL_SCHEMA_PATH,
+    session: requests.Session | None = None,
+) -> None:
+    if token is None:
+        raise SchemaRestoreUnavailable("no GitHub token found; run `gh auth login` or set GH_TOKEN")
+
+    http = session or requests.Session()
+    response = http.get(
+        artifact.archive_download_url,
+        headers=_github_headers(token),
+        stream=True,
+        timeout=60,
+    )
+    response.raise_for_status()
+
+    resolved_destination = _resolve_repo_path(destination)
+    resolved_destination.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="migrated-schema-") as temp_dir_name:
+        temp_dir = Path(temp_dir_name)
+        archive_path = temp_dir / "artifact.zip"
+        with open(archive_path, "wb") as archive_file:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    archive_file.write(chunk)
+
+        with zipfile.ZipFile(archive_path) as archive:
+            schema_members = [
+                member
+                for member in archive.namelist()
+                if Path(member).name == SCHEMA_DUMP_NAME and not member.endswith("/")
+            ]
+            if not schema_members:
+                raise SchemaRestoreError(f"artifact {artifact.id} does not contain {SCHEMA_DUMP_NAME}")
+
+            partial_destination = resolved_destination.with_suffix(resolved_destination.suffix + ".tmp")
+            with archive.open(schema_members[0]) as source, open(partial_destination, "wb") as destination_file:
+                shutil.copyfileobj(source, destination_file)
+            partial_destination.replace(resolved_destination)
+
+    click.echo(f"Downloaded schema artifact {artifact.id} to {destination}")
+
+
+def download_latest_compatible_schema(
+    *,
+    destination: Path = LOCAL_SCHEMA_PATH,
+    head_ref: str = "HEAD",
+    session: requests.Session | None = None,
+) -> SchemaArtifact:
+    token = _github_token()
+    artifacts = fetch_schema_artifacts(token=token, session=session)
+    artifact = select_newest_compatible_artifact(artifacts, head_ref=head_ref)
+    if artifact is None:
+        raise SchemaRestoreUnavailable(f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found")
+
+    download_schema_artifact(artifact, token=token, destination=destination, session=session)
+    return artifact
+
+
+def is_database_empty(target_db: str) -> bool:
+    target_db = _validate_db_identifier(target_db)
+    query = """
+        SELECT COUNT(*)
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND n.nspname !~ '^pg_toast'
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f');
+    """
     result = subprocess.run(
-        [str(REPO_ROOT / "bin" / "hogli"), "db:restore-test-db"],
+        [*DOCKER_COMPOSE, "exec", "-T", "db", "psql", "-qAt", "-U", "posthog", target_db, "-c", query],
         cwd=REPO_ROOT,
-        env=env,
+        env=os.environ.copy(),
         capture_output=True,
         text=True,
-        timeout=RESTORE_TIMEOUT_SECONDS,
         check=False,
     )
     if result.returncode != 0:
-        message = result.stderr.strip() or result.stdout.strip() or "Failed to restore schema"
-        raise click.ClickException(message)
+        raise SchemaRestoreError(result.stderr.strip() or f"failed to inspect database {target_db}")
+
+    try:
+        relation_count = int(result.stdout.strip() or "0")
+    except ValueError as exc:
+        raise SchemaRestoreError(f"unexpected relation count from database {target_db}: {result.stdout!r}") from exc
+
+    return relation_count == 0
 
 
-def restore_schema_if_fresh(mode: str) -> bool:
-    normalized_mode = _normalize_mode(mode)
-    if not _should_attempt_restore(normalized_mode):
+def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
+    if mode == "off":
+        click.echo("Schema restore disabled; running migrations normally")
         return False
 
-    if not _database_is_fresh():
-        click.echo("[schema-restore] Postgres is not fresh; skipping schema restore.")
+    if not is_database_empty(target_db):
+        click.echo(f"Database {target_db} is not empty; running migrations normally")
         return False
 
-    artifact = _fetch_schema_artifact()
-    if not _schema_sha_is_ancestor(artifact.head_sha):
-        click.echo("[schema-restore] Cached schema is newer than this branch; skipping schema restore.")
-        return False
-
-    click.echo(f"[schema-restore] Restoring migrated Postgres schema (artifact {artifact.head_sha[:12]}).")
-    _restore_schema()
-    click.echo("[schema-restore] Migrated Postgres schema restored.")
+    click.echo(f"Database {target_db} is empty; restoring latest compatible schema before migrations")
+    download_latest_compatible_schema()
+    restore_schema_dump(target_db=target_db, recreate=False, ensure_defaults=True)
     return True
 
 
+def _handle_restore_failure(exc: Exception, *, mode: ArtifactMode) -> None:
+    if mode == "auto":
+        click.echo(f"Schema restore skipped; falling back to migrations: {exc}", err=True)
+        return
+    raise click.ClickException(str(exc)) from exc
+
+
+def _effective_mode(mode: str | None) -> ArtifactMode:
+    value = mode or os.environ.get("POSTHOG_SCHEMA_RESTORE_IN_DEV", "auto")
+    if value not in {"off", "auto", "on"}:
+        raise click.UsageError("mode must be one of: off, auto, on")
+    return cast(ArtifactMode, value)
+
+
+def _create_postgres_backup() -> Path:
+    backup_dir = REPO_ROOT / ".postgres-backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_file = backup_dir / f"posthog_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql.gz"
+    quoted_backup_file = shlex.quote(str(backup_file))
+    _run_shell(
+        "set -euo pipefail\n"
+        f"{shlex.join(DOCKER_COMPOSE)} exec -T db pg_dumpall --clean -U posthog | gzip > {quoted_backup_file}"
+    )
+    click.echo(f"Backup saved to: {backup_file.relative_to(REPO_ROOT)}")
+    return backup_file
+
+
+def _confirm_restore_schema(yes: bool) -> bool:
+    if yes:
+        return True
+
+    click.echo()
+    click.secho("Warning: this command may overwrite your local PostgreSQL schema.", fg="yellow", bold=True)
+    click.echo("A backup will be created before restoring.")
+    click.echo()
+    if click.confirm("Are you sure you want to continue?", default=False):
+        return True
+
+    click.secho("Aborted.", fg="red")
+    return False
+
+
+@click.command(name="db:download-schema", help="Download the latest compatible pre-migrated schema artifact")
+def db_download_schema() -> None:
+    try:
+        download_latest_compatible_schema()
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @click.command(
-    name="db:restore-schema-if-fresh",
-    help="Restore the CI migrated Postgres schema when the local DB is empty.",
+    name="db:restore-test-db", help="Restore a fresh test database from .postgres-backups/schema-latest.sql.gz"
+)
+def db_restore_test_db() -> None:
+    try:
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command(name="db:restore-schema-fresh", help="Alias for db:restore-test-db")
+def db_restore_schema_fresh() -> None:
+    try:
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command(
+    name="db:restore-schema-if-fresh", help="Restore schema into an empty local dev database before migrations"
 )
 @click.option(
     "--mode",
+    type=click.Choice(["off", "auto", "on"]),
     default=None,
-    help="Override POSTHOG_SCHEMA_RESTORE_IN_DEV for this invocation. One of: auto, on, off.",
+    help="Restore mode. Defaults to POSTHOG_SCHEMA_RESTORE_IN_DEV or auto.",
 )
-def restore_schema_if_fresh_command(mode: str | None) -> None:
-    normalized_mode = _normalize_mode(mode)
+@click.option("--target-db", default="posthog", show_default=True, help="Database to inspect and restore")
+def db_restore_schema_if_fresh(mode: str | None, target_db: str) -> None:
+    effective_mode = _effective_mode(mode)
     try:
-        restored = restore_schema_if_fresh(normalized_mode)
-    except Exception as err:
-        message = err.message if isinstance(err, click.ClickException) else str(err)
-        if normalized_mode == "auto":
-            click.echo(f"[schema-restore] {message}; falling back to normal migrations.")
-            return
-        if isinstance(err, click.ClickException):
-            raise
-        raise click.ClickException(message)
+        restore_schema_if_fresh(target_db=target_db, mode=effective_mode)
+    except Exception as exc:
+        _handle_restore_failure(exc, mode=effective_mode)
 
-    if not restored and normalized_mode == "on":
-        click.echo("[schema-restore] Nothing restored.")
+
+@click.command(
+    name="db:restore-schema", help="Fetch and restore the latest compatible schema into the local posthog database"
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def db_restore_schema(yes: bool) -> None:
+    if not _confirm_restore_schema(yes):
+        return
+
+    try:
+        download_latest_compatible_schema()
+        _create_postgres_backup()
+        restore_schema_dump(target_db="posthog", recreate=False, ensure_defaults=False)
+        _run([str(REPO_ROOT / "bin" / "migrate")])
+        _ensure_migration_defaults("posthog")
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
