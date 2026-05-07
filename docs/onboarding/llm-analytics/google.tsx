@@ -36,7 +36,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install google-genai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-google-generativeai
+                                    pip install google-genai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-google-generativeai
                                 `,
                             },
                             {

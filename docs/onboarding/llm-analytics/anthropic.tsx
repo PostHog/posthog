@@ -37,7 +37,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install anthropic opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-anthropic
+                                    pip install anthropic opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-anthropic
                                 `,
                             },
                             {
