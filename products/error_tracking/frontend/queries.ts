@@ -4,6 +4,7 @@ import {
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingSimilarIssuesQuery,
     EventsQuery,
@@ -45,6 +46,7 @@ export const errorTrackingQuery = ({
     groupTypeIndex,
     limit = 50,
     useQueryV3,
+    pendingFingerprintIssueStateUpdates,
 }: Pick<
     ErrorTrackingQuery,
     | 'orderBy'
@@ -63,6 +65,7 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     columns: string[]
     volumeResolution?: number
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
 }): DataTableNode => {
     return {
         kind: NodeKind.DataTableNode,
@@ -84,6 +87,10 @@ export const errorTrackingQuery = ({
             groupKey,
             groupTypeIndex,
             useQueryV3,
+            // Only V3 understands these; omit when empty so cache keys stay stable.
+            ...(pendingFingerprintIssueStateUpdates && pendingFingerprintIssueStateUpdates.length > 0
+                ? { pendingFingerprintIssueStateUpdates }
+                : {}),
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },
@@ -175,6 +182,7 @@ export const errorTrackingIssueEventsQuery = ({
         filterTestAccounts: filterTestAccounts,
         after: dateRange.date_from ?? undefined,
         before: dateRange.date_to ?? undefined,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
     }
 
     return eventsQuery
@@ -294,6 +302,7 @@ export const errorTrackingIssueBreakdownQuery = ({
             ],
             dateRange: dateRange,
             filterTestAccounts,
+            tags: { productKey: ProductKey.ERROR_TRACKING },
         },
     }
 

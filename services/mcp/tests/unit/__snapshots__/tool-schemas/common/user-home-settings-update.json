@@ -1,0 +1,161 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "homepage": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "customTitle": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Optional user-provided title that overrides `title` in the navigation UI."
+                        },
+                        "hash": {
+                            "description": "Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.",
+                            "type": "string"
+                        },
+                        "iconType": {
+                            "description": "Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.",
+                            "type": "string"
+                        },
+                        "id": {
+                            "description": "Stable identifier for the tab. Generated client-side; safe to omit on create.",
+                            "type": "string"
+                        },
+                        "pathname": {
+                            "description": "URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.",
+                            "type": "string"
+                        },
+                        "pinned": {
+                            "description": "Whether this entry is pinned. Always coerced to true on save — pass true or omit.",
+                            "type": "boolean"
+                        },
+                        "sceneId": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints."
+                        },
+                        "sceneKey": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context."
+                        },
+                        "sceneParams": {
+                            "description": "Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination."
+                        },
+                        "search": {
+                            "description": "Query string portion of the URL, including the leading `?`. Empty string when there is no query.",
+                            "type": "string"
+                        },
+                        "title": {
+                            "description": "Default tab title derived from the destination scene. Used when `customTitle` is not set.",
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
+        },
+        "tabs": {
+            "description": "Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged.",
+            "items": {
+                "properties": {
+                    "customTitle": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional user-provided title that overrides `title` in the navigation UI."
+                    },
+                    "hash": {
+                        "description": "Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.",
+                        "type": "string"
+                    },
+                    "iconType": {
+                        "description": "Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "Stable identifier for the tab. Generated client-side; safe to omit on create.",
+                        "type": "string"
+                    },
+                    "pathname": {
+                        "description": "URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.",
+                        "type": "string"
+                    },
+                    "pinned": {
+                        "description": "Whether this entry is pinned. Always coerced to true on save — pass true or omit.",
+                        "type": "boolean"
+                    },
+                    "sceneId": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints."
+                    },
+                    "sceneKey": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context."
+                    },
+                    "sceneParams": {
+                        "description": "Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination."
+                    },
+                    "search": {
+                        "description": "Query string portion of the URL, including the leading `?`. Empty string when there is no query.",
+                        "type": "string"
+                    },
+                    "title": {
+                        "description": "Default tab title derived from the destination scene. Used when `customTitle` is not set.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "uuid": {
+            "description": "User UUID, or `@me` to target the authenticated user.",
+            "type": "string"
+        }
+    },
+    "required": ["uuid"],
+    "type": "object"
+}

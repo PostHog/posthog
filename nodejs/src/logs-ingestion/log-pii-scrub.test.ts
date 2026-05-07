@@ -1,37 +1,18 @@
 import { parseJSON } from '../utils/json-parse'
 import {
     PII_REDACTED,
-    SENSITIVE_KEY_SUBSTRINGS,
     encodeAttributeCell,
-    isSensitiveAttributeKey,
     scrubLogRecord,
     scrubPlainString,
-    unwrapAttributeCell,
+    scrubPlainStringWithStats,
 } from './log-pii-scrub'
 import type { LogRecord } from './log-record-avro'
 
 describe('log-pii-scrub', () => {
-    describe('isSensitiveAttributeKey', () => {
-        it.each(SENSITIVE_KEY_SUBSTRINGS.map((s) => [`wrap_${s}_suffix`, true] as const))(
-            'detects substring %s in key',
-            (key) => {
-                expect(isSensitiveAttributeKey(key)).toBe(true)
-            }
-        )
-
-        it.each([
-            ['timestamp', false],
-            ['level', false],
-            ['message', false],
-            ['user_id', false],
-            ['meta', false],
-        ])('isSensitiveAttributeKey(%s) === false', (key) => {
-            expect(isSensitiveAttributeKey(key)).toBe(false)
-        })
-
-        it('is case-insensitive on the key', () => {
-            expect(isSensitiveAttributeKey('USER_PASSWORD')).toBe(true)
-            expect(isSensitiveAttributeKey('MyAuthorizationHeader')).toBe(true)
+    describe('encodeAttributeCell', () => {
+        it('encodes semantic strings as JSON string cells for CH', () => {
+            expect(encodeAttributeCell(PII_REDACTED)).toBe(JSON.stringify(PII_REDACTED))
+            expect(encodeAttributeCell('ok')).toBe('"ok"')
         })
     })
 
@@ -45,22 +26,13 @@ describe('log-pii-scrub', () => {
         })
 
         it('redacts Stripe-style secret keys', () => {
-            // Not a real Stripe API key — synthetic fixture for STRIPE_SECRET_KEY_RE coverage only.
-            // GitHub push protection matches a contiguous sk_test_/sk_live_ + suffix in the file blob;
-            // concatenation avoids a literal that triggers blocking (there is no supported inline pragma).
-            // If you must push an old commit that still has the literal: open the unblock URL from the
-            // failed `git push` output, choose "It's used in tests", then re-push within 3 hours.
             const syntheticStripeTestKey = 'sk_' + 'test_' + '123456789012345678901234'
             expect(scrubPlainString(`key ${syntheticStripeTestKey}`)).toBe(`key ${PII_REDACTED}`)
         })
 
-        it('redacts credit card numbers that pass Luhn', () => {
-            // 4242424242424242 is a common test PAN
-            expect(scrubPlainString('card 4242424242424242 end')).toBe(`card ${PII_REDACTED} end`)
-            expect(scrubPlainString('card 4242-4242-4242-4242 end')).toBe(`card ${PII_REDACTED} end`)
-        })
-
-        it('does not redact digit sequences that fail Luhn', () => {
+        it('does not redact PAN-like digit runs (lite scrub)', () => {
+            expect(scrubPlainString('card 4242424242424242 end')).toBe('card 4242424242424242 end')
+            expect(scrubPlainString('card 4242-4242-4242-4242 end')).toBe('card 4242-4242-4242-4242 end')
             expect(scrubPlainString('id 4242424242424243')).toBe('id 4242424242424243')
         })
 
@@ -68,24 +40,47 @@ describe('log-pii-scrub', () => {
             expect(scrubPlainString('Bearer caf\u00E9token')).toBe(`Bearer ${PII_REDACTED}\u00E9token`)
         })
 
-        it('does not treat fullwidth digits as card-like digits', () => {
+        it('leaves digit runs with fullwidth digits unchanged', () => {
             const panWithFullwidthOne = '4242424242\uFF1142424242'
             expect(scrubPlainString(`card ${panWithFullwidthOne} end`)).toBe(`card ${panWithFullwidthOne} end`)
         })
     })
 
-    describe('unwrapAttributeCell / encodeAttributeCell', () => {
-        it('unwraps one JSON string layer from OTLP-style cells', () => {
-            expect(unwrapAttributeCell(JSON.stringify('public@example.com'))).toBe('public@example.com')
-        })
+    describe('scrubPlainStringWithStats', () => {
+        // Matches `sk_(?:live|test)_[a-zA-Z0-9]{20,}` — keep construction split like scrubPlainString tests.
+        const syntheticStripeTestKey = 'sk_' + 'test_' + '123456789012345678901234'
 
-        it('returns raw value when not a JSON string document', () => {
-            expect(unwrapAttributeCell('plain')).toBe('plain')
-        })
-
-        it('encodes semantic strings as JSON string cells for CH', () => {
-            expect(encodeAttributeCell(PII_REDACTED)).toBe(JSON.stringify(PII_REDACTED))
-            expect(encodeAttributeCell('ok')).toBe('"ok"')
+        it.each([
+            {
+                _label: 'no pattern matches',
+                input: 'no patterns here',
+                expected: { output: 'no patterns here', piiReplacements: 0 },
+            },
+            {
+                _label: 'one count per email address',
+                input: 'a@b.com and c@d.com',
+                expected: { output: `${PII_REDACTED} and ${PII_REDACTED}`, piiReplacements: 2 },
+            },
+            {
+                _label: 'Bearer-shaped token: one count, preserves Bearer prefix in output',
+                input: 'Authorization: Bearer abc.def.ghi',
+                expected: { output: `Authorization: Bearer ${PII_REDACTED}`, piiReplacements: 1 },
+            },
+            {
+                _label: 'Stripe sk_ key: one count',
+                input: `key ${syntheticStripeTestKey} end`,
+                expected: { output: `key ${PII_REDACTED} end`, piiReplacements: 1 },
+            },
+            {
+                _label: 'Bearer, Stripe, and email each add one to the count',
+                input: `Authorization: Bearer abc.def.ghi ${syntheticStripeTestKey} a@b.co`,
+                expected: {
+                    output: `Authorization: Bearer ${PII_REDACTED} ${PII_REDACTED} ${PII_REDACTED}`,
+                    piiReplacements: 3,
+                },
+            },
+        ] as const)('$_label', ({ input, expected }) => {
+            expect(scrubPlainStringWithStats(input)).toEqual(expected)
         })
     })
 
@@ -107,9 +102,8 @@ describe('log-pii-scrub', () => {
             attributes: null,
         })
 
-        it('walks JSON body and scrubs string leaves', () => {
+        it('scrubs pattern-shaped PII inside a JSON body string without parsing the JSON tree', () => {
             const r = baseRecord()
-            // Use a non-sensitive key so the value is pattern-scrubbed (key `token` would full-redact the whole value).
             r.body = JSON.stringify({ user: 'a@b.co', nested: { line: 'Bearer xyz' } })
             scrubLogRecord(r)
             const parsed = parseJSON(r.body!) as { user: string; nested: { line: string } }
@@ -117,7 +111,7 @@ describe('log-pii-scrub', () => {
             expect(parsed.nested.line).toBe(`Bearer ${PII_REDACTED}`)
         })
 
-        it('redacts JSON body object values for sensitive keys (same rules as attribute maps)', () => {
+        it('does not redact JSON body values by object key alone (opaque secrets stay unless pattern matches)', () => {
             const r = baseRecord()
             r.body = JSON.stringify({
                 password: 'hunter2',
@@ -126,8 +120,8 @@ describe('log-pii-scrub', () => {
             })
             scrubLogRecord(r)
             const parsed = parseJSON(r.body!) as { password: string; api_key: string; note: string }
-            expect(parsed.password).toBe(PII_REDACTED)
-            expect(parsed.api_key).toBe(PII_REDACTED)
+            expect(parsed.password).toBe('hunter2')
+            expect(parsed.api_key).toBe('secret-value')
             expect(parsed.note).toBe('no patterns')
         })
 
@@ -138,90 +132,90 @@ describe('log-pii-scrub', () => {
             expect(r.body).toBe(`plain ${PII_REDACTED} log`)
         })
 
-        it('redacts values for sensitive attribute keys as JSON cells', () => {
+        it('scrubs pattern-shaped PII in log attributes; does not mutate resource_attributes or metadata string fields', () => {
             const r = baseRecord()
-            r.attributes = { safe: 'ok', auth_token: 'secret-value' }
-            scrubLogRecord(r)
-            expect(r.attributes).toEqual({
-                safe: encodeAttributeCell('ok'),
-                auth_token: encodeAttributeCell(PII_REDACTED),
-            })
-        })
-
-        it('applies value patterns to non-sensitive attribute values as JSON cells', () => {
-            const r = baseRecord()
-            r.attributes = { message: 'hello user@example.com' }
-            scrubLogRecord(r)
-            expect(r.attributes!.message).toBe(encodeAttributeCell(`hello ${PII_REDACTED}`))
-        })
-
-        it('unwraps OTLP-style quoted cells before pattern scrub', () => {
-            const r = baseRecord()
-            r.attributes = { note: JSON.stringify('hello user@example.com') }
-            scrubLogRecord(r)
-            expect(r.attributes!.note).toBe(encodeAttributeCell(`hello ${PII_REDACTED}`))
-        })
-
-        it('scrubs resource_attributes by value when keys are not sensitive', () => {
-            const r = baseRecord()
+            r.body = 'ok'
+            r.attributes = { safe: 'ok', auth_token: 'secret@x.com' }
             r.resource_attributes = { host: 'srv', note: 'x@example.com' }
+            r.service_name = 'svc@corp.example'
+            r.severity_text = 'warn ops@example.com'
+            r.event_name = 'evt user@host.invalid'
+            r.instrumentation_scope = 'scope@lib.example'
             scrubLogRecord(r)
-            expect(r.resource_attributes!.host).toBe(encodeAttributeCell('srv'))
-            expect(r.resource_attributes!.note).toBe(encodeAttributeCell(PII_REDACTED))
+            expect(r.body).toBe('ok')
+            expect(r.attributes).toEqual({ safe: 'ok', auth_token: PII_REDACTED })
+            expect(r.resource_attributes).toEqual({ host: 'srv', note: 'x@example.com' })
+            expect(r.service_name).toBe('svc@corp.example')
+            expect(r.severity_text).toBe('warn ops@example.com')
+            expect(r.event_name).toBe('evt user@host.invalid')
+            expect(r.instrumentation_scope).toBe('scope@lib.example')
         })
 
-        it('scrubs root JSON array elements (sensitive keys vs pattern scrub)', () => {
+        it('scrubs log attributes when body is null (no early return)', () => {
+            const r = baseRecord()
+            r.body = null
+            r.attributes = { x: 'a@b.co' }
+            const stats = scrubLogRecord(r)
+            expect(r.attributes).toEqual({ x: PII_REDACTED })
+            expect(stats.piiReplacements).toBe(1)
+        })
+
+        it('scrubs pattern-shaped PII in JSON array body string; does not redact by JSON key alone', () => {
             const r = baseRecord()
             r.body = JSON.stringify([{ password: 'hunter2' }, { note: 'a@b.co' }])
             scrubLogRecord(r)
             const parsed = parseJSON(r.body!) as [{ password: string }, { note: string }]
-            expect(parsed[0].password).toBe(PII_REDACTED)
+            expect(parsed[0].password).toBe('hunter2')
             expect(parsed[1].note).toBe(PII_REDACTED)
         })
 
-        it('replaces sensitive-key JSON object values with a redacted string', () => {
+        it('leaves sensitive-key object values in JSON body unchanged when no pattern matches', () => {
             const r = baseRecord()
             r.body = JSON.stringify({ password: { nested: true }, note: 'ok' })
             scrubLogRecord(r)
-            const parsed = parseJSON(r.body!) as { password: string; note: string }
-            expect(parsed.password).toBe(PII_REDACTED)
+            const parsed = parseJSON(r.body!) as { password: { nested: boolean }; note: string }
+            expect(parsed.password).toEqual({ nested: true })
             expect(parsed.note).toBe('ok')
         })
 
         it.each([
-            ['number', 4242424242424242],
+            ['number', 12345],
             ['null', null],
-        ] as const)('replaces sensitive-key %s leaf with redacted string', (_, leaf) => {
+        ] as const)('leaves sensitive-key %s leaf in JSON body unchanged when no pattern matches', (_, leaf) => {
             const r = baseRecord()
             r.body = JSON.stringify({ api_key: leaf, ok: true })
             scrubLogRecord(r)
-            const parsed = parseJSON(r.body!) as { api_key: string; ok: boolean }
-            expect(parsed.api_key).toBe(PII_REDACTED)
+            const parsed = parseJSON(r.body!) as { api_key: number | null; ok: boolean }
+            expect(parsed.api_key).toBe(leaf)
             expect(parsed.ok).toBe(true)
         })
 
-        it('scrubs deeply nested sensitive keys inside JSON body', () => {
+        it('scrubs email in nested JSON body string; opaque token values stay unless patterned', () => {
             const r = baseRecord()
             r.body = JSON.stringify({ outer: { inner: { refresh_token: 'rt-secret', label: 'x@y.co' } } })
             scrubLogRecord(r)
             const parsed = parseJSON(r.body!) as {
                 outer: { inner: { refresh_token: string; label: string } }
             }
-            expect(parsed.outer.inner.refresh_token).toBe(PII_REDACTED)
+            expect(parsed.outer.inner.refresh_token).toBe('rt-secret')
             expect(parsed.outer.inner.label).toBe(PII_REDACTED)
         })
 
-        it('scrubs email patterns in service_name, severity_text, event_name, and instrumentation_scope', () => {
+        it('does not mutate trace_id or span_id buffers', () => {
             const r = baseRecord()
-            r.service_name = 'svc@corp.example'
-            r.severity_text = 'warn ops@example.com'
-            r.event_name = 'evt user@host.invalid'
-            r.instrumentation_scope = 'scope@lib.example'
+            r.trace_id = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8])
+            r.span_id = Buffer.from([9, 9, 9])
+            r.trace_flags = 1
+            r.timestamp = 1_700_000_000_000_000
+            r.observed_timestamp = 1_700_000_000_000_001
+            r.body = 'user@example.com'
             scrubLogRecord(r)
-            expect(r.service_name).toBe(PII_REDACTED)
-            expect(r.severity_text).toBe(`warn ${PII_REDACTED}`)
-            expect(r.event_name).toBe(`evt ${PII_REDACTED}`)
-            expect(r.instrumentation_scope).toBe(PII_REDACTED)
+            expect(r.trace_id).toEqual(Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]))
+            expect(r.span_id).toEqual(Buffer.from([9, 9, 9]))
+            expect(r.trace_flags).toBe(1)
+            expect(r.timestamp).toBe(1_700_000_000_000_000)
+            expect(r.observed_timestamp).toBe(1_700_000_000_000_001)
+            expect(r.body).toBe(PII_REDACTED)
         })
     })
 })

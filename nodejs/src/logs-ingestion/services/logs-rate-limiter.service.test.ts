@@ -143,18 +143,41 @@ describe('LogsRateLimiterService', () => {
             expect(res3[0][1].isRateLimited).toBe(false)
         })
 
-        it('should not refill above bucket size', async () => {
+        it('should expose accrued credit in tokensBefore but cap stored pool at bucket size', async () => {
             const res = await rateLimiter.rateLimitMany([[teamId1, 10, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensAfter).toBe(90)
 
-            advanceTime(5000) // 5 seconds = 50KB refilled, but capped at 100
+            advanceTime(5000) // 5 seconds at 10KB/s = 50KB of accrued refill credit
 
             const res2 = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
-            expect(res2[0][1].tokensBefore).toBe(100) // capped at bucket size
+            // tokensBefore reflects actual accrued credit (90 + 50 = 140) so that a single
+            // catch-up call can spend more than the bucket size when the producer time span
+            // earned that credit. The stored pool (tokensAfter, after deducting cost) is
+            // still capped at poolMax to bound silent-period accumulation.
+            expect(res2[0][1].tokensBefore).toBe(140)
             expect(res2[0][1].tokensAfter).toBe(100)
             expect(res2[0][1].isRateLimited).toBe(false)
+        })
+
+        it('should let a catch-up call redeem refill credit larger than the bucket', async () => {
+            // Drain the bucket with a starting call.
+            const start = await rateLimiter.rateLimitMany([[teamId1, 100, Math.round(now / 1000)]])
+            expect(start[0][1].tokensAfter).toBe(0)
+
+            // Simulate a 20s "lag" with no rate-limiter calls. With refill rate 10KB/s
+            // that's 200KB of credit.
+            advanceTime(20_000)
+
+            // Single catch-up call costing the full accrued credit. Without uncapped
+            // tokensBefore this would see tokensBefore=poolMax=100 and reject anything
+            // beyond that — we should be able to consumer 200KB of credit without being rate-limited.
+            const catchup = await rateLimiter.rateLimitMany([[teamId1, 199, Math.round(now / 1000)]])
+
+            expect(catchup[0][1].tokensBefore).toBe(200) // = 0 prev + 20s × 10KB/s refill
+            expect(catchup[0][1].tokensAfter).toBe(1)
+            expect(catchup[0][1].isRateLimited).toBe(false)
         })
 
         it('should handle sequential requests for same team in single call', async () => {
@@ -595,6 +618,29 @@ describe('LogsRateLimiterService', () => {
                 expect(result.dropped).toHaveLength(0)
             })
 
+            it('should refill from newest timestamp when batch spans an old timestamp (catch-up scenario)', async () => {
+                // First batch drains the bucket at t0.
+                const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
+                const messages1 = [createMessageWithHeaders(1, 10000, [{ created_at: t0 }])] // 10KB = full bucket
+                const result1 = await rateLimiter.filterMessages(messages1)
+                expect(result1.allowed).toHaveLength(1)
+
+                // Second batch (catch-up) spans 10 seconds — oldest message is at t0 (matches previous
+                // batch), newest at t10. Refill rate is 1KB/s, so 10 seconds of producer time => 10KB.
+                // If we used the oldest timestamp the Lua would compute timeDiff=0 and not refill,
+                // dropping the messages.
+                const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
+                const messages2 = [
+                    createMessageWithHeaders(1, 5120, [{ created_at: t0 }]), // 5KB at t0
+                    createMessageWithHeaders(1, 3072, [{ created_at: t10 }]), // 3KB at t10
+                ]
+
+                const result2 = await rateLimiter.filterMessages(messages2)
+
+                expect(result2.allowed).toHaveLength(2)
+                expect(result2.dropped).toHaveLength(0)
+            })
+
             it('should allow more throughput when batch spans time (backfill scenario)', async () => {
                 // Simulate backfill: first batch drains the bucket
                 const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
@@ -604,8 +650,8 @@ describe('LogsRateLimiterService', () => {
 
                 // Second batch arrives 10 seconds later.
                 // Bucket is empty, refill rate is 1KB/s, so 10 seconds of refill = 10KB.
-                // filterMessages uses the oldest timestamp per team, so all messages
-                // need to be at t10 for the refill to kick in.
+                // filterMessages uses the newest timestamp per team for refill, so the batch
+                // gets credit for the full producer-time span it covers.
                 const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
                 const messages2 = [
                     createMessageWithHeaders(1, 5120, [{ created_at: t10 }]), // 5KB at t0+10s
@@ -614,9 +660,55 @@ describe('LogsRateLimiterService', () => {
 
                 const result2 = await rateLimiter.filterMessages(messages2)
 
-                // Oldest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
+                // Newest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
                 expect(result2.allowed).toHaveLength(2)
                 expect(result2.dropped).toHaveLength(0)
+            })
+
+            it('should allow a catch-up batch larger than the bucket when refill credit covers it', async () => {
+                // Simulate steady-state ingestion landing the bucket near full at t0.
+                const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
+                const result0 = await rateLimiter.filterMessages([
+                    createMessageWithHeaders(1, 1000, [{ created_at: t0 }]),
+                ])
+                expect(result0.allowed).toHaveLength(1)
+
+                // Now a single "catch-up" batch arrives covering 60 seconds of producer
+                // time at the configured rate (1KB/s × 60s = 60KB), six times the bucket
+                // size. Without uncapped tokensBefore, only ~10KB would pass.
+                const messages: any[] = []
+                for (let i = 1; i <= 60; i++) {
+                    const ts = new Date(`2024-01-01T00:01:${(i - 1).toString().padStart(2, '0')}Z`).toISOString()
+                    messages.push(createMessageWithHeaders(1, 1000, [{ created_at: ts }]))
+                }
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(60)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should still drop excess when catch-up batch exceeds the configured rate', async () => {
+                // Prior state at t0 so subsequent batch is not a "first call".
+                const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
+                await rateLimiter.filterMessages([createMessageWithHeaders(1, 1000, [{ created_at: t0 }])])
+
+                // Producer ran at 2KB/s for 60s → 120KB total spanning 60s. The
+                // configured rate is 1KB/s so ~half should be dropped.
+                const messages: any[] = []
+                for (let i = 0; i < 120; i++) {
+                    const seconds = 0 + Math.floor(i / 2)
+                    const ts = new Date(
+                        `2024-01-01T00:0${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}Z`
+                    ).toISOString()
+                    messages.push(createMessageWithHeaders(1, 1000, [{ created_at: ts }]))
+                }
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed.length).toBeGreaterThan(50)
+                expect(result.allowed.length).toBeLessThan(80)
+                expect(result.dropped.length).toBeGreaterThan(40)
             })
 
             it('should handle empty headers array', async () => {

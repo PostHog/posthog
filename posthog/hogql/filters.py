@@ -6,6 +6,16 @@ from dateutil.parser import isoparse
 from posthog.schema import HogQLFilters, SessionPropertyFilter
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.ai_events import AiEventsTable
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.logs import LogAttributesTable, LogsTable
+from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
+from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
+from posthog.hogql.database.schema.spans import TraceSpansTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
@@ -23,17 +33,34 @@ class CompareOperationWrapper:
     skip: bool = False
 
 
-def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
-    return ReplaceFilters(filters, team).visit(node)
+def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, database: Optional[Database] = None) -> T:
+    if database is None:
+        database = Database.create_for(team=team)
+    return ReplaceFilters(filters, team, database).visit(node)
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: Optional[HogQLFilters], team: Team = DEFAULT_TEAM):
+    def __init__(
+        self,
+        filters: Optional[HogQLFilters],
+        team: Team = DEFAULT_TEAM,
+        database: Optional[Database] = None,
+    ):
         super().__init__()
         self.filters = filters
         self.team = team
+        self.database = database
         self.selects: list[ast.SelectQuery] = []
         self.compare_operations: list[CompareOperationWrapper] = []
+
+    def _resolve_table(self, chain: list) -> Optional[Table]:
+        """Resolve an AST field chain to the underlying database table, or None if not found."""
+        if self.database is None:
+            return None
+        try:
+            return self.database.get_table([str(c) for c in chain])
+        except Exception:
+            return None
 
     def visit_select_query(self, node):
         self.selects.append(node)
@@ -59,7 +86,6 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters"]:
             last_select = self.selects[-1]
             last_join = last_select.select_from
-            all_tables = []
             found_events = False
             found_sessions = False
             found_logs = False
@@ -67,16 +93,16 @@ class ReplaceFilters(CloningVisitor):
             found_groups = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
-                    all_tables.append(last_join.table.chain)
-                    if last_join.table.chain == ["events"] or last_join.table.chain == ["posthog", "ai_events"]:
+                    resolved = self._resolve_table(last_join.table.chain)
+                    if isinstance(resolved, (EventsTable, AiEventsTable)):
                         found_events = True
-                    if last_join.table.chain == ["sessions"]:
+                    if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
                         found_sessions = True
-                    if last_join.table.chain == ["logs"] or last_join.table.chain == ["log_attributes"]:
+                    if isinstance(resolved, (LogsTable, LogAttributesTable)):
                         found_logs = True
-                    if last_join.table.chain == ["posthog", "trace_spans"]:
+                    if isinstance(resolved, TraceSpansTable):
                         found_traces = True
-                    if last_join.table.chain == ["groups"]:
+                    if isinstance(resolved, GroupsTable):
                         found_groups = True
                     if found_events and found_sessions or found_groups:
                         break

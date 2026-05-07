@@ -9,12 +9,17 @@
 import * as zod from 'zod'
 
 export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
+export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
@@ -27,6 +32,12 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)
         .describe('Whether to also copy scheduled changes for this flag'),
+    disable_copied_flag: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault)
+        .describe(
+            "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
+        ),
 })
 
 /**
@@ -373,7 +384,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsRetrieve2Params = /* @__PURE__ */ zod.object({
+export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -702,7 +713,7 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -711,17 +722,17 @@ export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const featureFlagsActivityRetrieve2QueryLimitDefault = 10
+export const featureFlagsActivityRetrieveQueryLimitDefault = 10
 
-export const featureFlagsActivityRetrieve2QueryPageDefault = 1
+export const featureFlagsActivityRetrieveQueryPageDefault = 1
 
-export const FeatureFlagsActivityRetrieve2QueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
     limit: zod
         .number()
         .min(1)
-        .default(featureFlagsActivityRetrieve2QueryLimitDefault)
+        .default(featureFlagsActivityRetrieveQueryLimitDefault)
         .describe('Number of items per page'),
-    page: zod.number().min(1).default(featureFlagsActivityRetrieve2QueryPageDefault).describe('Page number'),
+    page: zod.number().min(1).default(featureFlagsActivityRetrieveQueryPageDefault).describe('Page number'),
 })
 
 /**
@@ -898,7 +909,6 @@ export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const scheduledChangesPartialUpdateBodyRecordIdMax = 200
 
-export const scheduledChangesPartialUpdateBodyIsRecurringDefault = false
 export const scheduledChangesPartialUpdateBodyCronExpressionMax = 100
 
 export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -926,7 +936,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
-        .default(scheduledChangesPartialUpdateBodyIsRecurringDefault)
+        .optional()
         .describe("Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules."),
     recurrence_interval: zod
         .union([

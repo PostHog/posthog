@@ -1,0 +1,33 @@
+// Dark-mode contrast overrides scoped to the LLMA sentiment UI.
+//
+// SentimentTag and SentimentBar rely on deprecated global CSS vars
+// (--success, --danger, --border, --border-light) that don't have a
+// dark-mode override. Rather than patching the global tokens or the
+// shared LemonTag component, we scope the overrides to just these two
+// classes so the change stays within products/llm_analytics/.
+
+[theme='dark'] {
+    // Brighter success/danger tokens for legible text and border against
+    // the dark page background.
+    .LLMASentimentTag,
+    .LLMASentimentBar {
+        --success: var(--color-green-400);
+        --danger: var(--color-red-400);
+    }
+
+    // Matching border tokens for the sentiment bar track.
+    .LLMASentimentBar {
+        --border: rgb(255 255 255 / 15%);
+        --border-light: rgb(255 255 255 / 10%);
+    }
+
+    // Give the tag a subtle surface fill so it reads as a pill rather than
+    // a stroke-only outline on the dark background. Higher specificity than
+    // the base `.LemonTag.LemonTag--{variant}` rules so we win the cascade
+    // regardless of SCSS import order.
+    .LLMASentimentTag.LemonTag.LemonTag--success,
+    .LLMASentimentTag.LemonTag.LemonTag--danger,
+    .LLMASentimentTag.LemonTag.LemonTag--none {
+        background-color: var(--color-bg-surface-primary);
+    }
+}

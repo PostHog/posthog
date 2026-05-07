@@ -488,9 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type TypeDe9EnumApi = (typeof TypeDe9EnumApi)[keyof typeof TypeDe9EnumApi]
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
-export const TypeDe9EnumApi = {
+export const AssigneeTypeEnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -500,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: TypeDe9EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -643,7 +643,7 @@ export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: TypeDe9EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -803,16 +803,17 @@ export interface ErrorTrackingIssueSplitResponseApi {
     new_issue_ids: string[]
 }
 
+export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
+
 export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
-    readonly meta: unknown
+    readonly meta: ErrorTrackingRecommendationApiMeta
+    readonly completed: boolean
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
     readonly dismissed_at: string | null
-    /** @nullable */
-    readonly next_refresh_at: string | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -826,33 +827,94 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown | null
-    version: string
-    project: string
+export interface ErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the per-issue rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
+export interface PatchedErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the per-issue rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown | null
-    version?: string
-    project?: string
+export interface ErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold: number
+}
+
+export interface PatchedErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes?: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier?: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold?: number
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
@@ -878,6 +940,16 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
+}
+
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown | null
+    version: string
+    project: string
 }
 
 export interface ErrorTrackingStackFrameApi {
@@ -924,6 +996,17 @@ export interface PaginatedErrorTrackingSuppressionRuleListApi {
     results: ErrorTrackingSuppressionRuleApi[]
 }
 
+export interface ErrorTrackingSuppressionRuleCreateRequestApi {
+    /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
@@ -938,25 +1021,54 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown | null
+    version?: string
+    project?: string
+}
+
 /**
- * Release associated with this symbol set
+ * Release associated with this symbol set, if any.
  * @nullable
  */
 export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface ErrorTrackingSymbolSetApi {
+    /** Unique symbol set ID. */
     readonly id: string
-    ref: string
+    /** Reference used to match stack frames to this symbol set. */
+    readonly ref: string
+    /** Project/team ID that owns this symbol set. */
     readonly team_id: number
+    /** When this symbol set row was created. */
     readonly created_at: string
-    /** @nullable */
-    last_used?: string | null
-    /** @nullable */
-    storage_ptr?: string | null
-    /** @nullable */
-    failure_reason?: string | null
     /**
-     * Release associated with this symbol set
+     * When this symbol set was last used to resolve a stack frame.
+     * @nullable
+     */
+    readonly last_used: string | null
+    /**
+     * Reason symbol lookup failed, if the source map is missing or invalid.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    /** Whether this symbol set has an uploaded source map file available to download. */
+    readonly has_uploaded_file: boolean
+    /**
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     readonly release: ErrorTrackingSymbolSetApiRelease
@@ -972,27 +1084,91 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
 }
 
 /**
- * Release associated with this symbol set
+ * Release associated with this symbol set, if any.
  * @nullable
  */
 export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface PatchedErrorTrackingSymbolSetApi {
+    /** Unique symbol set ID. */
     readonly id?: string
-    ref?: string
+    /** Reference used to match stack frames to this symbol set. */
+    readonly ref?: string
+    /** Project/team ID that owns this symbol set. */
     readonly team_id?: number
+    /** When this symbol set row was created. */
     readonly created_at?: string
-    /** @nullable */
-    last_used?: string | null
-    /** @nullable */
-    storage_ptr?: string | null
-    /** @nullable */
-    failure_reason?: string | null
     /**
-     * Release associated with this symbol set
+     * When this symbol set was last used to resolve a stack frame.
+     * @nullable
+     */
+    readonly last_used?: string | null
+    /**
+     * Reason symbol lookup failed, if the source map is missing or invalid.
+     * @nullable
+     */
+    readonly failure_reason?: string | null
+    /** Whether this symbol set has an uploaded source map file available to download. */
+    readonly has_uploaded_file?: boolean
+    /**
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     readonly release?: PatchedErrorTrackingSymbolSetApiRelease
+}
+
+export interface _SymbolSetDownloadResponseApi {
+    /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
+    url: string
+}
+
+export interface ErrorTrackingSymbolSetFinishUploadApi {
+    /** Hash of the uploaded symbol set content. */
+    content_hash: string
+}
+
+export interface ErrorTrackingSymbolSetBulkDeleteApi {
+    /** Symbol set IDs to delete. */
+    ids: string[]
+}
+
+/**
+ * Map of symbol set ID to uploaded content hash.
+ */
+export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
+    /** Map of symbol set ID to uploaded content hash. */
+    content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
+}
+
+export interface ErrorTrackingSymbolSetUploadApi {
+    /** Symbol set reference to upload. */
+    chunk_id: string
+    /**
+     * Optional error tracking release ID associated with this symbol set.
+     * @nullable
+     */
+    release_id?: string | null
+    /**
+     * Optional hash of the symbol set content, used to skip unchanged uploads.
+     * @nullable
+     */
+    content_hash?: string | null
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadApi {
+    /** Legacy list of symbol set references to upload, all associated with `release_id`. */
+    chunk_ids?: string[]
+    /**
+     * Optional error tracking release ID used with `chunk_ids`.
+     * @nullable
+     */
+    release_id?: string | null
+    /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+    symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
+    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+    force?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
@@ -1096,17 +1272,6 @@ export type ErrorTrackingRecommendationsListParams = {
     offset?: number
 }
 
-export type ErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -1140,6 +1305,17 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
@@ -1149,26 +1325,39 @@ export type ErrorTrackingSymbolSetsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+ * Sort order for symbol sets. Prefix with `-` for descending order.
+
+* `created_at` - created_at
+* `-created_at` - -created_at
+* `ref` - ref
+* `-ref` - -ref
+* `last_used` - last_used
+* `-last_used` - -last_used
+ * @minLength 1
+ */
+    order_by?: string
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string
+    /**
+ * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+* `all` - all
+* `valid` - valid
+* `invalid` - invalid
+ * @minLength 1
+ */
+    status?: ErrorTrackingSymbolSetsListStatus
 }
 
-export type ErrorTrackingReleasesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
+export type ErrorTrackingSymbolSetsListStatus =
+    (typeof ErrorTrackingSymbolSetsListStatus)[keyof typeof ErrorTrackingSymbolSetsListStatus]
 
-export type ErrorTrackingSymbolSetsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
+export const ErrorTrackingSymbolSetsListStatus = {
+    All: 'all',
+    Valid: 'valid',
+    Invalid: 'invalid',
+} as const

@@ -2,7 +2,6 @@ import './LemonBadge.scss'
 
 import clsx from 'clsx'
 import { forwardRef } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 
@@ -48,23 +47,23 @@ const LemonBadgeComponent: React.FunctionComponent<LemonBadgeProps & React.RefAt
         ref
     ): JSX.Element {
         return (
-            <CSSTransition in={visible} timeout={150} classNames="LemonBadge-" mountOnEnter unmountOnExit>
-                <span
-                    ref={ref}
-                    className={clsx(
-                        'LemonBadge',
-                        !content && 'LemonBadge--dot',
-                        `LemonBadge--${size}`,
-                        `LemonBadge--${status}`,
-                        `LemonBadge--position-${position}`,
-                        active && 'LemonBadge--active',
-                        className
-                    )}
-                    {...spanProps}
-                >
-                    {content}
-                </span>
-            </CSSTransition>
+            <span
+                ref={ref}
+                className={clsx(
+                    'LemonBadge',
+                    !content && 'LemonBadge--dot',
+                    `LemonBadge--${size}`,
+                    `LemonBadge--${status}`,
+                    `LemonBadge--position-${position}`,
+                    active && 'LemonBadge--active',
+                    !visible && 'LemonBadge--hidden',
+                    className
+                )}
+                {...spanProps}
+                aria-hidden={!visible ? true : undefined}
+            >
+                {content}
+            </span>
         )
     }
 )
@@ -84,7 +83,6 @@ const LemonBadgeNumber: React.FunctionComponent<LemonBadgeNumberProps & React.Re
             throw new Error('maxDigits must be at least 1')
         }
 
-        // NOTE: We use 1 for the text if not showing so the fade out animation looks right
         let text =
             typeof count === 'object'
                 ? count
@@ -94,7 +92,7 @@ const LemonBadgeNumber: React.FunctionComponent<LemonBadgeNumberProps & React.Re
                       : `${'9'.repeat(maxDigits)}+`
                   : showZero
                     ? '0'
-                    : '1'
+                    : ''
 
         if (forcePlus && !text.includes('+')) {
             text += '+'

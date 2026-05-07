@@ -18,8 +18,8 @@ import dts from 'vite-plugin-dts'
  * and consumers would get ERR_MODULE_NOT_FOUND on first import.
  *
  * `@posthog/quill-tokens` stays external because it is independently
- * published. Actual runtime deps (@base-ui/react, cmdk, lucide-react,
- * etc.) are kept external too — they are redeclared as real
+ * published. Actual runtime deps (@base-ui/react, lucide-react, etc.)
+ * are kept external too — they are redeclared as real
  * `dependencies` on the aggregate's package.json so pnpm/npm pulls
  * them into the consumer's node_modules automatically.
  */
@@ -55,7 +55,6 @@ export default defineConfig({
                 /^@base-ui\/react\//,
                 'class-variance-authority',
                 'clsx',
-                'cmdk',
                 'lucide-react',
                 'react-resizable-panels',
                 'tailwind-merge',

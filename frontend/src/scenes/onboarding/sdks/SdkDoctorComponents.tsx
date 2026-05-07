@@ -14,6 +14,9 @@ import { ActivityTab } from '~/types'
 import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from './sdkConstants'
 import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 
+// NOTE: this SQL query, the activity page URL builder below, and the three tooltip
+// messages further down are mirrored in products/growth/backend/sdk_health.py so the
+// SDK Doctor MCP tool returns the same strings. Keep them in sync when editing here.
 const queryForSdkVersion = (sdkType: SdkType, version: string): string => {
     return `SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY AND properties.$lib = '${sdkType}' AND properties.$lib_version = '${version}' ORDER BY timestamp DESC LIMIT 50`
 }

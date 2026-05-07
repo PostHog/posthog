@@ -23,10 +23,8 @@ import requests
 import kombu.connection
 import kombu.exceptions
 import django_redis.exceptions
-from kafka.errors import KafkaError
 
 from posthog.health import logger
-from posthog.kafka_client.client import KafkaProducerForTests
 
 
 @pytest.mark.django_db
@@ -77,7 +75,6 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
 
     with (
         simulate_postgres_error(),
-        simulate_kafka_cannot_connect(),
         simulate_clickhouse_cannot_connect(),
         simulate_celery_cannot_connect(),
         simulate_cache_cannot_connect(),
@@ -101,11 +98,6 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_events_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="events")
-
-    assert resp.status_code == 503, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="events")
 
@@ -129,11 +121,6 @@ def test_readyz_accepts_role_events_and_filters_by_relevant_services(client: Cli
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="web")
-
-    assert resp.status_code == 200, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="web")
 
@@ -161,11 +148,6 @@ def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="worker")
-
-    assert resp.status_code == 200, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="worker")
 
@@ -193,11 +175,6 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
     If we don't specify any role, we assume we want all dependencies to be
     checked.
     """
-
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client)
-
-    assert resp.status_code == 503, resp.content
 
     with simulate_postgres_error():
         resp = get_readyz(client=client)
@@ -227,11 +204,6 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
 
 @pytest.mark.django_db
 def test_readyz_accepts_role_decide_and_filters_by_relevant_services(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="decide")
-
-    assert resp.status_code == 200, resp.content
-
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="decide")
 
@@ -313,22 +285,6 @@ def simulate_postgres_psycopg2_error():
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
         cursor_mock.side_effect = return_given_error_or_random(psycopg2.OperationalError)
-        yield
-
-
-@contextmanager
-def simulate_kafka_cannot_connect():
-    """
-    Causes instantiation of a kafka producer to raise a `KafkaError`.
-
-    IMPORTANT: this is mocking the `KafkaProducerForTests`, itself a mock. I'm
-    hoping that the real producer raises similarly, and that that behaviour
-    doesn't change with version of the library. I have tested this manually
-    however locally with real Kafka connection, and it seems to function as
-    expected :fingerscrossed:
-    """
-    with patch.object(KafkaProducerForTests, "__init__") as init_mock:
-        init_mock.side_effect = return_given_error_or_random(KafkaError("failed to connect"))
         yield
 
 

@@ -12,7 +12,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -147,7 +147,7 @@ export function LLMSkillScene(): JSX.Element {
                 }
             />
 
-            <div className="flex flex-col gap-6 xl:flex-row">
+            <div className="flex flex-col gap-6 2xl:flex-row">
                 <div className="min-w-0 flex-1">
                     <SkillViewDetails />
                 </div>
@@ -226,7 +226,7 @@ export function LLMSkillScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col gap-6 xl:flex-row">
+                <div className="flex flex-col gap-6 2xl:flex-row">
                     <div className="min-w-0 flex-1">
                         <SkillEditForm
                             isHistoricalVersion={isHistoricalVersion}
@@ -364,9 +364,12 @@ function SkillViewDetails(): JSX.Element {
                             onToggleExpanded={toggleOutlineExpanded}
                         />
                         <div ref={markdownContainerRef}>
-                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                            <LemonMarkdownWithMermaid
+                                className="mt-1 rounded border bg-bg-light p-3"
+                                generateHeadingIds
+                            >
                                 {skill.body}
-                            </LemonMarkdown>
+                            </LemonMarkdownWithMermaid>
                         </div>
                     </>
                 )}
@@ -563,6 +566,7 @@ function SkillFileViewer({
                 type="button"
                 className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-sm hover:bg-fill-secondary"
                 onClick={toggleExpand}
+                data-attr={`llma-skill-file-toggle-${file.path}`}
             >
                 <IconChevronRight
                     className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -572,7 +576,7 @@ function SkillFileViewer({
                 <span className="text-muted-alt text-xs">{file.content_type}</span>
             </button>
             {expanded && (
-                <div className="border-t px-3 py-2">
+                <div className="border-t bg-bg-light px-3 py-2">
                     {loading ? (
                         <div className="space-y-2">
                             <LemonSkeleton active className="h-3 w-full" />
@@ -580,7 +584,9 @@ function SkillFileViewer({
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdown className="text-sm">{content}</LemonMarkdown>
+                        <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
+                            {content}
+                        </LemonMarkdownWithMermaid>
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}
@@ -651,6 +657,7 @@ function SkillEditForm({
                 }
             >
                 <LemonInput
+                    data-attr="llma-skill-name-input"
                     placeholder="my-skill-name"
                     maxLength={SKILL_NAME_MAX_LENGTH}
                     fullWidth
@@ -664,6 +671,7 @@ function SkillEditForm({
                 help="Explain what this skill does and when to use it. Agents use this to discover the right skill for a task."
             >
                 <LemonTextArea
+                    data-attr="llma-skill-description-input"
                     placeholder="Extract PDF text, fill forms, merge files. Use when handling PDFs."
                     maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
                     minRows={2}
@@ -677,6 +685,7 @@ function SkillEditForm({
                 help="The main instruction content (SKILL.md body). Write markdown that tells agents how to perform the task."
             >
                 <LemonTextArea
+                    data-attr="llma-skill-body-input"
                     placeholder="# My Skill&#10;&#10;## When to use&#10;Use this skill when...&#10;&#10;## Steps&#10;1. First...&#10;2. Then..."
                     minRows={10}
                     className="font-mono"
@@ -684,7 +693,7 @@ function SkillEditForm({
             </LemonField>
 
             <LemonField name="license" label="License" help="Optional. License name or reference.">
-                <LemonInput placeholder="Apache-2.0" maxLength={255} fullWidth />
+                <LemonInput data-attr="llma-skill-license-input" placeholder="Apache-2.0" maxLength={255} fullWidth />
             </LemonField>
 
             <LemonField
@@ -692,7 +701,12 @@ function SkillEditForm({
                 label="Compatibility"
                 help="Optional. Environment requirements (intended product, system packages, network access)."
             >
-                <LemonInput placeholder="Requires git, docker, and internet access" maxLength={500} fullWidth />
+                <LemonInput
+                    data-attr="llma-skill-compatibility-input"
+                    placeholder="Requires git, docker, and internet access"
+                    maxLength={500}
+                    fullWidth
+                />
             </LemonField>
 
             <div>
@@ -785,6 +799,7 @@ function SkillFileEditor({
                         <div className="flex-1">
                             <label className="mb-1 block text-xs font-medium text-secondary">Path</label>
                             <LemonInput
+                                data-attr={`llma-skill-file-path-${index}`}
                                 value={file.path}
                                 onChange={(val) => onUpdate(index, 'path', val)}
                                 placeholder="scripts/setup.sh"
@@ -795,6 +810,7 @@ function SkillFileEditor({
                         <div className="w-48">
                             <label className="mb-1 block text-xs font-medium text-secondary">Content type</label>
                             <LemonSelect
+                                data-attr={`llma-skill-file-content-type-${index}`}
                                 value={file.content_type}
                                 onChange={(val) => onUpdate(index, 'content_type', val)}
                                 options={COMMON_CONTENT_TYPES}
@@ -806,6 +822,7 @@ function SkillFileEditor({
                     <div>
                         <label className="mb-1 block text-xs font-medium text-secondary">Content</label>
                         <LemonTextArea
+                            data-attr={`llma-skill-file-content-${index}`}
                             value={file.content}
                             onChange={(val) => onUpdate(index, 'content', val)}
                             placeholder="File content..."
@@ -840,7 +857,7 @@ function SkillVersionSidebar({
     const { setCompareVersion } = useActions(llmSkillLogic)
 
     return (
-        <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
+        <aside className="w-full shrink-0 2xl:sticky 2xl:top-4 2xl:mt-3 2xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
                 <div className="mb-3 flex items-center justify-between">
                     <div>

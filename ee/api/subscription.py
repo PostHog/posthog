@@ -3,10 +3,12 @@ import asyncio
 from typing import Any, Optional
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -24,19 +26,51 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
+from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
+
+SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
+SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+
+
+def _summary_quota_cache_key(organization_id) -> str:
+    return f"subscription:summary_quota:org:{organization_id}"
+
+
+def _summary_cap_hit_dedupe_key(organization_id) -> str:
+    return f"subscription:summary_cap_hit:org:{organization_id}"
+
+
+def _count_active_summaries(organization) -> int:
+    """Count subscriptions with summary_enabled=True (and not soft-deleted) across
+    every team in this organization. Single source of truth for both the cap-check
+    in the serializer and the `summary_quota` action endpoint."""
+    return Subscription.objects.filter(
+        team__organization_id=organization.id,
+        summary_enabled=True,
+        deleted=False,
+    ).count()
+
+
+def _invalidate_summary_quota_cache(organization_id) -> None:
+    cache.delete(_summary_quota_cache_key(organization_id))
 
 
 @extend_schema_field({"type": "array", "items": {"type": "integer"}})
@@ -99,6 +133,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "deleted",
+            "enabled",
             "title",
             "summary",
             "next_delivery_date",
@@ -138,6 +173,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
+            "enabled": {
+                "help_text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid."
+            },
         }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
@@ -164,7 +202,41 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         self._validate_dashboard_export_subscription(attrs)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
-        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+        # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
+        # body falls through to the validation below — `or` would silently coalesce
+        # to the stale instance value and pass `validate_re_enable` with the wrong id.
+        integration_id = (
+            attrs["integration_id"]
+            if "integration_id" in attrs
+            else (self.instance.integration_id if self.instance else None)
+        )
+
+        # Reject re-enables of subscriptions whose delivery prerequisite is still
+        # permanently broken — otherwise the next delivery would just auto-disable
+        # them again.
+        is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
+        if is_re_enabling:
+            error_message = validate_re_enable(target_type, integration_id)
+            if error_message:
+                raise ValidationError({"enabled": [error_message]})
+
+        # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
+        # with a null next_delivery_date is invisible to the scheduler (the
+        # `__lte=now` filter in `fetch_due_subscriptions_activity` drops nulls).
+        # Three reachable paths: re-enable an exhausted sub, create one with a bad
+        # rrule, or PATCH an active sub's schedule into exhaustion.
+        check_schedule = (
+            is_re_enabling
+            or self.instance is None
+            or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
+        )
+        if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+            base = "Subscription schedule has reached its end date. Extend until_date or remove count"
+            if is_re_enabling:
+                raise ValidationError({"enabled": [f"{base} before re-enabling."]})
+            if self.instance is None:
+                raise ValidationError({"start_date": [f"{base}."]})
+            raise ValidationError(f"{base}.")
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
@@ -185,9 +257,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
+        # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
+        # and field-absent PATCHes always pass through so users aren't stuck with a value
+        # they can no longer edit if the flag flips off after they set one.
         prompt_guide = attrs.get("summary_prompt_guide")
-        if prompt_guide and len(prompt_guide) > 500:
-            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+        if prompt_guide:
+            if len(prompt_guide) > 500:
+                raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+            if not self._prompt_guide_feature_enabled():
+                raise exceptions.PermissionDenied("Setting AI summary context is not enabled for this organization.")
 
         if attrs.get("summary_enabled"):
             organization = self.context["get_organization"]()
@@ -196,7 +274,100 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     "AI data processing must be approved by your organization before enabling AI summaries"
                 )
 
+        # Cap gate: fire whenever the row is *becoming* an active summary
+        # (summary_enabled=True AND deleted=False) but wasn't before. This
+        # catches creates with the toggle on, off→on transitions, AND
+        # restoring a soft-deleted summary that was already summary_enabled
+        # — otherwise PATCHing `deleted=False` on a grandfathered row would
+        # bypass the cap entirely.
+        if self._is_becoming_active_summary(attrs):
+            organization = self.context["get_organization"]()
+            self._validate_summary_enabled_org_limit(organization)
+
         return attrs
+
+    def _is_becoming_active_summary(self, attrs: dict) -> bool:
+        pre_summary_enabled = self.instance.summary_enabled if self.instance else False
+        pre_deleted = self.instance.deleted if self.instance else False
+        post_summary_enabled = attrs.get("summary_enabled", pre_summary_enabled)
+        post_deleted = attrs.get("deleted", pre_deleted)
+
+        pre_active = pre_summary_enabled and not pre_deleted
+        post_active = post_summary_enabled and not post_deleted
+        return post_active and not pre_active
+
+    def _validate_summary_enabled_org_limit(self, organization) -> None:
+        # Already-on subscriptions stay on for grandfathered orgs already over
+        # the cap; the becoming-active check in validate() ensures we only get
+        # here when the row is transitioning into the active-summary state.
+        limit = get_organization_limit(
+            organization=organization,
+            key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
+        )
+        if limit is None:
+            return
+
+        active_count = _count_active_summaries(organization)
+        if active_count >= limit:
+            self._capture_summary_cap_hit(organization, active_count, limit)
+            raise QuotaLimitExceeded(
+                f"Your plan allows up to {limit} active AI summaries. "
+                "Disable an existing summary or upgrade your plan to add more."
+            )
+
+    def _capture_summary_cap_hit(self, organization, active_count: int, limit: int) -> None:
+        # Rate-limited to one event per org per 10 minutes so a misbehaving
+        # client retrying in a loop doesn't spam the analytics stream. Within
+        # that window the user-visible 402 still fires every time.
+        dedupe_key = _summary_cap_hit_dedupe_key(organization.id)
+        if cache.get(dedupe_key):
+            return
+        cache.set(dedupe_key, True, SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS)
+
+        request = self.context.get("request")
+        distinct_id = (
+            str(request.user.distinct_id)
+            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
+            else f"team_{self.context.get('team_id')}"
+        )
+        try:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="subscription_ai_summary_cap_hit",
+                properties={
+                    "team_id": self.context.get("team_id"),
+                    "organization_id": str(organization.id),
+                    "active_count": active_count,
+                    "limit": limit,
+                    "is_create": self.instance is None,
+                },
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            # Telemetry must never poison the validation path.
+            pass
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        """Evaluate the prompt-guide feature flag for the caller's organization.
+
+        Scoped by organization (not user) so the gate is stable across a team's
+        members. `only_evaluate_locally=False` so we respect server-side cohort
+        / property conditions — this isn't on a hot path.
+        """
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
+            return False
+        organization = self.context["get_organization"]()
+        org_id = str(organization.id) if organization else ""
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                str(request.user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+        )
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
@@ -255,42 +426,131 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+        team = self.context["get_team"]()
+        current_count = Subscription.objects.filter(team_id=team.id, deleted=False).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_SUBSCRIPTIONS_PER_TEAM,
+            current_count=current_count,
+            user=request.user,
+        )
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         instance: Subscription = super().create(validated_data)
 
+        # Bust the org-wide active-summary count cache so the next quota
+        # fetch reflects this row, regardless of summary_enabled — over-busting
+        # is cheap and removes the need to track the prior state.
+        _invalidate_summary_quota_cache(instance.team.organization_id)
+
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value="",
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        # Skip the workflow trigger when the new subscription is created in a disabled
+        # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
+        # for a subscription that won't fire on its schedule either.
+        if not instance.enabled:
+            return instance
+
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=str(request.user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.SUBSCRIPTION_CREATE,
+                team_id=instance.team_id,
+                resource_id=str(instance.id),
+            ),
+            properties={
+                "subscription_id": instance.id,
+                "target_type": instance.target_type,
+                "frequency": instance.frequency,
+                "interval": instance.interval,
+                "byweekday": instance.byweekday,
+                "bysetpos": instance.bysetpos,
+                "count": instance.count,
+                "resource_type": "dashboard" if instance.dashboard_id else "insight" if instance.insight_id else None,
+                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                "summary_enabled": instance.summary_enabled,
+                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                "has_until_date": instance.until_date is not None,
+                "has_invite_message": bool(invite_message),
+            },
+        ):
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_value="",
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        )
 
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
+        request = self.context["request"]
         previous_value = instance.target_value
+        was_disabled = instance.enabled is False
+        is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+
+        if is_delete:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_DELETE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "resource_type": "dashboard"
+                    if instance.dashboard_id
+                    else "insight"
+                    if instance.insight_id
+                    else None,
+                },
+            ):
+                instance = super().update(instance, validated_data)
+            _invalidate_summary_quota_cache(instance.team.organization_id)
+            return instance
+
         instance = super().update(instance, validated_data)
+        _invalidate_summary_quota_cache(instance.team.organization_id)
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        # Re-enabling clears the stale next_delivery_date that was frozen while
+        # disabled. Without this, the scheduler picks the sub up on its next tick
+        # (the past date matches `next_delivery_date__lte=now`) and fires a second
+        # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
+        if was_disabled and instance.enabled:
+            instance.set_next_delivery_date()
+            instance.save(update_fields=["next_delivery_date"])
+
+        # Skip the workflow trigger when the resulting state is disabled. No delivery
+        # should fire for a disabled subscription regardless of whether it was just
+        # disabled or already disabled. Re-enabling (`enabled: false → true`) DOES
+        # trigger the workflow so the user gets immediate confirmation delivery.
+        if not instance.enabled:
+            return instance
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
@@ -428,6 +688,52 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     @extend_schema(
         request=None,
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Org-wide AI summary quota: count of currently-active summaries and the limit "
+                    "for the org's plan tier. `limit` is null when no cap is configured."
+                ),
+                response={
+                    "type": "object",
+                    "properties": {
+                        "active_count": {"type": "integer"},
+                        "limit": {"type": "integer", "nullable": True},
+                        "at_limit": {"type": "boolean"},
+                    },
+                    "required": ["active_count", "limit", "at_limit"],
+                },
+            )
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="summary_quota",
+        required_scopes=["subscription:read"],
+    )
+    def summary_quota(self, request, **kwargs):
+        organization = self.organization
+        cache_key = _summary_quota_cache_key(organization.id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        active_count = _count_active_summaries(organization)
+        limit = get_organization_limit(
+            organization=organization,
+            key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
+        )
+        payload = {
+            "active_count": active_count,
+            "limit": limit,
+            "at_limit": limit is not None and active_count >= limit,
+        }
+        cache.set(cache_key, payload, SUMMARY_QUOTA_CACHE_TTL_SECONDS)
+        return Response(payload)
+
+    @extend_schema(
+        request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
     @action(
@@ -441,6 +747,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        if not subscription.enabled:
+            return Response(
+                {"detail": "Subscription is disabled. Re-enable it before sending a test delivery."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         temporal = sync_connect()
         workflow_id = f"test-delivery-subscription-{subscription.id}"
@@ -474,6 +785,20 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_test_delivery_scheduled",
+            properties={
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+                "target_type": subscription.target_type,
+                "insight_id": subscription.insight_id,
+                "dashboard_id": subscription.dashboard_id,
+                "temporal_workflow_id": workflow_id,
+            },
+            groups=groups(None, subscription.team),
+        )
+
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
@@ -497,6 +822,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at",
             "last_updated_at",
             "finished_at",
+            "change_summary",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -523,6 +849,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the delivery row was created."},
             "last_updated_at": {"help_text": "Last ORM update to this row."},
             "finished_at": {"help_text": "When the run finished, if applicable."},
+            "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
 
 

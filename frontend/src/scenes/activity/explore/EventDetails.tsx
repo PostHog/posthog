@@ -80,7 +80,11 @@ export function EventDetails({ event, tableProps, onAddAsColumn, isColumnShown }
                                         ) : null}
                                     </div>
                                 ) : null}
-                                <ConversationDisplay eventProperties={properties} eventId={getEventId(event)} />
+                                <ConversationDisplay
+                                    eventProperties={properties}
+                                    eventId={getEventId(event)}
+                                    eventTimestamp={event.timestamp}
+                                />
                             </div>
                         )
                     case 'evaluation':

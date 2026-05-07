@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import functools
 import contextlib
@@ -48,20 +49,22 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models import DataWarehouseTable
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import process_message
 from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE, PendingBatch
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -104,34 +107,76 @@ _current_pipeline_mode = "non_dlt"
 
 
 @pytest.fixture(params=["non_dlt", "v3"], autouse=True)
-def pipeline_mode(request):
+def pipeline_mode(request, _clean_sourcebatch_tables):
     global _current_pipeline_mode
     _current_pipeline_mode = request.param
     yield request.param
     _current_pipeline_mode = "non_dlt"
 
 
-class _KafkaMessageCapture:
-    def __init__(self):
-        self.messages: list[dict] = []
+# TODO: remove _KafkaMessageCapture once Postgres producer is fully validated
+# class _KafkaMessageCapture:
+#     ...
+# _kafka_capture = _KafkaMessageCapture()
+
+
+def _get_test_database_url() -> str:
+    """Build a psycopg-compatible DSN from Django's active test database connection."""
+    from django.db import connection
+
+    s = connection.settings_dict
+    host = s.get("HOST", "localhost") or "localhost"
+    port = s.get("PORT", "5432") or "5432"
+    return f"postgres://{s['USER']}:{s['PASSWORD']}@{host}:{port}/{s['NAME']}"
+
+
+class _PostgresQueueReplay:
+    """Reads batch rows written by PostgresProducer during tests and replays them
+    through process_message(), mimicking what the real BatchConsumer does."""
+
+    def __init__(self) -> None:
         self._processed_batches: set[tuple[str, int]] = set()
 
-    def _capture_and_ack(self, topic, data, key=None, **kw):
-        self.messages.append(data)
-        return mock.MagicMock(get=mock.MagicMock(return_value=None))
+    def replay_batches_for_run(self, run_uuid: str) -> None:
+        from django.db import connection as django_conn
 
-    def get_mock_producer(self):
-        producer = mock.MagicMock()
-        producer.produce.side_effect = self._capture_and_ack
-        producer.flush.return_value = 0
-        return producer
+        with django_conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id, team_id, schema_id, source_id, job_id, run_uuid,
+                       batch_index, s3_path, row_count, byte_size, is_final_batch,
+                       total_batches, total_rows, sync_type, cumulative_row_count,
+                       resource_name, is_resume, is_first_ever_sync, metadata
+                FROM {BATCH_TABLE}
+                WHERE run_uuid = %s
+                ORDER BY created_at ASC, batch_index ASC
+                """,
+                [run_uuid],
+            )
+            columns = [col.name for col in cur.description]
+            rows = [dict(zip(columns, row)) for row in cur.fetchall()]
 
-    def replay_through_consumer(self):
-        for msg in self.messages:
+        if not rows:
+            return
+
+        for row in rows:
+            if isinstance(row.get("metadata"), str):
+                row["metadata"] = json.loads(row["metadata"])
+            batch = PendingBatch(latest_attempt=0, **row)
             try:
-                process_message(msg)
+                process_message(batch.to_export_signal())
             except Exception:
                 pass
+
+    def get_run_uuids_for_job(self, job_id: str) -> list[str]:
+        from django.db import connection as django_conn
+
+        with django_conn.cursor() as cur:
+            cur.execute(
+                f"SELECT DISTINCT run_uuid FROM {BATCH_TABLE} WHERE job_id = %s ORDER BY run_uuid",
+                [job_id],
+            )
+            return [row[0] for row in cur.fetchall()]
 
     def mock_idempotency_check(
         self,
@@ -147,12 +192,11 @@ class _KafkaMessageCapture:
         self._processed_batches.add(key)
         return False
 
-    def clear(self):
-        self.messages.clear()
+    def clear(self) -> None:
         self._processed_batches.clear()
 
 
-_kafka_capture = _KafkaMessageCapture()
+_pg_queue_replay = _PostgresQueueReplay()
 
 
 @pytest.fixture
@@ -180,6 +224,94 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+@pytest.fixture
+def mock_paddle_client():
+    response_data: dict[str, Any] = {"items": []}
+
+    class MockResponse:
+        def __init__(self, json_data):
+            self.json_data = json_data
+            self.status_code = 200
+
+        def json(self):
+            return self.json_data
+
+        def raise_for_status(self):
+            pass
+
+    def set_response(items: Any) -> None:
+        response_data["items"] = items
+
+    def mock_paddle_request(
+        session: Any,
+        method: str,
+        url: str,
+        headers: Optional[dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
+        **kwargs,
+    ):
+        return MockResponse(
+            {
+                "data": response_data["items"],
+                "meta": {"pagination": {"next": None}},
+            }
+        )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.paddle.paddle.paddle_request",
+            side_effect=mock_paddle_request,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+            return_value=True,
+        ),
+    ):
+        yield set_response
+
+
+@pytest.fixture
+def mock_customer_io_client():
+    """Mock the Customer.io App API session inside `api_client`.
+
+    The Customer.io source skips the REST framework patched by `_execute_run`
+    and talks to the App API through a tracked `requests.Session` returned by
+    `_session(api_key)`. We patch that helper to return a stub session whose
+    `.get(...)` yields a canned payload.
+    """
+    response_data: dict[str, Any] = {"payload": {}}
+
+    class MockResponse:
+        def __init__(self, json_data: dict):
+            self.json_data = json_data
+            self.status_code = 200
+
+        def json(self):
+            return self.json_data
+
+        def raise_for_status(self):
+            pass
+
+    class _StubSession:
+        def get(self, *args, **kwargs):
+            return MockResponse(response_data["payload"])
+
+    def set_response(payload: dict) -> None:
+        response_data["payload"] = payload
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.customer_io.api_client._session",
+            return_value=_StubSession(),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
+            return_value=(True, None),
+        ),
+    ):
+        yield set_response
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -247,7 +379,7 @@ async def _run(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
-        mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_app_metrics_producer_cls,
+        mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_app_metrics_producer_cls,
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
@@ -277,7 +409,11 @@ async def _run(
 
         # Assert that app_metrics2 rows were emitted for the successful job — both
         # the success row and the rows_synced row (since a successful e2e run writes
-        # at least one row).
+        # at least one row). Pin both V3 (consumer-side) and NonDLT (workflow-side)
+        # paths so a regression in either gates here.
+        assert run.rows_synced is not None and run.rows_synced > 0, (
+            f"expected run.rows_synced to be a positive number, got {run.rows_synced}"
+        )
         produce_calls = mock_app_metrics_producer_cls.return_value.produce.call_args_list
         emitted_payloads = [call.kwargs["data"] for call in produce_calls]
         status_rows = [
@@ -290,10 +426,19 @@ async def _run(
         assert status_rows[0]["count"] == 1
         assert status_rows[0]["instance_id"] == str(schema.id)
         assert status_rows[0]["team_id"] == team.pk
+        assert status_rows[0]["timestamp"] == format_clickhouse_timestamp(run.finished_at)
         assert len(rows_rows) == 1, f"expected one rows_synced row, got {emitted_payloads}"
         assert rows_rows[0]["metric_name"] == "rows_synced"
-        assert rows_rows[0]["count"] == run.rows_synced
+        assert rows_rows[0]["count"] == run.rows_synced, (
+            f"rows_synced metric count should match run.rows_synced ({run.rows_synced}); "
+            f"got {rows_rows[0]['count']} — likely indicates rows_synced was clobbered by "
+            f"update_external_job_status's full-model save() racing with update_job_row_count"
+        )
+        assert rows_rows[0]["count"] > 0, f"rows_synced metric count should be positive, got {rows_rows[0]['count']}"
+        assert rows_rows[0]["app_source"] == "warehouse_source_sync"
+        assert rows_rows[0]["team_id"] == team.pk
         assert rows_rows[0]["instance_id"] == str(schema.id)
+        assert rows_rows[0]["timestamp"] == status_rows[0]["timestamp"]
 
         await sync_to_async(schema.refresh_from_db)()
 
@@ -324,17 +469,30 @@ async def _run(
 
 
 async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None):
-    if _current_pipeline_mode != "v3" or not _kafka_capture.messages:
+    if _current_pipeline_mode != "v3":
         return
+
+    if not job_id:
+        job = await sync_to_async(
+            ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id).order_by("-created_at").first
+        )()
+        if not job:
+            return
+        job_id = str(job.id)
+    else:
+        job = await sync_to_async(ExternalDataJob.objects.get)(id=job_id)
 
     # If the workflow already marked the job as COMPLETED (e.g. worker shutdown scenario),
     # the consumer should not replay — the workflow managed the job status itself and
     # S3 files may have been cleaned up.
-    if job_id:
-        job = await sync_to_async(ExternalDataJob.objects.get)(id=job_id)
-        if job.status == ExternalDataJob.Status.COMPLETED:
-            _kafka_capture.clear()
-            return
+    if job.status == ExternalDataJob.Status.COMPLETED:
+        _pg_queue_replay.clear()
+        return
+
+    run_uuids = await sync_to_async(_pg_queue_replay.get_run_uuids_for_job)(job_id)
+    if not run_uuids:
+        _pg_queue_replay.clear()
+        return
 
     with (
         override_settings(
@@ -350,21 +508,21 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
         ),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
-            side_effect=_kafka_capture.mock_idempotency_check,
+            side_effect=_pg_queue_replay.mock_idempotency_check,
         ),
     ):
-        await sync_to_async(_kafka_capture.replay_through_consumer)()
+        for run_uuid in run_uuids:
+            await sync_to_async(_pg_queue_replay.replay_batches_for_run)(run_uuid)
 
-        if job_id:
-            await sync_to_async(calculate_table_size_activity)(
-                CalculateTableSizeActivityInputs(
-                    team_id=team_id,
-                    schema_id=str(schema_id),
-                    job_id=job_id,
-                )
+        await sync_to_async(calculate_table_size_activity)(
+            CalculateTableSizeActivityInputs(
+                team_id=team_id,
+                schema_id=str(schema_id),
+                job_id=job_id,
             )
+        )
 
-    _kafka_capture.clear()
+    _pg_queue_replay.clear()
 
 
 async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
@@ -378,8 +536,27 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         paginator: Optional[Any] = None,
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
     ):
         return iter(mock_data_response)
+
+    def mock_paginate_pages(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+        resume_hook: Optional[Any] = None,
+        initial_paginator_state: Optional[dict[str, Any]] = None,
+    ):
+        # Yield each record as its own page so tests that probe chunking
+        # by record size still see one call per record.
+        return iter([[item] for item in mock_data_response])
 
     def mock_to_session_credentials(class_self):
         return {
@@ -401,10 +578,11 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
-    _kafka_capture.clear()
+    _pg_queue_replay.clear()
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
+        mock.patch.object(PostHogRESTClient, "paginate", mock_paginate_pages),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
@@ -430,10 +608,11 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     return_value=True,
                 )
             )
+            # Point the Postgres producer at the Django test database
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer.get_warpstream_kafka_producer",
-                    return_value=_kafka_capture.get_mock_producer(),
+                    "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
+                    _get_test_database_url(),
                 )
             )
         else:
@@ -842,6 +1021,178 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
             "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_customers(team, paddle_customers, mock_paddle_client):
+    mock_paddle_client(paddle_customers["data"])
+
+    await _run(
+        team=team,
+        schema_name="customers",
+        table_name="paddle_customers",
+        source_type="Paddle",
+        job_inputs={"paddle_api_key": "test_api_key"},
+        mock_data_response=paddle_customers["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_subscriptions(team, paddle_subscriptions, mock_paddle_client):
+    mock_paddle_client(paddle_subscriptions["data"])
+
+    await _run(
+        team=team,
+        schema_name="subscriptions",
+        table_name="paddle_subscriptions",
+        source_type="Paddle",
+        job_inputs={"paddle_api_key": "test_api_key"},
+        mock_data_response=paddle_subscriptions["data"],
+    )
+
+
+async def _run_customer_io(team, schema_name, table_name, mock_data, mock_customer_io_client, payload):
+    mock_customer_io_client(payload)
+    await _run(
+        team=team,
+        schema_name=schema_name,
+        table_name=table_name,
+        source_type="CustomerIO",
+        job_inputs={"app_api_key": "test-key", "region": "us"},
+        mock_data_response=mock_data,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_broadcasts(team, customer_io_broadcasts, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="broadcasts",
+        table_name="customerio_broadcasts",
+        mock_data=customer_io_broadcasts["broadcasts"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_broadcasts,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_campaigns(team, customer_io_campaigns, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="campaigns",
+        table_name="customerio_campaigns",
+        mock_data=customer_io_campaigns["campaigns"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_campaigns,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_collections(team, customer_io_collections, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="collections",
+        table_name="customerio_collections",
+        mock_data=customer_io_collections["collections"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_collections,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_newsletters(team, customer_io_newsletters, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="newsletters",
+        table_name="customerio_newsletters",
+        mock_data=customer_io_newsletters["newsletters"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_newsletters,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_object_types(team, customer_io_object_types, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="object_types",
+        table_name="customerio_object_types",
+        mock_data=customer_io_object_types["types"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_object_types,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_segments(team, customer_io_segments, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="segments",
+        table_name="customerio_segments",
+        mock_data=customer_io_segments["segments"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_segments,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_sender_identities(team, customer_io_sender_identities, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="sender_identities",
+        table_name="customerio_sender_identities",
+        mock_data=customer_io_sender_identities["sender_identities"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_sender_identities,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_snippets(team, customer_io_snippets, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="snippets",
+        table_name="customerio_snippets",
+        mock_data=customer_io_snippets["snippets"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_snippets,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_subscription_topics(team, customer_io_subscription_topics, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="subscription_topics",
+        table_name="customerio_subscription_topics",
+        mock_data=customer_io_subscription_topics["topics"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_subscription_topics,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_transactional(team, customer_io_transactional, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="transactional",
+        table_name="customerio_transactional",
+        mock_data=customer_io_transactional["messages"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_transactional,
     )
 
 
@@ -3456,8 +3807,18 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
+    # CDPProducer now uses `async_producer_scope(profile=CYCLOTRON)` from the routing
+    # module instead of a per-instance `_get_kafka_producer` method; patch the async
+    # context manager at its import site.
+    @contextlib.asynccontextmanager
+    async def _fake_scope(*args, **kwargs):
+        yield mock_kafka_producer
+
     with (
-        mock.patch.object(CDPProducer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            _fake_scope,
+        ),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3826,11 +4187,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
         dlq_topic="test-dlq",
     )
 
-    consumer = WebhookS3Sink(
-        config=config,
-        kafka_hosts=["localhost:9092"],
-        kafka_security_protocol="PLAINTEXT",
-    )
+    consumer = WebhookS3Sink(config=config)
     consumer._consumer = mock.MagicMock()
 
     with override_settings(

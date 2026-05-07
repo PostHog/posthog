@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    BreakdownType,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -93,6 +94,8 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.errors import classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -191,19 +194,45 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
+# Minimum age before a shared insight may honor `?refresh=force_blocking`. Must match the
+# frontend `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` (1800s) — drift would silently drop
+# periodic refresh ticks. Best-effort throttle, not a hard rate limit.
+SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=30)
+
+
 _SHARED_MODE_WHITELIST = {
-    # Cache only is default refresh mode - remap to async so shared insights stay fresh
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # Legacy refresh=true - but on shared insights, we don't give the ability to refresh at will
-    # TODO: Adjust once shared insights can poll for async query_status
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    # Allow regular async
+    # force_blocking is gated by `shared_insights_execution_mode`; downgrades to IF_STALE
+    # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
+    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # - All others fall back to extended cache -
+    # Used by the shared-notebook inline query payload builder. Without this entry the
+    # request silently falls through to EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, which causes
+    # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
 
 
-def shared_insights_execution_mode(execution_mode: ExecutionMode) -> ExecutionMode:
+def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> bool:
+    if last_refresh is None:
+        return False
+    return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
+
+
+def shared_insights_execution_mode(
+    execution_mode: ExecutionMode,
+    *,
+    last_refresh: datetime | None = None,
+) -> ExecutionMode:
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not _is_force_blocking_eligible_for_shared(
+        last_refresh
+    ):
+        logger.info(
+            "shared_force_blocking_throttled",
+            last_refresh=last_refresh.isoformat() if last_refresh else None,
+            min_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+        )
+        return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 
@@ -251,6 +280,16 @@ def get_query_runner(
         kind = get_from_dict_or_attr(query, "kind")
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
+
+    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+        source = get_from_dict_or_attr(query, "source")
+        return get_query_runner(
+            query=source,
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
 
     if kind == "TrendsQuery":
         # Check if this should use calendar heatmap runner instead
@@ -939,10 +978,12 @@ def get_query_runner(
         )
 
     if kind == "TraceSpansQuery":
+        from posthog.schema import TraceSpansQuery
+
         from products.tracing.backend.logic import TraceSpansQueryRunner
 
         return TraceSpansQueryRunner(
-            query=query,
+            query=cast(TraceSpansQuery, query),
             team=team,
             timings=timings,
             modifiers=modifiers,
@@ -1828,9 +1869,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             return
 
-        # The default logic below applies to all insights and a lot of other queries
-        # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        if dashboard_filter.properties:
+        has_data_warehouse_series = (
+            hasattr(self.query, "series")
+            and isinstance(self.query.series, list)
+            and has_data_warehouse_node(self.query.series)
+        )
+
+        dashboard_breakdown_filter = dashboard_filter.breakdown_filter
+
+        should_ignore_dashboard_breakdown = (
+            isinstance(self.query, TrendsQuery)
+            and has_data_warehouse_series
+            and (
+                has_multi_breakdown(dashboard_breakdown_filter)
+                or (
+                    has_single_breakdown(dashboard_breakdown_filter)
+                    and dashboard_breakdown_filter is not None
+                    and dashboard_breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
+                )
+            )
+        )
+
+        if dashboard_filter.properties and not has_data_warehouse_series:
             if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
@@ -1867,7 +1927,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_filter.explicitDate is not None:
                 date_range.explicitDate = dashboard_filter.explicitDate
 
-        if dashboard_filter.breakdown_filter:
+        if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
             else:

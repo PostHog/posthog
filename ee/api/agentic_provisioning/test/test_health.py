@@ -5,11 +5,11 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestProvisioningHealth(StripeProvisioningTestBase):
+class TestProvisioningHealth(ProvisioningTestBase):
     def test_valid_request(self):
         res = self._get_signed("/api/agentic/provisioning/health")
         assert res.status_code == 200
@@ -18,28 +18,25 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
         assert data["status"] == "ok"
 
     def test_missing_signature_returns_401(self):
-        res = self.client.get("/api/agentic/provisioning/health", HTTP_API_VERSION="0.1d")
+        res = self.client.get("/api/agentic/provisioning/health", headers={"api-version": "0.1d"})
         assert res.status_code == 401
 
     def test_invalid_signature_returns_401(self):
         res = self.client.get(
             "/api/agentic/provisioning/health",
-            HTTP_STRIPE_SIGNATURE=f"t={int(time.time())},v1={'00' * 32}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={int(time.time())},v1={'00' * 32}", "api-version": "0.1d"},
         )
         assert res.status_code == 401
 
     def test_missing_api_version_returns_400(self):
         sig = self._sign_body(b"")
-        res = self.client.get("/api/agentic/provisioning/health", HTTP_STRIPE_SIGNATURE=sig)
+        res = self.client.get("/api/agentic/provisioning/health", headers={"stripe-signature": sig})
         assert res.status_code == 400
 
     def test_wrong_api_version_returns_400(self):
         sig = self._sign_body(b"")
         res = self.client.get(
-            "/api/agentic/provisioning/health",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="1.0",
+            "/api/agentic/provisioning/health", headers={"stripe-signature": sig, "api-version": "1.0"}
         )
         assert res.status_code == 400
 
@@ -48,8 +45,7 @@ class TestProvisioningHealth(StripeProvisioningTestBase):
         sig = compute_signature(HMAC_SECRET, old_ts, b"")
         res = self.client.get(
             "/api/agentic/provisioning/health",
-            HTTP_STRIPE_SIGNATURE=f"t={old_ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={old_ts},v1={sig}", "api-version": "0.1d"},
         )
         assert res.status_code == 401
 

@@ -125,7 +125,7 @@ class LogEntryMixin(viewsets.GenericViewSet):
         raise NotImplementedError()
 
     @extend_schema(parameters=[LogEntryRequestSerializer])
-    @action(detail=True, methods=["GET"])
+    @action(detail=True, methods=["GET"], filter_backends=[])
     def logs(self, request: Request, *args, **kwargs):
         obj = self.get_object()
 

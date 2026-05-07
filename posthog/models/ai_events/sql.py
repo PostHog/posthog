@@ -191,6 +191,7 @@ def DISTRIBUTED_AI_EVENTS_TABLE_SQL():
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
             sharding_key=SHARDING_KEY,
+            cluster=settings.CLICKHOUSE_AI_EVENTS_CLUSTER,
         ),
         indexes="",
     )

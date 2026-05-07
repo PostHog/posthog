@@ -45,6 +45,7 @@ class SandboxStatus(str, Enum):
 class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
+    PI_BASE = "pi_base"
 
 
 class ExecutionResult(BaseModel):
@@ -60,7 +61,10 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
+# Production: 6 hours (safety net; workflow inactivity timeout handles cleanup).
+# Tests: 15 min so any sandbox orphaned by a crashed test auto-destroys quickly
+# instead of burning Modal capacity for hours.
+SANDBOX_TTL_SECONDS = 15 * 60 if settings.TEST else 6 * 60 * 60
 
 
 class SandboxConfig(BaseModel):
@@ -285,8 +289,15 @@ def wait_for_health_check(
     """
     health_script = (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
-        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  body=$(curl -s http://localhost:{port}/health); "
+        "  status=$?; "
+        '  if [ "$status" = "0" ]; then '
+        "    python3 -c '"
+        "import json, sys; "
+        "payload = json.loads(sys.argv[1]); "
+        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
+        f'\' "$body" && echo "ok:$i" && exit 0; '
+        "  fi; "
         f"  sleep {poll_interval}; "
         f"done; "
         f"exit 1"

@@ -1,6 +1,74 @@
 import { z } from 'zod'
 
-import { InsightQuerySchema, PropertyFilter } from './query'
+import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
+
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+    )
+
+export const ExternalDataSourceTypeSchema = z
+    .string()
+    .describe(
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
+    )
+
+const UsageMetricEventsFilterEntrySchema = z.object({
+    id: z.string().describe('Event name (e.g. "$pageview").'),
+    name: z.string().optional(),
+    type: z.literal('events').optional(),
+    order: z.number().int().optional(),
+    properties: z.array(z.unknown()).optional(),
+})
+
+const UsageMetricEventsFiltersSchema = z
+    .object({
+        events: z.array(UsageMetricEventsFilterEntrySchema).describe('Events to count or sum over.'),
+        actions: z.array(z.unknown()).optional(),
+        properties: z.array(z.unknown()).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    })
+    .describe('Events-source filter shape (default).')
+
+const UsageMetricDataWarehouseFiltersSchema = z
+    .object({
+        source: z.literal('data_warehouse'),
+        table_name: z
+            .string()
+            .describe(
+                'Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.'
+            ),
+        timestamp_field: z
+            .string()
+            .describe(
+                'Timestamp column or HogQL expression on the row (e.g. "created" or "toDateTime(created_at)"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.'
+            ),
+        key_field: z
+            .string()
+            .describe(
+                'Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.'
+            ),
+    })
+    .describe('Data-warehouse-source filter shape.')
+
+export const UsageMetricFiltersSchema = z
+    .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
+    .describe(
+        'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -16,13 +84,72 @@ export const DocumentationSearchSchema = z.object({
     query: z.string(),
 })
 
-export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
+export const FeedbackSubmitSchema = z.object({
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+        ),
+    sentiment: z
+        .enum(['positive', 'negative', 'mixed'])
+        .describe(
+            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+        ),
+    category: z
+        .enum([
+            'tool_correctness',
+            'tool_description',
+            'tool_input_schema',
+            'tool_output_format',
+            'missing_tool',
+            'instructions_clarity',
+            'performance',
+            'error_message',
+            'other',
+        ])
+        .describe(
+            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
+        ),
+    task_completed: z
+        .boolean()
+        .describe(
+            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
+        ),
+    tools_used: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+        ),
+    friction_points: z
+        .string()
+        .optional()
+        .describe(
+            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+        ),
+    suggested_improvement: z
+        .string()
+        .optional()
+        .describe(
+            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+        ),
+    user_request: z
+        .string()
+        .optional()
+        .describe(
+            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+        ),
+    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
 })
 
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
+export const ExperimentResultsGetSchema = z.object({
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
 /**
@@ -194,7 +321,20 @@ export const ExperimentCreateSchema = z.object({
             z.object({
                 key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
+                split_percent: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe(
+                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
+                    ),
+                rollout_percentage: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
             })
         )
         .optional()
@@ -253,6 +393,18 @@ export const InsightQueryInputSchema = z.object({
         .describe(
             'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
         ),
+    variables_override: z
+        .union([z.string(), z.record(z.string(), z.unknown())])
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+        ),
+    filters_override: z
+        .union([z.string(), z.record(z.string(), z.unknown())])
+        .optional()
+        .describe(
+            "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+        ),
 })
 
 export const LLMAnalyticsGetCostsSchema = z.object({
@@ -309,8 +461,44 @@ export const ProjectSetActiveSchema = z.object({
 
 export const SurveyResponseCountsSchema = z.object({})
 
+const QueryRunQuerySchema = z.discriminatedUnion('kind', [
+    InsightVizNodeSchema,
+    DataVisualizationNodeSchema,
+    HogQLQuerySchema,
+])
+
 export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
+    query: QueryRunQuerySchema,
+})
+
+export const HogQLSchemaInputSchema = z.object({
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
+})
+
+export const QueryValidateInputSchema = z.object({
+    query: z
+        .string()
+        .min(1)
+        .describe(
+            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
+        ),
+    language: z
+        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
+        .default('hogQL')
+        .describe(
+            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
 })
 
 // Entity Search

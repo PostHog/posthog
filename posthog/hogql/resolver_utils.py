@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from collections.abc import Generator
 from typing import Optional
 
@@ -59,6 +60,63 @@ def lookup_field_by_name(
             return lookup_field_by_name(scope.parent, name, context)
 
         return None
+
+
+def _names_on_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+    if isinstance(table_type, ast.BaseTableType):
+        try:
+            table = table_type.resolve_database_table(context)
+        except Exception:
+            return set()
+        return set(table.fields.keys())
+    if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+        return set(getattr(table_type, "columns", {}).keys())
+    return set()
+
+
+def collect_available_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
+) -> set[str]:
+    """Gather field names visible in a scope (aliases + joined-table fields)
+    for use in 'did you mean' suggestions when resolution fails.
+
+    Returns a flat set — callers don't need to know whether a name comes from
+    an alias, a named table, or an anonymous subquery.
+    """
+    names: set[str] = set()
+
+    if isinstance(scope, ast.SelectSetQueryType):
+        for inner in scope.types:
+            names.update(collect_available_field_names(inner, context))
+        return names
+
+    names.update(scope.aliases.keys())
+    for table_type in scope.tables.values():
+        names.update(_names_on_table_type(table_type, context))
+    for anon in scope.anonymous_tables:
+        names.update(_names_on_table_type(anon, context))
+
+    if scope.parent is not None:
+        names.update(collect_available_field_names(scope.parent, context))
+
+    return names
+
+
+def suggest_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    name: str,
+    context: HogQLContext,
+    *,
+    limit: int = 3,
+) -> list[str]:
+    """Return up to `limit` field names from `scope` that are close matches
+    to `name` (difflib ratio >= 0.6). Returns an empty list when no scope
+    is available or no plausible matches are found.
+    """
+    candidates = collect_available_field_names(scope, context)
+    if not candidates:
+        return []
+    return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
 def lookup_table_by_name(

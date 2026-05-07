@@ -34,8 +34,8 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=FlagValueQuerySerializer,
         responses={
             200: OpenApiResponse(response=FlagValueResponseSerializer),
-            400: OpenApiResponse(response=serializers.DictField()),
-            404: OpenApiResponse(response=serializers.DictField()),
+            400: OpenApiResponse(description="Bad request"),
+            404: OpenApiResponse(description="Not found"),
         },
     )
     @action(methods=["GET"], detail=False)

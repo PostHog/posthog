@@ -75,6 +75,13 @@ test.describe('Experiment lifecycle', () => {
 
                 // Variants step — wait for stepper to confirm transition
                 await expect(page.locator('[aria-current="step"]', { hasText: 'Variant rollout' })).toBeVisible()
+
+                // Customize split to 70/30 — exercises the full variant payload round-trip
+                await page.getByRole('button', { name: 'Customize split' }).click()
+                const splitInputs = page.getByTestId('experiment-variant-rollout-percentage-input')
+                await splitInputs.nth(0).fill('70')
+                await splitInputs.nth(1).fill('30')
+
                 await page.getByRole('button', { name: 'Continue' }).click()
 
                 // Analytics step — wait for stepper and step content to render
@@ -89,6 +96,12 @@ test.describe('Experiment lifecycle', () => {
                     await page.waitForURL(/\/experiments\/\d+$/, { timeout: 5000 })
                 }).toPass({ timeout: 30000 })
                 await expect(page.getByTestId('launch-experiment')).toBeVisible()
+
+                // Verify the custom split is preserved
+                await page.getByRole('tab', { name: 'Variants' }).click()
+                await expect(page.getByText('70%')).toBeVisible()
+                await expect(page.getByText('30%')).toBeVisible()
+                await page.getByRole('tab', { name: 'Metrics' }).click()
             })
 
             await test.step('add primary metric', async () => {

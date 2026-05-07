@@ -4,7 +4,7 @@
   SELECT events.event AS event,
          count() AS count
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), notIn(events.event, ['$pageleave', '$autocapture', '$$heatmap', '$copy_autocapture', '$set', '$opt_in', '$feature_flag_called', '$feature_view', '$feature_interaction', '$capture_metrics', '$create_alias', '$merge_dangerously', '$groupidentify']))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), notIn(events.event, ['$pageleave', '$autocapture', '$$heatmap', '$copy_autocapture', '$set', '$opt_in', '$feature_flag_called', '$feature_view', '$feature_interaction', '$element_viewed', '$capture_metrics', '$create_alias', '$merge_dangerously', '$groupidentify']))
   GROUP BY events.event
   ORDER BY count DESC, events.event ASC
   LIMIT 501

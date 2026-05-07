@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import BatchExportRun
@@ -49,7 +50,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     API endpoints for data warehouse aggregate statistics and operations.
     """
 
-    scope_object = "INTERNAL"
+    # warehouse_view inherits from warehouse_objects; reads require viewer access,
+    # write actions (see required_scopes below) require editor access.
+    scope_object = "warehouse_view"
+    serializer_class = _FallbackSerializer
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
@@ -771,7 +775,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:write"])
     def data_ops_dashboard(self, request: Request, **kwargs) -> Response:
         """
         Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
@@ -896,7 +900,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def provision(self, request: Request, **kwargs) -> Response:
         """Start provisioning a managed warehouse for this team."""
         database_name = request.data.get("database_name")
@@ -922,7 +926,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def deprovision(self, request: Request, **kwargs) -> Response:
         """Start deprovisioning the managed warehouse for this team."""
         return self._provisioning_request("POST", "/deprovision")
@@ -967,7 +971,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
-    @action(methods=["POST"], detail=False, url_path="reset-password")
+    @action(methods=["POST"], detail=False, url_path="reset-password", required_scopes=["warehouse_view:write"])
     def reset_password(self, request: Request, **kwargs) -> Response:
         """Reset the root password for the managed warehouse."""
         return self._provisioning_request("POST", "/reset-password")

@@ -42,11 +42,11 @@ class Graph:
 
         Args:
             team_id: filter edges to this team
-            dag_id: if set, filter to a single DAG; otherwise load all non-conflict DAGs
+            dag_id: if set, filter to a single DAG; otherwise load all DAGs
             exclude_table_sources: skip edges whose source is a TABLE node (for upstream counts)
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
         """
-        qs = Edge.objects.filter(team_id=team_id).exclude(dag__name__startswith="conflict_")
+        qs = Edge.objects.filter(team_id=team_id)
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
 

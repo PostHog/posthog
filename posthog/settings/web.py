@@ -68,6 +68,11 @@ PRODUCTS_APPS = [
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
+    "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.query_performance_ai.orchestrator.apps.QueryPerformanceAiConfig",
+    "products.access_control.backend.apps.AccessControlConfig",
+    "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
+    "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
 ]
 
 INSTALLED_APPS = [
@@ -126,9 +131,13 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Must run immediately after AuthenticationMiddleware so downstream middleware
+    # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
+    "posthog.middleware.AdminImpersonationMiddleware",
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -187,6 +196,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "loginas.context_processors.impersonated_session_status",
+                "posthog.helpers.impersonation.impersonation_context",
             ]
         },
     }
@@ -198,7 +208,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 # Authentication
 
 AUTHENTICATION_BACKENDS: list[str] = [
-    "axes.backends.AxesBackend",
+    "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
@@ -372,15 +382,113 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.api.documentation.custom_postprocessing_hook",
+        # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
+        # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
+        # so `--fail-on-warn` in `hogli build:openapi-schema` catches them in CI.
+        "posthog.api.documentation.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
-        "PropertyGroupOperator": ["AND", "OR"],
-        "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        # Overrides fall into two categories depending on how drf-spectacular hashes them:
+        #
+        # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
+        #    injects x-spec-enum-id from (value, label) tuples.  The override must point
+        #    to the same Choices/Enum class so _load_enum_name_overrides hashes identically.
+        #
+        # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
+        #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
+        #    as (value, value) tuples, so the override must also be a plain value list
+        #    (which _load_enum_name_overrides normalizes to (value, value)).
+        #
+        # Getting this wrong means the override hash doesn't match and the warning persists.
+        # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
         "ConversationStatus": "ee.models.assistant.Conversation.Status",
         "ConversationType": "ee.models.assistant.Conversation.Type",
+        "DetailModeEnum": "products.llm_analytics.backend.summarization.models.SummarizationMode",
+        "SavedQueryStatusEnum": "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
+        "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
+        "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
+        "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
+        "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
+        "ExperimentMetricKindEnum": "products.llm_analytics.backend.models.score_definitions.ScoreDefinition.Kind",
+        "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
+        "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
+        "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "PropertyGroupOperator": ["AND", "OR"],
+        "PropertyFilterTypeEnum": [
+            "event",
+            "event_metadata",
+            "feature",
+            "person",
+            "cohort",
+            "element",
+            "static-cohort",
+            "dynamic-cohort",
+            "precalculated-cohort",
+            "group",
+            "recording",
+            "log_entry",
+            "behavioral",
+            "session",
+            "hogql",
+            "data_warehouse",
+            "data_warehouse_person_property",
+            "error_tracking_issue",
+            "log",
+            "log_attribute",
+            "log_resource_attribute",
+            "span",
+            "span_attribute",
+            "span_resource_attribute",
+            "revenue_analytics",
+            "flag",
+            "workflow_variable",
+        ],
+        "AssigneeTypeEnum": ["user", "role"],
+        "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+        "ExistenceOperatorEnum": ["is_set", "is_not_set"],
+        "TaskExecutionModeEnum": ["interactive", "background"],
+        "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "SourceMatchEnum": ["none", "auto", "mapped"],
+        "NotificationDestinationTypeEnum": ["slack", "webhook"],
+        "TaskRunArtifactTypeEnum": [
+            "plan",
+            "context",
+            "reference",
+            "output",
+            "artifact",
+            "tree_snapshot",
+            "user_attachment",
+        ],
+        # Same-value collisions: identical choice sets appear on fields with different names.
+        # href_matching, text_matching, url_matching on ActionStep all share the same choices.
+        "ActionStepMatchingEnum": ["contains", "regex", "exact"],
+        # effective_restriction_level and effective_privilege_level are SerializerMethodFields
+        # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
+        # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
+        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
+        # effective_membership_level and level on OrganizationMember use the same int values.
+        "EffectiveMembershipLevelEnum": [(1, 1), (8, 8), (15, 15)],
+        # descriptionContentType and thankYouMessageDescriptionContentType share values.
+        "DescriptionContentTypeEnum": ["text", "html"],
+        # Field-name collisions: multiple different choice sets use the same field name
+        # across different serializer components.
+        "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
+        "DetailModeValueEnum": ["minimal", "detailed"],
+        "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+        # runtime_adapter on TaskRunCreateRequestSerializer (full set) vs
+        # ClaudeTaskRunCreateSchemaSerializer and CodexTaskRunCreateSchemaSerializer (subsets).
+        "RuntimeAdapterEnum": ["claude", "codex"],
+        "ClaudeRuntimeAdapterEnum": ["claude"],
+        "CodexRuntimeAdapterEnum": ["codex"],
     },
 }
 
@@ -623,14 +731,10 @@ TOOLBAR_OAUTH_SCOPES = [
     "element:read",
     "uploaded_media:write",
     "survey:read",
+    "survey:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
-
-SURVEYS_API_USE_HYPERCACHE_TOKENS = get_list(os.getenv("SURVEYS_API_USE_HYPERCACHE_TOKENS", ""))
-SURVEYS_API_USE_REMOTE_CONFIG_COMPARE = get_from_env(
-    "SURVEYS_API_USE_REMOTE_CONFIG_COMPARE", False, type_cast=str_to_bool
-)

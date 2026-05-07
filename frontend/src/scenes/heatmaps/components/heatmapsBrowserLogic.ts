@@ -39,7 +39,7 @@ export interface ReplayIframeData {
 }
 
 // Helper function to detect if a URL contains regex pattern characters
-const isUrlPattern = (url: string): boolean => {
+export const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 
@@ -92,6 +92,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setDataUrl: (url: string | null) => ({ url }),
         setDisplayUrl: (url: string | null) => ({ url }),
+        setDataUrlUserTouched: (touched: boolean) => ({ touched }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -216,6 +217,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setDisplayUrl: (_, { url }) => url,
             },
         ],
+        userTouchedDataUrl: [
+            false,
+            {
+                setDataUrlUserTouched: (_, { touched }) => touched,
+            },
+        ],
     }),
 
     selectors({
@@ -272,7 +279,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, props, values, cache }) => ({
         setDisplayUrl: ({ url }) => {
-            actions.setDataUrl(url?.trim() ?? null)
+            // Don't clobber a separately edited data URL when the page URL changes.
+            if (!values.userTouchedDataUrl) {
+                actions.setDataUrl(url?.trim() ?? null)
+            }
         },
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {

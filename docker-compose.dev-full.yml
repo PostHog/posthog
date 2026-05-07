@@ -19,6 +19,7 @@ services:
             - replay-capture
             - capture
             - feature-flags
+            - hypercache-server
             - web
     db:
         extends:
@@ -162,6 +163,13 @@ services:
         depends_on:
             - redis7
             - db
+
+    hypercache-server:
+        extends:
+            file: docker-compose.base.yml
+            service: hypercache-server
+        depends_on:
+            - redis7
 
     plugins:
         extends:

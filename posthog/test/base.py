@@ -204,8 +204,11 @@ from products.event_definitions.backend.models.property_definition import (
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
 
-# Make sure freezegun ignores our utils class that times functions
-cast(Any, freezegun).configure(extend_ignore_list=["posthog.test.assert_faster_than"])
+# Make sure freezegun ignores our utils class that times functions, and heavy optional
+# deps (e.g. transformers) that can break when freezegun walks sys.modules.
+cast(Any, freezegun).configure(
+    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
+)
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []

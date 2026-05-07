@@ -32,6 +32,34 @@ export const LastRefreshText = (): JSX.Element => {
     )
 }
 
+/** Loading / progress / pessimistic last refresh — same as the left side of `DashboardReloadAction`, without refresh controls. */
+export function DashboardRefreshStatusText(): JSX.Element {
+    const { itemsLoading, refreshMetrics, dashboardLoadData, isAnalyzing } = useValues(dashboardLogic)
+    const isInitialLoad =
+        dashboardLoadData?.action === 'initial_load' || dashboardLoadData?.action === 'initial_load_with_variables'
+    return (
+        <span className="text-muted text-sm whitespace-nowrap">
+            {itemsLoading ? (
+                <span className="flex items-center gap-1">
+                    <Spinner textColored className="text-sm" />
+                    {isAnalyzing ? (
+                        <>Analyzing...</>
+                    ) : refreshMetrics.total ? (
+                        <>
+                            {isInitialLoad ? 'Loaded' : 'Refreshed'} {refreshMetrics.completed} out of{' '}
+                            {refreshMetrics.total}
+                        </>
+                    ) : (
+                        <>{isInitialLoad ? 'Loading' : 'Refreshing'}...</>
+                    )}
+                </span>
+            ) : (
+                <LastRefreshText />
+            )}
+        </span>
+    )
+}
+
 const REFRESH_INTERVAL_SECONDS = [1800, 3600]
 if (process.env.NODE_ENV === 'development') {
     REFRESH_INTERVAL_SECONDS.unshift(10)
@@ -45,14 +73,11 @@ export function DashboardReloadAction(): JSX.Element {
     const {
         itemsLoading,
         autoRefresh,
-        refreshMetrics,
         blockRefresh,
         nextAllowedDashboardRefresh,
-        dashboardLoadData,
         hasIntermittentFilters,
         hasUrlFilters,
         urlVariables,
-        isAnalyzing,
     } = useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
         useActions(dashboardLogic)
@@ -93,31 +118,7 @@ export function DashboardReloadAction(): JSX.Element {
 
     return (
         <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
-            {/* Status text */}
-            <span className="text-muted text-sm whitespace-nowrap">
-                {itemsLoading ? (
-                    <span className="flex items-center gap-1">
-                        <Spinner textColored className="text-sm" />
-                        {isAnalyzing ? (
-                            <>Analyzing...</>
-                        ) : refreshMetrics.total > 0 && refreshMetrics.completed < refreshMetrics.total ? (
-                            <>
-                                {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
-                                {refreshMetrics.completed} out of {refreshMetrics.total}
-                            </>
-                        ) : refreshMetrics.total ? (
-                            <>
-                                {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
-                                {refreshMetrics.completed} out of {refreshMetrics.total}
-                            </>
-                        ) : (
-                            <>{dashboardLoadData?.action === 'initial_load' ? 'Loading' : 'Refreshing'}...</>
-                        )}
-                    </span>
-                ) : (
-                    <LastRefreshText />
-                )}
-            </span>
+            <DashboardRefreshStatusText />
 
             <AppShortcut
                 name="DashboardRefresh"

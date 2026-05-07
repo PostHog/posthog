@@ -1,5 +1,20 @@
 # Security guidelines for agents
 
+## Principle of Least Privilege
+
+Default to the smallest permission, narrowest field set, and shortest scope that still works. If a change needs more access than what's already in place, stop and reconsider the design before widening it.
+
+- **Default deny.** Start from no access and add what's required, rather than opening things up and trimming back.
+- **Scope every queryset.** Filter by `team_id` (and `organization_id` where appropriate) so a request can only ever touch its own data.
+- **Reuse existing permission and access-control classes** — don't write a looser variant to fit a new caller. If the existing class doesn't fit, that's a design conversation, not a quick relax.
+- **Separate read and write checks.** "Can see" and "can modify" are different questions; don't let one imply the other.
+- **Lock down ownership fields.** Mark `team`, `created_by`, `organization`, and similar fields as `read_only` on serializers. Set them server-side from request context, never from client input.
+- **Expose the minimum on serializers.** Don't include tokens, secrets, internal IDs, or fields a caller doesn't need just because they exist on the model.
+- **Gate admin and internal paths explicitly.** Use `is_staff`, organization roles, or feature flags — never rely on URL obscurity or "no one will hit this".
+- **Background work runs with caller scope.** Celery tasks and Temporal activities should preserve the requesting user/team, not silently escalate to superuser.
+- **Tokens and credentials: narrowest scope, shortest lifetime.** Don't widen an existing token's scope to fit a new use case — mint a new one. Never log secrets, never commit them.
+- **Remove access in the same change as the feature.** When a role, endpoint, or capability goes away, delete its permissions and grants then and there. Dormant grants accumulate and become tomorrow's incident.
+
 ## SQL Security
 
 - **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities

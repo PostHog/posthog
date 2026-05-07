@@ -1,3 +1,11 @@
+<!-- Authoring rules (agents: read).
+     Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
+       ✅ feat(insights): add retention graph export
+       ❌ feat: Added retention export.   (capitalized, period, no scope)
+     Description: high-level rationale, not a step-by-step replay.
+     Public OSS repo: no internal customers, incidents, or operational metrics.
+-->
+
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
@@ -12,9 +20,9 @@
 
 ## How did you test this code?
 
-<!-- Briefly describe the steps you took, and what steps reviewers must take to get to where changes are, and what is the expected behavior. -->
+<!-- Describe steps to reproduce and verify the changes, and what the expected behavior is. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
-<!-- If you are an agent writing this, do NOT include manual tasks you have NOT completed. You can clearly outline you're simply an agent and you haven't tested this manually except for code-based unit/integration tests -->
+<!-- Agents: do NOT claim manual testing you haven't done. State that you're an agent and list only the automated tests you actually ran. -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
@@ -30,6 +38,18 @@
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
 
-<!-- ## 🤖 LLM context -->
+## 🤖 Agent context
 
-<!-- If an LLM agent co-authored or authored this PR, uncomment this section and leave any relevant context about the session, tools used, link to the session, or anything else that may help reviewers. -->
+<!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
+<!-- Include:
+     - tools/agent used and link to session
+     - decisions made along the way (what was tried, rejected, chosen, and why)
+     - anything else that helps reviewers
+     Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
+-->
+<!-- Rules for agent-authored PRs:
+     - All PRs must be attributable to a human author, even if agent-assisted.
+     - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
+     - Agent-authored PRs always require human review — do not self-merge or auto-approve.
+     - Do NOT claim manual testing you haven't done.
+-->

@@ -2,6 +2,8 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pydantic
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -46,6 +48,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
     authentication_classes = [PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
 
+    @extend_schema(request=InsightsToolCallSerializer, responses={200: OpenApiTypes.OBJECT})
     @action(
         detail=False,
         methods=["POST"],

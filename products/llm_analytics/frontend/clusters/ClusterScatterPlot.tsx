@@ -7,6 +7,8 @@ import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 
 import { clustersLogic } from './clustersLogic'
+import { isCentroidDataset } from './constants'
+import { formatEvalTitle } from './traceSummaryLoader'
 import { TraceSummary } from './types'
 
 interface ScatterPoint {
@@ -44,15 +46,38 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
         const point = dataset.data?.[element.index] as ScatterPoint | undefined
 
         // Navigate to cluster page for centroid clicks
-        if (dataset.label?.includes('(centroid)')) {
+        if (isCentroidDataset(dataset)) {
             if (point?.clusterId !== undefined && effectiveRunId) {
                 router.actions.push(urls.llmAnalyticsCluster(effectiveRunId, point.clusterId))
             }
             return
         }
 
+        if (!point) {
+            return
+        }
+
+        if (clusteringLevel === 'evaluation') {
+            // Eval point.traceId is the backend's eval-uuid fallback when
+            // metadata wasn't resolved; routing there 404s. Use summary.traceId
+            // instead; no-op until the summary loads.
+            const summary = point.generationId ? traceSummaries[point.generationId] : undefined
+            const resolvedTraceId = summary?.traceId
+            if (!resolvedTraceId) {
+                return
+            }
+            router.actions.push(
+                urls.llmAnalyticsTrace(resolvedTraceId, {
+                    tab: 'summary',
+                    ...(point.generationId ? { event: point.generationId } : {}),
+                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
+                })
+            )
+            return
+        }
+
         // Navigate to trace page for trace/generation clicks
-        if (point?.traceId) {
+        if (point.traceId) {
             router.actions.push(
                 urls.llmAnalyticsTrace(point.traceId, {
                     tab: 'summary',
@@ -79,12 +104,30 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                     maintainAspectRatio: false,
                     // Chart.js onClick type is complex; cast through unknown for type safety
                     onClick: handleClick as unknown as undefined,
-                    onHover: (event, elements) => {
+                    onHover: (event, elements, chart) => {
                         const canvas = event.native?.target as HTMLCanvasElement | undefined
-                        if (canvas) {
-                            // Show pointer cursor for all clickable points (traces and centroids)
-                            canvas.style.cursor = elements.length > 0 ? 'pointer' : 'default'
+                        if (!canvas) {
+                            return
                         }
+                        if (elements.length === 0) {
+                            canvas.style.cursor = 'default'
+                            return
+                        }
+                        // Eval points are only clickable once their summary has loaded —
+                        // otherwise the click would route to /traces/<eval_uuid> and 404.
+                        if (clusteringLevel === 'evaluation') {
+                            const element = elements[0]
+                            const dataset = chart?.data?.datasets?.[element.datasetIndex]
+                            if (isCentroidDataset(dataset)) {
+                                canvas.style.cursor = 'pointer'
+                                return
+                            }
+                            const point = dataset?.data?.[element.index] as ScatterPoint | undefined
+                            const summary = point?.generationId ? traceSummaries[point.generationId] : undefined
+                            canvas.style.cursor = summary?.traceId ? 'pointer' : 'default'
+                            return
+                        }
+                        canvas.style.cursor = 'pointer'
                     },
                     plugins: {
                         legend: {
@@ -115,19 +158,29 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                                     return datasetLabel.replace(' (centroid)', '')
                                 },
                                 label: (context) => {
-                                    const isCentroid = context.dataset.label?.includes('(centroid)')
+                                    const isCentroid = isCentroidDataset(context.dataset)
                                     if (isCentroid) {
                                         return 'Cluster centroid'
                                     }
 
                                     const point = context.raw as ScatterPoint
-                                    // For generation-level, summaries are keyed by generation_id
-                                    // For trace-level, summaries are keyed by trace_id
+                                    // For evaluation-level, the cluster item id (= eval uuid) is
+                                    // carried in generationId; traceId is the parent trace being
+                                    // judged, which doesn't key into the summary map.
+                                    // For generation-level, summaries are keyed by generation_id.
+                                    // For trace-level, summaries are keyed by trace_id.
                                     const summaryKey =
-                                        clusteringLevel === 'generation' ? point.generationId : point.traceId
+                                        clusteringLevel === 'generation' || clusteringLevel === 'evaluation'
+                                            ? point.generationId
+                                            : point.traceId
                                     if (summaryKey) {
                                         const summary = traceSummaries[summaryKey]
-                                        if (summary?.title) {
+                                        if (clusteringLevel === 'evaluation') {
+                                            const formatted = formatEvalTitle(summary, 140)
+                                            if (formatted) {
+                                                return formatted
+                                            }
+                                        } else if (summary?.title) {
                                             return summary.title
                                         }
                                     }
@@ -135,14 +188,14 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                                     return undefined
                                 },
                                 footer: (context) => {
-                                    const isCentroid = context[0]?.dataset?.label?.includes('(centroid)')
+                                    const isCentroid = isCentroidDataset(context[0]?.dataset)
                                     if (isCentroid) {
                                         return 'click to view cluster'
                                     }
 
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return clusteringLevel === 'generation'
+                                        return clusteringLevel === 'generation' || clusteringLevel === 'evaluation'
                                             ? 'click to view generation'
                                             : 'click to view trace'
                                     }

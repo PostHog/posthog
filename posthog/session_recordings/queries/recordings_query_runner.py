@@ -8,6 +8,7 @@ from posthog.schema import (
     SnapshotSource,
 )
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -17,6 +18,8 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
     cached_response: CachedRecordingsQueryResponse
 
     def _calculate(self) -> RecordingsQueryResponse:
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
+
         listing = SessionRecordingListFromQuery(
             team=self.team,
             query=self.query,

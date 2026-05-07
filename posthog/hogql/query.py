@@ -25,6 +25,11 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    GenerateSeriesTable,
+    OpaqueFunctionCallTable,
+    RangeTable,
+)
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
@@ -144,15 +149,12 @@ def direct_postgres_session_setup_sql(
     normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
 
     if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
-        if isinstance(database, str) and database.strip():
-            quoted_database = escape_postgres_identifier(database.strip())
-            if normalized_schema:
-                quoted_schema = escape_postgres_identifier(normalized_schema)
-                return f"USE {quoted_database}.{quoted_schema}"
-            return f"USE {quoted_database}"
         if normalized_schema:
             quoted_schema = escape_postgres_identifier(normalized_schema)
             return f"USE {quoted_schema}"
+        if isinstance(database, str) and database.strip():
+            quoted_database = escape_postgres_identifier(database.strip())
+            return f"USE {quoted_database}"
         return None
 
     if not normalized_schema:
@@ -227,15 +229,7 @@ def should_hydrate_runtime_direct_postgres_connection_metadata(
     connection_metadata: dict[str, object] | None = None,
 ) -> bool:
     normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
-    if normalized_schema is None:
-        return True
-
-    if not isinstance(connection_metadata, dict):
-        return False
-
-    engine = connection_metadata.get("engine")
-    database = connection_metadata.get("database")
-    return engine == "duckdb" and not (isinstance(database, str) and database.strip())
+    return normalized_schema is None
 
 
 @dataclasses.dataclass
@@ -319,7 +313,19 @@ class HogQLQueryExecutor:
             if finder.has_filters:
                 if "filters" in self.placeholders and self.filters is not None:
                     raise ValueError("Query contains 'filters' both as placeholder and as a query parameter.")
-                self.select_query = replace_filters(self.select_query, self.filters, self.team)
+                # Build the database once with the executor's modifiers and cache it on the context
+                # so that _generate_hogql reuses it instead of building a second Database.
+                # Skip for direct-connection queries, whose database needs a connection_id resolved later.
+                if self.context.database is None and self.connection_id is None:
+                    self.context.database = Database.create_for(
+                        team=self.team,
+                        user=self.user,
+                        modifiers=self.query_modifiers,
+                        timings=self.timings,
+                    )
+                self.select_query = replace_filters(
+                    self.select_query, self.filters, self.team, database=self.context.database
+                )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
                 self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
@@ -457,7 +463,14 @@ class HogQLQueryExecutor:
         if query_type is None:
             return None
 
-        base_table_types = extract_base_table_types(query_type)
+        # Dialect-level table functions (range, generate_series, introspected opaque calls)
+        # aren't bound to any source — they're standalone SQL any direct connection can run,
+        # so they shouldn't influence source dispatching or block table-less execution.
+        base_table_types = [
+            table_type
+            for table_type in extract_base_table_types(query_type)
+            if not isinstance(table_type.table, (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable))
+        ]
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
