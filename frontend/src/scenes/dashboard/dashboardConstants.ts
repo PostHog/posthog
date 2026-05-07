@@ -1,4 +1,6 @@
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+import constants from './dashboardConstants.json'
+
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = constants.AUTO_REFRESH_INITIAL_INTERVAL_SECONDS
 
 /**
  * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,

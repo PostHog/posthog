@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from pathlib import Path
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
@@ -194,10 +196,15 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`. Must match the
-# frontend `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` (1800s) — drift would silently drop
-# periodic refresh ticks. Best-effort throttle, not a hard rate limit.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=30)
+# Minimum age before a shared insight may honor `?refresh=force_blocking`. Derived from
+# the shared constant in frontend/src/scenes/dashboard/dashboardConstants.json so that
+# frontend and backend stay in sync without fragile cross-language file parsing.
+_DASHBOARD_CONSTANTS_PATH = (
+    Path(__file__).resolve().parents[2] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardConstants.json"
+)
+_dashboard_constants = json.loads(_DASHBOARD_CONSTANTS_PATH.read_text())
+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS: int = _dashboard_constants["AUTO_REFRESH_INITIAL_INTERVAL_SECONDS"]
+SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)
 
 
 _SHARED_MODE_WHITELIST = {
