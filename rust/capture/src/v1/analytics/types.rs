@@ -708,6 +708,7 @@ mod tests {
     #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
     #[case::limited_main(EventResult::Limited, Destination::AnalyticsMain)]
     #[case::limited_historical(EventResult::Limited, Destination::AnalyticsHistorical)]
+    #[case::limited_overflow(EventResult::Limited, Destination::Overflow)]
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
