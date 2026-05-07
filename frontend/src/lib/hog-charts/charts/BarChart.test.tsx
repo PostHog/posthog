@@ -1,6 +1,6 @@
 import { cleanup, waitFor } from '@testing-library/react'
 
-import type { ChartTheme, Series } from '../core/types'
+import type { BarChartConfig, ChartTheme, Series } from '../core/types'
 import { ReferenceLine } from '../overlays/ReferenceLine'
 import { clickAtIndex, hoverAtIndex, renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
 import { BarChart } from './BarChart'
@@ -172,20 +172,23 @@ describe('BarChart', () => {
             expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue' }))
         })
 
-        it('passes every visible series to the tooltip in stacked layout', async () => {
-            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
+        it.each([
+            {
+                name: 'stacked layout carries every visible series in the tooltip',
+                config: undefined as BarChartConfig | undefined,
+                expectedKeys: ['a', 'b'],
+            },
+            {
+                name: 'grouped layout narrows to the bar under the cursor',
+                config: { barLayout: 'grouped' } as BarChartConfig,
+                // hoverAtIndex puts the cursor at band-center / mid-plot, which lands in `b`'s sub-band.
+                expectedKeys: ['b'],
+            },
+        ])('$name', async ({ config, expectedKeys }) => {
+            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
             const tooltip = await chart.waitForTooltip()
-            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(SERIES.map((s) => s.key))
-        })
-
-        it('narrows seriesData to the hovered bar in grouped layout', async () => {
-            const { chart } = renderHogChart(
-                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />
-            )
-            hoverAtIndex(chart.element, 1, LABELS.length)
-            const tooltip = await chart.waitForTooltip()
-            expect(tooltip.seriesData).toHaveLength(1)
+            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
         })
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {

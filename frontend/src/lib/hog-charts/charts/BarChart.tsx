@@ -283,22 +283,26 @@ function BarChartInner<Meta = unknown>({
             }
             const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
-            // Stacked/percent: highlight the whole column (matches chart.js mode='nearest').
-            // Grouped: per-bar so siblings at the same band don't all light up.
-            const hitKeys =
-                barLayout === 'grouped' && hoverPosition
-                    ? seriesKeysAtCursor({
-                          series: coloredSeries,
-                          label: hoveredLabel,
-                          dataIndex: hoverIndex,
-                          cursor: hoverPosition,
-                          scales: d3Scales,
-                          layout: barLayout,
-                          isHorizontal,
-                          stackedData,
-                          topStackedKeyByAxis,
-                      })
-                    : null
+            // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
+            // (no hits), fall back to highlighting all — matches the tooltip narrower's
+            // gap-fallback so highlight and tooltip don't disagree about what's "active".
+            let hitKeys: Set<string> | null = null
+            if (barLayout === 'grouped' && hoverPosition) {
+                const hits = seriesKeysAtCursor({
+                    series: coloredSeries,
+                    label: hoveredLabel,
+                    dataIndex: hoverIndex,
+                    cursor: hoverPosition,
+                    scales: d3Scales,
+                    layout: barLayout,
+                    isHorizontal,
+                    stackedData,
+                    topStackedKeyByAxis,
+                })
+                if (hits.size > 0) {
+                    hitKeys = hits
+                }
+            }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
