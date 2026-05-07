@@ -379,6 +379,11 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
             "type": "string"
         },
+        "AggregationType": {
+            "description": "Aggregation type to use for retention.",
+            "enum": ["count", "sum", "avg"],
+            "type": "string"
+        },
         "AlertCalculationInterval": {
             "enum": ["hourly", "daily", "weekly", "monthly"],
             "type": "string"
@@ -1073,9 +1078,8 @@
             "additionalProperties": false,
             "properties": {
                 "yAxisPosition": {
-                    "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
-                    "enum": ["left", "right"],
-                    "type": "string"
+                    "$ref": "#/definitions/YAxisPosition",
+                    "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis."
                 }
             },
             "type": "object"
@@ -1234,9 +1238,8 @@
                     "type": "string"
                 },
                 "scale": {
-                    "description": "Scale used for this Y axis.",
-                    "enum": ["linear", "logarithmic"],
-                    "type": "string"
+                    "$ref": "#/definitions/Scale",
+                    "description": "Scale used for this Y axis."
                 },
                 "showGridLines": {
                     "description": "Show grid lines for this Y axis.",
@@ -3062,19 +3065,17 @@
                     "type": "string"
                 },
                 "aggregationType": {
+                    "$ref": "#/definitions/AggregationType",
                     "default": "count",
-                    "description": "The aggregation type to use for retention.",
-                    "enum": ["count", "sum", "avg"],
-                    "type": "string"
+                    "description": "The aggregation type to use for retention."
                 },
                 "cumulative": {
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
                 },
                 "meanRetentionCalculation": {
-                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
+                    "$ref": "#/definitions/MeanRetentionCalculation",
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
                 },
                 "minimumOccurrences": {
                     "$ref": "#/definitions/integer",
@@ -3110,9 +3111,8 @@
                     "description": "Activation event (event putting the actor into the initial cohort)."
                 },
                 "timeWindowMode": {
-                    "description": "The time window mode to use for retention calculations.",
-                    "enum": ["strict_calendar_dates", "24_hour_windows"],
-                    "type": "string"
+                    "$ref": "#/definitions/TimeWindowMode",
+                    "description": "The time window mode to use for retention calculations."
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
@@ -3690,9 +3690,8 @@
                     "type": "array"
                 },
                 "compare": {
-                    "description": "Whether to pull from the previous period when `compare` is enabled in the source.",
-                    "enum": ["current", "previous"],
-                    "type": "string"
+                    "$ref": "#/definitions/Compare",
+                    "description": "Whether to pull from the previous period when `compare` is enabled in the source."
                 },
                 "day": {
                     "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
@@ -3945,10 +3944,9 @@
                     "description": "Smoothing intervals for the trend line."
                 },
                 "yAxisScaleType": {
+                    "$ref": "#/definitions/YAxisScaleType",
                     "default": "linear",
-                    "description": "Whether to scale the y-axis.",
-                    "enum": ["log10", "linear"],
-                    "type": "string"
+                    "description": "Whether to scale the y-axis."
                 }
             },
             "type": "object"
@@ -10309,8 +10307,7 @@
                     "type": "boolean"
                 },
                 "yAxisPosition": {
-                    "enum": ["left", "right"],
-                    "type": "string"
+                    "$ref": "#/definitions/YAxisPosition"
                 }
             },
             "type": "object"
@@ -10384,6 +10381,11 @@
             },
             "required": ["key", "operator", "type", "value"],
             "type": "object"
+        },
+        "Compare": {
+            "description": "Whether a value applies to the current period or the previous period.",
+            "enum": ["current", "previous"],
+            "type": "string"
         },
         "CompareFilter": {
             "additionalProperties": false,
@@ -16491,9 +16493,8 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "multipleVariantHandling": {
-                    "description": "How to handle users with multiple variant exposures.",
-                    "enum": ["exclude", "first_seen"],
-                    "type": "string"
+                    "$ref": "#/definitions/MultipleVariantHandling",
+                    "description": "How to handle users with multiple variant exposures."
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -16814,8 +16815,7 @@
                     "type": "boolean"
                 },
                 "multiple_variant_handling": {
-                    "enum": ["exclude", "first_seen"],
-                    "type": "string"
+                    "$ref": "#/definitions/MultipleVariantHandling"
                 }
             },
             "type": "object"
@@ -20952,8 +20952,7 @@
                     ]
                 },
                 "compare": {
-                    "enum": ["current", "previous"],
-                    "type": "string"
+                    "$ref": "#/definitions/Compare"
                 },
                 "day": {
                     "anyOf": [
@@ -25451,6 +25450,11 @@
                 }
             ]
         },
+        "MeanRetentionCalculation": {
+            "description": "How retention computes the per-period mean.",
+            "enum": ["simple", "weighted", "none"],
+            "type": "string"
+        },
         "MetaAdsConversionFallbackActionTypes": {
             "enum": ["purchase", "lead", "complete_registration", "app_install", "subscribe"],
             "type": "string"
@@ -25740,6 +25744,11 @@
                 "data_warehouse",
                 "data_warehouse_person_property"
             ],
+            "type": "string"
+        },
+        "MultipleVariantHandling": {
+            "description": "How to handle users with multiple variant exposures in an experiment.",
+            "enum": ["exclude", "first_seen"],
             "type": "string"
         },
         "NativeMarketingSource": {
@@ -32766,10 +32775,9 @@
                     "type": "string"
                 },
                 "aggregationType": {
+                    "$ref": "#/definitions/AggregationType",
                     "default": "count",
-                    "description": "The aggregation type to use for retention",
-                    "enum": ["count", "sum", "avg"],
-                    "type": "string"
+                    "description": "The aggregation type to use for retention"
                 },
                 "cumulative": {
                     "type": "boolean"
@@ -32792,8 +32800,7 @@
                     "type": "array"
                 },
                 "meanRetentionCalculation": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
+                    "$ref": "#/definitions/MeanRetentionCalculation"
                 },
                 "minimumOccurrences": {
                     "$ref": "#/definitions/integer"
@@ -32838,9 +32845,8 @@
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "timeWindowMode": {
-                    "description": "The time window mode to use for retention calculations",
-                    "enum": ["strict_calendar_dates", "24_hour_windows"],
-                    "type": "string"
+                    "$ref": "#/definitions/TimeWindowMode",
+                    "description": "The time window mode to use for retention calculations"
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
@@ -32851,14 +32857,13 @@
         },
         "RetentionFilterLegacy": {
             "additionalProperties": false,
-            "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
+            "description": "`RetentionFilterType` minus everything inherited from `FilterType`.",
             "properties": {
                 "cumulative": {
                     "type": "boolean"
                 },
                 "mean_retention_calculation": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
+                    "$ref": "#/definitions/MeanRetentionCalculation"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
@@ -34223,6 +34228,11 @@
             },
             "required": ["kind", "shortId"],
             "type": "object"
+        },
+        "Scale": {
+            "description": "Scale used for a Y axis.",
+            "enum": ["linear", "logarithmic"],
+            "type": "string"
         },
         "SchemaMap": {
             "additionalProperties": {
@@ -35835,8 +35845,7 @@
             "additionalProperties": false,
             "properties": {
                 "compare": {
-                    "enum": ["current", "previous"],
-                    "type": "string"
+                    "$ref": "#/definitions/Compare"
                 },
                 "day": {
                     "anyOf": [
@@ -36983,6 +36992,11 @@
             },
             "type": "object"
         },
+        "TimeWindowMode": {
+            "description": "Time window mode used for retention calculations.",
+            "enum": ["strict_calendar_dates", "24_hour_windows"],
+            "type": "string"
+        },
         "TimelineEntry": {
             "additionalProperties": false,
             "properties": {
@@ -37565,15 +37579,15 @@
                     "default": 1
                 },
                 "yAxisScaleType": {
-                    "enum": ["log10", "linear"],
-                    "type": "string"
+                    "$ref": "#/definitions/YAxisScaleType",
+                    "default": "linear"
                 }
             },
             "type": "object"
         },
         "TrendsFilterLegacy": {
             "additionalProperties": false,
-            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `shown_as`",
+            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `shown_as`.",
             "properties": {
                 "aggregation_axis_format": {
                     "$ref": "#/definitions/AggregationAxisFormat"
@@ -37640,8 +37654,8 @@
                     "type": "number"
                 },
                 "y_axis_scale_type": {
-                    "enum": ["log10", "linear"],
-                    "type": "string"
+                    "$ref": "#/definitions/YAxisScaleType",
+                    "default": "linear"
                 }
             },
             "type": "object"
@@ -40190,6 +40204,16 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "YAxisPosition": {
+            "description": "Which Y axis a numeric series should use. Use `right` for a secondary Y axis.",
+            "enum": ["left", "right"],
+            "type": "string"
+        },
+        "YAxisScaleType": {
+            "description": "Whether to scale the y-axis.",
+            "enum": ["log10", "linear"],
+            "type": "string"
+        },
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
@@ -40197,8 +40221,7 @@
                     "type": "string"
                 },
                 "scale": {
-                    "enum": ["linear", "logarithmic"],
-                    "type": "string"
+                    "$ref": "#/definitions/Scale"
                 },
                 "showGridLines": {
                     "type": "boolean"

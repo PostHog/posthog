@@ -1,6 +1,7 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { RETENTION_MEAN_NONE } from 'lib/constants'
 import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
@@ -1088,11 +1089,37 @@ export interface ChartSettingsFormatting {
     decimalPlaces?: number
 }
 
+/** Whether to scale the y-axis. */
+export type YAxisScaleType = 'log10' | 'linear'
+
+/** Which Y axis a numeric series should use. Use `right` for a secondary Y axis. */
+export type YAxisPosition = 'left' | 'right'
+
+/** Scale used for a Y axis. */
+export type Scale = 'linear' | 'logarithmic'
+
+/** Whether a value applies to the current period or the previous period. */
+export type Compare = 'current' | 'previous'
+
+/** Aggregation type to use for retention. */
+export type AggregationType = 'count' | 'sum' | 'avg'
+
+/** How to handle users with multiple variant exposures in an experiment. */
+export type MultipleVariantHandling = 'exclude' | 'first_seen'
+
+/** How retention computes the per-period mean. */
+// `typeof RETENTION_MEAN_NONE` is silently stripped by the JSON Schema generator (it's a
+// constant ref, not a literal), so the schema/Python enum stays two-valued.
+export type MeanRetentionCalculation = 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
+
+/** Time window mode used for retention calculations. */
+export type TimeWindowMode = 'strict_calendar_dates' | '24_hour_windows'
+
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
     trendLine?: boolean
-    yAxisPosition?: 'left' | 'right'
+    yAxisPosition?: YAxisPosition
     displayType?: 'auto' | 'line' | 'bar' | 'area'
 }
 
@@ -1123,7 +1150,7 @@ export interface HeatmapSettings {
 
 export interface YAxisSettings {
     label?: string
-    scale?: 'linear' | 'logarithmic'
+    scale?: Scale
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
     showGridLines?: boolean
@@ -1337,8 +1364,11 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends
     tags?: QueryLogTags
 }
 
-/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
-export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
+/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as`. */
+export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as' | 'y_axis_scale_type'> & {
+    /** @default linear */
+    y_axis_scale_type?: YAxisScaleType
+}
 
 export enum ResultCustomizationBy {
     Value = 'value',
@@ -1378,7 +1408,8 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
-    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** @default linear */
+    yAxisScaleType?: YAxisScaleType
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1620,8 +1651,10 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 
-/** `RetentionFilterType` minus everything inherited from `FilterType` */
-export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
+/** `RetentionFilterType` minus everything inherited from `FilterType`. */
+export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType | 'mean_retention_calculation'> & {
+    mean_retention_calculation?: MeanRetentionCalculation
+}
 
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
@@ -1635,12 +1668,12 @@ export type RetentionFilter = {
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
     /** @description The time window mode to use for retention calculations */
-    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    timeWindowMode?: TimeWindowMode
     /** @description Custom brackets for retention calculations */
     retentionCustomBrackets?: number[]
     /** @description The aggregation type to use for retention
      * @default count */
-    aggregationType?: 'count' | 'sum' | 'avg'
+    aggregationType?: AggregationType
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
     /** @description The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
@@ -1650,7 +1683,7 @@ export type RetentionFilter = {
     customAggregationTarget?: boolean
 
     //frontend only
-    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    meanRetentionCalculation?: MeanRetentionCalculation
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
@@ -3328,7 +3361,7 @@ export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNo
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
-    multiple_variant_handling?: 'exclude' | 'first_seen'
+    multiple_variant_handling?: MultipleVariantHandling
 }
 
 export interface ExperimentEventExposureConfig extends Node {
@@ -3605,7 +3638,7 @@ export interface ExperimentActorsQuery extends InsightActorsQueryBase {
     /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
     exposureConfig?: ExperimentExposureConfig
     /** How to handle users with multiple variant exposures. */
-    multipleVariantHandling?: 'exclude' | 'first_seen'
+    multipleVariantHandling?: MultipleVariantHandling
     /** Feature flag key for breakdown filtering. */
     featureFlagKey?: string
 }
@@ -3777,7 +3810,7 @@ export interface InsightActorsQuery<
     interval?: integer
     series?: integer
     breakdown?: string | BreakdownValueInt | string[]
-    compare?: 'current' | 'previous'
+    compare?: Compare
 }
 
 export interface StickinessActorsQuery extends InsightActorsQueryBase {
@@ -3786,7 +3819,7 @@ export interface StickinessActorsQuery extends InsightActorsQueryBase {
     operator?: StickinessOperator
     day?: string | Day
     series?: integer
-    compare?: 'current' | 'previous'
+    compare?: Compare
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {

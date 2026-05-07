@@ -12,6 +12,8 @@ import {
 
 import {
     ActionsNode,
+    AggregationType,
+    Compare,
     CompareFilter,
     DateRange,
     ErrorTrackingIssueAssignee,
@@ -21,17 +23,22 @@ import {
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
     LifecycleFilterLegacy,
+    MeanRetentionCalculation,
     MultipleBreakdownType,
     Node,
     NodeKind,
     type RecordingOrder,
     type RecordingOrderDirection,
     RetentionFilterLegacy,
+    Scale,
     StickinessComputationMode,
     StickinessFilterLegacy,
     StickinessCriteria,
+    TimeWindowMode,
     TrendsFilterLegacy,
     TrendsFormulaNode,
+    YAxisPosition,
+    YAxisScaleType,
 } from './schema-general'
 import { integer } from './type-utils'
 
@@ -530,7 +537,7 @@ export interface AssistantTrendsFilter {
      * Whether to scale the y-axis.
      * @default linear
      */
-    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    yAxisScaleType?: YAxisScaleType
 
     /**
      * Whether to show alert threshold lines on the chart.
@@ -856,7 +863,7 @@ export interface AssistantRetentionFilter {
      */
     period?: RetentionFilterLegacy['period']
     /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
-    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    meanRetentionCalculation?: MeanRetentionCalculation
     /**
      * Whether retention should be rolling (aka unbounded, cumulative).
      * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.
@@ -865,14 +872,14 @@ export interface AssistantRetentionFilter {
     /**
      * The time window mode to use for retention calculations.
      */
-    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    timeWindowMode?: TimeWindowMode
     /** Custom brackets for retention calculations. */
     retentionCustomBrackets?: number[]
     /**
      * The aggregation type to use for retention.
      * @default count
      */
-    aggregationType?: 'count' | 'sum' | 'avg'
+    aggregationType?: AggregationType
     /** The event or person property to aggregate when aggregationType is sum or avg. */
     aggregationProperty?: string
     /**
@@ -1244,7 +1251,7 @@ export interface AssistantTrendsActorsQuery {
     breakdown?: string[]
 
     /** Whether to pull from the previous period when `compare` is enabled in the source. */
-    compare?: 'current' | 'previous'
+    compare?: Compare
 
     /**
      * Whether to include matched session recordings for each actor.
@@ -1450,7 +1457,7 @@ export type AssistantDataVisualizationDisplayType =
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
-    yAxisPosition?: 'left' | 'right'
+    yAxisPosition?: YAxisPosition
 }
 
 export interface AssistantDataVisualizationAxisSettings {
@@ -1476,7 +1483,7 @@ export interface AssistantDataVisualizationYAxisSettings {
     /** Label rendered beside this Y axis. */
     label?: string
     /** Scale used for this Y axis. */
-    scale?: 'linear' | 'logarithmic'
+    scale?: Scale
     /** Whether this Y axis should start at zero. */
     startAtZero?: boolean
     /** Show tick labels on this Y axis. */

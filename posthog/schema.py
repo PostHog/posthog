@@ -62,6 +62,16 @@ class AggregationAxisFormat(StrEnum):
     SHORT = "short"
 
 
+class AggregationType(StrEnum):
+    """
+    Aggregation type to use for retention.
+    """
+
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
+
+
 class AlertCalculationInterval(StrEnum):
     HOURLY = "hourly"
     DAILY = "daily"
@@ -76,6 +86,10 @@ class AlertConditionType(StrEnum):
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
+    """
+    One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end).
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -113,11 +127,19 @@ class ApprovalResumePayload(BaseModel):
 
 
 class ArtifactContentType(StrEnum):
+    """
+    Type of artifact content
+    """
+
     VISUALIZATION = "visualization"
     NOTEBOOK = "notebook"
 
 
 class ArtifactSource(StrEnum):
+    """
+    Source of artifact - determines which model to fetch from
+    """
+
     ARTIFACT = "artifact"
     INSIGHT = "insight"
     STATE = "state"
@@ -135,31 +157,19 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
-class YAxisPosition(StrEnum):
-    LEFT = "left"
-    RIGHT = "right"
-
-
-class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    yAxisPosition: YAxisPosition | None = Field(
-        default=None,
-        description=("Which Y axis this numeric series should use. Use `right` for a secondary Y axis."),
-    )
-
-
-class AssistantDataVisualizationAxisSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    display: AssistantDataVisualizationAxisDisplaySettings | None = Field(
-        default=None, description="Display settings for a plotted Y series."
-    )
-
-
 class AssistantDataVisualizationDisplayType(StrEnum):
+    """
+    Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.
+
+    - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
+    - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+    - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
+    - `ActionsBar` — bar chart with one bar per X-axis value.
+    - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
+    - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
+    - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+    """
+
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
@@ -177,23 +187,11 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
 
 
-class Scale(StrEnum):
-    LINEAR = "linear"
-    LOGARITHMIC = "logarithmic"
-
-
-class AssistantDataVisualizationYAxisSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    label: str | None = Field(default=None, description="Label rendered beside this Y axis.")
-    scale: Scale | None = Field(default=None, description="Scale used for this Y axis.")
-    showGridLines: bool | None = Field(default=None, description="Show grid lines for this Y axis.")
-    showTicks: bool | None = Field(default=None, description="Show tick labels on this Y axis.")
-    startAtZero: bool | None = Field(default=None, description="Whether this Y axis should start at zero.")
-
-
 class AssistantDateRange(BaseModel):
+    """
+    This filter only works with absolute dates.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -208,6 +206,10 @@ class AssistantDateTimePropertyFilterOperator(StrEnum):
 
 
 class AssistantDurationRange(BaseModel):
+    """
+    This filter only works with durations.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -224,6 +226,10 @@ class AssistantDurationRange(BaseModel):
 
 
 class Key(StrEnum):
+    """
+    The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).
+    """
+
     TAG_NAME = "tag_name"
     TEXT = "text"
     HREF = "href"
@@ -291,6 +297,10 @@ class AssistantElementPropertyFilter4(BaseModel):
 
 
 class OrderDirection(StrEnum):
+    """
+    Sort direction.
+    """
+
     ASC = "ASC"
     DESC = "DESC"
 
@@ -365,6 +375,10 @@ class AssistantFunnelsBreakdownType(StrEnum):
 
 
 class FunnelAggregateByHogQL(Enum):
+    """
+    Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
+    """
+
     PROPERTIES__SESSION_ID = "properties.$session_id"
     NONE_TYPE_NONE = None
 
@@ -461,6 +475,10 @@ class AssistantMessageType(StrEnum):
 
 
 class AssistantNavigateUrl(StrEnum):
+    """
+    Exact possible `urls` keys for the `navigate` tool.
+    """
+
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -506,6 +524,10 @@ class AssistantNumericValuePropertyFilterOperator(StrEnum):
 
 
 class AssistantPathCleaningFilter(BaseModel):
+    """
+    Defines a regex-based path cleaning rule to normalize dynamic path components. Path cleaning rules replace matching URL patterns with a readable alias, which helps group similar paths together (e.g., `/user/123/profile` and `/user/456/profile` become `/user/:id/profile`).
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -529,6 +551,21 @@ class AssistantPathCleaningFilter(BaseModel):
 
 
 class Key5(StrEnum):
+    """
+    Recording metric to filter on.
+    - `duration` — total recording duration in seconds.
+    - `active_seconds` — seconds with user activity.
+    - `inactive_seconds` — seconds without user activity.
+    - `console_error_count` — number of console errors.
+    - `console_log_count` — number of console log entries.
+    - `console_warn_count` — number of console warnings.
+    - `click_count` — number of clicks.
+    - `keypress_count` — number of key presses.
+    - `activity_score` — computed activity score (0-100).
+    - `visited_page` — URL visited during the session.
+    - `snapshot_source` — the recording source (e.g. "web", "mobile").
+    """
+
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
@@ -625,30 +662,21 @@ class AssistantRecordingPropertyFilter4(BaseModel):
 
 
 class AggregationPropertyType(StrEnum):
+    """
+    The type of property to aggregate on (event or person). Defaults to event.
+    """
+
     EVENT = "event"
     PERSON = "person"
 
 
-class AggregationType(StrEnum):
-    COUNT = "count"
-    SUM = "sum"
-    AVG = "avg"
-
-
-class MeanRetentionCalculation(StrEnum):
-    SIMPLE = "simple"
-    WEIGHTED = "weighted"
-    NONE = "none"
-
-
 class RetentionReference(StrEnum):
+    """
+    Whether retention is with regard to initial cohort size, or that of the previous period.
+    """
+
     TOTAL = "total"
     PREVIOUS = "previous"
-
-
-class TimeWindowMode(StrEnum):
-    STRICT_CALENDAR_DATES = "strict_calendar_dates"
-    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
 
 
 class AssistantSetPropertyFilterOperator(StrEnum):
@@ -657,6 +685,13 @@ class AssistantSetPropertyFilterOperator(StrEnum):
 
 
 class AssistantStickinessDisplayType(StrEnum):
+    """
+    Stickiness display types. Only time-series visualizations are supported:
+    - `ActionsLineGraph` - line chart (default)
+    - `ActionsBar` - bar chart
+    - `ActionsAreaGraph` - area chart
+    """
+
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
@@ -753,16 +788,15 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class AssistantTrendsDisplayType(RootModel[str | Any]):
     root: str | Any
 
 
 class Display(StrEnum):
+    """
+    Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
+    """
+
     AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
@@ -777,11 +811,6 @@ class Display(StrEnum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
-
-
-class YAxisScaleType(StrEnum):
-    LOG10 = "log10"
-    LINEAR = "linear"
 
 
 class AssistantUpdateEvent(BaseModel):
@@ -851,6 +880,10 @@ class BaseMathType(StrEnum):
 
 
 class BiasRisk(BaseModel):
+    """
+    Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -980,17 +1013,6 @@ class DisplayType(StrEnum):
     AREA = "area"
 
 
-class ChartSettingsDisplay(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    color: str | None = None
-    displayType: DisplayType | None = None
-    label: str | None = None
-    trendLine: bool | None = None
-    yAxisPosition: YAxisPosition | None = None
-
-
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
@@ -1006,6 +1028,15 @@ class ChartSettingsFormatting(BaseModel):
     prefix: str | None = None
     style: Style | None = None
     suffix: str | None = None
+
+
+class Compare(StrEnum):
+    """
+    Whether a value applies to the current period or the previous period.
+    """
+
+    CURRENT = "current"
+    PREVIOUS = "previous"
 
 
 class CompareFilter(BaseModel):
@@ -1071,6 +1102,10 @@ class ConversationsTicketSignalInput(BaseModel):
 
 
 class CoreEventCategory(StrEnum):
+    """
+    Category for core events (lifecycle stages)
+    """
+
     ACQUISITION = "acquisition"
     ACTIVATION = "activation"
     MONETIZATION = "monetization"
@@ -1276,6 +1311,10 @@ class CustomEventConversionGoal(BaseModel):
 
 
 class DangerousOperationResponse(BaseModel):
+    """
+    Response returned when a tool operation requires user approval
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1578,6 +1617,13 @@ class EndpointLastExecutionTimesRequest(BaseModel):
 
 
 class EndpointRefreshMode(StrEnum):
+    """
+    Controls how endpoint results are fetched.
+    - `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+    - `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+    - `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.
+    """
+
     CACHE = "cache"
     FORCE = "force"
     DIRECT = "direct"
@@ -1615,12 +1661,20 @@ class EndpointsUsageOverviewItemKey(StrEnum):
 
 
 class MaterializationType(Enum):
+    """
+    Filter by materialization type
+    """
+
     MATERIALIZED = "materialized"
     INLINE = "inline"
     NONE_TYPE_NONE = None
 
 
 class Metric(StrEnum):
+    """
+    Metric to trend
+    """
+
     BYTES_READ = "bytes_read"
     CPU_SECONDS = "cpu_seconds"
     REQUESTS = "requests"
@@ -1716,6 +1770,10 @@ class ErrorTrackingIssueCohort(BaseModel):
 
 
 class OrderDirection2(StrEnum):
+    """
+    Sort direction.
+    """
+
     ASC = "ASC"
     DESC = "DESC"
 
@@ -1845,11 +1903,6 @@ class EventsQueryPersonColumn(BaseModel):
     distinct_id: str
     properties: Properties
     uuid: str
-
-
-class MultipleVariantHandling(StrEnum):
-    EXCLUDE = "exclude"
-    FIRST_SEEN = "first_seen"
 
 
 class Kind(StrEnum):
@@ -2713,6 +2766,10 @@ class IntervalType(StrEnum):
 
 
 class Method(StrEnum):
+    """
+    Distance method: 'largest', 'mean', 'median' (default: 'largest')
+    """
+
     LARGEST = "largest"
     MEAN = "mean"
     MEDIAN = "median"
@@ -2845,6 +2902,10 @@ class LoadingBlock(BaseModel):
 
 
 class MatchedOn(StrEnum):
+    """
+    Whether this row matched the search by attribute key or by attribute value.
+    """
+
     KEY = "key"
     VALUE = "value"
 
@@ -2894,6 +2955,10 @@ class LogsOrderBy(StrEnum):
 
 
 class LogsSparklineBreakdownBy(StrEnum):
+    """
+    Field to break down sparkline data by
+    """
+
     SEVERITY = "severity"
     SERVICE = "service"
 
@@ -3238,6 +3303,10 @@ class MaxErrorTrackingIssueContext(BaseModel):
 
 
 class MaxErrorTrackingIssuePreview(BaseModel):
+    """
+    Preview of an error tracking issue for display in Max AI chat
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3254,6 +3323,10 @@ class MaxErrorTrackingIssuePreview(BaseModel):
 
 
 class MaxErrorTrackingSearchResponse(BaseModel):
+    """
+    Response from error tracking search tool containing filters, pagination, and results
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3355,6 +3428,16 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MeanRetentionCalculation(StrEnum):
+    """
+    How retention computes the per-period mean.
+    """
+
+    SIMPLE = "simple"
+    WEIGHTED = "weighted"
+    NONE = "none"
+
+
 class MetaAdsConversionFallbackActionTypes(StrEnum):
     PURCHASE = "purchase"
     LEAD = "lead"
@@ -3422,6 +3505,10 @@ class ModeContext(BaseModel):
 
 
 class MultiQuestionFormFieldType(StrEnum):
+    """
+    Field types allowed inside a multi_field composite question
+    """
+
     TEXT = "text"
     NUMBER = "number"
     SLIDER = "slider"
@@ -3444,6 +3531,10 @@ class MultiQuestionFormQuestionOption(BaseModel):
 
 
 class MultiQuestionFormQuestionType(StrEnum):
+    """
+    Question types: select/multi_select for standalone, multi_field for composite
+    """
+
     SELECT = "select"
     MULTI_SELECT = "multi_select"
     MULTI_FIELD = "multi_field"
@@ -3462,6 +3553,15 @@ class MultipleBreakdownType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
+class MultipleVariantHandling(StrEnum):
+    """
+    How to handle users with multiple variant exposures in an experiment.
+    """
+
+    EXCLUDE = "exclude"
+    FIRST_SEEN = "first_seen"
+
+
 class NativeMarketingSource(StrEnum):
     GOOGLE_ADS = "GoogleAds"
     LINKEDIN_ADS = "LinkedinAds"
@@ -3474,6 +3574,16 @@ class NativeMarketingSource(StrEnum):
 
 
 class NodeKind(StrEnum):
+    """
+    PostHog Query Schema definition.
+
+    This file acts as the source of truth for:
+
+    - frontend/src/queries/schema.json   - generated from typescript via "pnpm --filter=@posthog/frontend run schema:build:json"
+
+    - posthog/schema.py   - generated from json the above json via "pnpm -w run schema:build:python"
+    """
+
     EVENTS_NODE = "EventsNode"
     GROUP_NODE = "GroupNode"
     ACTIONS_NODE = "ActionsNode"
@@ -3564,6 +3674,10 @@ class NodeKind(StrEnum):
 
 
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
+    """
+    Columns for non-integrated conversions table
+    """
+
     SOURCE = "Source"
     CAMPAIGN = "Campaign"
 
@@ -3592,6 +3706,10 @@ class PathType(StrEnum):
 
 
 class PathsFilterLegacy(BaseModel):
+    """
+    `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3865,6 +3983,10 @@ class PropertyMathType(StrEnum):
 
 
 class PropertyOperator(StrEnum):
+    """
+    Sync with nodejs/src/types.ts
+    """
+
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -3927,6 +4049,10 @@ class QueryIndexUsage(StrEnum):
 
 
 class QueryLogTags(BaseModel):
+    """
+    Tags that will be added to the Query log comment  *
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3951,6 +4077,10 @@ class QueryLogTags(BaseModel):
 
 
 class LimitContext(Enum):
+    """
+    Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.
+    """
+
     POSTHOG_AI = "posthog_ai"
     NONE_TYPE_NONE = None
 
@@ -4136,6 +4266,10 @@ class RetentionEntityKind(StrEnum):
 
 
 class AggregationPropertyType1(StrEnum):
+    """
+    The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
+    """
+
     EVENT = "event"
     PERSON = "person"
     DATA_WAREHOUSE = "data_warehouse"
@@ -4241,6 +4375,15 @@ class SamplingRate(BaseModel):
     )
     denominator: float | None = None
     numerator: float
+
+
+class Scale(StrEnum):
+    """
+    Scale used for a Y axis.
+    """
+
+    LINEAR = "linear"
+    LOGARITHMIC = "logarithmic"
 
 
 class SessionAttributionGroupBy(StrEnum):
@@ -4617,6 +4760,10 @@ class StickinessComputationMode(StrEnum):
 
 
 class StickinessFilterLegacy(BaseModel):
+    """
+    `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4842,6 +4989,15 @@ class TikTokAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class TimeWindowMode(StrEnum):
+    """
+    Time window mode used for retention calculations.
+    """
+
+    STRICT_CALENDAR_DATES = "strict_calendar_dates"
+    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
+
+
 class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4872,34 +5028,13 @@ class TraceNeighborsQueryResponse(BaseModel):
 
 
 class DetailedResultsAggregationType(StrEnum):
+    """
+    detailed results table
+    """
+
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class TrendsFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_axis_format: AggregationAxisFormat | None = None
-    aggregation_axis_postfix: str | None = None
-    aggregation_axis_prefix: str | None = None
-    breakdown_histogram_bin_count: float | None = None
-    compare: bool | None = None
-    compare_to: str | None = None
-    decimal_places: float | None = None
-    display: ChartDisplayType | None = None
-    formula: str | None = None
-    hidden_legend_keys: dict[str, bool | Any] | None = None
-    min_decimal_places: float | None = None
-    show_alert_threshold_lines: bool | None = None
-    show_labels_on_series: bool | None = None
-    show_legend: bool | None = None
-    show_multiple_y_axes: bool | None = None
-    show_percent_stack_view: bool | None = None
-    show_values_on_series: bool | None = None
-    smoothing_intervals: float | None = None
-    y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
 class TrendsFormulaNode(BaseModel):
@@ -4972,6 +5107,10 @@ class RETENTION(BaseModel):
 
 
 class VizSpecificOptions(BaseModel):
+    """
+    Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5162,6 +5301,24 @@ class WorkflowVariablePropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class YAxisPosition(StrEnum):
+    """
+    Which Y axis a numeric series should use. Use `right` for a secondary Y axis.
+    """
+
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class YAxisScaleType(StrEnum):
+    """
+    Whether to scale the y-axis.
+    """
+
+    LOG10 = "log10"
+    LINEAR = "linear"
+
+
 class YAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5235,6 +5392,10 @@ class AlertCondition(BaseModel):
 
 
 class AlertScheduleRestriction(BaseModel):
+    """
+    Quiet hours: local time windows when the alert must not run. At most five windows after API normalization.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5287,72 +5448,34 @@ class AssistantCohortPropertyFilter(BaseModel):
     value: int = Field(..., description="The cohort ID to filter by.")
 
 
-class AssistantDataVisualizationAxis(BaseModel):
+class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    column: str = Field(
-        ...,
-        description="Name of a column returned by the SQL query to map onto this axis.",
-    )
-    settings: AssistantDataVisualizationAxisSettings | None = Field(
+    yAxisPosition: YAxisPosition | None = Field(
         default=None,
-        description="Optional series settings. Only applies to Y-axis series.",
+        description=("Which Y axis this numeric series should use. Use `right` for a secondary Y axis."),
     )
 
 
-class AssistantDataVisualizationChartSettings(BaseModel):
+class AssistantDataVisualizationAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
-        default=None, description="Horizontal goal lines drawn across the chart."
-    )
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
-        default=None, description="Settings for the left Y axis."
-    )
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
-        default=None,
-        description=(
-            "Settings for the right Y axis. Only applies when a Y series uses"
-            ' `settings.display.yAxisPosition: "right"`.'
-        ),
-    )
-    seriesBreakdownColumn: str | None = Field(
-        default=None,
-        description=(
-            "Column that splits a single Y series into multiple colored series — e.g."
-            " breaking down a line chart by `country`. Set to `null` or omit to"
-            " disable."
-        ),
-    )
-    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
-    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
-    stackBars100: bool | None = Field(
-        default=None,
-        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
-    )
-    xAxis: AssistantDataVisualizationAxis | None = Field(
-        default=None,
-        description=("Column used as the X axis. Typically a time bucket or categorical column."),
-    )
-    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
-    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
-        default=None, description="One or more numeric columns plotted as Y series."
+    display: AssistantDataVisualizationAxisDisplaySettings | None = Field(
+        default=None, description="Display settings for a plotted Y series."
     )
 
 
-class AssistantDataVisualizationTableSettings(BaseModel):
+class AssistantDataVisualizationYAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list[AssistantDataVisualizationAxis] | None = Field(
-        default=None,
-        description=("Columns to display and their order. Omit to show every column returned by the query."),
-    )
-    pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
-    showTotalRow: bool | None = Field(default=None, description="Show a total row at the bottom of the table.")
-    transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
+    label: str | None = Field(default=None, description="Label rendered beside this Y axis.")
+    scale: Scale | None = Field(default=None, description="Scale used for this Y axis.")
+    showGridLines: bool | None = Field(default=None, description="Show grid lines for this Y axis.")
+    showTicks: bool | None = Field(default=None, description="Show tick labels on this Y axis.")
+    startAtZero: bool | None = Field(default=None, description="Whether this Y axis should start at zero.")
 
 
 class AssistantDateTimePropertyFilter(BaseModel):
@@ -5488,6 +5611,10 @@ class AssistantFunnelsBreakdownFilter(BaseModel):
 
 
 class AssistantFunnelsExclusionEventsNode(BaseModel):
+    """
+    Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6125,6 +6252,10 @@ class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
 
 
 class AssistantTraceQuery(BaseModel):
+    """
+    Fetch a single LLM trace by ID. Returns the full trace with all child events and their complete properties — use for deep inspection of a specific trace found via `query-llm-traces-list`.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6162,6 +6293,12 @@ class AssistantTraceQuery(BaseModel):
 
 
 class AssistantTracesQuery(BaseModel):
+    """
+    Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency, token usage, costs, errors, and other metadata. Use for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
+
+    This is a listing tool, not a visualization/insight tool. It does not support series, breakdowns, or math aggregations. Use property filters and dateRange to narrow results.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6440,20 +6577,15 @@ class CampaignFieldPreference(BaseModel):
     match_field: MatchField
 
 
-class Settings(BaseModel):
+class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    display: ChartSettingsDisplay | None = None
-    formatting: ChartSettingsFormatting | None = None
-
-
-class ChartAxis(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    column: str
-    settings: Settings | None = None
+    color: str | None = None
+    displayType: DisplayType | None = None
+    label: str | None = None
+    trendLine: bool | None = None
+    yAxisPosition: YAxisPosition | None = None
 
 
 class ClickhouseQueryProgress(BaseModel):
@@ -6468,6 +6600,10 @@ class ClickhouseQueryProgress(BaseModel):
 
 
 class CohortPropertyFilter(BaseModel):
+    """
+    Sync with nodejs/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6605,6 +6741,10 @@ class DeepResearchNotebook(BaseModel):
 
 
 class ElementPropertyFilter(BaseModel):
+    """
+    Sync with nodejs/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6673,6 +6813,10 @@ class ErrorTrackingIssueFilter(BaseModel):
 
 
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
+    """
+    Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6714,6 +6858,10 @@ class EventOddsRatioSerialized(BaseModel):
 
 
 class EventPropertyFilter(BaseModel):
+    """
+    Sync with nodejs/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6769,6 +6917,10 @@ class EventsHeatMapStructuredResult(BaseModel):
 
 
 class ExperimentApiEventSource(BaseModel):
+    """
+    Slim event/action source for experiment API payloads.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6785,6 +6937,10 @@ class ExperimentApiEventSource(BaseModel):
 
 
 class ExperimentApiExposureConfig(BaseModel):
+    """
+    Slim exposure config for experiment API payloads.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6797,6 +6953,10 @@ class ExperimentApiExposureConfig(BaseModel):
 
 
 class ExperimentApiExposureCriteria(BaseModel):
+    """
+    Exposure criteria for experiment API payloads.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6805,6 +6965,10 @@ class ExperimentApiExposureCriteria(BaseModel):
 
 
 class ExperimentApiMetric(BaseModel):
+    """
+    Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7086,6 +7250,10 @@ class FunnelExclusionSteps(BaseModel):
 
 
 class FunnelsFilterLegacy(BaseModel):
+    """
+    `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7169,6 +7337,10 @@ class HogQLPropertyFilter(BaseModel):
 
 
 class HogQLQueryModifiers(BaseModel):
+    """
+    HogQL Query Options are automatically set per team. However, they can be overridden in the query.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7294,6 +7466,10 @@ class LifecycleFilter(BaseModel):
 
 
 class LifecycleFilterLegacy(BaseModel):
+    """
+    `LifecycleFilterType` minus everything inherited from `FilterType`
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7556,6 +7732,10 @@ class PathsFilter(BaseModel):
 
 
 class PersonPropertyFilter(BaseModel):
+    """
+    Sync with nodejs/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7575,6 +7755,10 @@ class PlanningStep(BaseModel):
 
 
 class PreprocessingConfig(BaseModel):
+    """
+    Preprocessing transforms applied to the time series before detection
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7593,6 +7777,10 @@ class PreprocessingConfig(BaseModel):
 
 
 class ProductItem(BaseModel):
+    """
+    Product item structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7604,6 +7792,10 @@ class ProductItem(BaseModel):
 
 
 class ProductsData(BaseModel):
+    """
+    Products data structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8531,16 +8723,6 @@ class SurveyQuestionSchema(BaseModel):
     upperBoundLabel: str | None = None
 
 
-class TableSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list[ChartAxis] | None = None
-    conditionalFormatting: list[ConditionalFormattingRule] | None = None
-    pinnedColumns: list[str] | None = None
-    transpose: bool | None = None
-
-
 class TaskExecutionItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8799,6 +8981,35 @@ class TrendsFilter(BaseModel):
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
+
+
+class TrendsFilterLegacy(BaseModel):
+    """
+    `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as`.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_axis_format: AggregationAxisFormat | None = None
+    aggregation_axis_postfix: str | None = None
+    aggregation_axis_prefix: str | None = None
+    breakdown_histogram_bin_count: float | None = None
+    compare: bool | None = None
+    compare_to: str | None = None
+    decimal_places: float | None = None
+    display: ChartDisplayType | None = None
+    formula: str | None = None
+    hidden_legend_keys: dict[str, bool | Any] | None = None
+    min_decimal_places: float | None = None
+    show_alert_threshold_lines: bool | None = None
+    show_labels_on_series: bool | None = None
+    show_legend: bool | None = None
+    show_multiple_y_axes: bool | None = None
+    show_percent_stack_view: bool | None = None
+    show_values_on_series: bool | None = None
+    smoothing_intervals: float | None = None
+    y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
 class TrendsQueryResponse(BaseModel):
@@ -9200,6 +9411,10 @@ class ActorsQueryResponse(BaseModel):
 
 
 class AnalyticsQueryResponseBase(BaseModel):
+    """
+    All analytics query responses must inherit from this.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9225,31 +9440,72 @@ class AnalyticsQueryResponseBase(BaseModel):
     )
 
 
-class AssistantDataVisualizationNode(BaseModel):
+class AssistantDataVisualizationAxis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    chartSettings: AssistantDataVisualizationChartSettings | None = Field(
-        default=None,
-        description=("Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."),
+    column: str = Field(
+        ...,
+        description="Name of a column returned by the SQL query to map onto this axis.",
     )
-    display: AssistantDataVisualizationDisplayType | None = Field(
+    settings: AssistantDataVisualizationAxisSettings | None = Field(
+        default=None,
+        description="Optional series settings. Only applies to Y-axis series.",
+    )
+
+
+class AssistantDataVisualizationChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
+        default=None, description="Horizontal goal lines drawn across the chart."
+    )
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None, description="Settings for the left Y axis."
+    )
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
-            "Visualization type. Defaults to `ActionsTable` when"
-            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+            "Settings for the right Y axis. Only applies when a Y series uses"
+            ' `settings.display.yAxisPosition: "right"`.'
         ),
     )
-    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
-    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
-    tableSettings: AssistantDataVisualizationTableSettings | None = Field(
+    seriesBreakdownColumn: str | None = Field(
         default=None,
-        description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),
+        description=(
+            "Column that splits a single Y series into multiple colored series — e.g."
+            " breaking down a line chart by `country`. Set to `null` or omit to"
+            " disable."
+        ),
     )
+    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
+    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    stackBars100: bool | None = Field(
+        default=None,
+        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
+    )
+    xAxis: AssistantDataVisualizationAxis | None = Field(
+        default=None,
+        description=("Column used as the X axis. Typically a time bucket or categorical column."),
+    )
+    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
+    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
+        default=None, description="One or more numeric columns plotted as Y series."
+    )
+
+
+class AssistantDataVisualizationTableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[AssistantDataVisualizationAxis] | None = Field(
+        default=None,
+        description=("Columns to display and their order. Omit to show every column returned by the query."),
+    )
+    pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
+    showTotalRow: bool | None = Field(default=None, description="Show a total row at the bottom of the table.")
+    transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
 
 
 class AssistantErrorTrackingQuery(BaseModel):
@@ -9462,6 +9718,10 @@ class AssistantFunnelsEventsNode(BaseModel):
 
 
 class AssistantFunnelsGroupNode(BaseModel):
+    """
+    Defines a funnel step that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9739,6 +9999,10 @@ class AssistantPathsQuery(BaseModel):
 
 
 class AssistantRecordingsQuery(BaseModel):
+    """
+    Simplified RecordingsQuery for MCP tool usage. Exposes the most useful filtering and pagination fields with LLM-friendly descriptions while hiding internal complexity (having_predicates, operand, actions, etc.).
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9945,6 +10209,10 @@ class AssistantRetentionQuery(BaseModel):
 
 
 class AssistantStickinessActionsNode(BaseModel):
+    """
+    Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field. When math is omitted, the default aggregation is by unique persons (person_id).
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10006,6 +10274,10 @@ class AssistantStickinessActionsNode(BaseModel):
 
 
 class AssistantStickinessEventsNode(BaseModel):
+    """
+    Defines the event series for the stickiness insight. Each series measures how many intervals (e.g. days) within the date range a user performed the event. The X-axis shows the number of intervals (1, 2, 3, ...) and the Y-axis shows the count of users. When math is omitted, the default aggregation is by unique persons (person_id).
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10175,6 +10447,10 @@ class AssistantStickinessQuery(BaseModel):
 
 
 class AssistantTrendsActionsNode(BaseModel):
+    """
+    Defines the action series. You must provide the action ID in the `id` field and the name in the `name` field.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10238,6 +10514,10 @@ class AssistantTrendsActionsNode(BaseModel):
 
 
 class AssistantTrendsEventsNode(BaseModel):
+    """
+    Defines the event series.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10301,6 +10581,10 @@ class AssistantTrendsEventsNode(BaseModel):
 
 
 class AssistantTrendsGroupNode(BaseModel):
+    """
+    Defines a series that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave" as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here. Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties` apply only to that node, so each event can carry its own filter.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12524,6 +12808,22 @@ class CalendarHeatmapResponse(BaseModel):
     )
 
 
+class Settings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: ChartSettingsDisplay | None = None
+    formatting: ChartSettingsFormatting | None = None
+
+
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+    settings: Settings | None = None
+
+
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14118,6 +14418,10 @@ class EventsNode(BaseModel):
 
 
 class EventsQueryActionStep(BaseModel):
+    """
+    An action step definition for matching events without a saved action
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14190,6 +14494,10 @@ class EventsQueryResponse(BaseModel):
 
 
 class ExperimentBreakdownResult(BaseModel):
+    """
+    Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14756,6 +15064,10 @@ class HeatMapQuerySource(RootModel[EventsNode]):
 
 
 class HogQLFilters(BaseModel):
+    """
+    Filters object that will be converted to a HogQL {filters} placeholder
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14865,10 +15177,6 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
 
 class IsolationForestDetectorConfig(BaseModel):
@@ -17620,6 +17928,10 @@ class RetentionFilter(BaseModel):
 
 
 class RetentionFilterLegacy(BaseModel):
+    """
+    `RetentionFilterType` minus everything inherited from `FilterType`.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17890,6 +18202,16 @@ class SurveyCreationSchema(BaseModel):
     should_launch: bool | None = None
     start_date: str | None = None
     type: SurveyType
+
+
+class TableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[ChartAxis] | None = None
+    conditionalFormatting: list[ConditionalFormattingRule] | None = None
+    pinnedColumns: list[str] | None = None
+    transpose: bool | None = None
 
 
 class TeamTaxonomyQueryResponse(BaseModel):
@@ -18650,6 +18972,39 @@ class AssistantBasePropertyFilter(
     )
 
 
+class AssistantDataVisualizationNode(BaseModel):
+    """
+    SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be expressed as a standard product-analytics insight — cross-source joins with the data warehouse, window functions, or bespoke aggregations.
+
+    Prefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention, paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: AssistantDataVisualizationChartSettings | None = Field(
+        default=None,
+        description=("Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."),
+    )
+    display: AssistantDataVisualizationDisplayType | None = Field(
+        default=None,
+        description=(
+            "Visualization type. Defaults to `ActionsTable` when"
+            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
+            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+        ),
+    )
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
+    tableSettings: AssistantDataVisualizationTableSettings | None = Field(
+        default=None,
+        description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),
+    )
+
+
 class AssistantLifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18705,6 +19060,12 @@ class AssistantLifecycleQuery(BaseModel):
 
 
 class AssistantTrendsActorsQuery(BaseModel):
+    """
+    Drills into a trends insight to list the persons behind a specific data point. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
+
+    Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific cell in the source insight.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18970,6 +19331,10 @@ class CachedWebVitalsQueryResponse(BaseModel):
 
 
 class CoreEvent(BaseModel):
+    """
+    Unified core event stored in Team settings
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19488,6 +19853,10 @@ class InsightFilter(
         | CalendarHeatmapFilter
         | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     )
+
+
+class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
+    root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
 
 class MarketingAnalyticsAggregatedQuery(BaseModel):
@@ -20597,6 +20966,10 @@ class GroupNode(BaseModel):
 
 
 class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20642,6 +21015,10 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
 
 
 class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20687,6 +21064,10 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
 
 
 class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20732,6 +21113,10 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
 
 
 class InsightsQueryBasePathsQueryResponse(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20777,6 +21162,10 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
 
 
 class InsightsQueryBaseRetentionQueryResponse(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20822,6 +21211,10 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
 
 
 class InsightsQueryBaseTrendsQueryResponse(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22772,6 +23165,10 @@ class DataTableNode(BaseModel):
 
 
 class ArtifactMessage(BaseModel):
+    """
+    Frontend artifact message containing enriched content field. Do not use in the backend.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
