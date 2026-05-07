@@ -16,7 +16,7 @@ const mkLimiter = (decisions: Record<string, boolean>): KeyedRateLimiterService 
             return Promise.resolve(
                 requests.map(({ id }): [string, KeyedRateLimit] => [
                     id,
-                    { tokens: decisions[id] ? 0 : 99, isRateLimited: !!decisions[id] },
+                    { tokensBefore: 100, tokens: decisions[id] ? 0 : 99, isRateLimited: !!decisions[id] },
                 ])
             )
         }),

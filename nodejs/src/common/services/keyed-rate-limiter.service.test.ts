@@ -70,7 +70,7 @@ describe('KeyedRateLimiterService', () => {
 
             const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
 
-            expect(res).toEqual([['team-1', { tokens: 99, isRateLimited: false }]])
+            expect(res).toEqual([['team-1', { tokensBefore: 100, tokens: 99, isRateLimited: false }]])
         })
 
         it('rate limits when exceeding the bucket', async () => {
@@ -78,10 +78,10 @@ describe('KeyedRateLimiterService', () => {
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
             let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 99 }])
-            expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
+            expect(res[0][1]).toEqual({ tokensBefore: 100, tokens: 1, isRateLimited: false })
 
             res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-            expect(res[0][1]).toEqual({ tokens: 0, isRateLimited: true })
+            expect(res[0][1]).toEqual({ tokensBefore: 1, tokens: 0, isRateLimited: true })
 
             res = await limiter.rateLimitMany([{ id: 'team-1', cost: 20 }])
             expect(res[0][1].isRateLimited).toBe(true)
@@ -109,8 +109,8 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res).toEqual([
-                ['team-1', { tokens: 99, isRateLimited: false }],
-                ['team-2', { tokens: 95, isRateLimited: false }],
+                ['team-1', { tokensBefore: 100, tokens: 99, isRateLimited: false }],
+                ['team-2', { tokensBefore: 100, tokens: 95, isRateLimited: false }],
             ])
         })
 
@@ -126,7 +126,7 @@ describe('KeyedRateLimiterService', () => {
 
             // Same id under limiter B is untouched — confirms prefix isolation.
             const freshB = await limiterB.rateLimitMany([{ id: 'shared-id', cost: 1 }])
-            expect(freshB[0][1]).toEqual({ tokens: 99, isRateLimited: false })
+            expect(freshB[0][1]).toEqual({ tokensBefore: 100, tokens: 99, isRateLimited: false })
         })
 
         it('uses test-prefixed redis keys when NODE_ENV=test', () => {
@@ -155,8 +155,8 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res).toEqual([
-                ['a', { tokens: 50, isRateLimited: false }],
-                ['b', { tokens: 50, isRateLimited: false }],
+                ['a', { tokensBefore: 50, tokens: 50, isRateLimited: false }],
+                ['b', { tokensBefore: 50, tokens: 50, isRateLimited: false }],
             ])
         })
 
@@ -199,7 +199,7 @@ describe('KeyedRateLimiterService', () => {
             advanceTime(20_000) // 20s × 10/s = 200 accrued credit
             const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 199 }])
             // Spent 199 of the accrued 200; stored pool capped at poolMax (=100).
-            expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
+            expect(res[0][1]).toEqual({ tokensBefore: 200, tokens: 1, isRateLimited: false })
         })
 
         it('still rate-limits when a catch-up cost exceeds accrued credit', async () => {
@@ -224,10 +224,10 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res).toEqual([
-                ['team-1', { tokens: 10, isRateLimited: false }],
-                ['team-1', { tokens: 1, isRateLimited: false }],
-                ['team-1', { tokens: -1, isRateLimited: true }],
-                ['team-1', { tokens: -1, isRateLimited: true }],
+                ['team-1', { tokensBefore: 100, tokens: 10, isRateLimited: false }],
+                ['team-1', { tokensBefore: 10, tokens: 1, isRateLimited: false }],
+                ['team-1', { tokensBefore: 1, tokens: -1, isRateLimited: true }],
+                ['team-1', { tokensBefore: -1, tokens: -1, isRateLimited: true }],
             ])
         })
 
@@ -389,7 +389,7 @@ describe('KeyedRateLimiterService', () => {
             advanceTime(20_000) // 20s × 10/s = 200 accrued
             const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 199 }])
             // Catch-up call redeems 199 of the 200 accrued credit.
-            expect(res).toEqual([['team-1', { tokens: 1, isRateLimited: false }]])
+            expect(res).toEqual([['team-1', { tokensBefore: 200, tokens: 1, isRateLimited: false }]])
         })
 
         it('sets TTL to 2x ttlSeconds on creation (V3 ceiling)', async () => {
