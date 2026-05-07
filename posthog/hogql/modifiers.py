@@ -11,6 +11,7 @@ from posthog.schema import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -78,7 +79,12 @@ def create_default_modifiers_for_team(
 
 def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
+        # Default for teams whose `team.modifiers["personsOnEventsMode"]` isn't set.
+        # The Dagster `backfill_persons_on_events_mode_job` populates that field for
+        # the team population at large; this fallback covers teams created after
+        # the backfill ran. Hardcoded so this code path stays free of feature-flag
+        # eval variance feeding into `cache_key`.
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO

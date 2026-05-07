@@ -212,7 +212,7 @@ class TestQueryRunner(BaseTest):
                 "optimizeJoinedFilters": False,
                 "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
-                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 "sessionIdPushdown": False,
                 "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
@@ -296,7 +296,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_13ab830e775c41ee3ae4b45c386e6064d74eec55fb93092732c0bb305d7e980f"
+        assert cache_key == "cache_42_9d5173c85cf3e0a7ded97c5fbd0cccf69ff73f4f147fca992b7bd13dd20fd46b"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -310,7 +310,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_b624e873acbdc9829f0973b4dc14424bb26e3b5c36c11387ce24e9ff3bea2a00"
+        assert cache_key == "cache_42_70cc4710289f5bf88bf390eaf64df0544b9f890ae637dbcf593aef7f190e890c"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -321,7 +321,32 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
+        assert cache_key == "cache_42_da539e9e445dce265f3ae7ec580ad469f051c75847df4a87ed3b0fdbb57040ee"
+
+    def test_cache_key_does_not_depend_on_persons_on_events_flag(self):
+        """Regression guard: nothing in the cache_key path may evaluate a feature flag.
+
+        The previous implementation called `team.person_on_events_mode_flag_based_default`
+        which used `posthoganalytics.feature_enabled(..., only_evaluate_locally=True)`.
+        Local SDK cache state varies across web pods, so the same team could resolve to
+        different `cache_key`s on different pods, fragmenting the query cache.
+
+        This test patches `posthoganalytics.feature_enabled` to return True / False / None
+        for the same team and asserts the resulting cache_key is identical in all three
+        cases. If anyone re-introduces flag eval into the modifier-default path, this fails.
+        """
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+        team.modifiers = None  # force the fallthrough default path
+        team.save()
+
+        keys = []
+        for return_value in (True, False, None):
+            with mock.patch("posthoganalytics.feature_enabled", return_value=return_value):
+                runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+                keys.append(runner.get_cache_key())
+
+        assert len(set(keys)) == 1, f"cache_key varied across mocked flag values: {keys}"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

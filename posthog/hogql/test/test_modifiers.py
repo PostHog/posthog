@@ -16,10 +16,10 @@ from posthog.models import Cohort
 class TestModifiers(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_create_default_modifiers_for_team_init(self):
-        assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+        # Default is PoE v2 — was JOINED before the cache_key fragmentation fix.
+        assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         modifiers = create_default_modifiers_for_team(self.team)
-        # The default is not None! It's explicitly `PERSON_ID_OVERRIDE_PROPERTIES_JOINED`
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         modifiers = create_default_modifiers_for_team(
             self.team,
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
@@ -35,18 +35,18 @@ class TestModifiers(BaseTest):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert (
-            modifiers.personsOnEventsMode
-            == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED  # the default mode
-        )
+        # New default: v2 (was JOINED before the cache_key fragmentation fix).
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED}
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        # Team modifier wins over the hardcoded default.
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+        # default_modifiers always returns the hardcoded fallthrough — independent of team.modifiers.
         assert (
             self.team.default_modifiers["personsOnEventsMode"]
-            == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED  # no change here
+            == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         )
 
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
@@ -54,17 +54,28 @@ class TestModifiers(BaseTest):
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-    @patch(
-        # _person_on_events_person_id_override_properties_on_events is normally determined by feature flag
-        "posthog.models.team.Team._person_on_events_person_id_override_properties_on_events",
-        True,
-    )
-    def test_modifiers_persons_on_events_default_is_based_on_team_property(self):
+    def test_modifiers_persons_on_events_default_does_not_consult_team_flag(self):
+        """
+        Previously `set_default_modifier_values` called `team.person_on_events_mode_flag_based_default`,
+        which evaluated a feature flag locally per-process. The local SDK cache state varies across
+        web pods, so the same team could resolve differently across pods, fragmenting `cache_key`.
+        After the rip-out, the default is hardcoded — and unaffected by anything that would have
+        mocked the flag. This guards against regressions that re-introduce flag eval into this path.
+        """
         assert self.team.modifiers is None
-        modifiers = create_default_modifiers_for_team(self.team)
-        assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-        assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            modifiers_truthy = create_default_modifiers_for_team(self.team)
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            modifiers_falsy = create_default_modifiers_for_team(self.team)
+        with patch("posthoganalytics.feature_enabled", return_value=None):
+            modifiers_none = create_default_modifiers_for_team(self.team)
+
+        assert (
+            modifiers_truthy.personsOnEventsMode
+            == modifiers_falsy.personsOnEventsMode
+            == modifiers_none.personsOnEventsMode
+            == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        )
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
@@ -278,11 +289,16 @@ class TestModifiers(BaseTest):
         )
 
     def test_optimize_joined_filters(self):
+        # `optimizeJoinedFilters` only affects queries that join the persons table, so pin the
+        # team to JOINED mode for this test (the platform default is PoE v2, which reads
+        # properties from `events.poe` and has no join to optimize).
+        joined_mode = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+
         # no optimizations
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
+            modifiers=joined_mode.model_copy(update={"optimizeJoinedFilters": False}),
         )
         # "ilike" shows up once in the response
         assert response is not None
@@ -293,7 +309,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+            modifiers=joined_mode.model_copy(update={"optimizeJoinedFilters": True}),
         )
         # "ilike" shows up twice in the response
         assert response is not None

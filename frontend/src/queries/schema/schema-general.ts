@@ -409,7 +409,7 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
         | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
-        | 'person_id_no_override_properties_on_events'
+        | 'person_id_no_override_properties_on_events' // PoE v1 is deprecated and set for removal - it does not apply person_distinct_id_overrides, returning pre-merge person_ids when distinct_ids have been merged. Use `person_id_override_properties_on_events` (v2) instead - same property semantics, with overrides correctly applied
         | 'person_id_override_properties_on_events'
         | 'person_id_override_properties_joined'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'

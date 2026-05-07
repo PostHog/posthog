@@ -14,7 +14,6 @@ from django.db.models.signals import post_delete, post_save
 
 import pytz
 import pydantic
-import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
@@ -708,13 +707,30 @@ class Team(UUIDTClassicModel):
 
     @property
     def person_on_events_mode_flag_based_default(self) -> PersonsOnEventsMode:
-        if self._person_on_events_person_id_override_properties_on_events:
-            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        """
+        Default mode for teams without `personsOnEventsMode` set in `team.modifiers`.
 
-        if self._person_on_events_person_id_no_override_properties_on_events:
+        Honors the `PERSON_ON_EVENTS_*_OVERRIDE` env-var emergency knobs and
+        self-hosted instance settings; otherwise returns v2.
+
+        The name is historical — this property used to consult feature flags,
+        but those calls were a per-pod variance source feeding into `cache_key`.
+        Resolved values are now persisted into `team.modifiers["personsOnEventsMode"]`
+        by the `backfill_persons_on_events_mode_job` Dagster job; this fallback
+        only fires for teams created after that backfill ran.
+        """
+        if getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None) is True:
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        if getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None) is True:
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+        if not is_cloud():
+            if get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"):
+                return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+                return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+        return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
@@ -724,58 +740,6 @@ class Team(UUIDTClassicModel):
             PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         )
-
-    @property
-    def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
-        person_on_events_override = getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None)
-        if person_on_events_override is not None:
-            return person_on_events_override
-
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-person-id-no-override-properties-on-events",
-                str(self.uuid),
-                groups={"project": str(self.id)},
-                group_properties={
-                    "project": {
-                        "id": str(self.id),
-                        "created_at": self.created_at.isoformat() if self.created_at else None,
-                        "uuid": self.uuid,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        # on self-hosted, use the instance setting
-        return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
-
-    @property
-    def _person_on_events_person_id_override_properties_on_events(self) -> bool:
-        person_on_events_v2_override = getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None)
-        if person_on_events_v2_override is not None:
-            return person_on_events_v2_override
-
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-v2-reads-enabled",
-                str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at.isoformat()
-                        if self.organization.created_at
-                        else None,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:
