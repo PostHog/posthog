@@ -42,6 +42,7 @@ SELECT
     argMax(properties.$ai_result_type, timestamp) as result_type,
     argMax(properties.$ai_reasoning, timestamp) as reasoning,
     argMax(properties.$ai_trace_id, timestamp) as trace_id,
+    argMax(properties.$ai_target_event_id, timestamp) as target_event_id,
     argMax(properties.$ai_dataset_id, timestamp) as dataset_id,
     argMax(properties.$ai_dataset_item_id, timestamp) as dataset_item_id,
     argMax(properties.$ai_expected, timestamp) as ai_expected,
@@ -87,6 +88,7 @@ _PreflightRow = namedtuple(
         "result_type",
         "reasoning",
         "trace_id",
+        "target_event_id",
         "dataset_id",
         "dataset_item_id",
         "ai_expected",
@@ -251,6 +253,7 @@ class LLMAnalyticsOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.Gen
                     ai_output,
                     row.ai_expected,
                     row.last_seen_at,
+                    row.target_event_id,
                 ]
             )
         return Response({"results": results}, status=status.HTTP_200_OK)

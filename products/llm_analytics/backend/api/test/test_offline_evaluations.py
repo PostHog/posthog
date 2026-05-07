@@ -34,6 +34,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         result_type: str | None = "numeric",
         reasoning: str | None = "looks good",
         trace_id: str | None = "trace-1",
+        target_event_id: str | None = "target-1",
         dataset_id: str | None = "ds-1",
         dataset_item_id: str | None = "ds-item-1",
         ai_expected: str | None = "expected",
@@ -53,6 +54,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
             result_type,
             reasoning,
             trace_id,
+            target_event_id,
             dataset_id,
             dataset_item_id,
             ai_expected,
@@ -78,7 +80,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
 
     @patch("products.llm_analytics.backend.api.offline_evaluations.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.offline_evaluations.execute_hogql_query")
-    def test_returns_rows_in_18_column_tuple_order(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
+    def test_returns_rows_in_19_column_tuple_order(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         mock_preflight.return_value = self._make_response(
             [
                 self._preflight_row(
@@ -121,6 +123,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
                     '[{"role":"assistant","content":"hi"}]',
                     "expected",
                     "2026-04-27T07:00:00+00:00",
+                    "target-1",
                 ]
             ]
         }

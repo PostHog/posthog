@@ -320,8 +320,7 @@ def emit_evaluation_events(
             }
             if score_value is not None:
                 properties["$ai_score"] = score_value
-            if trace_id:
-                properties["$ai_trace_id"] = trace_id
+            properties["$ai_trace_id"] = trace_id or str(uuid.uuid4())
             if isinstance(result.input, dict):
                 prompt = result.input.get("prompt", "")
                 if prompt:
