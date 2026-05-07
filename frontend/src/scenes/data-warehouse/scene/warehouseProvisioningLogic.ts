@@ -203,9 +203,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     const result = await dataWarehouseProvisionCreate(currentProjectId(), {
                         database_name: databaseName,
                     })
-                    if (result.password) {
-                        actions.setInitialPassword(result.password)
-                    }
+                    actions.setInitialPassword(result.password)
                     lemonToast.success('Warehouse provisioning started')
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
@@ -218,9 +216,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             resetPassword: async () => {
                 try {
                     const result = await dataWarehouseResetPasswordCreate(currentProjectId())
-                    if (result.password) {
-                        actions.setInitialPassword(result.password)
-                    }
+                    actions.setInitialPassword(result.password)
                     lemonToast.success('Password has been reset')
                 } catch (e: any) {
                     lemonToast.error(`Failed to reset password: ${e.message || 'Unknown error'}`)

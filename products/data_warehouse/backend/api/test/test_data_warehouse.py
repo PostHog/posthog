@@ -7,6 +7,8 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models import (
@@ -596,19 +598,41 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(f"{endpoint}?cutoff_days=invalid")
         self.assertEqual(response.status_code, 400)
 
+    @parameterized.expand(
+        [
+            ("contains_underscore", "my_db"),
+            ("starts_with_digit", "1starts-with-digit"),
+            ("ends_with_hyphen", "ends-with-hyphen-"),
+            ("contains_uppercase", "AB"),
+            ("too_short", "ab"),
+            ("too_long", "a" * 64),
+        ]
+    )
     @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
-    def test_check_database_name_rejects_dns_unsafe_name(self, mock_request):
-        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/check-database-name/?name=my_db")
+    def test_check_database_name_rejects_dns_unsafe_name(self, _case_name, database_name, mock_request):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/check-database-name/?name={database_name}"
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("hyphens", response.json()["error"])
         mock_request.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("contains_underscore", "my_db"),
+            ("starts_with_digit", "1starts-with-digit"),
+            ("ends_with_hyphen", "ends-with-hyphen-"),
+            ("contains_uppercase", "AB"),
+            ("too_short", "ab"),
+            ("too_long", "a" * 64),
+        ]
+    )
     @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
-    def test_provision_rejects_dns_unsafe_database_name(self, mock_request):
+    def test_provision_rejects_dns_unsafe_database_name(self, _case_name, database_name, mock_request):
         response = self.client.post(
             f"/api/projects/{self.team.id}/data_warehouse/provision/",
-            data={"database_name": "my_db"},
+            data={"database_name": database_name},
             content_type="application/json",
         )
 
