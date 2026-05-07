@@ -8,7 +8,6 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { createHeatmapSubpipeline } from '../analytics/heatmap-subpipeline'
 import { HeatmapsOutput, PersonDistinctIdsOutput, PersonsOutput } from '../analytics/outputs'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
@@ -30,6 +29,7 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
+import { createHeatmapSubpipeline } from './heatmap-subpipeline'
 
 export interface HeatmapsPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -81,6 +81,10 @@ export interface HeatmapsPipelineContext {
  * but the per-event step is the heatmap subpipeline rather than the per-distinct-id
  * pipeline. The kafka topic this consumer reads is assumed to carry only
  * `$$heatmap` events; no event-type classification happens here.
+ *
+ * Persons/groups behavior matches what the joined pipeline did for heatmap events
+ * before extraction: post-team preprocessing prefetches persons and writes
+ * personless distinct ids; the heatmap subpipeline calls `processGroupsStep`.
  */
 export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TContext extends HeatmapsPipelineContext>(
     config: HeatmapsPipelineConfig,

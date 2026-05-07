@@ -4,6 +4,7 @@ import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { HeatmapsOutput } from '../analytics/outputs'
 import { createCheckHeatmapOptInStep } from '../event-processing/check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
@@ -14,7 +15,6 @@ import { createProcessGroupsStep } from '../event-processing/process-groups-step
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { HeatmapsOutput } from './outputs'
 
 export interface HeatmapSubpipelineInput {
     event: PluginEvent
