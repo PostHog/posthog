@@ -293,10 +293,7 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
 export interface DrawGridOptions {
     gridColor?: string
     orientation?: 'vertical' | 'horizontal'
-    /** Pixel positions on the categorical axis at which to draw cross-axis grid lines, producing
-     *  a square grid. In `'vertical'` mode these are x-pixel positions (vertical lines); in
-     *  `'horizontal'` mode they are y-pixel positions (horizontal lines). Empty/undefined keeps
-     *  the value-axis-only grid. */
+    /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
 }
 
@@ -484,9 +481,7 @@ export function drawBars(
     }
 }
 
-/** Hover highlight is a translucent fill on the *overlay* canvas, layered over the static bar.
- *  The overlay's alpha composites with the bar pixel underneath, darkening it without us
- *  having to know how to darken every possible color string the consumer passes. */
+/** Translucent fill on the overlay canvas, alpha-composited over the static bar. */
 export function drawBarHighlight(
     ctx: CanvasRenderingContext2D,
     bar: BarRect,

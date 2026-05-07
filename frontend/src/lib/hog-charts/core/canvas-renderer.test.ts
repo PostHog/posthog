@@ -498,8 +498,6 @@ describe('hog-charts canvas-renderer', () => {
         })
 
         describe('categoryTicks', () => {
-            // Helper: count strokes whose direction matches the requested axis. A "vertical"
-            // stroke moves only on y (moveX === lineX); a "horizontal" stroke moves only on x.
             function countAxisAlignedStrokes(
                 ctx: jest.Mocked<CanvasRenderingContext2D>,
                 axis: 'vertical' | 'horizontal'
@@ -544,7 +542,6 @@ describe('hog-charts canvas-renderer', () => {
                 drawGrid(drawCtx, { orientation, categoryTicks: ticks })
 
                 expect(countAxisAlignedStrokes(ctx, expectedAxis)).toBe(baselineCrossAxis + ticks.length)
-                // Value-axis strokes should be unaffected by categoryTicks.
                 expect(countAxisAlignedStrokes(ctx, valueAxis)).toBe(countAxisAlignedStrokes(baseline, valueAxis))
             })
 
@@ -613,6 +610,7 @@ describe('hog-charts canvas-renderer', () => {
                 series: [],
                 labels: ['Mon', 'Tue', 'Wed'],
                 hoverIndex,
+                hoverPosition: null,
                 theme: {} as ChartTheme,
             }
         }
