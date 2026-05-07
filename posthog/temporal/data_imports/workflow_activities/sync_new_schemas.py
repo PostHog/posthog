@@ -9,6 +9,10 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.sources import SourceRegistry
 
+from products.data_warehouse.backend.data_load.service import (
+    _get_discover_schemas_schedule_id,
+    delete_external_data_schedule,
+)
 from products.data_warehouse.backend.models import ExternalDataSource, sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -36,6 +40,16 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     close_old_connections()
 
     logger.info("Syncing new -> old schemas")
+
+    # Self-destruct: if the source has been deleted (or hard-removed) since the schedule
+    # was created, drop the discovery schedule so we stop firing zombie workflows. Mirrors
+    # the existing per-schema pattern in `create_external_data_job_model_activity`.
+    source_exists = (
+        ExternalDataSource.objects.filter(team_id=inputs.team_id, id=inputs.source_id).exclude(deleted=True).exists()
+    )
+    if not source_exists:
+        delete_external_data_schedule(_get_discover_schemas_schedule_id(str(inputs.source_id)))
+        raise Exception("Source no longer exists - deleted discover-schemas temporal schedule")
 
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
 
