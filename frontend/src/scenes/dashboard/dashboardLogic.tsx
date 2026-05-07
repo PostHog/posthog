@@ -82,11 +82,11 @@ import {
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
+import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
 import { dashboardQuickFiltersLogic } from './dashboardQuickFiltersLogic'
 import {
-    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
@@ -1768,6 +1768,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         updateTileColor: async ({ tileId, color }) => {
+            // Defense in depth: shared dashboards (DashboardPlacement.Public)
+            // shouldn't render the tile-color editor, so this listener should
+            // never fire from shared mode. Guarding here avoids a phantom
+            // optimistic local state change that reverts on the inevitable 401.
             if (isSharedView()) {
                 return
             }
@@ -1783,6 +1787,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         toggleTileDescription: async ({ tileId }) => {
+            // Defense in depth — same reason as updateTileColor above.
             if (isSharedView()) {
                 return
             }

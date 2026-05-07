@@ -24,6 +24,8 @@ import {
     TileLayout,
 } from '~/types'
 
+import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType<InsightModel> | null | undefined
@@ -116,12 +118,6 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
-
-import {
-    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
-} from './dashboardConstants'
-export { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS, SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES }
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {

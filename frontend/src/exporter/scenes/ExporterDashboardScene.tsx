@@ -19,8 +19,16 @@ function SharedDashboardAutoRefresh({
     dashboard: DashboardType<QueryBasedInsightModel>
 }): JSX.Element | null {
     // Pass `dashboard` so dashboardLogic.afterMount uses the cached branch
-    // (loadDashboardSuccess) instead of firing an unauthenticated loadDashboard,
-    // matching the props <Dashboard> binds with via BindLogic.
+    // (loadDashboardSuccess) instead of firing an unauthenticated loadDashboard.
+    //
+    // CONTRACT: this mount must share its kea key with the inner <Dashboard>
+    // component below. dashboardLogic is keyed by `id`, so as long as both
+    // mount with the same id (and compatible placement) they resolve to the
+    // same logic instance and the cached branch wins. If a future refactor
+    // gives the inner <Dashboard> a different placement key, two distinct
+    // logic instances are created — the inner one mounts without `dashboard`,
+    // afterMount calls loadDashboard, and shared mode 401s. That was commit 11
+    // of #57853.
     const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public, dashboard })
     const { setAutoRefresh, setPageVisibility, forceRefreshIfStale } = useActions(logic)
 
