@@ -523,5 +523,70 @@ describe('llmTaggerLogic', () => {
                     ],
                 })
         })
+
+        // Regression: combining `values: { tagger_id }` with `{filters}` made the
+        // backend's parse_select throw, the loader's catch silently returned [],
+        // and the runs tab rendered empty even when matching events existed.
+        // Lock in that the request inlines the id into the query string and
+        // does not send a `values` dict.
+        it('inlines the tagger id rather than passing it via values', async () => {
+            const capturedQueries: { query: string; values?: unknown }[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async (req, res, ctx) => {
+                        const body = (await req.json()) as { query?: { query?: string; values?: unknown } }
+                        if (body.query?.query?.includes('$ai_tagger_id')) {
+                            capturedQueries.push({
+                                query: body.query.query,
+                                values: body.query.values,
+                            })
+                        }
+                        return res(ctx.json({ results: [] }))
+                    },
+                },
+            })
+
+            logic = llmTaggerLogic({ id: 'tagger-abc' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTagRunsSuccess'])
+
+            expect(capturedQueries).toHaveLength(1)
+            const sent = capturedQueries[0]
+            expect(sent.query).toContain("properties.$ai_tagger_id = 'tagger-abc'")
+            expect(sent.query).toContain('{filters}')
+            expect(sent.query).not.toContain('{tagger_id}')
+            expect(sent.values).toBeUndefined()
+        })
+
+        it('escapes single quotes in the tagger id', async () => {
+            const capturedQueries: string[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async (req, res, ctx) => {
+                        const body = (await req.json()) as { query?: { query?: string } }
+                        if (body.query?.query?.includes('$ai_tagger_id')) {
+                            capturedQueries.push(body.query.query)
+                        }
+                        return res(ctx.json({ results: [] }))
+                    },
+                },
+            })
+
+            // Override the tagger fetch so the page can mount with this id
+            useMocks({
+                get: {
+                    "/api/environments/:team_id/taggers/o'malley/": mockTagger,
+                },
+            })
+
+            logic = llmTaggerLogic({ id: "o'malley" })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTagRunsSuccess'])
+
+            expect(capturedQueries).toHaveLength(1)
+            expect(capturedQueries[0]).toContain("properties.$ai_tagger_id = 'o''malley'")
+        })
     })
 })
