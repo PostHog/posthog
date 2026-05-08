@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
@@ -162,3 +163,72 @@ class TestAnthropicCircuitBreaker:
         assert decision.open is False
         assert decision.failure_rate == 0.0
         assert decision.total_requests == 0
+
+    async def test_redis_failure_increments_error_counter(self, frozen_time: MagicMock) -> None:
+        from llm_gateway.metrics.prometheus import ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS
+
+        broken_redis = MagicMock()
+        broken_redis.pipeline = MagicMock(side_effect=RuntimeError("redis down"))
+        breaker = make_breaker(broken_redis)
+
+        before_record = ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="record")._value.get()
+        before_read = ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="read")._value.get()
+        await breaker.record_outcome(success=False)
+        await breaker._get_stats()
+        assert ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="record")._value.get() == before_record + 1
+        assert ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="read")._value.get() == before_read + 1
+
+    async def test_redis_timeout_does_not_block(self) -> None:
+        import asyncio as _asyncio
+
+        slow_pipe = MagicMock()
+        slow_pipe.hincrby = MagicMock(return_value=slow_pipe)
+        slow_pipe.expire = MagicMock(return_value=slow_pipe)
+        slow_pipe.hmget = MagicMock(return_value=slow_pipe)
+
+        async def hang() -> object:
+            await _asyncio.sleep(10.0)
+            return []
+
+        slow_pipe.execute = MagicMock(side_effect=hang)
+        slow_redis = MagicMock()
+        slow_redis.pipeline = MagicMock(return_value=slow_pipe)
+
+        breaker = make_breaker(slow_redis)
+        with patch("llm_gateway.circuit_breaker.REDIS_OP_TIMEOUT_SECONDS", 0.01):
+            start = time.monotonic()
+            await breaker.record_outcome(success=True)
+            decision = await breaker.evaluate()
+            elapsed = time.monotonic() - start
+        assert elapsed < 1.0
+        assert decision.total_requests == 0
+
+
+class TestPublishGaugesLoop:
+    async def test_publishes_gauges_then_cancels_cleanly(self, fake_redis: fakeredis.FakeRedis) -> None:
+        import asyncio as _asyncio
+
+        from llm_gateway.circuit_breaker import publish_anthropic_breaker_gauges_loop
+        from llm_gateway.metrics.prometheus import (
+            ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE,
+            ANTHROPIC_CIRCUIT_BREAKER_OPEN,
+            ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS,
+        )
+
+        breaker = make_breaker(fake_redis, min_requests=5, failure_threshold=0.25)
+        for _ in range(15):
+            await breaker.record_outcome(success=True)
+        for _ in range(5):
+            await breaker.record_outcome(success=False)
+
+        task = _asyncio.create_task(publish_anthropic_breaker_gauges_loop(breaker, interval_seconds=10))
+        await _asyncio.sleep(0.05)
+        task.cancel()
+        try:
+            await task
+        except _asyncio.CancelledError:
+            pass
+
+        assert ANTHROPIC_CIRCUIT_BREAKER_OPEN._value.get() == 1
+        assert ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE._value.get() == pytest.approx(0.25)
+        assert ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS._value.get() == 20

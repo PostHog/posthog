@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -14,7 +16,10 @@ logger = structlog.get_logger(__name__)
 
 
 BUCKET_WIDTH_SECONDS = 30
-KEY_PREFIX = "llm_gateway:cb:anthropic"
+# v1: bumping the prefix invalidates buckets from any prior version with different bucket
+# semantics, so a rolling deploy can't mix incompatible writes into the same keyspace.
+KEY_PREFIX = "llm_gateway:cb:anthropic:v1"
+REDIS_OP_TIMEOUT_SECONDS = 0.1
 
 _OutcomeField = Literal["s", "f"]
 
@@ -51,7 +56,7 @@ class AnthropicCircuitBreaker:
         self.bypass_probability = bypass_probability
         self.min_requests = min_requests
         self.enabled = enabled
-        self._bucket_count = max(1, window_seconds // BUCKET_WIDTH_SECONDS)
+        self._bucket_count = max(1, math.ceil(window_seconds / BUCKET_WIDTH_SECONDS))
 
     def _bucket_key(self, bucket_index: int) -> str:
         return f"{KEY_PREFIX}:{bucket_index}"
@@ -66,12 +71,15 @@ class AnthropicCircuitBreaker:
         key = self._bucket_key(bucket)
         field: _OutcomeField = "s" if success else "f"
         try:
+            # Pipeline atomicity is required: HINCRBY without EXPIRE leaks keys without TTL.
             pipe = self.redis.pipeline()
             pipe.hincrby(key, field, 1)
-            # TTL = window + one bucket so a bucket fully covers its slice before expiring.
             pipe.expire(key, self.window_seconds + BUCKET_WIDTH_SECONDS)
-            await pipe.execute()
+            await asyncio.wait_for(pipe.execute(), timeout=REDIS_OP_TIMEOUT_SECONDS)
         except Exception:
+            from llm_gateway.metrics.prometheus import ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS
+
+            ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="record").inc()
             logger.exception("circuit_breaker_record_failed", success=success)
 
     async def _get_stats(self) -> tuple[int, int]:
@@ -83,8 +91,11 @@ class AnthropicCircuitBreaker:
             pipe = self.redis.pipeline()
             for key in keys:
                 pipe.hmget(key, "s", "f")
-            results = await pipe.execute()
+            results = await asyncio.wait_for(pipe.execute(), timeout=REDIS_OP_TIMEOUT_SECONDS)
         except Exception:
+            from llm_gateway.metrics.prometheus import ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS
+
+            ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="read").inc()
             logger.exception("circuit_breaker_read_failed")
             return 0, 0
 
@@ -128,3 +139,32 @@ def build_anthropic_circuit_breaker(redis: Redis[bytes] | None) -> AnthropicCirc
         min_requests=settings.anthropic_circuit_breaker_min_requests,
         enabled=settings.anthropic_circuit_breaker_enabled,
     )
+
+
+async def publish_anthropic_breaker_gauges_loop(
+    breaker: AnthropicCircuitBreaker,
+    interval_seconds: int = 5,
+) -> None:
+    """Refresh the breaker gauges from a single async task instead of from the request hot path.
+
+    Keeps the dashboard signal coherent under multi-worker load (no per-request races) and
+    decouples breaker observability from inbound traffic — the gauges keep updating even
+    when no opted-in callers are hitting the gateway.
+    """
+    from llm_gateway.metrics.prometheus import (
+        ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE,
+        ANTHROPIC_CIRCUIT_BREAKER_OPEN,
+        ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS,
+    )
+
+    while True:
+        try:
+            decision = await breaker.evaluate()
+            ANTHROPIC_CIRCUIT_BREAKER_OPEN.set(1 if decision.open else 0)
+            ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE.set(decision.failure_rate)
+            ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS.set(decision.total_requests)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("circuit_breaker_gauge_publish_failed")
+        await asyncio.sleep(interval_seconds)

@@ -259,6 +259,17 @@ ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE = Gauge(
     "Trailing-window Anthropic failure rate observed by the circuit breaker",
 )
 
+ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_window_requests",
+    "Total Anthropic requests observed in the breaker's trailing window",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS = Counter(
+    "llm_gateway_anthropic_circuit_breaker_redis_errors_total",
+    "Redis errors encountered by the Anthropic circuit breaker (non-zero rate means breaker is blind)",
+    labelnames=["op"],
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(

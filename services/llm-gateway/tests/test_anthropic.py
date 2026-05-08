@@ -1,4 +1,5 @@
 import os
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1102,3 +1103,120 @@ class TestAnthropicCircuitBreakerIntegration:
 
         assert response.status_code == 400
         breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_recorded_as_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 429
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        breaker.record_outcome.assert_awaited_with(success=False)
+        assert mock_anthropic.call_count == 2
+
+    def test_streaming_success_records_after_stream_completes(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def ok_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            yield b'data: {"type":"message_stop"}\n\n'
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
+
+        async def consume() -> list[bytes]:
+            return [chunk async for chunk in wrapped.body_iterator]
+
+        import asyncio as _asyncio
+
+        chunks = _asyncio.get_event_loop().run_until_complete(consume())
+        assert len(chunks) == 2
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    def test_streaming_mid_stream_failure_records_failure(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """Direct unit test of the stream wrapper — TestClient surfaces stream errors as
+        connection-level failures which makes a true HTTP-level test brittle."""
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def failing_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            raise RuntimeError("upstream dropped")
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(failing_iter()), breaker)
+
+        async def consume() -> None:
+            try:
+                async for _ in wrapped.body_iterator:
+                    pass
+            except RuntimeError:
+                pass
+
+        import asyncio as _asyncio
+
+        _asyncio.get_event_loop().run_until_complete(consume())
+        breaker.record_outcome.assert_awaited_with(success=False)
