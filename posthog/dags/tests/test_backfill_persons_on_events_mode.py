@@ -1,5 +1,6 @@
 """Tests for the persons-on-events-mode backfill job."""
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -58,16 +59,6 @@ class TestResolvePersonsOnEventsMode(BaseTest):
                 {POE_V2_FLAG: _make_flag(POE_V2_FLAG, False), POE_V1_FLAG: _make_flag(POE_V1_FLAG, False)},
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             ),
-            (
-                "fallback_when_flags_absent_from_response",
-                {},
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-            ),
-            (
-                "v1_when_v2_absent_and_v1_enabled",
-                {POE_V1_FLAG: _make_flag(POE_V1_FLAG, True)},
-                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            ),
         ]
     )
     def test_resolves_mode_from_flag_decision(
@@ -91,6 +82,67 @@ class TestResolvePersonsOnEventsMode(BaseTest):
             "organization": str(self.team.organization_id),
             "project": str(self.team.id),
         }
+
+    @parameterized.expand(
+        [
+            (
+                "errors_while_computing_flags_with_full_response",
+                # The FF service can return both keys *and* set the error flag
+                # if it partially failed (e.g. one cohort lookup timed out).
+                # Even with seemingly-complete data, treat the whole answer
+                # as untrusted so the team isn't frozen onto a wrong value.
+                {
+                    "flags": {
+                        POE_V2_FLAG: _make_flag(POE_V2_FLAG, False),
+                        POE_V1_FLAG: _make_flag(POE_V1_FLAG, True),
+                    },
+                    "errorsWhileComputingFlags": True,
+                    "requestId": "test",
+                },
+                "errorsWhileComputingFlags",
+            ),
+            (
+                "errors_while_computing_flags_with_empty_flags",
+                {"flags": {}, "errorsWhileComputingFlags": True, "requestId": "test"},
+                "errorsWhileComputingFlags",
+            ),
+            (
+                "v2_flag_missing_from_response",
+                {"flags": {POE_V1_FLAG: _make_flag(POE_V1_FLAG, True)}, "requestId": "test"},
+                "missing required flag",
+            ),
+            (
+                "v1_flag_missing_from_response",
+                {"flags": {POE_V2_FLAG: _make_flag(POE_V2_FLAG, False)}, "requestId": "test"},
+                "missing required flag",
+            ),
+            (
+                "both_flags_missing_from_response",
+                {"flags": {}, "requestId": "test"},
+                "missing required flag",
+            ),
+            (
+                "no_flags_key_at_all",
+                {"requestId": "test"},
+                "missing required flag",
+            ),
+        ]
+    )
+    def test_raises_on_partial_or_incomplete_response(
+        self,
+        _name: str,
+        decision: dict,
+        expected_substring: str,
+    ):
+        """Soft failures (200 OK with partial/error data) must raise so the
+        per-team try/except in `persist_persons_on_events_mode_op` counts the
+        team as `skipped_errored` rather than silently writing the v2 fallback.
+        """
+        client = MagicMock()
+        client.get_flags_decision.return_value = decision
+
+        with pytest.raises(RuntimeError, match=expected_substring):
+            _resolve_persons_on_events_mode(self.team, client)
 
 
 class TestBackfillPersonsOnEventsMode(BaseTest):
