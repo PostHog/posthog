@@ -474,30 +474,40 @@ class TestGetDeltaSnapshotFiles:
         mock_deltalake = types.ModuleType("deltalake")
         mock_deltalake.DeltaTable = mock_delta_table_cls  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "deltalake", mock_deltalake)
-        monkeypatch.setattr("posthog.ducklake.storage.get_deltalake_storage_options", lambda: {"key": "val"})
+        monkeypatch.setattr(
+            "posthog.ducklake.storage.get_deltalake_storage_options",
+            lambda storage_config=None, *, team_id=None, organization_id=None: {
+                "team_id": str(team_id),
+                "organization_id": str(organization_id),
+            },
+        )
 
         from posthog.ducklake.storage import _get_delta_snapshot_files
 
-        version, keys = _get_delta_snapshot_files("s3://customer-bucket/data/table")
+        version, keys = _get_delta_snapshot_files(
+            "s3://customer-bucket/data/table",
+            team_id=123,
+            organization_id="org-123",
+        )
         assert version == 3
         assert keys == ["data/table/part-00000.parquet", "data/table/part-00001.parquet"]
 
         mock_delta_table_cls.assert_called_once_with(
             table_uri="s3://customer-bucket/data/table",
-            storage_options={"key": "val"},
+            storage_options={"team_id": "123", "organization_id": "org-123"},
         )
 
 
 class TestStageDeltaTable:
     @patch("boto3.client")
     def test_copies_only_pinned_version_files(self, mock_boto3_client, monkeypatch):
-        monkeypatch.setattr(
-            "posthog.ducklake.storage._get_delta_snapshot_files",
-            lambda source_uri: (
+        mock_get_snapshot_files = MagicMock(
+            return_value=(
                 2,
                 ["data/table/part-00000.parquet", "data/table/part-00001.parquet"],
-            ),
+            )
         )
+        monkeypatch.setattr("posthog.ducklake.storage._get_delta_snapshot_files", mock_get_snapshot_files)
         monkeypatch.setattr(
             "posthog.ducklake.storage._get_cross_account_credentials",
             lambda role_arn, external_id=None: ("ak", "sk", "tok"),
@@ -523,9 +533,16 @@ class TestStageDeltaTable:
             source_uri="s3://customer-bucket/data/table",
             catalog_bucket="catalog-bucket",
             role_arn="arn:aws:iam::123:role/Role",
+            organization_id="org-123",
         )
 
         assert result == "s3://catalog-bucket/__posthog_staging/data/table"
+        mock_get_snapshot_files.assert_called_once_with(
+            "s3://customer-bucket/data/table",
+            storage_config=None,
+            team_id=None,
+            organization_id="org-123",
+        )
 
         copied_keys = sorted(call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list)
         expected = sorted(

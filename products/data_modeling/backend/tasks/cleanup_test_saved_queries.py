@@ -6,6 +6,8 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.scoping_audit import skip_team_scope_audit
+
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -13,6 +15,7 @@ logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def cleanup_expired_test_saved_queries() -> None:
     """Hard-delete test saved queries whose expires_at has passed, along with downstream objects.
 

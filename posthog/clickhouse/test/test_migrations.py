@@ -18,6 +18,17 @@ MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 # `operations` lists can be cloud-gated; re-evaluate them under each prod-shaped value plus
 # the unset default so gated branches don't silently bypass the guard.
 CLOUD_DEPLOYMENTS_TO_CHECK = ("", "US", "EU", "DEV")
+# Cluster roles that host actual replicated MergeTree data — i.e. where sharded data tables
+# and non-sharded replicated tables live. ALTER TABLE on those tables must target exactly
+# one of these roles, never an ingestion / coordinator / shuffler role. The main cluster's
+# data role is `DATA`; satellite clusters expose their own data role.
+DATA_BEARING_NODE_ROLES: set[NodeRole] = {
+    NodeRole.DATA,
+    NodeRole.AI_EVENTS,
+    NodeRole.AUX,
+    NodeRole.OPS,
+    NodeRole.SESSIONS,
+}
 
 
 class TestUniqueMigrationPrefixes(TestCase):
@@ -121,11 +132,19 @@ class TestUniqueMigrationPrefixes(TestCase):
         if is_alter_on_replicated_table is None:
             errors.append("is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries")
 
-        if sharded and node_roles != [NodeRole.DATA]:
-            errors.append("ALTER TABLE on sharded tables must have node_role=NodeRole.DATA")
+        allowed_roles_label = "one of " + ", ".join(
+            f"NodeRole.{r.name}" for r in sorted(DATA_BEARING_NODE_ROLES, key=lambda r: r.name)
+        )
 
-        if not sharded and is_alter_on_replicated_table and set(node_roles) != {NodeRole.DATA}:
-            errors.append("ALTER TABLE on non-sharded tables must have node_role=NodeRole.DATA")
+        if sharded and (len(node_roles) != 1 or node_roles[0] not in DATA_BEARING_NODE_ROLES):
+            errors.append(f"ALTER TABLE on sharded tables must have node_role={allowed_roles_label}")
+
+        if (
+            not sharded
+            and is_alter_on_replicated_table
+            and (len(node_roles) != 1 or node_roles[0] not in DATA_BEARING_NODE_ROLES)
+        ):
+            errors.append(f"ALTER TABLE on non-sharded tables must have node_role={allowed_roles_label}")
 
         return errors
 

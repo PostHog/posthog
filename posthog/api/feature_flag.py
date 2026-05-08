@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import os
 import re
+import copy
 import json
 import math
 import time
 import logging
 import functools
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -34,7 +36,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import (
@@ -44,6 +46,7 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
 )
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -80,13 +83,18 @@ from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.feature_flag.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
+    reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
+)
+from posthog.models.person.point_in_time_properties import (
+    build_person_properties_at_time,
+    get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle
+from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
@@ -103,6 +111,19 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
+
+# Fields that Rust's FeatureFlag struct expects for historical evaluation
+RUST_FLAG_FIELDS = (
+    "name",
+    "active",
+    "deleted",
+    "version",
+    "filters",
+    "bucketing_identifier",
+    "evaluation_runtime",
+    "ensure_experience_continuity",
+    "evaluation_tags",
+)
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -357,6 +378,37 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
         return 0
     filter_json = json.dumps(filters, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
     return len(filter_json.encode("utf-8"))
+
+
+def _filter_person_properties_for_flag(filters: dict[str, Any], person_properties: dict[str, Any]) -> dict[str, Any]:
+    """
+    Filter person_properties to only include keys referenced by the given flag filters.
+
+    For historical (timestamp-based) evaluations the caller must pass the
+    *reconstructed* filters, not the live record's filters — otherwise the
+    response can leak property values that weren't relevant at the requested
+    point in time.
+
+    Walks ``groups`` (regular release conditions), ``super_groups`` (early-access
+    gating), and ``multivariate.override_property_values`` (per-variant property
+    overrides). Cohort-typed conditions reference person properties indirectly
+    via the cohort definition; this helper does not resolve cohorts, so a flag
+    whose only conditions are cohort lookups returns an empty person_properties
+    block.
+    """
+    referenced_keys: set[str] = set()
+
+    for section in ("groups", "super_groups"):
+        for group in filters.get(section, []) or []:
+            for prop in group.get("properties", []) or []:
+                if prop.get("type") == "person" and prop.get("key"):
+                    referenced_keys.add(prop["key"])
+
+    for override in (filters.get("multivariate", {}) or {}).get("override_property_values", []) or []:
+        if override.get("type") == "person" and override.get("key"):
+            referenced_keys.add(override["key"])
+
+    return {key: value for key, value in person_properties.items() if key in referenced_keys}
 
 
 def check_flag_limits_for_team(
@@ -770,8 +822,10 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
-        # Validate team-wide flag count limit before any early returns, since it
-        # applies to all creates regardless of creation context (surveys, etc.)
+        # Run universal validations before any early returns so they always apply,
+        # regardless of creation_context (surveys, etc.) or evaluation contexts.
+        self._validate_device_bucketing_with_persist_auth(attrs)
+        self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_flag_limits()
 
         request = self.context.get("request")
@@ -824,6 +878,52 @@ class FeatureFlagSerializer(
                     )
 
         return attrs
+
+    def _validate_device_bucketing_with_persist_auth(self, attrs):
+        """Validate that persist across auth is not enabled with device ID bucketing"""
+        # bucketing_identifier is nullable (CharField(null=True)), so we use a sentinel to
+        # distinguish "field absent from PATCH" from "field explicitly set to null". A bare
+        # `attrs.get(...) is None` fallback would otherwise treat an explicit null as missing
+        # and validate against the stale instance value.
+        _MISSING: Any = object()
+        bucketing_identifier = attrs.get("bucketing_identifier", _MISSING)
+        ensure_experience_continuity = attrs.get("ensure_experience_continuity", _MISSING)
+
+        if self.instance:
+            if bucketing_identifier is _MISSING:
+                bucketing_identifier = self.instance.bucketing_identifier
+            if ensure_experience_continuity is _MISSING:
+                ensure_experience_continuity = self.instance.ensure_experience_continuity
+
+        # Prevent new combinations of device_id + ensure_experience_continuity=True
+        if bucketing_identifier == "device_id" and ensure_experience_continuity is True:
+            # Allow if this combination already existed (no change)
+            if (
+                self.instance
+                and self.instance.bucketing_identifier == "device_id"
+                and self.instance.ensure_experience_continuity is True
+            ):
+                pass  # Allow existing combination to be saved without changes
+            else:
+                raise serializers.ValidationError(
+                    "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
+                    "These features are incompatible."
+                )
+
+    def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
+        """Encrypted payloads are only valid on remote configuration flags."""
+        # Resolve effective values: use incoming attrs, falling back to instance for updates
+        has_encrypted = attrs.get(
+            "has_encrypted_payloads",
+            getattr(self.instance, "has_encrypted_payloads", False) if self.instance else False,
+        )
+        is_remote = attrs.get(
+            "is_remote_configuration",
+            getattr(self.instance, "is_remote_configuration", False) if self.instance else False,
+        )
+
+        if has_encrypted and not is_remote:
+            raise serializers.ValidationError("Encrypted payloads require the flag to be a remote configuration.")
 
     def validate_key(self, value):
         exclude_kwargs = {}
@@ -1094,7 +1194,12 @@ class FeatureFlagSerializer(
                             code="invalid_value",
                         )
                     try:
-                        if float(prop.value[0]) > float(prop.value[1]):
+                        min_val = prop.value[0]
+                        max_val = prop.value[1]
+                        # Type check: ensure both values can be converted to float
+                        if not isinstance(min_val, (int, float, str)) or not isinstance(max_val, (int, float, str)):
+                            raise ValueError("Values must be numeric")
+                        if float(min_val) > float(max_val):
                             raise serializers.ValidationError(
                                 detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
                                 code="invalid_value",
@@ -1514,12 +1619,61 @@ class FeatureFlagSerializer(
             filters = validated_data.get("filters", instance.filters) or {}
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
-        if validated_data.get("has_encrypted_payloads", False):
-            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
-                # Don't write the redacted payload to the db, keep the current value instead
-                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+        # Resolve `has_encrypted_payloads` against the instance so a partial PATCH
+        # that omits the boolean still routes through the right path.
+        effective_has_encrypted = validated_data.get("has_encrypted_payloads", instance.has_encrypted_payloads)
+
+        if effective_has_encrypted:
+            # Ensure downstream helpers (e.g. encrypt_flag_payloads) see the
+            # flag even when the client didn't echo it back in this PATCH.
+            validated_data["has_encrypted_payloads"] = True
+            filters = validated_data.get("filters")
+            new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+
+            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
+                # Preserve the existing encrypted payload when the request didn't
+                # supply a fresh one — either because `filters.payloads` was
+                # omitted (partial PATCH from the V2 form), the redacted
+                # placeholder was echoed back, or an empty string slipped past
+                # `validate_filters` (defense in depth: the public API rejects
+                # `""` as invalid JSON upstream, but direct serializer callers
+                # could still land here). Only re-inject when `filters` is
+                # being sent, so a filters-less PATCH stays a partial update.
+                if filters is not None:
+                    existing_true_payload = (instance.filters or {}).get("payloads", {}).get("true")
+                    if not existing_true_payload:
+                        raise exceptions.ValidationError(
+                            "An encrypted payload is required when has_encrypted_payloads is true."
+                        )
+                    payloads = filters.get("payloads") or {}
+                    payloads["true"] = existing_true_payload
+                    filters["payloads"] = payloads
             else:
                 encrypt_flag_payloads(validated_data)
+
+        elif instance.has_encrypted_payloads:
+            # Downgrading from encrypted to non-encrypted. Strip leftover
+            # ciphertext so a partial PATCH that only flipped the bit doesn't
+            # leave the prior encrypted blob exposed as a normal payload on
+            # subsequent reads (redaction is gated on has_encrypted_payloads).
+            filters = validated_data.get("filters")
+            if filters is None:
+                # Client didn't send filters; inject a copy of instance.filters
+                # with the encrypted "true" payload removed.
+                new_filters = copy.deepcopy(instance.filters or {})
+                payloads = new_filters.get("payloads") or {}
+                payloads.pop("true", None)
+                new_filters["payloads"] = payloads
+                validated_data["filters"] = new_filters
+            else:
+                # Client sent filters. Drop an empty/missing/redacted echo at
+                # "true"; a fresh non-empty plaintext is left alone (the user
+                # explicitly set a new payload during the downgrade).
+                payloads = filters.get("payloads") or {}
+                true_val = payloads.get("true")
+                if not true_val or true_val == REDACTED_PAYLOAD_VALUE:
+                    payloads.pop("true", None)
+                filters["payloads"] = payloads
 
         # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4).
         # Uses the same inject-into-validated_data pattern as _update_super_groups_for_key_change.
@@ -1930,6 +2084,106 @@ class DependentFlagSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Feature flag name")
 
 
+class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="User distinct ID to test against (mutually exclusive with person_id)",
+    )
+    person_id = serializers.CharField(
+        required=False, allow_blank=False, help_text="Person ID to test against (mutually exclusive with distinct_id)"
+    )
+    timestamp = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional point-in-time to evaluate the flag against — both flag conditions "
+            "and person properties are reconstructed as they existed at that timestamp. "
+            "ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. "
+            "Naive timestamps (no timezone) are interpreted as UTC."
+        ),
+    )
+    groups = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Groups for feature flag evaluation (JSON object, defaults to empty dict)",
+    )
+
+    def validate(self, attrs):
+        distinct_id = attrs.get("distinct_id")
+        person_id = attrs.get("person_id")
+
+        if not distinct_id and not person_id:
+            raise serializers.ValidationError("Either distinct_id or person_id must be provided")
+
+        if distinct_id and person_id:
+            raise serializers.ValidationError("Cannot provide both distinct_id and person_id")
+
+        return attrs
+
+
+class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Property key")
+    operator = serializers.CharField(help_text="Comparison operator")
+    value = serializers.JSONField(help_text="Expected property value")
+    type = serializers.CharField(help_text="Property type (person, group, etc.)")
+    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    matched = serializers.BooleanField(help_text="Whether this property condition matched")
+    explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
+
+
+class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
+    index = serializers.IntegerField(help_text="Index of this condition in the feature flag")
+    matched = serializers.BooleanField(
+        help_text=(
+            "True when this condition was the one that determined the flag's outcome. "
+            "Use this to find the winning condition — at most one condition per flag is True."
+        )
+    )
+    properties_matched = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when every property in this condition evaluated to true, regardless of "
+            "whether this condition was the eventual winner."
+        ),
+    )
+    explanation = serializers.CharField(
+        help_text="Human-readable explanation of why this condition matched/didn't match"
+    )
+    rollout_percentage = serializers.FloatField(help_text="Rollout percentage for this condition (0.0-100.0)")
+    rollout_excluded = serializers.BooleanField(
+        help_text="Whether this condition matched properties but was excluded due to rollout"
+    )
+    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    properties = FeatureFlagConditionPropertyAnalysisSerializer(
+        many=True, help_text="Analysis of each property in this condition"
+    )
+
+
+class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
+    flag_key = serializers.CharField(help_text="Feature flag key")
+    result = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
+    reason = serializers.CharField(help_text="The reason for the evaluation result")
+    condition_index = serializers.IntegerField(
+        allow_null=True, help_text="The index of the condition that matched, if applicable"
+    )
+    payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
+    person_properties = serializers.DictField(
+        help_text="Person properties at the time of evaluation (for historical evaluations)"
+    )
+    evaluation_distinct_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The distinct_id used for rollout/variant bucketing. Echoes the caller-provided "
+            "distinct_id when one was sent; null on the person_id path so the endpoint doesn't "
+            "leak the person's other distinct_ids to a feature_flag:read-only token."
+        ),
+    )
+    conditions = FeatureFlagConditionAnalysisSerializer(
+        many=True, help_text="Detailed analysis of each condition in the feature flag"
+    )
+
+
 class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
     """Feature flag state at a given version plus reconstruction metadata."""
 
@@ -2010,7 +2264,6 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
-            "has_encrypted_payloads",
             "version",
             "evaluation_runtime",
             "bucketing_identifier",
@@ -3315,6 +3568,302 @@ class FeatureFlagViewSet(
             {"status": flag_status, "reason": reason},
             status=status.HTTP_200_OK,
         )
+
+    @validated_request(
+        request_serializer=FeatureFlagTestEvaluationRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=FeatureFlagTestEvaluationResponseSerializer),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid parameters"),
+            404: OpenApiResponse(response=ErrorResponseSerializer, description="Person not found"),
+            500: OpenApiResponse(response=ErrorResponseSerializer, description="Server error"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["feature_flag:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def test_evaluation(self, request: request.Request, **kwargs):
+        """
+        Test feature flag evaluation against a specific user at an optional point in time.
+
+        This endpoint allows testing how a feature flag would evaluate for a specific user,
+        optionally at a historical timestamp. When a timestamp is provided, both the flag
+        conditions and person properties are evaluated as they existed at that time.
+        """
+        feature_flag = self.get_object()
+
+        # Extract validated data - prioritize person_id over distinct_id
+        distinct_id = request.validated_data.get("distinct_id")
+        person_id = request.validated_data.get("person_id")
+        timestamp = request.validated_data.get("timestamp")
+        groups = request.validated_data.get("groups") or {}
+
+        # Resolve person and distinct_ids
+        try:
+            person, distinct_ids = get_person_and_distinct_ids_for_identifier(
+                team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
+            )
+        except ValueError as e:
+            capture_exception(e)
+            return Response({"error": "Invalid parameters"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            capture_exception(e)
+            return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not person or not distinct_ids:
+            identifier_type = "distinct_id" if distinct_id else "person_id"
+            identifier_value = distinct_id or person_id
+            return Response(
+                {"detail": f"Person not found for {identifier_type}: {identifier_value}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
+        # since rollout/variant assignment can depend on the exact distinct_id used.
+        # If person_id was provided, pick the lexicographically smallest distinct_id so the
+        # choice is stable across calls — proto_person_to_model / the ORM don't guarantee order.
+        evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else sorted(distinct_ids)[0]
+        person_properties: dict[str, Any] = {}
+
+        # Build person properties at timestamp if provided
+        if timestamp:
+            try:
+                # Tag the ClickHouse call so query_log attribution stays correct.
+                tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, team_id=self.team_id)
+                lower_bound = timestamp - timedelta(days=730)
+                if feature_flag.created_at:
+                    lower_bound = min(max(lower_bound, feature_flag.created_at), timestamp)
+                person_properties = build_person_properties_at_time(
+                    team_id=self.team_id,
+                    timestamp=timestamp,
+                    distinct_ids=distinct_ids,
+                    include_set_once=True,
+                    lower_bound=lower_bound,
+                )
+            except ValueError as e:
+                # Our own validation (invalid timestamp shape, naive datetime, etc.) —
+                # Validation failures should be logged server-side, but return a generic
+                # message to avoid exposing internal exception details to API callers.
+                logger.warning("Invalid timestamp input for flag %s: %s", feature_flag.key, e)
+                return Response(
+                    {"error": "Invalid timestamp format."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception:
+                # ClickHouse / infra failures keep the generic 500 but log the real cause.
+                logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
+                return Response(
+                    {"error": "Failed to build person properties at specified timestamp."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        else:
+            # Use current person properties
+            person_properties = person.properties or {}
+
+        # If timestamp is provided, reconstruct the flag at that point in time.
+        # ``evaluation_filters`` is what we hand to _filter_person_properties_for_flag
+        # and what the Rust override payload's "filters" entry comes from.
+        evaluation_filters: dict[str, Any] = feature_flag.filters or {}
+        reconstructed_flag_data: Optional[dict[str, Any]] = None
+        if timestamp:
+            try:
+                # Reconstruct the flag at the timestamp using the efficient single-pass method
+                reconstructed_flag_data = reconstruct_flag_at_timestamp(
+                    flag=feature_flag,
+                    timestamp=timestamp,
+                    team_id=self.team_id,
+                )
+                evaluation_filters = reconstructed_flag_data.get("filters") or {}
+
+            except VersionNotFound:
+                return Response(
+                    {"error": f"Feature flag '{feature_flag.key}' did not exist at the specified timestamp."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except VersionHistoryIncomplete:
+                return Response(
+                    {"error": "Could not reconstruct flag at timestamp due to incomplete history."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except ValueError as e:
+                # e.g. "timestamp must be timezone-aware" from version_history.
+                logger.warning("Invalid timestamp for flag reconstruction (flag %s): %s", feature_flag.key, e)
+                return Response(
+                    {"error": "Invalid timestamp."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception:
+                logger.exception("Failed to reconstruct flag at timestamp for flag %s", feature_flag.key)
+                return Response(
+                    {"error": "Failed to reconstruct flag at specified timestamp."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # Evaluate the flag
+        try:
+            # Get team API token for Rust service
+            team_token = self.team.api_token
+
+            # If we reconstructed a historical version, ship the reconstructed
+            # field set as the override payload. Building straight from
+            # reconstructed_flag_data avoids round-tripping through an in-memory
+            # FeatureFlag(...), which would silently substitute model defaults
+            # for any field we forgot to copy (bucketing_identifier,
+            # evaluation_runtime, ensure_experience_continuity, evaluation_tags,
+            # …) and ship those defaults as the historical value.
+            override_definitions = None
+            if timestamp and reconstructed_flag_data is not None:
+                try:
+                    # Use allowlist of fields that Rust expects, avoiding the need to track
+                    # what _build_response might inject in the future
+                    flag_dict: dict[str, Any] = {
+                        k: reconstructed_flag_data[k] for k in RUST_FLAG_FIELDS if k in reconstructed_flag_data
+                    }
+                    flag_dict.update({"id": feature_flag.id, "key": feature_flag.key, "team_id": feature_flag.team_id})
+
+                    # Stringify datetime fields for JSON serialization.
+                    if flag_dict.get("created_at") and hasattr(flag_dict["created_at"], "isoformat"):
+                        flag_dict["created_at"] = flag_dict["created_at"].isoformat()
+
+                    override_definitions = {feature_flag.key: flag_dict}
+                except Exception as e:
+                    logger.exception("Failed to serialize flag for override")
+                    capture_exception(e)
+                    return Response(
+                        {"error": "Failed to prepare historical flag definition for evaluation."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+
+            internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
+            if not internal_token:
+                return Response(
+                    {"error": "Internal request token not configured"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            rust_response = get_flags_from_service(
+                token=team_token,
+                distinct_id=evaluation_distinct_id,
+                groups=groups,
+                detailed_analysis=True,
+                person_properties=person_properties,
+                only_use_override_person_properties=timestamp is not None,
+                flag_keys=[feature_flag.key],
+                internal_request_token=internal_token,
+                override_flags_definitions=override_definitions,
+            )
+
+            # Extract the flag result from the Rust response
+            flags = rust_response.get("flags", {})
+            flag_result = flags.get(feature_flag.key)
+
+            # Initialize defaults
+            condition_index = None
+            payload = None
+            detailed_conditions: list[dict] = []
+            result: bool | str = False
+
+            if flag_result is None:
+                result = False
+                reason = "flag_not_found"
+            else:
+                # Extract the detailed flag result data
+                if isinstance(flag_result, dict):
+                    result = flag_result.get("enabled", False)
+                    variant = flag_result.get("variant")
+                    reason_data = flag_result.get("reason", {})
+                    metadata = flag_result.get("metadata", {})
+
+                    # Extract values from the correct nested structures
+                    reason = reason_data.get("code", "unknown") if reason_data else "unknown"
+                    condition_index = reason_data.get("condition_index") if reason_data else None
+                    payload = metadata.get("payload") if metadata else None
+                    # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
+                    # When ``timestamp`` is set, missing conditions almost certainly means Rust
+                    # rejected the internal token and silently fell back to current-state
+                    # evaluation: returning a 200 with current-state values would silently corrupt
+                    # the historical contract this endpoint promises, so fail loudly instead.
+                    if "conditions" not in flag_result:
+                        if timestamp:
+                            logger.error(
+                                "Historical evaluation returned no conditions; INTERNAL_REQUEST_TOKEN may be misconfigured",
+                                extra={
+                                    "flag_key": feature_flag.key,
+                                    "response_keys": list(flag_result.keys()),
+                                },
+                            )
+                            return Response(
+                                {"error": "Historical evaluation unavailable. Check service configuration."},
+                                status=status.HTTP_502_BAD_GATEWAY,
+                            )
+                        logger.warning(
+                            "Missing 'conditions' key in flag evaluation response",
+                            extra={"flag_key": feature_flag.key, "response_keys": list(flag_result.keys())},
+                        )
+                    detailed_conditions = flag_result.get("conditions", [])
+
+                    # If there's a variant, use it as the result
+                    if variant is not None:
+                        result = variant
+                else:
+                    # /flags endpoint with v=2 always returns dict, these branches should never fire
+                    logger.error(
+                        "Unexpected flag_result type in test_evaluation",
+                        extra={
+                            "flag_key": feature_flag.key,
+                            "result_type": type(flag_result).__name__,
+                            "result_value": str(flag_result)[:100],
+                        },
+                    )
+                    return Response(
+                        {"error": "Unexpected response format from flag evaluation service"},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
+
+            # Only echo back the bucketing distinct_id when the caller already
+            # had it (they sent it in the request). On the person_id path we
+            # picked one for them out of the person's set, and surfacing it
+            # would let a ``feature_flag:read``-only token enumerate distinct
+            # IDs for any UUID — which normally requires ``person:read``.
+            response_evaluation_distinct_id = (
+                evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
+            )
+            response_data = {
+                "flag_key": feature_flag.key,
+                "result": result,
+                "reason": reason,
+                "condition_index": condition_index,
+                "payload": payload,
+                "person_properties": _filter_person_properties_for_flag(evaluation_filters, person_properties),
+                "evaluation_distinct_id": response_evaluation_distinct_id,
+                "conditions": detailed_conditions,
+            }
+
+            response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
+            response_serializer.is_valid(raise_exception=True)
+            return Response(response_serializer.data)
+
+        except Exception as e:
+            logger.exception(
+                "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",
+                feature_flag.key,
+                distinct_id,
+                person_id,
+                timestamp,
+                e,
+                extra={
+                    "flag_key": feature_flag.key,
+                    "distinct_id": distinct_id,
+                    "person_id": person_id,
+                    "timestamp": timestamp,
+                    "groups": groups,
+                },
+            )
+            capture_exception(e)
+            return Response({"error": "Failed to evaluate flag"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(
         methods=["GET"],

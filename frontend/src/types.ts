@@ -327,6 +327,7 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -414,6 +415,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
+    realtime_notifications_disabled?: Record<string, Record<string, boolean>>
 }
 
 export interface InAppNotification {
@@ -575,6 +577,7 @@ export interface ListOrganizationMembersParams {
     offset?: number
     limit?: number
     updated_after?: string
+    search?: string
 }
 
 export interface APIErrorType {
@@ -4589,9 +4592,10 @@ export interface Experiment {
         frequentist?: {
             alpha?: number
         }
-    }
-    scheduling_config?: {
-        timeseries?: boolean
+        cuped?: {
+            enabled?: boolean
+            lookback_days?: number
+        }
     }
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
@@ -5019,6 +5023,9 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+// This hand-written interface predates the generated type and now requires
+// dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
     insight?: number
@@ -5041,6 +5048,7 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
 }
@@ -5544,6 +5552,9 @@ export type CommentType = {
     item_context: Record<string, any> | null
     /** only on the type to support patching for soft delete */
     deleted?: boolean
+    is_task: boolean
+    completed_at: string | null
+    completed_by: UserBasicType | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }
@@ -6396,7 +6407,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
     | ProductKey.LLM_ANALYTICS
-    | ProductKey.WORKFLOWS,
+    | ProductKey.WORKFLOWS
+    | ProductKey.LOGS,
     OnboardingProduct
 >
 

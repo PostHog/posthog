@@ -11,8 +11,7 @@ from typing import Optional, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.contrib.auth import logout
-from django.contrib.sessions.middleware import SessionMiddleware
+from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
@@ -22,16 +21,18 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django.utils.deprecation import MiddlewareMixin
 
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from prometheus_client import Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties
@@ -363,6 +364,37 @@ class AutoProjectMiddleware:
         return True
 
 
+API_REQUESTS_LATENCY_SECONDS = Histogram(
+    "posthog_api_requests_latency_seconds",
+    "Latency of api/ requests, labelled to expose agent vs browser traffic.",
+    # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
+    # or "error" when the view raised before producing one — keeps error-path
+    # latency from polluting success buckets while still recording it.
+    labelnames=["view", "method", "source", "access_method", "status_class"],
+    # Same buckets as django_prometheus' default so we line up with
+    # django_http_requests_latency_seconds_by_view_method.
+    buckets=(
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.5,
+        5.0,
+        7.5,
+        10.0,
+        25.0,
+        50.0,
+        75.0,
+        float("inf"),
+    ),
+)
+
+
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -375,6 +407,7 @@ class CHQueries:
         """
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
+        is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
 
@@ -396,10 +429,15 @@ class CHQueries:
             **get_mcp_properties(request),
         )
 
+        start = time.perf_counter()
+        # Stays "error" if get_response raises — observed in the finally below.
+        status_class = "error"
+
         try:
             response: HttpResponse = self.get_response(request)
+            status_class = f"{response.status_code // 100}xx"
 
-            if "api/" in request.path and "capture" not in request.path:
+            if is_api_request:
                 statsd.incr(
                     "http_api_request_response",
                     tags={"id": route_id, "status_code": response.status_code},
@@ -407,6 +445,19 @@ class CHQueries:
 
             return response
         finally:
+            if is_api_request:
+                API_REQUESTS_LATENCY_SECONDS.labels(
+                    # DRF viewset name (api:viewset-action) when set, view function name
+                    # otherwise. (Django builds view_name from url_name, so url_name as a
+                    # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
+                    view=route.view_name or route.func.__name__,
+                    method=request.method or "",
+                    # Read after get_response so view code that calls tag_queries(source=...)
+                    # wins — matches access_method semantics, where DRF auth tags during dispatch.
+                    source=get_query_tag_value("source") or "",
+                    access_method=get_query_tag_value("access_method") or "",
+                    status_class=status_class,
+                ).observe(time.perf_counter() - start)
             reset_query_tags()
 
     def _get_param(self, request: HttpRequest, name: str):
@@ -555,14 +606,20 @@ class CustomPrometheusMetrics(Metrics):
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
 
 
-class PostHogTokenCookieMiddleware(SessionMiddleware):
+class PostHogTokenCookieMiddleware(MiddlewareMixin):
     """
-    Adds two secure cookies to enable auto-filling the current project token on the docs.
+    Adds secure cookies that let the website auto-fill the current project token / login method on docs.
+
+    Note: this used to subclass SessionMiddleware, which had the side effect of running a second
+    SessionMiddleware.process_request mid-chain — replacing request.session with a fresh, unloaded
+    SessionStore. That caused two real problems: (1) downstream gates relying on request.session.accessed
+    became asymmetric across sync vs ASGI auth (Django keeps separate _cached_user / _acached_user),
+    and (2) any later code that read a session key (e.g. BACKEND_SESSION_KEY) paid a redundant DB load
+    against the fresh store, which N+1 query-count tests would catch. The session is already saved by
+    the SessionMiddleware higher in the stack; this middleware only needs to set response cookies.
     """
 
     def process_response(self, request, response):
-        response = super().process_response(request, response)
-
         if settings.TEST:
             pass
         elif is_dev_mode():
@@ -647,26 +704,33 @@ class SessionAgeMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        # Anonymous requests have no session-auth context — skipping avoids materializing a session
+        # row for every public/API-key-authenticated request. Previously this ran unconditionally,
+        # but the modifications were silently dropped by PostHogTokenCookieMiddleware's session
+        # reset; once that reset is removed, those modifications would persist and cause spurious
+        # session inserts on every anonymous request.
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
 
-        if request.user.is_authenticated:
-            # Get session creation time
-            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
-            if session_created_at:
-                # Get timeout from Redis cache first, fallback to settings
-                org_id = request.user.current_organization_id
-                session_age = None
-                if org_id:
-                    session_age = cache.get(f"org_session_age:{org_id}")
+        # Get session creation time
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if session_created_at:
+            # Get timeout from Redis cache first, fallback to settings
+            org_id = request.user.current_organization_id
+            session_age = None
+            if org_id:
+                session_age = cache.get(f"org_session_age:{org_id}")
 
-                if session_age is None:
-                    session_age = settings.SESSION_COOKIE_AGE
+            if session_age is None:
+                session_age = settings.SESSION_COOKIE_AGE
 
-                current_time = time.time()
-                if current_time - session_created_at > session_age:
-                    logout(request)
-                    return redirect("/login?message=Your session has expired. Please log in again.")
+            current_time = time.time()
+            if current_time - session_created_at > session_age:
+                logout(request)
+                return redirect("/login?message=Your session has expired. Please log in again.")
 
         response = self.get_response(request)
         return response
@@ -680,7 +744,14 @@ class KnownLoginDeviceCookieMiddleware:
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        if isinstance(request.user, User) and request.session.accessed and not is_impersonated_session(request):
+        # Gate on `BACKEND_SESSION_KEY` (set by `auth.login()`, removed by `auth.logout()`) rather than
+        # `request.session.accessed` — the latter flips True whenever any upstream middleware reads the
+        # session, which makes the gate dependent on middleware ordering and async/sync execution mode.
+        if (
+            isinstance(request.user, User)
+            and BACKEND_SESSION_KEY in request.session
+            and not is_impersonated_session(request)
+        ):
             set_known_device_cookie(response, request.user)
         return response
 

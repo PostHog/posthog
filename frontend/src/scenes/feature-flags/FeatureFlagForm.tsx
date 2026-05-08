@@ -178,7 +178,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
-        setBucketingIdentifier,
         resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
@@ -264,6 +263,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
           : 'boolean'
 
     const onSelectFlagType = (value: string): void => {
+        // Leaving remote config: the backend invariant requires
+        // has_encrypted_payloads=true only on remote config flags,
+        // and the prior ciphertext is no longer valid.
+        const wasLeavingRemoteConfig =
+            featureFlag?.is_remote_configuration === true &&
+            value !== 'remote_config' &&
+            featureFlag?.has_encrypted_payloads
+
         if (value === 'remote_config') {
             setFeatureFlag({
                 ...featureFlag,
@@ -286,6 +293,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 is_remote_configuration: false,
             })
             setMultivariateEnabled(false)
+        }
+
+        if (wasLeavingRemoteConfig) {
+            resetEncryptedPayload()
         }
     }
 
@@ -649,37 +660,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     />
                                                 </LemonField>
 
-                                                <LemonDivider className="my-1" />
+                                                {/* Persistence - hide when device ID bucketing is selected */}
+                                                {featureFlag.bucketing_identifier !==
+                                                    FeatureFlagBucketingIdentifier.DEVICE_ID && (
+                                                    <>
+                                                        <LemonDivider className="my-1" />
 
-                                                {/* Persistence */}
-                                                <LemonField
-                                                    name="ensure_experience_continuity"
-                                                    label="Persistence"
-                                                    labelClassName="text-sm font-medium"
-                                                    info={
-                                                        <>
-                                                            Keep flag values consistent before and after login. Requires
-                                                            anonymous user profiles.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
-                                                        </>
-                                                    }
-                                                >
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            checked={value}
-                                                            onChange={onChange}
-                                                            bordered
-                                                            fullWidth
-                                                            label="Persist flag across authentication steps"
-                                                            data-attr="feature-flag-persist-across-auth"
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                        <LemonField
+                                                            name="ensure_experience_continuity"
+                                                            label="Persistence"
+                                                            labelClassName="text-sm font-medium"
+                                                            info={
+                                                                <>
+                                                                    Keep flag values consistent before and after login.
+                                                                    Requires anonymous user profiles.{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                                        target="_blank"
+                                                                    >
+                                                                        Learn more
+                                                                    </Link>
+                                                                </>
+                                                            }
+                                                        >
+                                                            {({ value, onChange }) => (
+                                                                <LemonSwitch
+                                                                    checked={value}
+                                                                    onChange={onChange}
+                                                                    bordered
+                                                                    fullWidth
+                                                                    label="Persist flag across authentication steps"
+                                                                    data-attr="feature-flag-persist-across-auth"
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                    </>
+                                                )}
                                             </div>
                                         ),
                                     },
@@ -1054,9 +1070,23 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
-                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) =>
-                                            setBucketingIdentifier(value)
-                                        }
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
+                                            // Always go through setFeatureFlag so this caller and
+                                            // FeatureFlagReleaseConditions use the same shape — listeners on
+                                            // setBucketingIdentifier (variant reset, telemetry, autosave) won't
+                                            // silently fire on one path and not the other. Switching to device
+                                            // bucketing also disables persist across auth, since the two are
+                                            // incompatible.
+                                            const ensureContinuity =
+                                                value === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                    ? false
+                                                    : featureFlag.ensure_experience_continuity
+                                            setFeatureFlag({
+                                                ...featureFlag,
+                                                bucketing_identifier: value,
+                                                ensure_experience_continuity: ensureContinuity,
+                                            })
+                                        }}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                 </div>

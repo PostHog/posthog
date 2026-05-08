@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
@@ -22,8 +22,18 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
     const handleDisconnect = (): void => {
         LemonDialog.open({
             title: `Disconnect ${accountName || 'GitHub installation'}?`,
-            description:
-                'PostHog will no longer be able to access repos from this installation or act on your behalf there.',
+            description: (
+                <>
+                    <LemonBanner type="warning" className="my-4 text-balance">
+                        Any PostHog Code agent runs <em>currently in progress</em> will be unable to push commits or
+                        open pull requests on GitHub.
+                    </LemonBanner>
+                    <p>
+                        PostHog will no longer be able to access repos from this installation or act on your behalf
+                        there.
+                    </p>
+                </>
+            ),
             primaryButton: {
                 children: 'Disconnect',
                 status: 'danger',
@@ -112,10 +122,15 @@ export function PersonalIntegrations(): JSX.Element {
                         <GitHubInstallationRow key={integration.installation_id} integration={integration} />
                     ))
                 )}
-                <div className="px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
                     <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={connectGitHub}>
                         {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                     </LemonButton>
+                    <span className="text-xs text-secondary text-balance">
+                        Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip
+                        between <strong>All repositories</strong> and <strong>Only select repositories</strong> to
+                        proceed.
+                    </span>
                 </div>
             </div>
         </div>

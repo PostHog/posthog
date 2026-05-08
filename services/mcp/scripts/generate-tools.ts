@@ -317,6 +317,8 @@ function operationIdToPascal(operationId: string): string {
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
+    /** Names of helpers imported from `@/tools/cast-helpers` (e.g. `castStringToInt`). */
+    castHelperImports: Set<string>
     /** Inline Zod declarations generated from schema_ref (emitted before the schema declaration) */
     schemaRefBlocks: string[]
     schemaExpr: string
@@ -341,6 +343,14 @@ function composeToolSchema(
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
     const bodyFieldNames: string[] = []
+    /**
+     * Params whose underlying Orval shape is `.optional()` (or `.nullish()`).
+     * Used by the cast branch in `param_overrides`: `z.preprocess(fn, source)`
+     * does not propagate optionality to the JSON Schema output, so we re-apply
+     * `.optional()` after the wrapper for fields that were optional at source.
+     * Path params are omitted (always required).
+     */
+    const optionalParamNames = new Set<string>()
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -404,6 +414,9 @@ function composeToolSchema(
             }
             for (const p of usefulQueryParams) {
                 queryParamNames.push(p.name)
+                if (!p.required) {
+                    optionalParamNames.add(p.name)
+                }
             }
         }
     }
@@ -417,6 +430,10 @@ function composeToolSchema(
 
             const bodyOmitFields = new Set<string>()
             const bodySchema = resolveSchema(spec, bodySchemaRef)
+            // PATCH bodies are partial — Orval emits every field as `.optional()`.
+            // For POST/PUT, optionality follows the body schema's `required` list.
+            const bodyRequiredSet = new Set(bodySchema?.required ?? [])
+            const bodyAllOptional = resolved.method === 'PATCH'
 
             if (bodySchema?.properties) {
                 for (const [name, prop] of Object.entries(bodySchema.properties)) {
@@ -448,7 +465,11 @@ function composeToolSchema(
                     // handler references params.<alias>. The original→alias
                     // mapping is tracked in renamedFields for body-building.
                     const alias = renameMap.get(name)
-                    bodyFieldNames.push(alias ?? name)
+                    const fieldKey = alias ?? name
+                    bodyFieldNames.push(fieldKey)
+                    if (bodyAllOptional || !bodyRequiredSet.has(name)) {
+                        optionalParamNames.add(fieldKey)
+                    }
                 }
             }
 
@@ -479,7 +500,9 @@ function composeToolSchema(
     //   - schema_ref    → generate inline Zod from schema.json and use that
     //   - description   → wrap the existing Orval-derived field with .describe(...)
     //   - optional+fallback → make param optional and resolve from state when omitted
+    //   - cast          → wrap with z.preprocess(...) from @/tools/cast-helpers
     const toolInputsImports: string[] = []
+    const castHelperImports = new Set<string>()
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
@@ -497,6 +520,22 @@ function composeToolSchema(
                 paramFallbacks[paramName] = override.fallback
             }
 
+            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            if (castHelper) {
+                castHelperImports.add(castHelper)
+            }
+            // `z.preprocess(fn, source)` does not propagate inner `.optional()` to
+            // the JSON Schema output (zod 4 marks the wrapped field as required).
+            // Re-apply `.optional()` after the preprocess for fields whose source
+            // was optional, so the agent-facing tool schema stays accurate.
+            const wrapWithCast = (inner: string): string => {
+                if (!castHelper) {
+                    return inner
+                }
+                const wrapped = `z.preprocess(${castHelper}, ${inner})`
+                return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
+            }
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
                 schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
@@ -512,9 +551,9 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description || override.default !== undefined || override.optional) {
+            } else if (override.description || override.default !== undefined || override.optional || castHelper) {
                 // Locate the Orval source schema this param came from, so we can reference
-                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional().
+                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional() / cast.
                 let sourceImport: string | null = null
                 if (bodyFieldNames.includes(paramName)) {
                     sourceImport = `${pascal}Body`
@@ -534,7 +573,7 @@ function composeToolSchema(
                     if (override.optional) {
                         expr += '.optional()'
                     }
-                    schemaOverrides.push(`${paramName}: ${expr}`)
+                    schemaOverrides.push(`${paramName}: ${wrapWithCast(expr)}`)
                 }
             }
         }
@@ -590,6 +629,7 @@ function composeToolSchema(
     return {
         orvalImports,
         toolInputsImports,
+        castHelperImports,
         schemaRefBlocks,
         schemaExpr,
         pathParamNames,
@@ -720,6 +760,7 @@ function generateToolCode(
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    castHelperImports: Set<string>
     schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
@@ -893,6 +934,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         code,
         orvalImports: composition.orvalImports,
         toolInputsImports: composition.toolInputsImports,
+        castHelperImports: composition.castHelperImports,
         schemaRefBlocks: composition.schemaRefBlocks,
         responseType,
         needsWithPostHogUrl,
@@ -913,6 +955,7 @@ function generateCustomSchemaToolCode(
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    castHelperImports: Set<string>
     schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
@@ -988,6 +1031,7 @@ ${handlerBody}    },
         code,
         orvalImports: [],
         toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        castHelperImports: new Set(),
         schemaRefBlocks: [],
         responseType,
         needsWithPostHogUrl: false,
@@ -1064,6 +1108,7 @@ function generateCategoryFile(
 
     const allOrvalImports = new Set<string>()
     const allToolInputsImports = new Set<string>()
+    const allCastHelperImports = new Set<string>()
     const allSchemaRefBlocks: string[] = []
     const emittedSchemaRefDefs = new Set<string>()
     const toolCodes: string[] = []
@@ -1082,6 +1127,9 @@ function generateCategoryFile(
         }
         for (const imp of result.toolInputsImports) {
             allToolInputsImports.add(imp)
+        }
+        for (const imp of result.castHelperImports) {
+            allCastHelperImports.add(imp)
         }
         // Collect schema_ref blocks, deduplicating by const name
         for (const block of result.schemaRefBlocks) {
@@ -1214,6 +1262,11 @@ function generateCategoryFile(
             ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
             : ''
 
+    const castHelpersImportLine =
+        allCastHelperImports.size > 0
+            ? `import { ${[...allCastHelperImports].sort().join(', ')} } from '@/tools/cast-helpers'\n`
+            : ''
+
     // Build tool-utils import (WithPostHogUrl type + withPostHogUrl runtime helper)
     const toolUtilsTypeImports: string[] = []
     const toolUtilsValueImports: string[] = []
@@ -1244,7 +1297,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

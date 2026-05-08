@@ -5,9 +5,11 @@ import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
+    buildStackedResolveValue,
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
+    resolveYScaleForSeries,
     yTickCountForHeight,
 } from '../core/scales'
 import type { ScaleSet, StackedBand } from '../core/scales'
@@ -80,11 +82,12 @@ function LineChartInner<Meta = unknown>({
     }, [percentStackView, hasAreaFill, series, labels])
 
     const chartConfig = useMemo(() => {
+        const base = { ...config, isPercent: percentStackView }
         if (!percentStackView || config?.yTickFormatter) {
-            return config
+            return base
         }
         return {
-            ...config,
+            ...base,
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, percentStackView])
@@ -160,6 +163,22 @@ function LineChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
 
+            // Clip data drawing to the plot area so an overlay series with values outside
+            // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
+            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
+            // at the domain edge from rendering at half-thickness — line strokes and point
+            // markers extend past the value's pixel center.
+            const CLIP_PAD = 8
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(
+                dimensions.plotLeft,
+                dimensions.plotTop - CLIP_PAD,
+                dimensions.plotWidth,
+                dimensions.plotHeight + CLIP_PAD * 2
+            )
+            ctx.clip()
+
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
@@ -177,6 +196,8 @@ function LineChartInner<Meta = unknown>({
                     drawPoints(drawCtx, s, yValues)
                 }
             }
+
+            ctx.restore()
         },
         [showGrid, stackedData]
     )
@@ -186,10 +207,6 @@ function LineChartInner<Meta = unknown>({
             if (hoverIndex < 0) {
                 return
             }
-            const resolveChartYScale = (s: ResolvedSeries): ((value: number) => number) => {
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                return scales.yAxes?.[axisId]?.scale ?? scales.y
-            }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded || s.fill?.lowerData) {
                     continue
@@ -197,12 +214,12 @@ function LineChartInner<Meta = unknown>({
                 // Auxiliary overlays (moving averages, trend lines) opt out of stacking.
                 // In percent-stack mode the y-scale domain is [0, 1], so mapping their raw
                 // values produces a highlight ring far outside the plot — skip them entirely.
-                if (s.visibility?.fromStack) {
+                if (s.overlay) {
                     continue
                 }
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
-                const y = resolveChartYScale(s)(data[hoverIndex])
+                const y = resolveYScaleForSeries(scales, s)(data[hoverIndex])
                 if (x != null && isFinite(y)) {
                     drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
                 }
@@ -211,19 +228,7 @@ function LineChartInner<Meta = unknown>({
         [stackedData]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -239,7 +244,6 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
-            isPercent={percentStackView}
         >
             {children}
         </Chart>

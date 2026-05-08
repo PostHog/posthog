@@ -1,33 +1,25 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import React, { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { Command } from 'lib/components/Command/Command'
-import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
-import { PostOnboardingModal } from 'scenes/onboarding/PostOnboardingModal'
-import { postOnboardingModalLogic } from 'scenes/onboarding/postOnboardingModalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { GlobalModals } from '~/layout/GlobalModals'
-import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
-import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
-import { MaxInstance } from './max/Max'
+import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
+
+const AuthenticatedShell = React.lazy(() => import('./AuthenticatedShell'))
 
 window.process = MOCK_NODE_PROCESS
 
@@ -58,10 +50,6 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
-    useMountedLogic(apiStatusLogic)
-    useMountedLogic(eventIngestionRestrictionLogic)
-    useMountedLogic(globalSetupLogic)
-    useMountedLogic(postOnboardingModalLogic)
 
     useThemedHtml()
 
@@ -78,7 +66,6 @@ export function App(): JSX.Element | null {
 }
 
 function AppScene(): JSX.Element | null {
-    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
     const {
         activeSceneId,
@@ -87,15 +74,28 @@ function AppScene(): JSX.Element | null {
         activeSceneLogicPropsWithTabId,
         sceneConfig,
     } = useValues(sceneLogic)
-    const { showingDelayedSpinner, hasExitedAIOnlyMode } = useValues(appLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    // Highlight any relevant element after navigation from the quick start guide
-    useSetupHighlight()
+    // Once we know the user is authenticated, kick off an idle prefetch of the
+    // AuthenticatedShell chunk so the Suspense fallback rarely actually fires
+    // when the shell mounts. No-op on prefetch failure — Suspense still works.
+    useEffect(() => {
+        if (!user) {
+            return
+        }
+        const idle =
+            typeof window.requestIdleCallback === 'function'
+                ? window.requestIdleCallback.bind(window)
+                : (cb: () => void) => setTimeout(cb, 200)
+        idle(() => {
+            void import('./AuthenticatedShell').catch(() => {
+                /* prefetch is best-effort; the real Suspense load will surface failures */
+            })
+        })
+    }, [user])
 
-    const toastContainer = (
+    const unauthToastContainer = (
         <ToastContainer
             autoClose={6000}
             transition={Slide}
@@ -104,23 +104,6 @@ function AppScene(): JSX.Element | null {
             theme={isDarkModeOn ? 'dark' : 'light'}
         />
     )
-
-    if (featureFlags[FEATURE_FLAGS.AI_ONLY_MODE] && !hasExitedAIOnlyMode) {
-        return (
-            <>
-                <div
-                    className="fixed inset-0 bg-surface-secondary flex flex-col overflow-auto"
-                    ref={() => {
-                        // HACK: Normally DebugNotice removes the HTML-level debug bar, but in this case we don't have the nav rendering DebugNotice
-                        document.getElementById('bottom-notice')?.remove()
-                    }}
-                >
-                    <MaxInstance tabId="ai-only-mode" sidePanel isAIOnlyMode />
-                </div>
-                {toastContainer}
-            </>
-        )
-    }
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
@@ -157,23 +140,22 @@ function AppScene(): JSX.Element | null {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <>
                 {wrappedSceneElement}
-                {toastContainer}
+                {unauthToastContainer}
             </>
         ) : null
     }
 
     return (
-        <div className="contents isolate">
-            <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
-            {toastContainer}
-            <GlobalModals />
-            <GlobalShortcuts />
-            <Command />
-            <PostOnboardingModal />
-            <ImpersonationNotice />
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
-                <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
-            )}
-        </div>
+        <ChunkLoadErrorBoundary>
+            <Suspense
+                fallback={
+                    <WrappingLoadingSkeleton fullWidth>
+                        <span className="block w-full h-screen" />
+                    </WrappingLoadingSkeleton>
+                }
+            >
+                <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>
+            </Suspense>
+        </ChunkLoadErrorBoundary>
     )
 }

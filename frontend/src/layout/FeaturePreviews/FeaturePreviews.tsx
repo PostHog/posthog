@@ -5,11 +5,35 @@ import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+
+type AvailableFeatureChecker = (feature: AvailableFeature) => boolean
+
+interface FeaturePreviewWarning {
+    /** Returns the warning to display for a feature, or null if none should show. */
+    resolve: (hasAvailableFeature: AvailableFeatureChecker) => React.ReactNode | null
+}
+
+/**
+ * Per-flag warnings shown on the early-access card. Add an entry here to surface a warning
+ * for a specific preview without touching the FeaturePreview component itself.
+ */
+const FEATURE_PREVIEW_WARNINGS: Record<string, FeaturePreviewWarning> = {
+    [FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]: {
+        resolve: (hasAvailableFeature) =>
+            hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+                ? null
+                : 'This feature requires the Enterprise plan or the Scale add-on. Enabling the preview will not unlock it on your current plan.',
+    },
+}
 
 const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError
 
@@ -17,6 +41,7 @@ const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
     const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
@@ -64,7 +89,10 @@ export function FeaturePreviews(): JSX.Element {
                     ) : (
                         betaFeatures.map((feature) => (
                             <div key={feature.flagKey}>
-                                <FeaturePreview feature={feature} />
+                                <FeaturePreview
+                                    feature={feature}
+                                    warning={FEATURE_PREVIEW_WARNINGS[feature.flagKey]?.resolve(hasAvailableFeature)}
+                                />
                             </div>
                         ))
                     )}
@@ -167,7 +195,13 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     )
 }
 
-function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
+interface FeaturePreviewProps {
+    feature: EnrichedEarlyAccessFeature
+    /** Optional warning rendered under the description (e.g. plan/add-on requirements). */
+    warning?: React.ReactNode
+}
+
+function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element {
     const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading } = useValues(featurePreviewsLogic)
     const {
         beginEarlyAccessFeatureFeedback,
@@ -205,9 +239,10 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                 </div>
             }
             description={
-                <p className="m-0 max-w-prose">
-                    {description || <span className="text-tertiary">No description</span>}
-                </p>
+                <div className="flex flex-col gap-2 max-w-prose">
+                    <p className="m-0">{description || <span className="text-tertiary">No description</span>}</p>
+                    {warning && <LemonBanner type="warning">{warning}</LemonBanner>}
+                </div>
             }
             actions={
                 <div className="flex flex-col gap-2">
