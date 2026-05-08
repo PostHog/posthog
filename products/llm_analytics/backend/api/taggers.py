@@ -91,7 +91,10 @@ class LLMTaggerConfigSerializer(serializers.Serializer):
 
 
 class HogTaggerConfigSerializer(serializers.Serializer):
-    source = serializers.CharField(min_length=1, help_text="Hog source code to classify a generation into tags.")
+    source = serializers.CharField(  # type: ignore[assignment]
+        min_length=1,
+        help_text="Hog source code to classify a generation into tags.",
+    )
     tags = TagDefinitionSerializer(
         many=True,
         required=False,
