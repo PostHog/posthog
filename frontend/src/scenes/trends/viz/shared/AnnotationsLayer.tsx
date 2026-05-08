@@ -62,6 +62,11 @@ export function AnnotationsLayer({
 
     const hasPreviousTrack = !!(previousDates && previousSeriesKey)
 
+    // Compare-against-previous bar charts allocate one band per data point with a
+    // current-period bar and a previous-period bar inside it. `labels` (current-period)
+    // and `previousDates` therefore have the same length, and `dataIndex` produced by the
+    // logic for the previous track maps cleanly into `labels[dataIndex]`. If that invariant
+    // is ever broken the badge silently drops via the `label === undefined` guard.
     const getPreviousDataPointX = useCallback(
         (dataIndex: number): number | null => {
             if (!hasPreviousTrack) {
