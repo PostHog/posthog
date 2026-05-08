@@ -78,27 +78,59 @@ describe('initPostHogMcpAnalytics', () => {
                     flushInterval: 0,
                     host: TEST_HOST,
                 },
-                reportMissing: true,
+                reportMissing: false,
             })
         )
-        expect(result).toMatchObject({ action: 'initialized', contextEnabled: false })
+        expect(result).toMatchObject({
+            action: 'initialized',
+            contextEnabled: false,
+            reportMissingEnabled: false,
+        })
     })
 
     it('enables required context only when explicitly requested', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        const result = await initPostHogMcpAnalytics(server, identity, { contextEnabled: true })
+        const result = await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: true,
+            reportMissingEnabled: false,
+        })
 
         expect(track).toHaveBeenCalledWith(
             server,
             expect.objectContaining({
                 context: true,
                 enableAITracing: true,
+                reportMissing: false,
+            })
+        )
+        expect(result).toMatchObject({
+            action: 'initialized',
+            contextEnabled: true,
+            reportMissingEnabled: false,
+        })
+    })
+
+    it('enables get_more_tools (reportMissing) only when explicitly requested', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        const result = await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: false,
+            reportMissingEnabled: true,
+        })
+
+        expect(track).toHaveBeenCalledWith(
+            server,
+            expect.objectContaining({
                 reportMissing: true,
             })
         )
-        expect(result).toMatchObject({ action: 'initialized', contextEnabled: true })
+        expect(result).toMatchObject({
+            action: 'initialized',
+            reportMissingEnabled: true,
+        })
     })
 
     it.each(['POSTHOG_ANALYTICS_API_KEY', 'POSTHOG_ANALYTICS_HOST'] as const)(

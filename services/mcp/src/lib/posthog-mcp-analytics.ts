@@ -7,6 +7,10 @@ export type PostHogMcpAnalyticsIdentityProvider = McpCatIdentityProvider
 
 export type PostHogMcpAnalyticsOptions = {
     contextEnabled: boolean
+    // Gate `get_more_tools` registration on single-exec mode. Outside single-exec
+    // the model already sees every tool individually, so the extra discovery tool
+    // is just noise — keep it tied to the `exec` wrapper where it earns its keep.
+    reportMissingEnabled: boolean
 }
 
 export type PostHogMcpAnalyticsInitResult =
@@ -15,7 +19,7 @@ export type PostHogMcpAnalyticsInitResult =
           contextEnabled: boolean
           tracingEnabled: true
           aiTracingEnabled: true
-          reportMissingEnabled: true
+          reportMissingEnabled: boolean
       }
     | {
           action: 'skipped'
@@ -99,7 +103,7 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
 export async function initPostHogMcpAnalytics(
     server: McpServer,
     identity: PostHogMcpAnalyticsIdentityProvider,
-    options: PostHogMcpAnalyticsOptions = { contextEnabled: false }
+    options: PostHogMcpAnalyticsOptions = { contextEnabled: false, reportMissingEnabled: false }
 ): Promise<PostHogMcpAnalyticsInitResult> {
     const posthogApiKey = env.POSTHOG_ANALYTICS_API_KEY
     const posthogHost = env.POSTHOG_ANALYTICS_HOST
@@ -129,7 +133,7 @@ export async function initPostHogMcpAnalytics(
                 flushInterval: 0,
                 host: posthogHost,
             },
-            reportMissing: true,
+            reportMissing: options.reportMissingEnabled,
             eventTags: async () => buildEventTags(identity),
             eventProperties: async () => buildEventProperties(identity),
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
@@ -140,7 +144,7 @@ export async function initPostHogMcpAnalytics(
             contextEnabled: options.contextEnabled,
             tracingEnabled: true,
             aiTracingEnabled: true,
-            reportMissingEnabled: true,
+            reportMissingEnabled: options.reportMissingEnabled,
         }
     } catch (error) {
         return {

@@ -759,9 +759,13 @@ export class MCP extends McpAgent<Env> {
         // AI spans, context capture, and get_more_tools for flagged sessions.
         // Avoid initializing both wrappers because both patch tool handlers and
         // would double-capture every call.
+        // `get_more_tools` only earns its keep in single-exec mode — when the
+        // full tool roster is registered the model already has direct access,
+        // so leave it off to avoid an extra always-on tool slot.
         if (posthogMcpAnalyticsOn) {
             const initResult = await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
                 contextEnabled: true,
+                reportMissingEnabled: useSingleExec,
             })
             Object.assign(this.requestProperties, {
                 posthogMcpAnalyticsInitAction: initResult.action,
