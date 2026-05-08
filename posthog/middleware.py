@@ -447,10 +447,10 @@ class CHQueries:
         finally:
             if is_api_request:
                 API_REQUESTS_LATENCY_SECONDS.labels(
-                    # Three-step fallback: DRF viewset name first (api:viewset-action),
-                    # Django URL name next, view function name as last resort. Bounded
-                    # by URLconf so cardinality stays safe.
-                    view=route.view_name or route.url_name or route.func.__name__,
+                    # DRF viewset name (api:viewset-action) when set, view function name
+                    # otherwise. (Django builds view_name from url_name, so url_name as a
+                    # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
+                    view=route.view_name or route.func.__name__,
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
