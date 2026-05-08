@@ -432,12 +432,8 @@ class TestDiscoverSSRF(BaseTest):
 
     def test_redirect_to_blocked_host_is_refused(self) -> None:
         with patch(
-            "products.business_knowledge.backend.url_fetch.fetch_text",
+            "products.business_knowledge.backend.discover.fetch_text",
             side_effect=url_fetch.UrlFetchError("127.0.0.1 is not reachable (SSRF blocked)"),
         ):
-            try:
+            with self.assertRaises(discover.DiscoverError):
                 discover._http_get_text("https://example.com/sitemap.xml")
-            except discover.DiscoverError as exc:
-                assert "not reachable" in str(exc).lower()
-            else:
-                raise AssertionError("expected DiscoverError — 127.0.0.1 must be SSRF-blocked on redirect")
