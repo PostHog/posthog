@@ -1133,9 +1133,6 @@ importers:
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
-      resize-observer-polyfill:
-        specifier: ^1.5.1
-        version: 1.5.1
       rrule:
         specifier: ^2.8.1
         version: 2.8.1

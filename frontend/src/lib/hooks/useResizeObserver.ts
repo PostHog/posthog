@@ -1,11 +1,5 @@
 import { RefCallback, RefObject, useMemo, useState } from 'react'
-import ResizeObserver from 'resize-observer-polyfill'
 import useResizeObserverImport from 'use-resize-observer'
-
-// Use polyfill only if needed
-if (!window.ResizeObserver) {
-    window.ResizeObserver = ResizeObserver
-}
 
 /** @deprecated Use CSS container or media queries instead. ResizeObserver use causes flapping of UI snapshots. */
 export const useResizeObserver = useResizeObserverImport
