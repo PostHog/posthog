@@ -457,8 +457,12 @@ def update_url_source(
 @with_team_scope(canonical=True)
 @transaction.atomic
 def delete_source(source_id: UUID, team_id: int) -> bool:
-    deleted, _ = KnowledgeSource.objects.filter(id=source_id, team_id=team_id).delete()
-    return deleted > 0
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return False
+    source.delete()
+    return True
 
 
 # --- Stage 3: file sources ----------------------------------------------------

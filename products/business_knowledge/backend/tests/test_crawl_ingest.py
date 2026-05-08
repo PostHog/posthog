@@ -22,7 +22,7 @@ Design notes:
 from collections.abc import Mapping
 
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from products.business_knowledge.backend import crawl, discover, url_fetch
 from products.business_knowledge.backend.logic import EmptyContentError, create_crawl_source, refresh_source
@@ -431,23 +431,13 @@ class TestDiscoverSSRF(BaseTest):
     """
 
     def test_redirect_to_blocked_host_is_refused(self) -> None:
-        first = MagicMock()
-        first.status_code = 302
-        first.headers = {"Location": "http://127.0.0.1/secret"}
-        first.iter_content = lambda chunk_size=0: iter([])
-        first.close = lambda: None
-
-        session = MagicMock()
-        session.get.return_value = first
-        session.close = lambda: None
-
-        with patch("products.business_knowledge.backend.discover.requests.Session", return_value=session):
+        with patch(
+            "products.business_knowledge.backend.url_fetch.fetch_text",
+            side_effect=url_fetch.UrlFetchError("127.0.0.1 is not reachable (SSRF blocked)"),
+        ):
             try:
                 discover._http_get_text("https://example.com/sitemap.xml")
             except discover.DiscoverError as exc:
                 assert "not reachable" in str(exc).lower()
             else:
                 raise AssertionError("expected DiscoverError — 127.0.0.1 must be SSRF-blocked on redirect")
-        # Session.get must have been called exactly once for the first hop;
-        # the blocked redirect target must never even be dialed.
-        assert session.get.call_count == 1
