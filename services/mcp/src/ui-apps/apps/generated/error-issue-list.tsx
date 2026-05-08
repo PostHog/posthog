@@ -36,8 +36,8 @@ function ErrorIssueListContent({ data, app }: { data: ErrorIssueListData; app: A
             }
             try {
                 const result = await app.callServerTool({
-                    name: 'error-tracking-issues-retrieve',
-                    arguments: { id: item.id },
+                    name: 'query-error-tracking-issue',
+                    arguments: { issueId: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.name)

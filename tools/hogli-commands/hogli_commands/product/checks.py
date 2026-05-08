@@ -473,6 +473,9 @@ class MisplacedFilesCheck(ProductCheck):
 
     # Directories allowed in backend/ for strict products.
     # Anything else won't be covered by import-linter's wildcard contracts.
+    # `templates` is allowed because Django's app_directories loader requires
+    # the folder to live at <app>/templates/, and templates aren't Python
+    # imports so import-linter contracts don't apply.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -483,6 +486,7 @@ class MisplacedFilesCheck(ProductCheck):
         "management",
         "models",
         "logic",
+        "templates",
         "__pycache__",
     }
 

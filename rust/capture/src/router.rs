@@ -56,6 +56,8 @@ pub struct State {
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
+    pub capture_v1_max_compressed_body_bytes: usize,
+    pub capture_v1_max_decompressed_body_bytes: usize,
     /// In-process overflow limiter (governor-backed) for `DataType::AnalyticsMain`
     /// events. When present, every handler that emits analytics events runs
     /// the shared `events::overflow_stamping::stamp_overflow_reason` helper,
@@ -140,6 +142,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     request_timeout_seconds: Option<u64>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
+    capture_v1_max_compressed_body_bytes: usize,
+    capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
 ) -> Router {
@@ -162,6 +166,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         replay_overflow_limiter,
     };

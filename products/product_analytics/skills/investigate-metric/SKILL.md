@@ -33,7 +33,7 @@ Targets PostHog MCP v2. Typed query tools accept the query body directly — pas
 | `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
 
 Plus the standard PostHog tools the playbooks reference by name (`feature-flag-get-all`,
-`experiment-get-all`, `annotations-list`, `error-tracking-issues-list`, `query-logs`,
+`experiment-get-all`, `annotations-list`, `query-error-tracking-issues-list`, `query-logs`,
 `query-session-recordings-list`, `cohorts-list/-create`, `annotation-create`,
 `insight-create`).
 

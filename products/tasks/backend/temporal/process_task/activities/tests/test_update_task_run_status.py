@@ -12,7 +12,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
 
 @pytest.mark.requires_secrets
 class TestUpdateTaskRunStatusActivity:
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
         "status,sets_completed_at",
         [
@@ -33,7 +33,7 @@ class TestUpdateTaskRunStatusActivity:
         else:
             assert test_task_run.completed_at is None
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):
         error_msg = "Something went wrong"
         input_data = UpdateTaskRunStatusInput(
@@ -46,7 +46,7 @@ class TestUpdateTaskRunStatusActivity:
         test_task_run.refresh_from_db()
         assert test_task_run.error_message == error_msg
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_publishes_stream_state_event(self, mock_publish_stream_state_event, activity_environment, test_task_run):
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
@@ -55,7 +55,7 @@ class TestUpdateTaskRunStatusActivity:
 
         mock_publish_stream_state_event.assert_called_once()
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_handles_non_existent_task_run(self, activity_environment):
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = UpdateTaskRunStatusInput(

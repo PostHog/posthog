@@ -35,14 +35,7 @@
                     },
                     "type": "array"
                 },
-                "bytecode": {
-                    "anyOf": [
-                        {},
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
+                "bytecode": {},
                 "bytecode_error": {
                     "type": "string"
                 },
@@ -380,12 +373,6 @@
                 {
                     "properties": {
                         "bytecode": {
-                            "anyOf": [
-                                {},
-                                {
-                                    "type": "null"
-                                }
-                            ],
                             "description": "Compiled bytecode for the hash expression. Auto-generated."
                         },
                         "hash": {
@@ -446,25 +433,17 @@
         "type": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
-                            "enum": [
-                                "destination",
-                                "site_destination",
-                                "internal_destination",
-                                "source_webhook",
-                                "warehouse_source_webhook",
-                                "site_app",
-                                "transformation"
-                            ],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
+                    "enum": [
+                        "destination",
+                        "site_destination",
+                        "internal_destination",
+                        "source_webhook",
+                        "warehouse_source_webhook",
+                        "site_app",
+                        "transformation"
+                    ],
+                    "type": "string"
                 },
                 {
                     "type": "null"
