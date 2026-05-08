@@ -66,12 +66,26 @@ export function cleanToolbarAuthHash(): void {
         return
     }
 
-    const cleanHash = hash
+    // When the toolbar param was the first hash-query on a SPA route
+    // (e.g. `#/login?__posthog_toolbar=X&foo=bar`), removing it leaves
+    // `#/login&foo=bar` where the `&` should be `?`. Detect that case so we
+    // can restore the `?` after stripping. Only fires when the original hash
+    // contained `?__posthog_toolbar=` literally — fragments that join the
+    // toolbar param with `&` (e.g. `#/dashboard&tab=1&__posthog_toolbar=X`)
+    // are left untouched because that `&` was the customer's separator.
+    const toolbarWasFirstHashQuery = hash.includes('?__posthog_toolbar=')
+
+    let cleanHash = hash
         .replace(/[?&]?__posthog_toolbar=[^&]*/g, '')
         .replace(/&&+/g, '&')
         .replace(/[?&]$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
+
+    if (toolbarWasFirstHashQuery) {
+        cleanHash = cleanHash.replace(/(^#\/[^?]*)&/, '$1?')
+    }
+
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
