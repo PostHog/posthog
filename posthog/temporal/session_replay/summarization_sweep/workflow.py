@@ -106,13 +106,25 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
         # silently inflate the team's used count and falsely trip the backstop
         # for the rest of the calendar month. Losing a single increment is
         # recoverable — the next sweep tick refills naturally.
+        #
+        # The activity failure itself is swallowed for the same reason: bookkeeping
+        # must not fail a sweep whose children all dispatched successfully. Mirrors
+        # the DRF path's try/except around `consume_summary_quota`. Failing here
+        # would alert/retry on already-completed work; the lost increment is
+        # absorbed by the next tick.
         if started > 0:
-            await workflow.execute_activity(
-                consume_summary_quota_activity,
-                args=[ConsumeSummaryQuotaInput(team_id=inputs.team_id, n=started)],
-                start_to_close_timeout=timedelta(seconds=15),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                await workflow.execute_activity(
+                    consume_summary_quota_activity,
+                    args=[ConsumeSummaryQuotaInput(team_id=inputs.team_id, n=started)],
+                    start_to_close_timeout=timedelta(seconds=15),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                workflow.logger.warning(
+                    "summarization_sweep.consume_quota_failed",
+                    extra={"team_id": inputs.team_id, "n": started, "error": str(e)},
+                )
 
         return {
             "team_id": inputs.team_id,
