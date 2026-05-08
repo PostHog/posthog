@@ -3,9 +3,10 @@ import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { escapeHogQLString } from '~/queries/utils'
 
 import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoaderLogicType'
-import { escapeHogqlString, parsePartialJSON } from './utils'
+import { parsePartialJSON } from './utils'
 
 export interface TraceMessages {
     firstInput: unknown
@@ -187,9 +188,9 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                             // Inlining IDs + timestamps rather than using a values dict: we
                             // can't combine `{values}` with `{filters}`-style placeholders
                             // because parse_select eagerly resolves all placeholders against
-                            // the values dict before find_placeholders runs. Each ID is
-                            // escaped via escapeHogqlString.
-                            const idList = safe.map((s) => `'${escapeHogqlString(s.id)}'`).join(',')
+                            // the values dict before find_placeholders runs.
+                            // escapeHogQLString returns the value already wrapped in single quotes.
+                            const idList = safe.map((s) => escapeHogQLString(s.id)).join(',')
                             const query: HogQLQuery = {
                                 kind: NodeKind.HogQLQuery,
                                 query: `

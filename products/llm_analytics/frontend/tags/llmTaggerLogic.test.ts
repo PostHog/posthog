@@ -531,7 +531,8 @@ describe('llmTaggerLogic', () => {
         // string and does not send a `values` dict.
         it.each([
             ['plain id', 'tagger-abc', "properties.$ai_tagger_id = 'tagger-abc'"],
-            ['id with single quote', "o'malley", "properties.$ai_tagger_id = 'o''malley'"],
+            ['id with single quote', "o'malley", "properties.$ai_tagger_id = 'o\\'malley'"],
+            ['id with backslash', 'tagger\\abc', "properties.$ai_tagger_id = 'tagger\\\\abc'"],
         ])('inlines the tagger id without a values dict (%s)', async (_label, taggerId, expectedSnippet) => {
             const capturedQueries: { query: string; values?: unknown }[] = []
             useMocks({
