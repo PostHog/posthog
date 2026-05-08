@@ -1,7 +1,14 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { type FeatureFlagData, type FeatureFlagListData, FeatureFlagListView, FeatureFlagView } from './index'
+import {
+    type FeatureFlagData,
+    type FeatureFlagListData,
+    FeatureFlagListView,
+    type FeatureFlagTestingData,
+    FeatureFlagTestingView,
+    FeatureFlagView,
+} from './index'
 
 const meta: Meta = {
     title: 'MCP Apps/Feature Flags',
@@ -113,4 +120,71 @@ const sampleListData: FeatureFlagListData = {
 export const FlagList: Story = {
     render: () => <FeatureFlagListView data={sampleListData} />,
     name: 'Flag list',
+}
+
+const sampleTestingMatchedData: FeatureFlagTestingData = {
+    flag_key: 'enable-new-dashboard',
+    result: true,
+    reason: 'condition_match',
+    condition_index: 0,
+    payload: { variant: 'control', config: { layout: 'grid' } },
+    person_properties: {
+        email: 'user@posthog.com',
+        plan: 'enterprise',
+    },
+    conditions: [
+        {
+            condition_index: 0,
+            matched: true,
+            rollout_percentage: 100,
+            properties: [{ key: 'email', value: '@posthog.com', operator: 'icontains', type: 'person' }],
+            reason: 'All properties matched and rollout passed',
+        },
+        {
+            condition_index: 1,
+            matched: false,
+            rollout_percentage: 50,
+            properties: [],
+            reason: 'Earlier condition already matched',
+        },
+    ],
+}
+
+const sampleTestingNoMatchData: FeatureFlagTestingData = {
+    flag_key: 'checkout-flow-variant',
+    result: false,
+    reason: 'no_condition_match',
+    condition_index: null,
+    payload: null,
+    person_properties: {
+        email: 'user@example.com',
+        plan: 'free',
+    },
+    conditions: [
+        {
+            condition_index: 0,
+            matched: false,
+            rollout_percentage: 100,
+            variant: 'test-a',
+            properties: [{ key: 'plan', value: 'enterprise', operator: 'exact', type: 'person' }],
+            reason: 'Property "plan" did not match: expected "enterprise", got "free"',
+        },
+        {
+            condition_index: 1,
+            matched: false,
+            rollout_percentage: 80,
+            properties: [],
+            reason: 'User excluded by rollout percentage',
+        },
+    ],
+}
+
+export const TestingMatched: Story = {
+    render: () => <FeatureFlagTestingView flag={sampleTestingMatchedData} />,
+    name: 'Testing view — matched',
+}
+
+export const TestingNoMatch: Story = {
+    render: () => <FeatureFlagTestingView flag={sampleTestingNoMatchData} />,
+    name: 'Testing view — no match',
 }
