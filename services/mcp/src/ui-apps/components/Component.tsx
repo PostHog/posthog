@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
@@ -188,15 +188,21 @@ export function Component({ data }: ComponentProps): ReactElement {
 
     if (!visualizationType) {
         return (
-            <div className="rounded-lg border bg-card p-4">
-                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Results</div>
-                <Empty>
-                    <EmptyHeader>
-                        <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
-                        <EmptyDescription>This visualization type isn't supported in this view yet.</EmptyDescription>
-                    </EmptyHeader>
-                </Empty>
-            </div>
+            <Card>
+                <CardContent>
+                    <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Results
+                    </div>
+                    <Empty>
+                        <EmptyHeader>
+                            <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
+                            <EmptyDescription>
+                                This visualization type isn't supported in this view yet.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                </CardContent>
+            </Card>
         )
     }
 
@@ -254,11 +260,13 @@ export function Component({ data }: ComponentProps): ReactElement {
     }
 
     return (
-        <div className="rounded-lg border bg-card p-4">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {getTitle()}
-            </div>
-            {renderVisualization()}
-        </div>
+        <Card>
+            <CardContent>
+                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {getTitle()}
+                </div>
+                {renderVisualization()}
+            </CardContent>
+        </Card>
     )
 }

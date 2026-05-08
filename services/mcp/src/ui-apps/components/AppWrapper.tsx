@@ -131,13 +131,12 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
 
     const hasContent = !error && !isCancelled && isConnected && data
 
-    const rootStyle: React.CSSProperties = {
-        ...(containerDimensions?.height != null
+    const rootStyle: React.CSSProperties =
+        containerDimensions?.height != null
             ? { height: containerDimensions.height }
             : containerDimensions?.maxHeight != null
               ? { maxHeight: containerDimensions.maxHeight }
-              : { minHeight: '100%' }),
-    }
+              : { minHeight: '100%' }
 
     if (!hasContent) {
         const showError = error || isCancelled

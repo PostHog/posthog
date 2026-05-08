@@ -1,16 +1,40 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from 'react'
 
-// TODO(quill): replace with @posthog/quill DataTable once Quill ships one.
-// This component intentionally mirrors a future Quill DataTable API
-// (`columns`, `data`, `pageSize`, `defaultSort`, `emptyMessage`) so migration
-// becomes a one-line import swap. It is built on Quill primitives and tokens
-// rather than bespoke styles so the visual language already matches.
-import { Button, cn } from '@posthog/quill'
+// TODO(quill): delete this file once @posthog/quill ships a `DataTable` (or
+// `Table` + `TableSort` + `TablePagination`) primitive. The prop shape below
+// (`columns`, `data`, `pageSize`, `defaultSort`, `emptyMessage`) deliberately
+// mirrors what we'd expect from a Quill primitive so migration is a single
+// import swap.
+//
+// What's needed from Quill:
+//   - A `Table` primitive with semantic `<table>/<thead>/<tbody>` markup —
+//     accessibility relies on this and Quill currently ships no table
+//     primitive (only `Item`/`ItemGroup`, which is row-per-item, not
+//     row-of-columns). The data-density tradeoff is real: a 5-column metric
+//     table doesn't render usefully as Item cards.
+//   - Column-aware sorting wired to header click + ARIA
+//     (`aria-sort=ascending|descending|none`). Today we hand-roll the toggle
+//     between asc → desc → unsorted and the sort indicator glyphs.
+//   - Client-side pagination with a token-styled control (we currently
+//     compose `<Button variant="ghost" size="icon-xs">` + chevron icons
+//     inline; a Quill `Pagination` primitive would absorb this).
+//   - Empty state slot. We already route the "no data" branch through
+//     `<Empty><EmptyHeader><EmptyDescription>` so the visual matches Quill's
+//     primitive, but a real Quill `Table` could expose this directly via an
+//     `emptyMessage` / `emptyState` prop.
+//   - Built-in cell renderers (default text, number-localised,
+//     boolean/null sentinel) — currently in `defaultFormat()` below.
+//
+// Until then this file leans on Quill's `Button`, `Empty*`, `cn()` and
+// design tokens (`bg-muted/50`, `text-muted-foreground`, `border-t`,
+// `--text-sm`) so the visual language already matches what a future Quill
+// primitive would ship.
+import { Button, cn, Empty, EmptyDescription, EmptyHeader } from '@posthog/quill'
 
 export interface DataTableColumn<T> {
     key: string
-    header: string
+    header: ReactNode
     render?: (row: T) => ReactNode
     align?: 'left' | 'center' | 'right'
     sortable?: boolean
@@ -126,7 +150,13 @@ export function DataTable<T extends object>({
     const showPagination = pageSize > 0 && sortedData.length > pageSize
 
     if (data.length === 0) {
-        return <div className={cn('py-8 text-center text-sm text-muted-foreground', className)}>{emptyMessage}</div>
+        return (
+            <Empty className={cn('py-8', className)}>
+                <EmptyHeader>
+                    <EmptyDescription>{emptyMessage}</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     return (
@@ -144,7 +174,7 @@ export function DataTable<T extends object>({
                                         alignClasses[col.align ?? 'left'],
                                         col.sortable && 'cursor-pointer select-none hover:text-foreground'
                                     )}
-                                    title={col.header}
+                                    title={typeof col.header === 'string' ? col.header : undefined}
                                     onClick={col.sortable ? () => handleSort(col.key) : undefined}
                                 >
                                     {col.header}

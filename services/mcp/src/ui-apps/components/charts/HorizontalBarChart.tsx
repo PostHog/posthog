@@ -5,6 +5,10 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill
 
 import { formatNumber } from '../utils'
 
+// TODO(quill): replace with a Quill chart primitive (e.g. `HorizontalBarChart`
+// / `Charts.HorizontalBar`) once Quill ships one. Quill currently has no
+// chart layer. Empty state already routes through Quill's `Empty` primitive.
+
 const BAR_HEIGHT = 32
 const BAR_GAP = 8
 const LABEL_WIDTH = 120

@@ -5,6 +5,13 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill
 
 import { formatNumber } from '../utils'
 
+// TODO(quill): same blocker as `lib/DataTable.tsx` — Quill ships no `Table`
+// primitive. This is the chart-results variant: a fixed-height query-result
+// table with a chart-style empty illustration. It would also collapse into a
+// future Quill `Table` once the primitive lands; until then it stays
+// distinct from `lib/DataTable.tsx` because it has different defaults
+// (smaller cell width, max-row truncation, illustrated empty state).
+
 const MAX_ROWS = 20
 const MAX_CELL_WIDTH = 200
 

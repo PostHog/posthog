@@ -1,7 +1,32 @@
 import { ChevronLeft } from 'lucide-react'
 import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 
-import { Button, Spinner } from '@posthog/quill'
+// TODO(quill): delete this file once @posthog/quill ships a list↔detail
+// navigation primitive (working titles: `MasterDetail`, `ListDetail`, or a
+// stack-based `Navigator`). Migration is then a render-prop swap.
+//
+// What's needed from Quill:
+//   - Managed view-state for `list | loading | detail`, with async loading
+//     while the caller fetches the detail row. Today we own this in a
+//     three-variant `useState<ViewState>` and run the caller's `onItemClick`
+//     promise inline.
+//   - A back-affordance that integrates with the host's navigation. We use
+//     `<Button variant="link-muted" size="sm">` + a lucide `<ChevronLeft>`
+//     because that's the closest visual to a "go back" link in Quill today.
+//     A real Quill primitive could expose this as a slot and hook into a
+//     `Navigator` history stack.
+//   - A loading-while-fetching slot. We route through Quill's `Empty` +
+//     `Spinner` (semantically a transient placeholder, same shape as an
+//     empty state) — a primitive could absorb this with a `loadingMessage`
+//     prop and avoid every caller spelling out the `EmptyHeader` /
+//     `EmptyMedia` composition.
+//   - Generic over both list-row and detail shapes (`<TItem, TDetail>`)
+//     since some callers fetch a richer detail object than the list row.
+//
+// Until then this file leans on Quill's `Button`, `Spinner`, `Empty*` and
+// design tokens so the visual language already matches what a future Quill
+// primitive would ship.
+import { Button, Empty, EmptyDescription, EmptyHeader, EmptyMedia, Spinner } from '@posthog/quill'
 
 export interface ListDetailViewProps<TItem, TDetail = TItem> {
     onItemClick: ((item: TItem) => Promise<TDetail | null>) | undefined
@@ -59,10 +84,14 @@ export function ListDetailView<TItem, TDetail = TItem>({
             <div className="p-4">
                 <div className="flex flex-col gap-2">
                     <BackLink label={backLabel} onClick={handleBack} />
-                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-                        <Spinner className="h-4 w-4" />
-                        <span>Loading {viewState.name}…</span>
-                    </div>
+                    <Empty className="py-10">
+                        <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                                <Spinner />
+                            </EmptyMedia>
+                            <EmptyDescription>Loading {viewState.name}…</EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
                 </div>
             </div>
         )
