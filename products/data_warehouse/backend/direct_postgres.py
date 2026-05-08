@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeVar
 
-_TColumnValue = TypeVar("_TColumnValue")
-
 from django.db.models import Q
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -13,6 +11,8 @@ from products.data_warehouse.backend.models.util import postgres_column_to_dwh_c
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+_TColumnValue = TypeVar("_TColumnValue")
 
 DIRECT_POSTGRES_URL_PATTERN = "direct://postgres"
 DIRECT_POSTGRES_CATALOG_OPTION = "direct_postgres_catalog"
