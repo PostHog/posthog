@@ -17,6 +17,9 @@ ui_apps:
         detail_args: '{ flagId: item.id }'
         item_name_field: key
         click_prop: onFlagClick
+    feature-flag-testing:
+        type: detail
+        view_prop: flag
 tools:
     create-feature-flag:
         operation: feature_flags_create
@@ -213,7 +216,24 @@ tools:
                 cast: string-int
     feature-flags-test-evaluation-create:
         operation: feature_flags_test_evaluation_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Test feature flag evaluation
+        description: >
+            Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed
+            reasoning about why the flag matched or didn't match, including condition analysis and person properties
+            used in evaluation.
+        param_overrides:
+            id:
+                cast: string-int
+        validators:
+            - validateDistinctIdPersonIdExclusive
+        ui_app: feature-flag-testing
     feature-flags-update:
         operation: feature_flags_update
         enabled: false

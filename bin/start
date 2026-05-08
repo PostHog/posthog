@@ -37,6 +37,9 @@ fi
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
 export API_QUERIES_PER_TEAM='{"1": 100}'
 
+# Internal request token for Python <-> Rust service communication
+export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
+
 # Dagster
 export DAGSTER_HOME=$REPOSITORY_ROOT/.dagster_home
 export DAGSTER_UI_HOST=${DAGSTER_UI_HOST:-localhost}
