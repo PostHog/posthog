@@ -8,13 +8,13 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
     DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL,
     KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL,
     KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL,
-    MAX_UNIQ_SET_SIZE,
     SESSION_REPLAY_FEATURES_DATA_TABLE,
     SESSION_REPLAY_FEATURES_TABLE_MV_SQL,
     SESSION_REPLAY_FEATURES_WS_MV_SQL,
+    UNIQ_COMBINED_PRECISION,
 )
 
-# Drop old uniqExact columns and add all set-based aggregations as uniqUpTo(MAX_UNIQ_SET_SIZE)
+# Drop old uniqExact columns and add all set-based aggregations as uniqCombined(UNIQ_COMBINED_PRECISION).
 ALTER_SQL = """
 ALTER TABLE {table_name}
     DROP COLUMN IF EXISTS unique_url_count,
@@ -53,8 +53,8 @@ def _alter_aggregating(table_name: str) -> str:
     return ALTER_SQL.format(
         table_name=table_name,
         sum_int="SimpleAggregateFunction(sum, Int64)",
-        uniq_int=f"AggregateFunction(uniqUpTo({MAX_UNIQ_SET_SIZE}), Int64)",
-        uniq_string=f"AggregateFunction(uniqUpTo({MAX_UNIQ_SET_SIZE}), String)",
+        uniq_int=f"AggregateFunction(uniqCombined({UNIQ_COMBINED_PRECISION}), Int64)",
+        uniq_string=f"AggregateFunction(uniqCombined({UNIQ_COMBINED_PRECISION}), String)",
     )
 
 
