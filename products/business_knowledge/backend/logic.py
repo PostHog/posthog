@@ -806,7 +806,7 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
     # Pull the source once outside the txn just to verify it exists + claim it.
     with transaction.atomic():
         try:
-            source = KnowledgeSource.objects.select_for_update(skip_locked=True).get(id=source_id, team_id=team_id)
+            source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
             return None
         if source.source_type != SourceType.URL or not source.source_url:
