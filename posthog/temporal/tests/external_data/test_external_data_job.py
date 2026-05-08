@@ -312,12 +312,12 @@ def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
     inputs = SyncNewSchemasActivityInputs(source_id=source_id, team_id=team.id)
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.sync_new_schemas.delete_external_data_schedule"
+        "posthog.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
     ) as mock_delete_schedule:
         with pytest.raises(Exception, match="Source no longer exists"):
             activity_environment.run(sync_new_schemas_activity, inputs)
 
-    mock_delete_schedule.assert_called_once_with(f"discover-schemas-{source_id}")
+    mock_delete_schedule.assert_called_once_with(source_id)
 
 
 @pytest.mark.django_db(transaction=True)
