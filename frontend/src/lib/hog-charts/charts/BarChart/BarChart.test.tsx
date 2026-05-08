@@ -1,8 +1,8 @@
-import { cleanup, waitFor } from '@testing-library/react'
+import { waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { clickAtIndex, hoverAtIndex, renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import { renderHogChart } from '../../testing'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
@@ -23,20 +23,6 @@ type Layout = 'stacked' | 'grouped' | 'percent'
 type Orientation = 'vertical' | 'horizontal'
 
 describe('BarChart', () => {
-    let teardownJsdom: () => void
-    let teardownRaf: () => void
-
-    beforeEach(() => {
-        teardownJsdom = setupJsdom()
-        teardownRaf = setupSyncRaf()
-    })
-
-    afterEach(() => {
-        teardownRaf()
-        teardownJsdom()
-        cleanup()
-    })
-
     describe.each<[Layout, Orientation]>([
         ['stacked', 'vertical'],
         ['grouped', 'vertical'],
@@ -52,6 +38,35 @@ describe('BarChart', () => {
             const valueTicks = axisOrientation === 'horizontal' ? chart.xTicks() : chart.yTicks()
             expect(valueTicks.length).toBeGreaterThan(0)
         })
+    })
+
+    it.each<[string, Series[], string[]]>([
+        ['single sparse bar', [{ key: 'all', label: 'All events', data: [103000] }], ['All events']],
+        [
+            'single result with 90-day labels (mismatched)',
+            [{ key: 'all', label: 'All events', data: [103000] }],
+            Array.from({ length: 90 }, (_, i) => `d${i}`),
+        ],
+        [
+            'two sparse-stacked results',
+            [
+                { key: 'a', label: 'A', data: [103000, 0] },
+                { key: 'b', label: 'B', data: [0, 50000] },
+            ],
+            ['A', 'B'],
+        ],
+    ])('horizontal: %s anchors value axis at 0', (_name, series, labels) => {
+        const { chart } = renderHogChart(
+            <BarChart
+                series={series}
+                labels={labels}
+                theme={THEME}
+                config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+            />
+        )
+        const ticks = chart.xTicks().map((t) => Number(t.replace(/,/g, '')))
+        // All cases must start at 0 — the value axis should be anchored.
+        expect(ticks[0]).toBe(0)
     })
 
     it('forwards `dataAttr` to the chart wrapper for product-test selection', () => {
@@ -158,7 +173,7 @@ describe('BarChart', () => {
     describe('hover & tooltip', () => {
         it('mounts a tooltip on hover', async () => {
             const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('Tue')
         })
@@ -168,7 +183,7 @@ describe('BarChart', () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
             )
-            await clickAtIndex(chart.element, 1, LABELS.length)
+            await chart.clickAtIndex(1)
             expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue' }))
         })
 
@@ -186,7 +201,7 @@ describe('BarChart', () => {
             },
         ])('$name', async ({ config, expectedKeys }) => {
             const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
         })
@@ -195,11 +210,9 @@ describe('BarChart', () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
             )
-            hoverAtIndex(chart.element, 1, LABELS.length)
-            await chart.waitForTooltip()
-            await clickAtIndex(chart.element, 1, LABELS.length)
+            await chart.clickAtIndex(1)
             const tooltip = await chart.waitForTooltip()
-            expect(tooltip.element.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+            expect(tooltip.isPinned).toBe(true)
         })
 
         it('omits a series from tooltip when visibility.tooltip is false', async () => {
@@ -208,7 +221,7 @@ describe('BarChart', () => {
                 { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
             ]
             const { chart } = renderHogChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
             expect(tooltip.element.textContent).not.toContain('B')
@@ -247,7 +260,7 @@ describe('BarChart', () => {
                 const { chart } = renderHogChart(
                     <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
                 )
-                hoverAtIndex(chart.element, 1, LABELS.length)
+                chart.hoverAtIndex(1)
                 await waitFor(() => expect(onError).toHaveBeenCalled())
             } finally {
                 consoleErrorSpy.mockRestore()

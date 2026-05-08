@@ -22,10 +22,10 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod.object({
     stage: zod
         .enum(['draft', 'concept', 'alpha', 'beta', 'general-availability', 'archived'])
         .describe(
-            '* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived'
+            '\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
         )
         .describe(
-            'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived'
+            'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha\/beta\/general-availability) enables the feature flag for opted-in users.\n\n\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
         ),
     documentation_url: zod
         .url()
@@ -55,10 +55,10 @@ export const EarlyAccessFeatureUpdateBody = /* @__PURE__ */ zod.object({
     stage: zod
         .enum(['draft', 'concept', 'alpha', 'beta', 'general-availability', 'archived'])
         .describe(
-            '* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived'
+            '\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
         )
         .describe(
-            'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived'
+            'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha\/beta\/general-availability) enables the feature flag for opted-in users.\n\n\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
         ),
     documentation_url: zod
         .url()
@@ -84,11 +84,11 @@ export const EarlyAccessFeaturePartialUpdateBody = /* @__PURE__ */ zod.object({
     stage: zod
         .enum(['draft', 'concept', 'alpha', 'beta', 'general-availability', 'archived'])
         .describe(
-            '* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived'
+            '\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
         )
         .optional()
         .describe(
-            'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived'
+            'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha\/beta\/general-availability) enables the feature flag for opted-in users.\n\n\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
         ),
     documentation_url: zod
         .url()

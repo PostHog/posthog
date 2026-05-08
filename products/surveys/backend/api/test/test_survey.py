@@ -2332,7 +2332,6 @@ class TestSurvey(APIBaseTest):
                         "deleted": False,
                         "active": False,
                         "ensure_experience_continuity": False,
-                        "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_contexts": [],

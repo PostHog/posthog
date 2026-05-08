@@ -19,6 +19,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DashboardAutoRefreshInterval,
     DataTableNode,
     DataVisualizationNode,
     EventsNode,
@@ -1107,18 +1108,18 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self.assertEqual(result, expected_mode)
 
     def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
-        """Backend throttle must match frontend auto-refresh interval — drift would silently throttle periodic refreshes."""
         frontend_file = (
             Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardConstants.ts"
         )
         source = frontend_file.read_text()
 
         interval_match = re.search(
-            r"export\s+const\s+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*=\s*(\d+)\s*",
+            r"export\s+const\s+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*=\s*DashboardAutoRefreshInterval\.SECONDS\s*",
             source,
         )
-        assert interval_match, f"Could not find AUTO_REFRESH_INITIAL_INTERVAL_SECONDS in {frontend_file}"
-        frontend_interval_minutes = int(interval_match.group(1)) // 60
+        assert interval_match, (
+            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS must use DashboardAutoRefreshInterval.SECONDS in {frontend_file}"
+        )
 
         stale_match = re.search(
             r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*/\s*60",
@@ -1129,9 +1130,9 @@ class TestSharedInsightsExecutionMode(BaseTest):
             f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file}."
         )
 
-        backend_minutes = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds() // 60)
+        backend_seconds = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds())
         self.assertEqual(
-            backend_minutes,
-            frontend_interval_minutes,
-            f"Backend ({backend_minutes}m) must equal frontend ({frontend_interval_minutes}m).",
+            backend_seconds,
+            DashboardAutoRefreshInterval().root,
+            f"Backend ({backend_seconds}s) must equal DashboardAutoRefreshInterval.",
         )

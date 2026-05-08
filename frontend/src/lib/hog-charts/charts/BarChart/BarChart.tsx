@@ -1,3 +1,4 @@
+import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
 import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../../core/bar-layout'
@@ -243,20 +244,11 @@ function BarChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({
-            ctx,
-            scales,
-            series: coloredSeries,
-            labels: drawLabels,
-            hoverIndex,
-            hoverPosition,
-            theme,
-        }: ChartDrawArgs) => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs) => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
             // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
             // (no hits), fall back to highlighting all — matches the tooltip narrower's
@@ -299,6 +291,7 @@ function BarChartInner<Meta = unknown>({
                     isTopOfStack: isTop,
                 })
                 if (bar) {
+                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }
