@@ -2959,6 +2959,21 @@
             "readOnlyHint": false
         }
     },
+    "llma-skill-archive": {
+        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Archive skill",
+        "title": "Archive skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-skill-create": {
         "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
         "category": "LLM analytics",
