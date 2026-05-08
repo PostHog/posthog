@@ -290,7 +290,7 @@ export function MenuFilterCombobox({
                 body: `Type at least ${minLen} characters to search ${description} we have seen.`,
             }
         }
-        const categoryLabel = singleGroup?.name ?? (showChips ? null : null)
+        const categoryLabel = singleGroup?.name ?? null
         if (trimmedLen > 0) {
             return {
                 title: categoryLabel ? `No "${categoryLabel}" found` : 'No matches',

@@ -499,14 +499,12 @@ export function TaxonomicFilterMenu({
                     New filter…
                     <ChevronRight className="ml-auto size-3.5 text-tertiary" />
                 </DropdownMenuItem>
+                {(recentEntries.length > 0 || pinnedEntries.length > 0) && <DropdownMenuSeparator />}
                 {recentEntries.length > 0 && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openCombobox('recent')}>
-                            Recent
-                            <ChevronRight className="ml-auto size-3.5 text-tertiary" />
-                        </DropdownMenuItem>
-                    </>
+                    <DropdownMenuItem onClick={() => openCombobox('recent')}>
+                        Recent
+                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                    </DropdownMenuItem>
                 )}
                 {pinnedEntries.length > 0 && (
                     <DropdownMenuItem onClick={() => openCombobox('pinned')}>
