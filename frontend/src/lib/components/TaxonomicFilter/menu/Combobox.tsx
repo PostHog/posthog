@@ -549,9 +549,11 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
 
-                <span className="font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
-                    {value || <span className="opacity-50">N/A</span>}
-                </span>
+                {value && (
+                    <span className="font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                        {value}
+                    </span>
+                )}
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
             {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}

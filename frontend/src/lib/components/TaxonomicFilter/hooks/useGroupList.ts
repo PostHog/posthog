@@ -63,7 +63,7 @@ export interface UseGroupListInput {
     allowNonCapturedEvents?: boolean
     /** Surface keyword shortcuts as QuickFilterItems alongside real results. */
     enableKeywordShortcuts?: boolean
-    /** When true, disable the auto-select of first item on results refresh. */
+    /** When false, disable the auto-select of first item on results refresh. */
     autoSelectItem?: boolean
     /** When true, the list initialises with index=0; otherwise index=NO_ITEM_SELECTED. */
     selectFirstItem?: boolean
