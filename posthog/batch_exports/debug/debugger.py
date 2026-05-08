@@ -343,7 +343,7 @@ class BatchExportsDebugger:
         self, batch_export_run: BatchExportRun
     ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
         folder = get_base_s3_staging_folder(
-            batch_export_run.batch_export.id,
+            batch_export_run.parent.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
             batch_export_run.data_interval_end.isoformat(),
         )
@@ -390,14 +390,14 @@ class BatchExportsDebugger:
         self,
         batch_export_run: BatchExportRun,
     ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
-        team_id = batch_export_run.batch_export.team.id
+        team_id = batch_export_run.parent.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
         parameters = {"team_id": team_id, "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f")}
         if full_range[0]:
             parameters["interval_start"] = full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f")
 
         extra_query_parameters: dict[str, str] = {}
-        filters = batch_export_run.batch_export.filters
+        filters = batch_export_run.parent.filters
 
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = compose_filters_clause(
@@ -408,25 +408,29 @@ class BatchExportsDebugger:
 
         is_backfill = batch_export_run.backfill is not None
 
-        if batch_export_run.batch_export.model == BatchExport.Model.PERSONS:
+        if batch_export_run.parent.model == BatchExport.Model.PERSONS:
             if is_backfill and full_range[0] is None:
                 query = SELECT_FROM_PERSONS_BACKFILL
             else:
                 query = SELECT_FROM_PERSONS
         else:
-            if batch_export_run.batch_export.destination.config.get("exclude_events", None):
-                parameters["exclude_events"] = list(batch_export_run.batch_export.destination.config["exclude_events"])
+            if batch_export_run.parent.destination.config.get("exclude_events", None):
+                parameters["exclude_events"] = list(batch_export_run.parent.destination.config["exclude_events"])
             else:
                 parameters["exclude_events"] = []
 
-            if batch_export_run.batch_export.destination.config.get("include_events", None):
-                parameters["include_events"] = list(batch_export_run.batch_export.destination.config["include_events"])
+            if batch_export_run.parent.destination.config.get("include_events", None):
+                parameters["include_events"] = list(batch_export_run.parent.destination.config["include_events"])
             else:
                 parameters["include_events"] = []
 
             # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
             # may not be able to handle the load from all batch exports
-            if batch_export_run.batch_export.interval == "every 5 minutes" and not is_backfill:
+            if (
+                isinstance(batch_export_run.parent, BatchExport)
+                and batch_export_run.parent.interval == "every 5 minutes"
+                and not is_backfill
+            ):
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
@@ -445,7 +449,7 @@ class BatchExportsDebugger:
                 )
                 parameters["lookback_days"] = lookback_days
 
-            match batch_export_run.batch_export.destination.type:
+            match batch_export_run.parent.destination.type:
                 case BatchExportDestination.Destination.S3:
                     fields = s3_default_fields()
                 case BatchExportDestination.Destination.SNOWFLAKE:
