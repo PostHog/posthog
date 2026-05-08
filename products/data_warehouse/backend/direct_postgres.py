@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
+
+_TColumnValue = TypeVar("_TColumnValue")
 
 from django.db.models import Q
 
@@ -226,11 +228,11 @@ def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_n
 
 
 def filter_dwh_columns_by_enabled_columns(
-    columns: DirectPostgresColumns,
+    columns: dict[str, _TColumnValue],
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
     incremental_field: str | None = None,
-) -> DirectPostgresColumns:
+) -> dict[str, _TColumnValue]:
     # `None` and `[]` are distinct: `None` means sync all, `[]` means retain only PKs + incremental.
     if enabled_columns is None:
         return columns

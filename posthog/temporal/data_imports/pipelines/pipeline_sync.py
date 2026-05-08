@@ -23,6 +23,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
+from products.data_warehouse.backend.direct_postgres import filter_dwh_columns_by_enabled_columns
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -239,13 +240,12 @@ async def validate_schema_and_update_table(
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 # Project to enabled_columns so disabled columns the user already deselected don't
                 # creep back into HogQL via the Delta schema (which still contains them historically).
-                if external_data_schema.enabled_columns is not None:
-                    enabled_set: set[str] = set(external_data_schema.enabled_columns)
-                    for pk in external_data_schema.primary_key_columns or []:
-                        enabled_set.add(pk)
-                    if external_data_schema.incremental_field:
-                        enabled_set.add(external_data_schema.incremental_field)
-                    columns = {name: column for name, column in columns.items() if name in enabled_set}
+                columns = filter_dwh_columns_by_enabled_columns(
+                    columns,
+                    external_data_schema.enabled_columns,
+                    external_data_schema.primary_key_columns,
+                    external_data_schema.incremental_field,
+                )
                 table_for_update.columns = columns
                 table_for_update.save(update_fields=["columns"])
                 # Keep local reference in sync

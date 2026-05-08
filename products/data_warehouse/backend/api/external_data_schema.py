@@ -454,17 +454,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Warehouse mode: filter the existing Delta-derived columns dict so HogQL hides the
             # disabled column right away. The Delta files still hold the data — re-enabling will
             # repopulate the column on the next sync via merge_columns.
-            new_enabled = validated_data["enabled_columns"]
             current_columns = instance.table.columns or {}
-            if new_enabled is None:
-                projected_columns = current_columns
-            else:
-                retained: set[str] = set(new_enabled)
-                for pk in instance.primary_key_columns or []:
-                    retained.add(pk)
-                if instance.incremental_field:
-                    retained.add(instance.incremental_field)
-                projected_columns = {name: column for name, column in current_columns.items() if name in retained}
+            projected_columns = _filter_dwh_columns_by_enabled_columns(
+                current_columns,
+                validated_data["enabled_columns"],
+                instance.primary_key_columns,
+                instance.incremental_field,
+            )
             if projected_columns != current_columns:
                 instance.table.columns = projected_columns
                 instance.table.save(update_fields=["columns"])
