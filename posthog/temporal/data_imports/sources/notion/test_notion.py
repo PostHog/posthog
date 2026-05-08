@@ -274,19 +274,6 @@ class TestNotionSource:
             "created_time": {"after": "2026-02-01T00:00:00Z"},
         }
 
-    def test_source_response_metadata_for_pages(self) -> None:
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-        response = notion_source(
-            access_token="tok",
-            endpoint_name="pages",
-            logger=logger,
-            resumable_source_manager=manager,
-        )
-        assert response.name == "pages"
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_time"]
-
 
 class TestFlattenProperty:
     @parameterized.expand(

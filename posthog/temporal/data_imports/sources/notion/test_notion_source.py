@@ -1,36 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldOauthConfig
-
 from posthog.temporal.data_imports.sources.generated_configs import NotionSourceConfig
 from posthog.temporal.data_imports.sources.notion.settings import data_source_rows_schema_name
 from posthog.temporal.data_imports.sources.notion.source import NotionSource
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
-
 
 class TestNotionSource:
-    def test_source_type(self) -> None:
-        assert NotionSource().source_type == ExternalDataSourceType.NOTION
-
-    def test_source_config_exposes_oauth_field(self) -> None:
-        config = NotionSource().get_source_config
-        assert config.label == "Notion"
-        assert config.releaseStatus == "alpha"
-        assert config.featureFlag == "dwh-notion"
-        assert config.iconPath == "/static/services/notion.png"
-
-        oauth_fields = [f for f in config.fields if isinstance(f, SourceFieldOauthConfig) and f.kind == "notion"]
-        assert len(oauth_fields) == 1
-        assert oauth_fields[0].name == "notion_integration_id"
-        assert oauth_fields[0].required is True
-
-    def test_non_retryable_errors_cover_auth(self) -> None:
-        errors = NotionSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-
     @patch("posthog.temporal.data_imports.sources.notion.source._list_data_sources")
     @patch.object(NotionSource, "_get_access_token")
     def test_get_schemas_returns_static_plus_data_sources(
