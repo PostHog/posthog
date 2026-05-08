@@ -4106,8 +4106,10 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
-        async listRecommendations(): Promise<{ results: ErrorTrackingRecommendation[] }> {
-            return await new ApiRequest().errorTrackingRecommendations().get()
+        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
+            results: ErrorTrackingRecommendation[]
+        }> {
+            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
         },
 
         async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {

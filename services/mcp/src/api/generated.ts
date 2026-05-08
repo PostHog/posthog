@@ -13614,18 +13614,50 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
+    /**
+     * Recommendation payload, shape depends on type.
+     */
     export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
 
+    /**
+     * * `ready` - Ready
+    * `computing` - Computing
+     */
+    export type ErrorTrackingRecommendationStatusEnum = typeof ErrorTrackingRecommendationStatusEnum[keyof typeof ErrorTrackingRecommendationStatusEnum];
+
+
+    export const ErrorTrackingRecommendationStatusEnum = {
+      Ready: 'ready',
+      Computing: 'computing',
+    } as const;
+
     export interface ErrorTrackingRecommendation {
+      /** Recommendation UUID. */
       readonly id: string;
+      /** Recommendation type identifier (e.g. 'alerts'). */
       readonly type: string;
+      /** Recommendation payload, shape depends on type. */
       readonly meta: ErrorTrackingRecommendationMeta;
+      /** Whether the recommendation's recommended action has been satisfied. */
       readonly completed: boolean;
-      /** @nullable */
+      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
+
+      * `ready` - Ready
+      * `computing` - Computing */
+      readonly status: ErrorTrackingRecommendationStatusEnum;
+      /**
+         * Timestamp meta was last successfully computed.
+         * @nullable
+         */
       readonly computed_at: string | null;
-      /** @nullable */
+      /**
+         * Timestamp the user dismissed this recommendation, if any.
+         * @nullable
+         */
       readonly dismissed_at: string | null;
+      /** Timestamp the recommendation row was first created. */
       readonly created_at: string;
+      /** Timestamp the recommendation row was last updated. */
       readonly updated_at: string;
     }
 
