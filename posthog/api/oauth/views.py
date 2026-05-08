@@ -17,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 import posthoganalytics
 from oauth2_provider.compat import login_not_required
-from oauth2_provider.exceptions import OAuthToolkitError
+from oauth2_provider.exceptions import FatalClientError, OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
@@ -352,6 +352,74 @@ class OAuthValidator(OAuth2Validator):
             grant_type=getattr(request, "grant_type", "unknown"),
         )
         return super().save_bearer_token(token, request, *args, **kwargs)
+
+    def _save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Insert a new access_token row per non-rotating refresh instead of
+        overwriting the previous one.
+
+        Upstream's non-rotating branch in oauth2_provider.oauth2_validators
+        SELECT FOR UPDATEs the existing AccessToken and writes the new token
+        value over the same row. Concurrent refreshes for the same
+        refresh_token serialize on the lock but each writer overwrites the
+        row with its own freshly-generated access_token. Each request had
+        already serialized its response body before the write, so all but the
+        last writer return a body whose access_token no longer matches the
+        DB row's token. The post-grant lookup at
+        oauth2_provider/views/base.py:309 then misses → DoesNotExist → HTTP
+        500 to the caller, which Claude / MCP clients interpret as "server
+        broken" and re-authenticate.
+
+        Inserting per refresh keeps each response body's access_token
+        resolvable in the DB. The original RefreshToken stays valid (we
+        don't revoke or rotate it), preserving the non-rotating behavior.
+        We deliberately leave source_refresh_token unset on the new row:
+        OAuthAccessToken.source_refresh_token is OneToOne, so only one AT
+        per RT can hold the link. RT.access_token continues to point at the
+        original AT issued during authorization_code; subsequent
+        refresh-issued ATs are addressable by token / token_checksum but
+        carry no back-reference.
+        """
+        refresh_token_code = token.get("refresh_token")
+        refresh_token_instance = getattr(request, "refresh_token_instance", None)
+
+        is_non_rotating_refresh = (
+            refresh_token_code
+            and not self.rotate_refresh_token(request)
+            and isinstance(refresh_token_instance, OAuthRefreshToken)
+        )
+        if not is_non_rotating_refresh:
+            return super()._save_bearer_token(token, request, *args, **kwargs)
+
+        if "scope" not in token:
+            raise FatalClientError("Failed to renew access token: missing scope")
+
+        expires = timezone.now() + timedelta(
+            seconds=token.get("expires_in", oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
+        )
+        if request.grant_type == "client_credentials":
+            request.user = None
+
+        # Scopes are inherited from the refresh token; the row itself carries
+        # source_refresh_token=None to avoid the OneToOne collision with the
+        # original (authorization_code-issued) access token.
+        scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
+            request, access_token=None, grant=None, refresh_token=refresh_token_instance
+        )
+        id_token = token.get("id_token", None)
+        if id_token:
+            id_token = self._load_id_token(id_token)
+        OAuthAccessToken.objects.create(
+            user=request.user,
+            scope=token.get("scope", None),
+            expires=expires,
+            token=token.get("access_token", None),
+            id_token=id_token,
+            application=request.client,
+            source_refresh_token=None,
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
+        )
 
     def get_additional_claims(self, request):
         return {
