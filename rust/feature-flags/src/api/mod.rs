@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod body_read_metrics;
 pub mod concurrency_metrics;
 pub mod endpoint;
 pub mod errors;

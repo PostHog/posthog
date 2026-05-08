@@ -44,6 +44,18 @@ tools:
     change-organization-create:
         operation: organizations_projects_change_organization_create
         enabled: false
+    cimd-verification-tokens-create:
+        operation: cimd_verification_tokens_create
+        enabled: false
+    cimd-verification-tokens-destroy:
+        operation: cimd_verification_tokens_destroy
+        enabled: false
+    cimd-verification-tokens-list:
+        operation: cimd_verification_tokens_list
+        enabled: false
+    cimd-verification-tokens-retrieve:
+        operation: cimd_verification_tokens_retrieve
+        enabled: false
     cohorts-activity-retrieve:
         operation: cohorts_activity_retrieve
         enabled: false

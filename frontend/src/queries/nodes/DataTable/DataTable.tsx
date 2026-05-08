@@ -979,6 +979,7 @@ export function DataTable({
                                                   return (
                                                       <EventRowActions
                                                           event={(result as any[])[columnsInResponse.indexOf('*')]}
+                                                          hideRecordingButton={recordingColumnShown}
                                                       />
                                                   )
                                               }

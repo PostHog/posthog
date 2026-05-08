@@ -2233,7 +2233,6 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
-            "has_encrypted_payloads",
             "version",
             "evaluation_runtime",
             "bucketing_identifier",
