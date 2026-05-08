@@ -104,13 +104,14 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.lastSavedAt).not.toBeNull()
         })
 
-        it('marks isAutoSave true on the auto-save path', async () => {
+        it('resets isAutoSave after auto-save completes', async () => {
             jest.useFakeTimers()
 
             logic.actions.setWorkflowValue('name', 'Edited')
             await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
 
-            expect(logic.values.isAutoSave).toBe(true)
+            expect(logic.values.isAutoSave).toBe(false)
             expect(updateCalls).toBe(1)
         })
     })
