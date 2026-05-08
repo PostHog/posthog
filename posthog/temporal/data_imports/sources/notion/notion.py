@@ -207,6 +207,17 @@ def _flatten_property(prop: dict[str, Any]) -> Any:
     return None
 
 
+# Top-level keys we always emit per row. A user-defined Notion property with one of
+# these names would silently overwrite the value (most critically `id`, the merge
+# primary key — a property called "id" with a numeric value would corrupt every
+# subsequent merge). Notion users do create properties with these names, so we keep
+# the structural value at the top level and surface the user property only via the
+# untouched `_raw_properties` payload.
+_RESERVED_FLATTENED_KEYS = frozenset(
+    {"id", "object", "created_time", "last_edited_time", "archived", "url", "parent", "_raw_properties"}
+)
+
+
 def _flatten_row(row: dict[str, Any]) -> dict[str, Any]:
     properties = row.get("properties") or {}
     # `id` is the merge primary key — fail fast if Notion ever returns a row without
@@ -222,6 +233,8 @@ def _flatten_row(row: dict[str, Any]) -> dict[str, Any]:
         "_raw_properties": properties,
     }
     for prop_name, prop_value in properties.items():
+        if prop_name in _RESERVED_FLATTENED_KEYS:
+            continue
         if isinstance(prop_value, dict):
             flattened[prop_name] = _flatten_property(prop_value)
     return flattened

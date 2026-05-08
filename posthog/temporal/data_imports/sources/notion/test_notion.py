@@ -349,6 +349,37 @@ class TestFlattenRow:
         assert flat["_raw_properties"] == row["properties"]
         assert flat["url"] == "https://www.notion.so/abc"
 
+    def test_user_properties_dont_overwrite_reserved_top_level_keys(self) -> None:
+        # Notion users can create properties named `id`, `url`, `created_time`, etc.
+        # The structural top-level value (especially `id`, the merge primary key) must
+        # win — a "Name = id, value = 42" property would otherwise replace the page id
+        # and corrupt every subsequent merge. Users can still recover the original
+        # property via `_raw_properties`.
+        row = {
+            "id": "page-uuid",
+            "object": "page",
+            "created_time": "2026-01-01T00:00:00Z",
+            "last_edited_time": "2026-02-01T00:00:00Z",
+            "archived": False,
+            "url": "https://www.notion.so/page-uuid",
+            "parent": {"type": "data_source_id"},
+            "properties": {
+                "id": {"type": "number", "number": 42},
+                "url": {"type": "url", "url": "https://example.com"},
+                "object": {"type": "rich_text", "rich_text": [{"plain_text": "shouldn't win"}]},
+            },
+        }
+        flat = _flatten_row(row)
+
+        # Reserved top-level values are preserved.
+        assert flat["id"] == "page-uuid"
+        assert flat["url"] == "https://www.notion.so/page-uuid"
+        assert flat["object"] == "page"
+
+        # The raw payload still has the user properties, so nothing is actually lost.
+        assert flat["_raw_properties"]["id"] == {"type": "number", "number": 42}
+        assert flat["_raw_properties"]["url"] == {"type": "url", "url": "https://example.com"}
+
 
 class TestListDataSources:
     @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
