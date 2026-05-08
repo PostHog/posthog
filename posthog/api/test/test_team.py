@@ -3250,7 +3250,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             ),
         ]
     )
-    def test_filter_permission_rejects_invalid_filters(self, _name: str, test_account_filters: list[dict[str, Any]]):
+    def test_validate_test_account_filters_rejects_invalid_filters(
+        self, _name: str, test_account_filters: list[dict[str, Any]]
+    ):
         original_test_account_filters = self.team.test_account_filters
 
         with self.settings(TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED=True):
@@ -3266,7 +3268,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.test_account_filters, original_test_account_filters)
 
-    def test_filter_permission_allows_is_set_filters_without_value(self):
+    def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
         with self.settings(TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED=True):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/",
