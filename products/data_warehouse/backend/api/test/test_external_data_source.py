@@ -4873,18 +4873,28 @@ class TestCreateWebhook(APIBaseTest):
         assert "No inputs provided" in response.json()["message"]
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_requires_eligible_schema(self, mock_create_webhook, _mock_flag):
-        # Webhook is created (HogFunction exists), but the schema's should_sync is then
-        # turned off — so no eligible schemas remain. The action must reject the update.
+    def test_update_webhook_inputs_rotates_secret_without_webhook_schemas(
+        self, mock_create_webhook, mock_inputs_updated, _mock_flag
+    ):
+        # Regression for Zendesk 57818: the signing secret is a source-level credential
+        # stored on the HogFunction inputs, not per-schema. A source can legitimately
+        # have zero schemas on webhook sync (e.g. Stripe with all schemas on incremental
+        # polling) and still need its signing secret rotated to keep the existing
+        # webhook hog function authenticating deliveries.
+        from posthog.models.hog_functions.hog_function import HogFunction
+
         mock_create_webhook.return_value = self._webhook_result()
+        mock_inputs_updated.return_value = (True, None)
+
         self._create_hog_function_template()
         source = self._create_stripe_source()
         schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
         self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
 
-        schema.should_sync = False
-        schema.save(update_fields=["should_sync"])
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.save(update_fields=["sync_type"])
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
@@ -4892,8 +4902,13 @@ class TestCreateWebhook(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "No eligible schemas found" in response.json()["message"]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.encrypted_inputs is not None
+        assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_rotated"
+        mock_inputs_updated.assert_called_once()
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
