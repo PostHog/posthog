@@ -68,12 +68,6 @@
                         "type": "string"
                     },
                     "value": {
-                        "anyOf": [
-                            {},
-                            {
-                                "type": "null"
-                            }
-                        ],
                         "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
                     }
                 },

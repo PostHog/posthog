@@ -1,3 +1,4 @@
+import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
@@ -16,6 +17,17 @@ import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
+
+// Default overall timeout for an SSE stream (wall-clock cap from connect to close).
+// Sized to comfortably cover the slowest known caller (session summarization, ~5 min
+// average) with headroom for cold-cache LLM calls.
+const SSE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
+
+// Per-read inactivity timeout: if no chunk (not even a keepalive comment) arrives
+// within this window, the server is assumed dead. Must comfortably exceed the
+// server-side keepalive interval — kept in sync with `SSE_KEEPALIVE_INTERVAL = 15s`
+// in `ee/api/session_summaries.py`. If you change one, check the other.
+const SSE_READ_TIMEOUT_MS = 30_000
 
 export interface GroupType {
     group_type: string
@@ -174,6 +186,92 @@ export class ApiClient {
             throw result.error
         }
         return result.data as T
+    }
+
+    /**
+     * Open a Server-Sent Events (text/event-stream) connection and invoke `onEvent`
+     * for each parsed event. Resolves when the server closes the stream, throws on
+     * HTTP error, missing body, per-read inactivity, or overall stream timeout.
+     *
+     * Used by tools that consume long-running streaming endpoints (e.g. session
+     * summarization) where a synchronous request would exceed gateway timeouts.
+     */
+    async requestSSE<T = unknown>(opts: {
+        method: 'GET' | 'POST'
+        path: string
+        body?: Record<string, unknown>
+        onEvent: (event: string, data: T) => void
+        timeoutMs?: number
+    }): Promise<void> {
+        const url = `${this.baseUrl}${opts.path}`
+        const fetchOptions: RequestInit = {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            headers: {
+                Accept: 'text/event-stream',
+            },
+        }
+
+        const response = await this.fetch(url, fetchOptions)
+
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(
+                `SSE request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+            )
+        }
+
+        if (!response.body) {
+            throw new Error(`SSE response has no body: ${opts.method} ${url}`)
+        }
+
+        const timeoutMs = opts.timeoutMs ?? SSE_DEFAULT_TIMEOUT_MS
+        const readTimeoutMs = SSE_READ_TIMEOUT_MS
+        const startTime = Date.now()
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+
+        const parser = createParser({
+            onEvent: ({ event, data }) => {
+                const eventType = event ?? 'message'
+                try {
+                    const parsed = JSON.parse(data) as T
+                    opts.onEvent(eventType, parsed)
+                } catch {
+                    // Non-JSON data, pass as-is
+                    opts.onEvent(eventType, data as T)
+                }
+            },
+        })
+
+        try {
+            while (true) {
+                if (Date.now() - startTime > timeoutMs) {
+                    throw new Error(`SSE stream timed out after ${timeoutMs}ms`)
+                }
+
+                let readTimeoutId: ReturnType<typeof setTimeout>
+                const readResult = await Promise.race([
+                    reader.read(),
+                    new Promise<never>((_, reject) => {
+                        readTimeoutId = setTimeout(
+                            () => reject(new Error(`SSE read timed out — no data received for ${readTimeoutMs}ms`)),
+                            readTimeoutMs
+                        )
+                    }),
+                ])
+                clearTimeout(readTimeoutId!)
+                const { done, value } = readResult
+                if (done) {
+                    break
+                }
+
+                parser.feed(decoder.decode(value, { stream: true }))
+            }
+        } finally {
+            await reader.cancel()
+            reader.releaseLock()
+        }
     }
 
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {

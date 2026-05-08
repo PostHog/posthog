@@ -25,8 +25,6 @@ import {
     IconRetentionHeatmap,
     IconHeart,
     IconHeartFilled,
-    IconStar,
-    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
@@ -768,7 +766,6 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
     const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
@@ -842,15 +839,9 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        isAIFirst ? (
-                                            <IconHeartFilled className="text-danger" />
-                                        ) : (
-                                            <IconStarFilled className="text-warning" />
-                                        )
-                                    ) : isAIFirst ? (
-                                        <IconHeart className="text-secondary" />
+                                        <IconHeartFilled className="text-danger" />
                                     ) : (
-                                        <IconStar className="text-secondary" />
+                                        <IconHeart className="text-secondary" />
                                     )
                                 }
                                 tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}

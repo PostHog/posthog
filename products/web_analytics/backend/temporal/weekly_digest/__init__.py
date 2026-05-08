@@ -1,6 +1,7 @@
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
-    build_and_send_wa_digest_for_org,
-    get_orgs_for_wa_digest,
+    get_org_id_batches,
+    push_wa_digest_metrics_activity,
+    run_wa_digest_batch,
     send_test_wa_digest,
 )
 from products.web_analytics.backend.temporal.weekly_digest.workflows import (
@@ -9,4 +10,9 @@ from products.web_analytics.backend.temporal.weekly_digest.workflows import (
 )
 
 WORKFLOWS = [WAWeeklyDigestWorkflow, WAWeeklyDigestTestWorkflow]
-ACTIVITIES = [get_orgs_for_wa_digest, build_and_send_wa_digest_for_org, send_test_wa_digest]
+ACTIVITIES = [
+    get_org_id_batches,
+    run_wa_digest_batch,
+    push_wa_digest_metrics_activity,
+    send_test_wa_digest,
+]
