@@ -11,11 +11,11 @@ export interface ValueLabelsConfig {
     formatter?: (value: number) => string
 }
 
-export type ValueLabelsConfigInput = boolean | ValueLabelsConfig | undefined
-
 /** Normalizes the public `valueLabels` prop to a config (or `null` when value labels
  *  are disabled). `true` becomes `{}` so callers can opt in without supplying options. */
-export function resolveValueLabelsConfig(input: ValueLabelsConfigInput): ValueLabelsConfig | null {
+export function resolveValueLabelsConfig(
+    input: boolean | ValueLabelsConfig | undefined
+): ValueLabelsConfig | null {
     if (input === undefined || input === false) {
         return null
     }
@@ -32,8 +32,10 @@ export function useSeriesWithValueLabelAllowlist<Meta>(
     seriesKeys: string[] | undefined
 ): Series<Meta>[] {
     // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
-    // without re-running the transform on every render.
-    const seriesKeysSignature = seriesKeys?.join(' ')
+    // without re-running the transform on every render. JSON.stringify (rather than
+    // `join(' ')`) so a key that contains a space doesn't collide with two keys split on
+    // it (`['a b']` vs `['a','b']`).
+    const seriesKeysSignature = JSON.stringify(seriesKeys ?? null)
     return useMemo(() => {
         if (!seriesKeys) {
             return series
