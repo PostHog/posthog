@@ -7,10 +7,10 @@ description: >
   or asks "is this CI failure mine?". Decides whether the failure is caused by
   the PR's diff (then say so and stop) or unrelated (then identify the owning
   team via CODEOWNERS / the feature ownership handbook, resolve the Slack
-  sub-team handle by listing user groups via the Slack MCP — never hardcoded,
-  never guessed — and return suggested Slack reply text). Never opens a fix PR
-  and never posts to Slack — both require explicit follow-up authorization
-  from the user.
+  sub-team mention by listing user groups via the Slack MCP — never hardcoded,
+  never guessed — and reply with that mention inline so the team is actually
+  pinged). Never opens a fix PR; opening one requires explicit follow-up
+  authorization from the user.
 ---
 
 # Triaging flaky / unrelated test failures on PostHog PRs
@@ -33,13 +33,17 @@ After inspecting the failure, every run produces _exactly one_ of these:
 
 1. **PR-caused** — tell the user the failure is theirs, with a one-sentence
    explanation. Stop. Do not tag a team.
-2. **Unrelated** — identify the owning team and return suggested Slack reply
-   text that tags them.
+2. **Unrelated** — identify the owning team and reply with the resolved
+   Slack sub-team mention inline so the team is actually pinged.
 
-Always _return_ suggested Slack reply text — never post to Slack yourself.
+The reply is the bot's response in the calling channel — write it as the
+final message, with the real `<!subteam^...>` mention rendered inline. Do
+not return placeholder text the user has to copy, paste, or tag manually;
+that defeats the point of the skill.
+
 Never open a fix PR — opening one requires explicit follow-up authorization
-from the user, even when the cause is obvious. Stop after returning the
-reply text and let the user decide.
+from the user, even when the cause is obvious. Stop after the reply and let
+the user decide.
 
 ## Workflow
 
@@ -147,21 +151,27 @@ only the `<!subteam^...>` form does.
 
 If no Slack MCP is available, or no user group plausibly matches, do not
 guess a handle — fall through to the "Slack handle unresolved" reply
-template and ask the user to fill in the right handle.
+template below and ask the user to fill in the right handle.
 
-### Step 4: Compose the Slack reply
+### Step 4: Reply
 
-Return suggested reply text for the user to paste into Slack. Don't post
-it yourself. Templates (substitute the resolved Slack sub-team mention into
-`<slack-team-mention>`):
+This is the bot's final response. Write it directly — render the actual
+`<!subteam^...>` mention inline so the team is pinged the moment the
+message lands. Do not output a placeholder like `<slack-team-mention>` and
+do not ask the user to paste, edit, or tag manually; that defeats the
+purpose of resolving the mention.
+
+Substitute the values you resolved in steps 1–3 inline:
 
 **Unrelated, owning team resolved:**
 
 > Failure on `<test-path>::<test-name>` looks unrelated to your PR — the
 > test exercises `<area>` which your diff doesn't touch. Suspected cause:
-> `<short summary>`. cc <slack-team-mention> — flagging for triage.
+> `<short summary>`. cc <!subteam^SXXXXXXX|team-handle> — flagging for
+> triage.
 
-**Unrelated, Slack handle unresolved:**
+**Unrelated, Slack handle unresolved** (only when step 3b genuinely
+couldn't match a user group — never as a shortcut to skip the lookup):
 
 > Failure on `<test-path>::<test-name>` looks unrelated to your PR.
 > Suspected cause: `<short summary>`. I believe the owning team is
@@ -181,11 +191,14 @@ Inherit all safety rules from `debugging-ci-failures`. In addition:
   the user. Describe what the fix would look like in the suggested Slack
   reply if helpful, but stop short of making it.
 - Never push to, modify, or otherwise touch the user's PR branch.
-- Never post to Slack — return suggested reply text only.
 - Never hardcode or guess a Slack handle. The team-to-Slack mapping must
   always be resolved at run time via the Slack MCP. If no Slack MCP is
   available or no user group plausibly matches, use the "Slack handle
-  unresolved" template and let the user fill it in.
+  unresolved" template and let the user fill it in. Don't use that
+  fallback as a shortcut to skip the lookup.
+- The reply you produce is the bot's actual response in the calling
+  channel — render the resolved `<!subteam^...>` mention inline rather
+  than asking the user to paste or tag manually.
 - Do not rerun CI, accept snapshots, or modify `.github/workflows/`
   without explicit approval.
 - If you can't confidently determine PR-caused vs unrelated, say so and
@@ -201,5 +214,7 @@ Always respond with:
 3. If unrelated:
    - the suspected root cause (one short sentence)
    - the GitHub team handle / feature-handbook team name (or "unknown")
-   - the resolved Slack sub-team mention (or "unresolved" — never guessed)
-   - the suggested Slack reply text, ready to copy-paste
+   - the resolved Slack sub-team mention as `<!subteam^...>` (or
+     "unresolved" — never guessed)
+   - the reply itself, with the mention rendered inline so the team is
+     pinged when the message lands
