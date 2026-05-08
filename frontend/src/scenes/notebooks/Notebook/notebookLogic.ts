@@ -37,10 +37,11 @@ import {
     notebooksModel,
     openNotebook,
 } from '~/models/notebooksModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyResponseType, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
     AccessControlLevel,
+    InsightModel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
@@ -84,6 +85,23 @@ export type NotebookLogicProps = {
     mode?: NotebookLogicMode
     target?: NotebookTarget
     canvasFiltersOverride?: AnyPropertyFilter[]
+    /**
+     * Pre-loaded notebook payload for shared/exported views. When set, `loadNotebook`
+     * short-circuits and uses this value instead of calling the API — anonymous shared
+     * viewers can't reach `/api/projects/.../notebooks/<short_id>/`.
+     */
+    cachedNotebook?: NotebookType
+    /**
+     * Pre-serialized saved insights referenced by a shared notebook, keyed by `short_id`.
+     * Each entry has computed results inlined so `NotebookNodeQuery` can seed `cachedInsight`
+     * and skip the `/query/` POST that sharing tokens cannot reach.
+     */
+    cachedInsightsByShortId?: Record<string, InsightModel>
+    /**
+     * Pre-computed results for inline (non-saved-insight) ph-query nodes in a shared notebook,
+     * keyed by `nodeId`. Lets `NotebookNodeQuery` seed `cachedResults` for ad-hoc queries too.
+     */
+    cachedInlineQueryResultsByNodeId?: Record<string, AnyResponseType>
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any | null> {
@@ -101,6 +119,21 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
     return fn()
 }
 
+function buildCommentContexts(editor: NotebookEditor, comments: CommentType[]): Record<string, string> {
+    const markTexts = editor.getAllCommentTexts()
+    const contexts: Record<string, string> = {}
+    for (const comment of comments) {
+        if (comment.source_comment || comment.item_context?.type !== 'mark') {
+            continue
+        }
+        const text = markTexts[comment.item_context.id]
+        if (text) {
+            contexts[comment.id] = text
+        }
+    }
+    return contexts
+}
+
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
@@ -116,7 +149,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['comments', 'itemContext'],
+            ['comments', 'itemContext', 'selectedCommentId', 'commentContexts'],
             notebookKernelInfoLogic({ shortId: props.shortId }),
             ['kernelInfo'],
             notebookSettingsLogic,
@@ -133,7 +166,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'maybeLoadComments'],
+            ['setItemContext', 'maybeLoadComments', 'setSelectedComment', 'setCommentContexts'],
             notebookCollabLogic({ shortId: props.shortId }),
             ['ackLocalSteps', 'applyRemoteSteps'],
         ],
@@ -177,6 +210,10 @@ export const notebookLogic = kea<notebookLogicType>([
         }),
         addSavedInsightToNotebook: (insightShortId: InsightShortId, insertionPosition: number | null = null) => ({
             insightShortId,
+            insertionPosition,
+        }),
+        addExperimentToNotebook: (experimentId: number, insertionPosition: number | null = null) => ({
+            experimentId,
             insertionPosition,
         }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
@@ -314,7 +351,9 @@ export const notebookLogic = kea<notebookLogicType>([
                         return null
                     }
 
-                    if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
+                    if (props.cachedNotebook) {
+                        response = props.cachedNotebook
+                    } else if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
                             ...values.scratchpadNotebook,
                             content: null,
@@ -346,7 +385,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    const notebook = await migrate(response)
+                    const notebook = await migrate(response, { skipApiUpgrade: !!values.isShared })
 
                     if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
@@ -579,9 +618,16 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         editingNodeLogics: [
-            (s) => [s.editingNodeIds, s.nodeLogics],
-            (editingNodeIds, nodeLogics) =>
-                Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId]),
+            (s) => [s.editingNodeIds, s.nodeLogics, s.isShared],
+            (editingNodeIds, nodeLogics, isShared) => {
+                // Editing UI is meaningless for anonymous shared viewers and `editingNodeIds` can
+                // arrive pre-populated from persisted local state — zero it out at the source so
+                // the Settings panel never renders for them.
+                if (isShared) {
+                    return []
+                }
+                return Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId])
+            },
         ],
         editingNodeLogicsForLeft: [
             (s) => [s.editingNodeLogics, s.containerSize],
@@ -685,6 +731,40 @@ export const notebookLogic = kea<notebookLogicType>([
                         ))),
         ],
 
+        isShared: [() => [(_, props) => props.cachedNotebook], (cachedNotebook): boolean => !!cachedNotebook],
+
+        cachedInsightsByShortId: [
+            () => [(_, props) => props.cachedInsightsByShortId],
+            (cachedInsightsByShortId): Record<string, InsightModel> => cachedInsightsByShortId ?? {},
+        ],
+
+        cachedInlineQueryResultsByNodeId: [
+            () => [(_, props) => props.cachedInlineQueryResultsByNodeId],
+            (cachedInlineQueryResultsByNodeId): Record<string, AnyResponseType> =>
+                cachedInlineQueryResultsByNodeId ?? {},
+        ],
+
+        getSharedCachedInsight: [
+            (s) => [s.isShared, s.cachedInsightsByShortId],
+            (isShared, cachedInsightsByShortId) =>
+                (shortId: string | null | undefined): InsightModel | null => {
+                    if (!isShared || !shortId) {
+                        return null
+                    }
+                    return cachedInsightsByShortId[shortId] ?? null
+                },
+        ],
+        getSharedCachedInlineQueryResults: [
+            (s) => [s.isShared, s.cachedInlineQueryResultsByNodeId],
+            (isShared, cachedInlineQueryResultsByNodeId) =>
+                (nodeId: string | null | undefined): AnyResponseType | null => {
+                    if (!isShared || !nodeId) {
+                        return null
+                    }
+                    return cachedInlineQueryResultsByNodeId[nodeId] ?? null
+                },
+        ],
+
         insightShortIdsInNotebook: [
             (s) => [s.content],
             (content) => {
@@ -698,6 +778,17 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        experimentIdsInNotebook: [
+            (s) => [s.content],
+            (content): number[] => {
+                if (!content) {
+                    return []
+                }
+                const experimentNodes = content?.content?.filter((node) => node.type === NotebookNodeType.Experiment)
+                return experimentNodes?.map((node) => node?.attrs?.id).filter(Boolean) as number[]
+            },
+        ],
+
         personUUIDFromCanvasOverride: [
             () => [(_, props) => props],
             (props: NotebookLogicProps): string | null => {
@@ -706,6 +797,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
                 return props.canvasFiltersOverride.find((filter: AnyPropertyFilter) => filter.key === 'person_id')
                     ?.value as string
+            },
+        ],
+
+        activeCommentMarkId: [
+            (s) => [s.selectedCommentId, s.comments],
+            (selectedCommentId, comments): string | null => {
+                if (!selectedCommentId) {
+                    return null
+                }
+                const comment = comments?.find((c) => c.id === selectedCommentId)
+                return comment?.item_context?.type === 'mark' ? (comment.item_context.id ?? null) : null
             },
         ],
     }),
@@ -794,6 +896,48 @@ export const notebookLogic = kea<notebookLogicType>([
                 lemonToast.warning('Could not add insight to notebook')
             }
         },
+        addExperimentToNotebook: async ({ experimentId, insertionPosition }) => {
+            const content = {
+                type: NotebookNodeType.Experiment,
+                attrs: {
+                    id: experimentId,
+                },
+            }
+
+            let inserted = false
+
+            if (insertionPosition !== null && values.editor) {
+                try {
+                    values.editor.insertContentAt(insertionPosition, content)
+                    inserted = true
+                } catch (e) {
+                    console.warn('Failed to insert at position, appending to end instead', e)
+                }
+            }
+
+            if (!inserted) {
+                const result = await runWhenEditorIsReady(
+                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                    () => {
+                        let pos = 0
+                        let nextNode = values.editor?.nextNode(pos)
+                        while (nextNode) {
+                            pos = nextNode.position
+                            nextNode = values.editor?.nextNode(pos)
+                        }
+                        values.editor?.insertContentAfterNode(pos, content)
+                        return true
+                    }
+                )
+                inserted = result === true
+            }
+
+            if (inserted) {
+                lemonToast.success('Experiment added to notebook')
+            } else {
+                lemonToast.warning('Could not add experiment to notebook')
+            }
+        },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
@@ -873,7 +1017,26 @@ export const notebookLogic = kea<notebookLogicType>([
                 cache.throttledOnUpdateEditorTimeout = null
             }, 16) // ~60fps throttling
         },
-        setEditor: () => {},
+        setEditor: () => {
+            // Compute contexts immediately if comments are already loaded when the editor mounts
+            if (values.editor && values.comments) {
+                actions.setCommentContexts(buildCommentContexts(values.editor, values.comments))
+            }
+        },
+        onUpdateEditor: () => {
+            // Re-sync previews so they track edits to text under comment marks.
+            // Skip the dispatch when nothing changed to avoid re-rendering every Comment per keystroke.
+            if (!values.editor || !values.comments) {
+                return
+            }
+            const next = buildCommentContexts(values.editor, values.comments)
+            const prev = values.commentContexts
+            const nextKeys = Object.keys(next)
+            if (nextKeys.length === Object.keys(prev).length && nextKeys.every((k) => prev[k] === next[k])) {
+                return
+            }
+            actions.setCommentContexts(next)
+        },
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
         loadNotebookSuccess: () => {
@@ -892,16 +1055,28 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         onEditorSelectionUpdate: () => {
-            if (values.editor) {
-                // Throttle this too to avoid excessive calls
-                if (cache.throttledOnUpdateEditorTimeout) {
-                    clearTimeout(cache.throttledOnUpdateEditorTimeout)
-                }
-                cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
-                    actions.onUpdateEditor()
-                    cache.throttledOnUpdateEditorTimeout = null
-                }, 16) // ~60fps throttling
+            if (!values.editor) {
+                return
             }
+            // Sync the active comment to the editor cursor: when the caret enters a comment mark
+            // we highlight the corresponding side-panel comment; when it leaves we clear it.
+            const markId = values.editor.getAttributes('comment').id ?? null
+            const targetSelectedId = markId
+                ? (values.comments?.find((c) => c.item_context?.type === 'mark' && c.item_context?.id === markId)?.id ??
+                  null)
+                : null
+            if (values.selectedCommentId !== targetSelectedId) {
+                actions.setSelectedComment(targetSelectedId)
+            }
+
+            // Throttle this too to avoid excessive calls
+            if (cache.throttledOnUpdateEditorTimeout) {
+                clearTimeout(cache.throttledOnUpdateEditorTimeout)
+            }
+            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                actions.onUpdateEditor()
+                cache.throttledOnUpdateEditorTimeout = null
+            }, 16) // ~60fps throttling
         },
         scrollToSelection: () => {
             if (values.editor) {
@@ -991,6 +1166,17 @@ export const notebookLogic = kea<notebookLogicType>([
                         editor.removeComment(mark.pos)
                     }
                 })
+
+                actions.setCommentContexts(buildCommentContexts(editor, comments))
+            }
+        },
+        activeCommentMarkId: (markId: string | null) => {
+            if (!markId || !values.editor) {
+                return
+            }
+            const pos = values.editor.findCommentPosition(markId)
+            if (pos !== null) {
+                values.editor.scrollToPosition(pos)
             }
         },
     })),

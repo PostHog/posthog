@@ -5,10 +5,11 @@ use std::{
     time::Duration,
 };
 
-use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
+    extract::DefaultBodyLimit,
     http::{Method, StatusCode},
     routing::{any, get},
     Router,
@@ -18,7 +19,7 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::setup_metrics_routes_for_product;
+use common_metrics::setup_metrics_routes_for_product_with_overrides;
 use common_redis::Client as RedisClient;
 use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
@@ -33,6 +34,8 @@ use tower_http::{
 
 use crate::{
     api::{
+        body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
+        concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
@@ -44,6 +47,7 @@ use crate::{
         flag_group_type_mapping::GroupTypeCacheManager,
     },
     metrics::{
+        buckets::bucket_overrides,
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
             FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
@@ -70,10 +74,10 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
-    pub flags_rate_limiter: FlagsRateLimiter,
-    pub ip_rate_limiter: IpRateLimiter,
+    pub(crate) flags_rate_limiter: FlagsRateLimiter,
+    pub(crate) ip_rate_limiter: IpRateLimiter,
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
@@ -99,6 +103,9 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Shadow-keyspace billing aggregator. See `crate::billing` for the
+    /// dual-write contract.
+    pub billing_aggregator: Option<Arc<BillingAggregator>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -123,6 +130,7 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    billing_aggregator: Option<Arc<BillingAggregator>>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -210,6 +218,7 @@ pub fn router(
         team_negative_cache,
         cohort_membership_provider,
         auth_token_cache,
+        billing_aggregator,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -248,29 +257,33 @@ pub fn router(
             get(move || startup(db_pools_for_startup.clone())),
         );
 
-    // flags endpoint
-    // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    // Layer ordering (outermost to innermost, last `.layer()` is outermost):
+    //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
+    //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
     //
-    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
-    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
-    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
-    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
-    let mut flags_router = Router::new();
-
+    // The body-read shim and `DefaultBodyLimit` are per-sub-router and only
+    // attached to `/flags|/decide`. `/flags/definitions` is GET-only and
+    // 405s non-GET before any body is read. `DefaultBodyLimit::max` is the
+    // marker the handler's `Bytes` extractor reads; the shim's `to_bytes`
+    // cap (see `MAX_FLAGS_BODY_BYTES`) handles the same boundary while the
+    // body is being buffered. Both are required.
+    let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
-        flags_router = flags_router
+        flags_endpoints = flags_endpoints
             .route("/flags", any(endpoint::flags))
             .route("/flags/", any(endpoint::flags))
             .route("/decide", any(endpoint::flags))
-            .route("/decide/", any(endpoint::flags));
+            .route("/decide/", any(endpoint::flags))
+            .layer(axum::middleware::from_fn(record_body_read))
+            .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
     }
 
+    let mut definitions_endpoints: Router<State> = Router::new();
     if matches!(
         config.service_mode,
         ServiceMode::All | ServiceMode::Definitions
     ) {
-        flags_router = flags_router
+        definitions_endpoints = definitions_endpoints
             .route(
                 "/flags/definitions",
                 any(flag_definitions::flags_definitions),
@@ -291,8 +304,15 @@ pub fn router(
             );
     }
 
-    let flags_router = flags_router
+    let flags_router = flags_endpoints
+        .merge(definitions_endpoints)
+        // After `ConcurrencyLimitLayer` releases a permit, so this measures
+        // permit wait excluding body buffering.
+        .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        // Stamps `Instant::now()` after timeout-deadline propagation but
+        // before permit acquisition.
+        .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
@@ -325,7 +345,11 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        setup_metrics_routes_for_product(router, "feature_flags")
+        setup_metrics_routes_for_product_with_overrides(
+            router,
+            "feature_flags",
+            &bucket_overrides(),
+        )
     } else {
         router
     }

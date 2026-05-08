@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -40,7 +40,12 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import (
+    ExecutionMode,
+    QueryRunner,
+    get_query_runner,
+    shared_insights_execution_mode,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -209,6 +214,7 @@ class TestQueryRunner(BaseTest):
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionIdPushdown": False,
+                "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
@@ -290,7 +296,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
+        assert cache_key == "cache_42_13ab830e775c41ee3ae4b45c386e6064d74eec55fb93092732c0bb305d7e980f"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -304,7 +310,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
+        assert cache_key == "cache_42_b624e873acbdc9829f0973b4dc14424bb26e3b5c36c11387ce24e9ff3bea2a00"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -315,7 +321,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
+        assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -1026,3 +1032,73 @@ class TestApplySeriesCustomNames(BaseTest):
         _, was_modified = runner.apply_series_custom_names(cached_response)
 
         self.assertEqual(was_modified, expect_modified)
+
+
+class TestSharedInsightsExecutionMode(BaseTest):
+    @parameterized.expand(
+        [
+            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            (
+                "force_blocking_no_last_refresh_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_refreshed_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(seconds=10),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_under_threshold_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=29, seconds=59),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_at_threshold_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=30),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "force_blocking_long_stale_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(hours=24),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "cache_only_remaps_to_extended_async",
+                ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                timedelta(seconds=10),
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "recent_cache_async_passes_through",
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "blocking_if_stale_passes_through",
+                # Used by the shared-notebook inline query payload builder. Must pass through so
+                # cold-cache loads block and return real results — falling back to async would
+                # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
+                # placeholder until a later reload picks up the warmed cache.
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+        ]
+    )
+    def test_shared_insights_execution_mode(
+        self,
+        _name: str,
+        execution_mode: ExecutionMode,
+        last_refresh_offset: timedelta | None,
+        expected_mode: ExecutionMode,
+    ) -> None:
+        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
+        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
+        self.assertEqual(result, expected_mode)

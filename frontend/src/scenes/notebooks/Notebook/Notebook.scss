@@ -591,9 +591,15 @@
         background: color-mix(in oklab, var(--color-accent) 25%, transparent);
         border-radius: 2px;
         box-decoration-break: clone;
+        transition: background 120ms ease-in-out;
 
         &:hover {
             background: color-mix(in oklab, var(--color-accent) 50%, transparent);
+        }
+
+        &--active,
+        &--active:hover {
+            background: color-mix(in oklab, var(--color-accent) 65%, transparent);
         }
     }
 

@@ -64,7 +64,7 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
@@ -107,6 +107,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
+                                                        date_from: issue.first_seen ?? '-30d',
+                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [

@@ -69,8 +69,9 @@ def _capture_report_event(
             properties=properties,
             groups=groups(organization, team),
         )
-    except Exception:
+    except Exception as e:
         # Swallow the exception, to avoid breaking the flow over failed analytics event
+        posthoganalytics.capture_exception(e)
         logger.exception(
             "Failed to capture signal report event",
             event=event,
@@ -112,6 +113,13 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", inputs.team_id)
+            posthoganalytics.tag("report_id", inputs.report_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(inputs)
+
+    async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
@@ -206,7 +214,10 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     signals=fetch_result.signals,
                 ),
-                start_to_close_timeout=timedelta(minutes=30),
+                # Budget = heavy-cache warmup (cold, ≤1000 repos, rate-limit backoffs) +
+                # follower lock wait (≤20m) + agent poll window (≤30m). 45m fits all three.
+                start_to_close_timeout=timedelta(minutes=45),
+                heartbeat_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             if repo_result.repository is None:
@@ -342,6 +353,7 @@ class MarkReportInProgressInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -394,6 +406,7 @@ class MarkReportReadyInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
@@ -450,6 +463,7 @@ class MarkReportFailedInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
@@ -500,6 +514,7 @@ class MarkReportPendingInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
@@ -549,6 +564,7 @@ class ResetReportToPotentialInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:
@@ -594,6 +610,7 @@ class PublishReportCompletedInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def publish_report_completed_activity(input: PublishReportCompletedInput) -> None:
     """Publish a message to Kafka when a report is generated or re-generated."""
     try:

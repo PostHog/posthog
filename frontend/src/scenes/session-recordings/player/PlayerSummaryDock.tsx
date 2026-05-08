@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+import { IconChevronDown, IconMagicWand, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -33,8 +33,8 @@ export function PlayerSummaryDock(): JSX.Element | null {
         summaryDisabledReason,
     } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
-    const { openBySessionId } = useValues(sessionSummaryProgressLogic)
-    const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
+    const { openBySessionId, summaryIdBySessionId } = useValues(sessionSummaryProgressLogic)
+    const { setSummaryOpen, cancelSummarization } = useActions(sessionSummaryProgressLogic)
     const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
 
     const dockRef = useRef<HTMLDivElement>(null)
@@ -48,17 +48,28 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const isEnabled = featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
+    const summaryId = summaryIdBySessionId[sessionRecordingId] ?? null
+    const hasRenderedSummary = hasSummary && !sessionSummaryError
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,
         Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
     )
 
+    // `isOpen` flips multiple times per summary, so dedupe to one capture per render.
+    const capturedKeyRef = useRef<string | null>(null)
+
     useEffect(() => {
-        if (sessionRecordingId && isOpen) {
-            reportAISessionSummaryViewed(sessionRecordingId, 'dock')
+        if (!sessionRecordingId || !isOpen || !hasRenderedSummary) {
+            return
         }
-    }, [sessionRecordingId, isOpen, reportAISessionSummaryViewed])
+        const key = `${sessionRecordingId}|${summaryId ?? 'unknown'}`
+        if (capturedKeyRef.current === key) {
+            return
+        }
+        capturedKeyRef.current = key
+        reportAISessionSummaryViewed(sessionRecordingId, 'dock', summaryId)
+    }, [sessionRecordingId, isOpen, hasRenderedSummary, summaryId, reportAISessionSummaryViewed])
 
     if (!isEnabled) {
         return null
@@ -78,11 +89,22 @@ export function PlayerSummaryDock(): JSX.Element | null {
         >
             {isOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center justify-between h-11 px-3 shrink-0">
-                {hasSummary || sessionSummaryLoading ? (
+                {hasSummary ? (
                     <div className="flex items-center gap-2 font-semibold">
                         <IconMagicWand className="text-primary" />
                         AI summary
                     </div>
+                ) : sessionSummaryLoading ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconX />}
+                        onClick={() => cancelSummarization(sessionRecordingId)}
+                        tooltip="Stop summarizing this session"
+                        data-attr="cancel-session-summary"
+                    >
+                        Cancel summarization
+                    </LemonButton>
                 ) : (
                     <LemonButton
                         size="small"

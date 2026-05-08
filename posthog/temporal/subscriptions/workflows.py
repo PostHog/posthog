@@ -1,8 +1,8 @@
 import json
 import uuid
-import typing
 import asyncio
 import datetime as dt
+import dataclasses
 
 import temporalio.common
 import temporalio.workflow
@@ -27,12 +27,12 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
-    CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
@@ -48,77 +48,33 @@ from posthog.temporal.subscriptions.types import (
 
 # Rolling-deploy deprecation bundle (TODO slug: subscriptions-patched-cleanup)
 # ---------------------------------------------------------------------------
-# The items below exist ONLY to keep pre-rollout workflows replayable on new
-# workers during a rolling deploy. They must be removed together, in two
-# follow-up PRs, once the subscriptions task queue has drained past the oldest
-# in-flight pre-patch workflow (workflow execution_timeout is 2h; wait ≥24h
-# after deploy to be safe).
+# Step 1 of the two-step `patched()` -> `deprecate_patch()` -> deletion dance.
+# `workflow.deprecate_patch()` records a "deprecated" marker at the same
+# command-sequence position the original `workflow.patched()` guard occupied,
+# so workflows whose history already carries the `patched` marker replay
+# cleanly. The if-gate and legacy-replay helper are gone because pre-rollout
+# workflows (no marker in history) have drained by deploy time of this PR.
 #
-# Grep for `subscriptions-patched-cleanup` to find every site. The removal
-# sequence matters — deleting `patched()` directly breaks replay of any
-# workflow whose history already recorded the marker:
-#   1. First cleanup PR: replace `workflow.patched(...)` with
-#      `workflow.deprecate_patch(...)` (same runtime behavior; records a
-#      "deprecated" marker instead).
-#   2. Second cleanup PR (after another full drain): delete
-#      `_reissue_phase_2_5_update_for_replay`, `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
-#      `CreateExportAssetsResult.insight_snapshots`, and
-#      `UpdateDeliveryRecordInputs.content_snapshot`.
+# Deploy-ordering precondition: `ProcessSubscriptionWorkflow.execution_timeout`
+# is 2h, so in theory any pre-rollout workflow completes 2h after #55943 deploys.
+# In practice, wait ≥24h after #55943's prod deploy before merging this PR —
+# the same buffer the predecessor comment prescribed. The same rule applies
+# from this PR's deploy to the step-2 cleanup below.
+#
+# The binding condition is "no workflow whose history was recorded pre-#55943
+# is still replayable" — continue-as-new chains and long signaled workflows
+# can outlive execution_timeout. Verify before merging each step by running:
+#   Temporal UI → WorkflowType="process-subscription" ExecutionStatus=Running
+#                 StartTime <= <preceding-PR-prod-deploy-timestamp>
+# and confirming zero results.
+#
+# Grep `subscriptions-patched-cleanup` to find every site. Step 2 (after
+# another ≥24h drain past this deploy) deletes: the `deprecate_patch()` call,
+# `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
+# `CreateExportAssetsResult.insight_snapshots`,
+# `UpdateDeliveryRecordInputs.content_snapshot`, and the shallow-merge branch
+# in `update_delivery_record` that the deprecated field fed.
 _PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE = "subscriptions-content-snapshot-direct-write"
-
-
-async def _reissue_phase_2_5_update_for_replay(
-    *,
-    delivery_id: uuid.UUID,
-    prepare_result: CreateExportAssetsResult,
-    delivery_exported_asset_ids: list[int],
-    subscription_id: int,
-) -> None:
-    """DO NOT MODIFY — must match the pre-rollout command shape exactly.
-
-    Re-issues the old Phase 2.5 `update_delivery_record` command so pre-rollout
-    workflows replay deterministically on new workers. Any change to the
-    command's activity name, input type, or issued-or-not decision breaks
-    replay for every in-flight pre-patch workflow and leaves them stuck.
-
-    Correctness argument: the reconstructed content_snapshot only includes
-    `insights` when the activity actually returned them (pre-patch history).
-    When the new activity ran (insight_snapshots=None), it already persisted
-    the snapshot to Postgres directly, so we omit that key to avoid the
-    shallow-merge in `update_delivery_record` overwriting the in-activity
-    write. `total_insight_count` is always included and always computed the
-    same way on both code paths, so overwriting it is benign.
-
-    Part of the `subscriptions-patched-cleanup` deprecation bundle — see the
-    top-of-file comment for the two-step removal sequence.
-    """
-    legacy_content_snapshot: dict[str, typing.Any] = {
-        "total_insight_count": prepare_result.total_insight_count,
-    }
-    if prepare_result.insight_snapshots is not None:
-        legacy_content_snapshot["insights"] = prepare_result.insight_snapshots
-
-    try:
-        await temporalio.workflow.execute_activity(
-            update_delivery_record,
-            UpdateDeliveryRecordInputs(
-                delivery_id=delivery_id,
-                status=DeliveryStatus.STARTING,
-                exported_asset_ids=delivery_exported_asset_ids or None,
-                content_snapshot=legacy_content_snapshot,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(seconds=30),
-                maximum_attempts=3,
-            ),
-        )
-    except Exception:
-        temporalio.workflow.logger.warning(
-            "process_subscription.content_snapshot_persist_failed",
-            extra={"subscription_id": subscription_id},
-        )
 
 
 def _build_outcome_assets(
@@ -275,6 +231,26 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 ),
             )
 
+            # Validate up-front: if the subscription is already disabled or its target
+            # configuration is permanently broken, auto-disable and short-circuit before
+            # the export pipeline runs.
+            abort_info = await temporalio.workflow.execute_activity(
+                validate_subscription_for_delivery,
+                inputs.subscription_id,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+            if abort_info is not None:
+                # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
+                if abort_info.failed_recipient is not None:
+                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    final_status = DeliveryStatus.FAILED
+                return
+
             # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
             # onto SubscriptionDelivery.content_snapshot (written from within the
             # activity to avoid shipping multi-MB query_results across Temporal's
@@ -344,27 +320,18 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # Rolling-deploy compat: re-issue the old Phase 2.5 command for
-            # in-flight pre-patch workflows so their replay stays deterministic.
-            # Post-patch workflows skip this entirely — the content_snapshot is
-            # already in Postgres via create_export_assets writing directly.
-            # `patched()` returns False on replay of a pre-rollout workflow's
-            # history (no marker recorded) and True on any workflow that first
-            # ran on new code. Inverted from the canonical pattern: we only
-            # execute the legacy replay on the False branch.
-            if not temporalio.workflow.patched(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE):
-                if delivery_id is not None:
-                    await _reissue_phase_2_5_update_for_replay(
-                        delivery_id=delivery_id,
-                        prepare_result=prepare_result,
-                        delivery_exported_asset_ids=delivery_exported_asset_ids,
-                        subscription_id=inputs.subscription_id,
-                    )
+            # Phase 2.5 (legacy) — deprecated. The pre-rollout `update_delivery_record`
+            # command at this position has drained; `deprecate_patch()` records a
+            # "deprecated" marker so any straggler replay from the original deploy
+            # reaches this point without tripping non-determinism. Next cleanup PR
+            # removes the call once the "deprecated"-marker histories have drained
+            # (verify via the Temporal UI query in the top-of-file comment block).
+            temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
 
             # Generate LLM change summary (best-effort, skip if not enabled).
-            # Reads content_snapshot back from Postgres — it was persisted
-            # inline by create_export_assets above, or by the legacy-replay
-            # helper on pre-patch workflows.
+            # Reads content_snapshot back from Postgres — persisted inline by
+            # create_export_assets above (via delivery_id, or via the
+            # workflow_id fallback lookup when replaying pre-rollout workflows).
             if delivery_id is not None:
                 try:
                     snapshot_result = await temporalio.workflow.execute_activity(
@@ -467,7 +434,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Advance schedule — always for scheduled deliveries, even on failure
+            # Advance schedule — always for scheduled deliveries, even on failure.
+            # The activity itself no-ops when the subscription is disabled, so a
+            # just-auto-disabled sub doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,

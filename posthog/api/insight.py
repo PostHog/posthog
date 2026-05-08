@@ -1,11 +1,14 @@
 import json
 import logging
-from datetime import timedelta
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import Count, F, Max, Prefetch, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -25,7 +28,7 @@ from pydantic import (
     RootModel,
     ValidationError as PydanticValidationError,
 )
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import relations, request, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -47,6 +50,7 @@ from posthog.api.insight_metadata import generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -58,11 +62,19 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
@@ -86,10 +98,11 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
+from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -103,6 +116,7 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
@@ -273,6 +287,24 @@ class QuerySchemaParser(JSONParser):
             return data
 
 
+class _DashboardsFromTilesManyField(serializers.ManyRelatedField):
+    def get_attribute(self, instance: Insight) -> list[int]:
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
+    def to_representation(self, iterable: Sequence[Any]) -> list[Any]:
+        return list(iterable)
+
+
+class TeamScopedDashboardsField(TeamScopedPrimaryKeyRelatedField):
+    @classmethod
+    def many_init(cls, *args, **kwargs):
+        list_kwargs: dict[str, Any] = {"child_relation": cls(*args, **kwargs)}
+        for key in kwargs:
+            if key in relations.MANY_RELATION_KWARGS:
+                list_kwargs[key] = kwargs[key]
+        return _DashboardsFromTilesManyField(**list_kwargs)
+
+
 class DashboardTileBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardTile
@@ -291,6 +323,7 @@ class InsightBasicSerializer(
     """
 
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
+    dashboards = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
 
@@ -323,6 +356,10 @@ class InsightBasicSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_dashboards(self, instance: Insight) -> list[int]:
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_viewed_at(self, instance: Insight):
         """Get the last viewed timestamp for this insight by any user in the team."""
@@ -330,8 +367,6 @@ class InsightBasicSerializer(
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-
-        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -350,6 +385,32 @@ class InsightBasicSerializer(
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def _dashboard_tiles(self, instance):
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
+
+class TrendingInsightSerializer(InsightBasicSerializer):
+    """Insight enriched with view-count and recent-viewer fields, used by the trending action."""
+
+    view_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of distinct viewers in the time window. Higher values indicate insights that more people "
+            "in the project actively look at, which is a strong proxy for which insights matter."
+        ),
+    )
+    viewers = UserBasicSerializer(
+        many=True,
+        read_only=True,
+        help_text="Up to 3 of the most recent users who viewed this insight in the time window.",
+    )
+    # Surfaced here (not on InsightBasicSerializer) so agents ranking trending insights can see
+    # who is currently iterating on each — useful context alongside the view-count signal.
+    last_modified_by = UserBasicSerializer(
+        read_only=True,
+        help_text="User who last modified this insight, or null if never modified after creation.",
+    )
+
+    class Meta(InsightBasicSerializer.Meta):
+        fields = [*InsightBasicSerializer.Meta.fields, "view_count", "viewers", "last_modified_by"]
 
 
 class _InsightQuerySchema(RootModel):
@@ -374,6 +435,25 @@ class QueryFieldSerializer(serializers.Serializer):
         if data is not None and not isinstance(data, dict):
             raise serializers.ValidationError("Query must be a valid JSON object")
         return data
+
+
+def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
+    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
+    ``now()`` so the gate fails closed."""
+    try:
+        if dashboard_tile is not None:
+            cs = next(iter(dashboard_tile.caching_states.all()), None)
+        else:
+            cs = (
+                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
+                .only("last_refresh", "created_at")
+                .first()
+            )
+    except Exception:
+        return datetime.now(UTC)
+    if cs is None:
+        return insight.created_at
+    return cs.last_refresh or cs.created_at
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -407,7 +487,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = TeamScopedPrimaryKeyRelatedField(
+    dashboards = TeamScopedDashboardsField(  # type: ignore[assignment]
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -496,6 +576,26 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        new_dashboards = attrs.get("dashboards")
+        if new_dashboards is not None:
+            team = self.context["get_team"]()
+            existing_dashboard_ids: set[int] = set()
+            if self.instance is not None:
+                existing_dashboard_ids = set(
+                    self.instance.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                )
+            for dashboard in new_dashboards:
+                if dashboard.id in existing_dashboard_ids:
+                    continue
+                current_tiles = DashboardTile.objects.filter(dashboard_id=dashboard.id).exclude(deleted=True).count()
+                check_count_limit(
+                    team=team,
+                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
+                    current_count=current_tiles,
+                    user=self.context["request"].user,
+                )
+
         return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
@@ -517,6 +617,8 @@ class InsightSerializer(InsightBasicSerializer):
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
             # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -837,8 +939,6 @@ class InsightSerializer(InsightBasicSerializer):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
-        else:
-            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Dashboard | None = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
@@ -949,20 +1049,28 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard_tile
                 )
 
-                if self.context.get("is_shared", False):
-                    execution_mode = shared_insights_execution_mode(execution_mode)
+                is_shared = self.context.get("is_shared", False)
+                if is_shared:
+                    execution_mode = shared_insights_execution_mode(
+                        execution_mode,
+                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
+                    )
 
-                return calculate_for_query_based_insight(
-                    insight,
-                    team=self.context["get_team"](),
-                    dashboard=dashboard,
-                    execution_mode=execution_mode,
-                    user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
-                    filters_override=filters_override,
-                    variables_override=variables_override,
-                    tile_filters_override=tile_filters_override,
-                    analytics_props=get_request_analytics_properties(self.context["request"]),
-                )
+                # Shared rendering bypasses the FE scene-tag flow, so set product/feature
+                # tags here. No-op overwrite for authenticated paths (same values).
+                shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
+                    return calculate_for_query_based_insight(
+                        insight,
+                        team=self.context["get_team"](),
+                        dashboard=dashboard,
+                        execution_mode=execution_mode,
+                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        filters_override=filters_override,
+                        variables_override=variables_override,
+                        tile_filters_override=tile_filters_override,
+                        analytics_props=get_request_analytics_properties(self.context["request"]),
+                    )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
@@ -1237,7 +1345,25 @@ class InsightViewSet(
         span.set_attribute("posthog.basic", self._is_basic_request())
         span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
-        return super().list(request, *args, **kwargs)
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span.set_attribute("insight.search.result_count", results_len)
+            span.set_attribute("insight.search.empty", results_len == 0)
+        return response
+
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        if (
+            page is not None
+            and getattr(self, "action", None) == "list"
+            and not self._is_basic_request()
+            and not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        ):
+            tiles = [tile for insight in page for tile in insight.dashboard_tiles.all()]
+            self.user_permissions.set_preloaded_dashboard_tiles(tiles)
+        return page
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
@@ -1286,7 +1412,6 @@ class InsightViewSet(
 
         if is_basic:
             queryset = queryset.prefetch_related(
-                Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
                 Prefetch(
                     "dashboard_tiles",
                     queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
@@ -1294,11 +1419,6 @@ class InsightViewSet(
             )
         else:
             queryset = queryset.prefetch_related(
-                Prefetch(
-                    # TODO deprecate this field entirely
-                    "dashboards",
-                    queryset=Dashboard.objects.all().select_related("team__organization"),
-                ),
                 Prefetch(
                     "dashboard_tiles",
                     queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
@@ -1321,7 +1441,12 @@ class InsightViewSet(
 
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
-            queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+            last_viewed_at = (
+                InsightViewed.objects.filter(insight=OuterRef("pk"))
+                .order_by("-last_viewed_at")
+                .values("last_viewed_at")[:1]
+            )
+            queryset = queryset.annotate(last_viewed_at=Subquery(last_viewed_at))
             queryset = self._filter_request(self.request, queryset)
 
         return self.order_queryset(queryset)
@@ -1340,6 +1465,8 @@ class InsightViewSet(
     def order_queryset(self, queryset: QuerySet) -> QuerySet:
         order = self.request.GET.get("order", None)
         if not order:
+            if self.request.GET.get("search"):
+                return queryset
             return queryset.order_by("order")
 
         if order == "-last_viewed_at":
@@ -1371,14 +1498,39 @@ class InsightViewSet(
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=False)
+    @extend_schema(
+        operation_id="insights_trending_retrieve",
+        filters=False,
+        parameters=[
+            OpenApiParameter(
+                name="days",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Time window in days to compute view counts over. Defaults to 7. Larger windows surface "
+                    "consistently popular insights; smaller windows surface what's hot right now."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Maximum number of insights to return. Defaults to 10. Capped at 100.",
+                required=False,
+            ),
+        ],
+        responses={200: TrendingInsightSerializer(many=True)},
+        description=(
+            "Returns insights ranked by view count over the last N days (default 7), highest first. Each "
+            "result includes the same metadata as the standard insights list, plus a `view_count` and up to "
+            "3 recent `viewers`. Useful for surfacing the most-used insights in a project."
+        ),
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["insight:read"])
     def trending(self, request: request.Request, *args, **kwargs) -> Response:
-        """
-        Returns trending insights based on view count in the last N days (default 7).
-        Defaults to returning top 10 insights.
-        """
         try:
-            days = int(request.GET.get("days", "1"))
+            days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
         except (ValueError, TypeError):
             raise ValidationError("days and limit must be valid integers")
@@ -1387,6 +1539,7 @@ class InsightViewSet(
 
         queryset = (
             Insight.objects.filter(team__project_id=self.team.project_id)
+            .select_related("created_by", "last_modified_by", "team")
             .annotate(
                 view_count=Count(
                     "insightviewed",
@@ -1400,16 +1553,13 @@ class InsightViewSet(
         queryset = self._filter_queryset_by_access_level(queryset)
         queryset = queryset[:limit]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+        insights = list(queryset)
 
-        response = InsightBasicSerializer(queryset, many=True)
-        data = response.data
-
-        # Batch fetch all viewers to avoid N+1 queries
-        insight_ids = [item["id"] for item in data]
+        # Batch fetch viewers once to avoid N+1 queries
         all_viewers = (
             InsightViewed.objects.filter(
                 team=self.team,
-                insight_id__in=insight_ids,
+                insight_id__in=[insight.pk for insight in insights],
                 last_viewed_at__gte=cutoff_date,
                 user__isnull=False,
             )
@@ -1420,18 +1570,63 @@ class InsightViewSet(
         viewers_by_insight: dict[int, list] = {}
         for viewer in all_viewers:
             iid = viewer.insight_id
-            if iid not in viewers_by_insight:
-                viewers_by_insight[iid] = []
-            if len(viewers_by_insight[iid]) < 3:
-                viewers_by_insight[iid].append(viewer.user)
+            bucket = viewers_by_insight.setdefault(iid, [])
+            if len(bucket) < 3:
+                bucket.append(viewer.user)
 
-        instance_map = {instance.pk: instance for instance in queryset}
-        for item in data:
-            item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
-            instance = instance_map.get(item["id"])
-            item["view_count"] = getattr(instance, "view_count", 0) if instance else 0
+        for insight in insights:
+            insight.viewers = viewers_by_insight.get(insight.pk, [])
 
-        return Response(data=data, status=status.HTTP_200_OK)
+        data = TrendingInsightSerializer(insights, many=True, context=self.get_serializer_context()).data
+        # Wrap in the standard paginated envelope so the response shape matches the auto-generated
+        # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
+        # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
+        # happy. There's no real pagination — `limit` already caps the result set.
+        return Response({"count": len(data), "next": None, "previous": None, "results": data})
+
+    @staticmethod
+    @tracer.start_as_current_span("InsightViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("insight.search.length", len(search))
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        derived_name_word_score = Coalesce(TrigramWordSimilarity(search, "derived_name"), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _derived_name_word=derived_name_word_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+                | Q(id__in=matching_tag_ids)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _derived_name_match_score=F("_derived_name_word"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(
+                _search_score=F("_name_match_score")
+                + F("_derived_name_match_score")
+                + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT
+            )
+            .order_by("-_search_score", "name")
+            .distinct()
+        )
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -1439,12 +1634,10 @@ class InsightViewSet(
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    queryset = queryset.annotate(
-                        visible_dashboards_count=Count(
-                            "dashboards", filter=~Q(dashboard_tiles__dashboard__creation_mode="unlisted")
-                        )
+                    visible_tile_for_insight = DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(
+                        dashboard__creation_mode="unlisted"
                     )
-                    queryset = queryset.filter(Q(saved=True) | Q(visible_dashboards_count__gte=1))
+                    queryset = queryset.filter(Q(saved=True) | Exists(visible_tile_for_insight))
                 else:
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
@@ -1518,12 +1711,10 @@ class InsightViewSet(
                 else:
                     queryset = queryset.filter(legacy_filter)
             elif key == "search":
-                queryset = queryset.filter(
-                    Q(name__icontains=request.GET["search"])
-                    | Q(derived_name__icontains=request.GET["search"])
-                    | Q(tagged_items__tag__name__icontains=request.GET["search"])
-                    | Q(description__icontains=request.GET["search"])
-                )
+                term = request.GET["search"]
+                if len(term) > MAX_SEARCH_LENGTH:
+                    raise ValidationError({"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."})
+                queryset = self._apply_search(queryset, term)
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
@@ -1593,6 +1784,8 @@ Background calculation can be tracked using the `query_status` response field.""
 Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
 When set, the specified dashboard's filters and date range override will be applied.""",
             ),
+            make_variables_override_param(subject_label="the insight's HogQL", tool_name="insight-get"),
+            make_filters_override_param(subject_label="the insight's"),
         ],
     )
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
@@ -1907,7 +2100,31 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
-    @extend_schema(operation_id="insights_all_activity_retrieve")
+    @extend_schema(
+        operation_id="insights_all_activity_retrieve",
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Page size. Defaults to 10.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="1-indexed page number. Defaults to 1.",
+                required=False,
+            ),
+        ],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+        description=(
+            "Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, "
+            "what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have "
+            "been working on recently."
+        ),
+    )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -1916,6 +2133,29 @@ When set, the specified dashboard's filters and date range override will be appl
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Page size. Defaults to 10.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="1-indexed page number. Defaults to 1.",
+                required=False,
+            ),
+        ],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+        description=(
+            "Audit trail for a single insight — every change made to it, by whom, and when. Use this when you "
+            "want the change history of a specific insight; use the project-wide activity endpoint for a broader view."
+        ),
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

@@ -40,6 +40,8 @@ describe('OAuth Region Routing', () => {
         // between the host and the resource path:
         // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
         // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
+        //   (the /sse endpoint itself is deprecated and redirects to /mcp, but the
+        //   metadata generator stays generic so cached metadata for /sse remains valid)
         const testCases = [
             {
                 name: 'includes region param and resource path /mcp in metadata URL',
@@ -52,7 +54,7 @@ describe('OAuth Region Routing', () => {
                 expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp',
             },
             {
-                name: 'includes resource path /sse for SSE endpoint',
+                name: 'includes resource path /sse for legacy SSE endpoint',
                 requestUrl: 'https://mcp.posthog.com/sse',
                 expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/sse',
             },

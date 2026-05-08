@@ -227,13 +227,8 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Integration Tests (depot-ubuntu-latest-4)
+        runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
@@ -269,6 +264,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               shell: bash
+              env:
+                  COMPOSE_PROFILES: temporal
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   (
@@ -371,13 +368,15 @@ jobs:
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait
+                  COMPOSE_PROFILES: temporal
+              run: bin/ci-wait-for-docker wait temporal
 
             - name: Run migrations
               run: |

@@ -8,7 +8,9 @@ from unittest.mock import patch
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -115,7 +117,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         lambda report_id: None,
     )
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._resolve_team_repo_context",
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
         lambda team_id: 1,
     )
 
@@ -127,9 +129,10 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
-    result = await select_repository_activity(
-        SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
-    )
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
 
     assert result.repository == "posthog/posthog"
     assert "Single repository" in result.reason
@@ -157,9 +160,10 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
         fake_select_repo,
     )
 
-    result = await select_repository_activity(
-        SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
-    )
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
 
     assert result is previous
     assert not select_repo_called
@@ -173,7 +177,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
         lambda report_id: None,
     )
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._resolve_team_repo_context",
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
         lambda team_id: 1,
     )
 
@@ -185,12 +189,54 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
-    result = await select_repository_activity(
-        SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
-    )
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
 
     assert result.repository is None
     assert "No GitHub repositories" in result.reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_select_repository_activity_does_not_raise_with_only_user_integration(monkeypatch, ateam):
+    # PostHog Code installs land in `UserIntegration`, never on `Integration`. Before the cascade
+    # was wired up, this combination raised `RuntimeError("No GitHub integration found ...")` and
+    # killed the activity. Now it must resolve a user_id and reach `select_repository_for_report`.
+    user = await sync_to_async(User.objects.create)(email=f"posthog-code-{random.randint(1, 99999)}@example.com")
+    await sync_to_async(OrganizationMembership.objects.create)(user=user, organization_id=ateam.organization_id)
+    await sync_to_async(UserIntegration.objects.create)(
+        user=user,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id="999",
+        config={"installation_id": "999"},
+        sensitive_config={},
+    )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        lambda report_id: None,
+    )
+
+    captured_user_id: list[int | None] = []
+
+    async def fake_select_repo(*args, **kwargs):
+        captured_user_id.append(kwargs.get("user_id"))
+        return RepoSelectionResult(repository="posthog/posthog", reason="Single repository connected: posthog/posthog")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
+
+    assert result.repository == "posthog/posthog"
+    assert captured_user_id == [user.id], "user_id should come from the UserIntegration owner"
 
 
 @pytest.mark.asyncio

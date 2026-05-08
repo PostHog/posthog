@@ -299,7 +299,6 @@ class TestGetGitIdentityEnvVars(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
@@ -310,6 +309,17 @@ class TestGetGitIdentityEnvVars(TestCase):
         user = self._make_user()
         task = self._make_task(origin_product, user=user)
         assert get_git_identity_env_vars(task) == {}
+
+    def test_slack_task_returns_user_identity(self) -> None:
+        user = self._make_user(first_name="Slack", last_name="User", email="slack@example.com")
+        task = self._make_task(Task.OriginProduct.SLACK, user=user)
+        result = get_git_identity_env_vars(task)
+        assert result == {
+            "GIT_AUTHOR_NAME": "Slack User",
+            "GIT_AUTHOR_EMAIL": "slack@example.com",
+            "GIT_COMMITTER_NAME": "Slack User",
+            "GIT_COMMITTER_EMAIL": "slack@example.com",
+        }
 
     def test_user_created_without_user_returns_empty(self) -> None:
         task = self._make_task(Task.OriginProduct.USER_CREATED, user=None)
@@ -331,23 +341,99 @@ class TestGetGitIdentityEnvVars(TestCase):
 
 
 class TestGetSandboxGitHubToken(TestCase):
+    @parameterized.expand(
+        [
+            ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
+            ("identity_token", None, True, "ghu_user", None, "ghu_user"),
+            ("missing_identity_falls_back_to_team_token", None, False, None, "missing", "ghs_team"),
+            ("identity_reauthorization_falls_back_to_team_token", None, True, None, "reauthorization", "ghs_team"),
+            ("identity_without_token_falls_back_to_team_token", None, True, None, "empty_token", "ghs_team"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    def test_user_authorship_token_resolution(
+        self,
+        _case_name: str,
+        cached_token: str | None,
+        has_identity: bool,
+        identity_token: str | None,
+        error_case: str | None,
+        expected_token: str | None,
+        mock_get_github_token: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_cached: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_cached.return_value = cached_token
+        creator = MagicMock(name="creator")
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = identity_token
+        mock_get_identity.return_value = identity if has_identity else None
+
+        mock_get_github_token.return_value = expected_token
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user"},
+            created_by=creator,
+        )
+        assert result == expected_token
+
+        mock_cached.assert_called_once_with("run-1")
+        if cached_token:
+            mock_get_identity.assert_not_called()
+            identity.get_usable_user_access_token.assert_not_called()
+        else:
+            mock_get_identity.assert_called_once_with(
+                creator,
+                github_user_integration_id=None,
+                repository=None,
+                allow_refresh=True,
+            )
+            if has_identity:
+                identity.get_usable_user_access_token.assert_called_once()
+        if error_case in ("missing", "reauthorization", "empty_token"):
+            mock_get_github_token.assert_called_once_with(123)
+        else:
+            mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("reauthorization",),
+            ("empty_token",),
+        ]
+    )
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    def test_user_authorship_uses_cached_user_token(self, mock_cached_token, mock_get_github_token) -> None:
-        mock_cached_token.return_value = "ghu_user"
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    def test_user_authorship_requires_reauthorization_without_team_fallback(
+        self,
+        error_case: str,
+        mock_get_identity: MagicMock,
+        mock_cached: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
 
-        result = get_sandbox_github_token(123, run_id="run-1", state={"pr_authorship_mode": "user"})
+        mock_cached.return_value = None
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = None
+        mock_get_identity.return_value = identity
 
-        assert result == "ghu_user"
-        mock_cached_token.assert_called_once_with("run-1")
-        mock_get_github_token.assert_not_called()
-
-    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    def test_user_authorship_requires_cached_user_token(self, mock_cached_token) -> None:
-        mock_cached_token.return_value = None
-
-        with self.assertRaises(ValueError):
-            get_sandbox_github_token(123, run_id="run-1", state={"pr_authorship_mode": "user"})
+        with self.assertRaises(ReauthorizationRequired):
+            get_sandbox_github_token(
+                None,
+                run_id="run-1",
+                state={"pr_authorship_mode": "user"},
+                created_by=MagicMock(name="creator"),
+            )
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_bot_authorship_uses_installation_token(self, mock_get_github_token) -> None:
@@ -380,3 +466,60 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
 
         assert result is None
+
+    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        organization = Organization.objects.create(name="bot-fallback-org")
+        Team.objects.create(organization=organization, name="bot-fallback-team")
+        user = User.objects.create(email="bot-fallback@test.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="install-1",
+            config={},
+            sensitive_config={"access_token": "ghs_user_install"},
+        )
+
+        result = get_sandbox_github_token(
+            None,
+            run_id="run-1",
+            state={"pr_authorship_mode": "bot"},
+            github_user_integration_id=str(user_integration.id),
+        )
+
+        assert result == "ghs_user_install"
+
+    def test_bot_authorship_prefers_team_integration_over_user_install_token(self) -> None:
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        organization = Organization.objects.create(name="bot-precedence-org")
+        team = Team.objects.create(organization=organization, name="bot-precedence-team")
+        team_integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="team-install",
+            config={},
+            sensitive_config={"access_token": "ghs_team"},
+        )
+        user = User.objects.create(email="bot-precedence@test.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="user-install",
+            config={},
+            sensitive_config={"access_token": "ghs_user_install"},
+        )
+
+        result = get_sandbox_github_token(
+            team_integration.id,
+            run_id="run-1",
+            state={"pr_authorship_mode": "bot"},
+            github_user_integration_id=str(user_integration.id),
+        )
+
+        assert result == "ghs_team"

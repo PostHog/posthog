@@ -8,7 +8,6 @@ const createMockContext = (): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
-        INKEEP_API_KEY: undefined,
         MCP_APPS_BASE_URL: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
@@ -22,6 +21,7 @@ const createMockContext = (): Context => ({
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
+    trackEvent: async () => {},
 })
 
 describe('Feature Routing Integration', () => {
@@ -34,7 +34,7 @@ describe('Feature Routing Integration', () => {
                 'dashboard-create',
                 'insights-list',
                 'organizations-list',
-                'query-error-tracking-issues',
+                'query-error-tracking-issues-list',
             ],
         },
         {

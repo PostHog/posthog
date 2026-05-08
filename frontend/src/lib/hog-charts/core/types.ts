@@ -56,16 +56,20 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
     }
-    /** Per-axis visibility flags. Each defaults to false (the series is included in everything). */
+    /** Auxiliary overlay derived from primary data — trend lines and moving averages.
+     *  Excluded from stack computation and from the y-axis baseline calculation, so a
+     *  trendline projection won't drag the axis below 0 when the underlying data is
+     *  non-negative. (CI bands are not overlays — they represent real data uncertainty
+     *  whose range should still influence the axis.) */
+    overlay?: boolean
+    /** Per-location visibility flags — control where this series appears. */
     visibility?: {
         /** Fully exclude the series — no rendering, no scale contribution, no tooltip, no hit-testing. */
         excluded?: boolean
-        /** Render and participate in scales/hit-testing, but omit from tooltip seriesData. */
-        fromTooltip?: boolean
-        /** ValueLabels overlay skips this series. */
-        fromValueLabels?: boolean
-        /** Excluded from d3 stack computation (auxiliary overlays like trend lines / moving averages). */
-        fromStack?: boolean
+        /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
+        tooltip?: boolean
+        /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
+        valueLabel?: boolean
     }
 }
 
@@ -95,6 +99,8 @@ export interface TooltipContext<Meta = unknown> {
     seriesData: { series: Series<Meta>; value: number; color: string }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
+    /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
+    hoverPosition: { x: number; y: number } | null
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
     canvasBounds: DOMRect
     /** Whether the tooltip is pinned (clicked). When pinned, the tooltip stays visible
@@ -153,6 +159,11 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
+    axisOrientation?: 'vertical' | 'horizontal'
+    /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
+     *  on layout context so overlays can default to a percent formatter. */
+    isPercent?: boolean
 }
 
 export interface TooltipConfig {
@@ -164,6 +175,13 @@ export interface TooltipConfig {
      *  at the hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump
      *  vertically as the cursor moves between data points. */
     placement?: 'follow-data' | 'top'
+}
+
+export interface BarChartConfig extends ChartConfig {
+    /** Defaults to `stacked`. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
 }
 
 export interface LineChartConfig extends ChartConfig {
@@ -184,12 +202,19 @@ export interface ChartDrawArgs {
     labels: string[]
     /** Index of the currently hovered data point, or -1. */
     hoverIndex: number
+    /** Cursor position in canvas pixels, or `null` for non-hover redraws (static layer / post-mouseleave). */
+    hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
 }
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
+
+export const defaultResolveValue: ResolveValueFn = (series, dataIndex) => {
+    const v = series.data[dataIndex]
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
 
 /** Factory function that chart types provide to create their scales from dimensions and data. */
 export type CreateScalesFn = (series: ResolvedSeries[], labels: string[], dimensions: ChartDimensions) => ChartScales
@@ -206,8 +231,11 @@ export interface YAxisScale {
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
-    /** Maps a label to an x pixel coordinate. */
-    x: (label: string) => number | undefined
+    /** Maps a label to an x pixel coordinate. For chart types where data points
+     *  for the same label live at different x positions (e.g. grouped bar charts
+     *  in compare-against-previous mode), pass `seriesKey` to anchor on a specific
+     *  series. Falls back to the band/point center when omitted or unknown. */
+    x: (label: string, seriesKey?: string) => number | undefined
     /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
     /** Returns tick values for the default (left) y-axis. */

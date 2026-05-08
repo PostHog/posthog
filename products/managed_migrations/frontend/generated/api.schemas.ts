@@ -25,7 +25,7 @@ export const BatchImportStatusEnumApi = {
 /**
  * @nullable
  */
-export type BatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+export type BatchImportApiCreatedBy = { [key: string]: unknown } | null
 
 /**
  * Serializer for BatchImport model
@@ -35,13 +35,13 @@ export interface BatchImportApi {
     readonly team_id: number
     readonly created_at: string
     readonly updated_at: string
-    readonly state: unknown | null
+    readonly state: unknown
     /** @nullable */
     readonly created_by: BatchImportApiCreatedBy
-    status?: BatchImportStatusEnumApi
+    readonly status: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message: string | null
-    import_config: unknown
+    readonly import_config: unknown
 }
 
 export interface PaginatedBatchImportListApi {
@@ -56,7 +56,7 @@ export interface PaginatedBatchImportListApi {
 /**
  * @nullable
  */
-export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null
 
 /**
  * Serializer for BatchImport model
@@ -66,13 +66,13 @@ export interface PatchedBatchImportApi {
     readonly team_id?: number
     readonly created_at?: string
     readonly updated_at?: string
-    readonly state?: unknown | null
+    readonly state?: unknown
     /** @nullable */
     readonly created_by?: PatchedBatchImportApiCreatedBy
-    status?: BatchImportStatusEnumApi
+    readonly status?: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message?: string | null
-    import_config?: unknown
+    readonly import_config?: unknown
 }
 
 export type ManagedMigrationsListParams = {

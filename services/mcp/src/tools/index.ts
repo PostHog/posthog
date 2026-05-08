@@ -2,11 +2,11 @@ import { hasScopes } from '@/lib/api'
 
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
-// Documentation
-import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feedback
+import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -35,6 +35,8 @@ import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
 import hogqlSchema from './query/schema'
 import queryValidate from './query/validate'
+// Replay
+import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -56,9 +58,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'event-definitions-list': eventDefinitions,
     'event-definition-update': updateEventDefinition,
     'properties-list': getProperties,
-
-    // Documentation - handled separately due to env check
-    // "docs-search": searchDocs,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
@@ -83,10 +82,16 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
 
+    // Feedback
+    'agent-feedback': submitFeedback,
+
     // PostHog AI tools
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Replay
+    'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
@@ -107,14 +112,9 @@ export const getToolsFromContext = async (
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
-        // Special handling for docs-search which requires API key
-        if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
-            toolBases.push(searchDocs())
-        } else {
-            const toolFactory = effectiveMap[toolName]
-            if (toolFactory) {
-                toolBases.push(toolFactory())
-            }
+        const toolFactory = effectiveMap[toolName]
+        if (toolFactory) {
+            toolBases.push(toolFactory())
         }
     }
 

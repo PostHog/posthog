@@ -1,4 +1,4 @@
-import { dimensions, makeSeries } from '../test-helpers'
+import { dimensions, makeSeries } from '../testing'
 import {
     autoFormatYTick,
     computePercentStackData,
@@ -98,6 +98,42 @@ describe('hog-charts scales', () => {
             const domainMax = scale.domain()[1]
             // nice() can extend the domain slightly, but it should be nowhere near 1000
             expect(domainMax).toBeLessThan(100)
+        })
+
+        it.each([
+            {
+                description: 'clips baseline to 0 when an overlay dips below 0 but primary data is non-negative',
+                primaryData: [0, 0, 5000, 14500],
+                overlayData: [-1000, 4000, 7000, 10000],
+                expectedMin: 0,
+                expectMaxAtLeast: undefined as number | undefined,
+            },
+            {
+                description: 'preserves negative axis when primary data has genuine negatives',
+                primaryData: [-50, 0, 100],
+                overlayData: [-10, 50, 110],
+                expectedMin: 'negative' as const,
+                expectMaxAtLeast: undefined,
+            },
+            {
+                description: 'lets overlay extend max even when baseline is clipped to 0',
+                primaryData: [0, 50, 100],
+                overlayData: [200, 250, 300],
+                expectedMin: 0,
+                expectMaxAtLeast: 300,
+            },
+        ])('$description', ({ primaryData, overlayData, expectedMin, expectMaxAtLeast }) => {
+            const main = makeSeries({ key: 'main', data: primaryData })
+            const trendline = makeSeries({ key: 'trend', data: overlayData, overlay: true })
+            const [domainMin, domainMax] = createYScale([main, trendline], dimensions).domain()
+            if (expectedMin === 'negative') {
+                expect(domainMin).toBeLessThan(0)
+            } else {
+                expect(domainMin).toBe(expectedMin)
+            }
+            if (expectMaxAtLeast !== undefined) {
+                expect(domainMax).toBeGreaterThanOrEqual(expectMaxAtLeast)
+            }
         })
 
         it('maps the output range from plotTop + plotHeight down to plotTop', () => {
@@ -309,6 +345,17 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [0, 0] })]
             expect(() => computePercentStackData(series, ['a', 'b'])).not.toThrow()
         })
+
+        it.each(['s1', 's2'])('replaces NaN with 0 for series %s in an all-zero column', (key) => {
+            const s1 = makeSeries({ key: 's1', data: [10, 0, 30] })
+            const s2 = makeSeries({ key: 's2', data: [20, 0, 40] })
+            const result = computePercentStackData([s1, s2], ['a', 'b', 'c'])
+            const band = result.get(key)!
+            expect(band.top.every(Number.isFinite)).toBe(true)
+            expect(band.bottom.every(Number.isFinite)).toBe(true)
+            expect(band.top[1]).toBe(0)
+            expect(band.bottom[1]).toBe(0)
+        })
     })
 
     describe('computeStackData', () => {
@@ -407,12 +454,12 @@ describe('hog-charts scales', () => {
     describe('yTickCountForHeight', () => {
         it.each([
             { plotHeight: 0, expected: 2 },
-            { plotHeight: 80, expected: 2 },
-            { plotHeight: 160, expected: 2 },
-            { plotHeight: 240, expected: 3 },
-            { plotHeight: 480, expected: 6 },
-            { plotHeight: 640, expected: 8 },
-            { plotHeight: 1600, expected: 8 },
+            { plotHeight: 50, expected: 2 },
+            { plotHeight: 100, expected: 2 },
+            { plotHeight: 200, expected: 4 },
+            { plotHeight: 400, expected: 8 },
+            { plotHeight: 550, expected: 11 },
+            { plotHeight: 1600, expected: 11 },
         ])('plotHeight $plotHeight → $expected ticks', ({ plotHeight, expected }) => {
             expect(yTickCountForHeight(plotHeight)).toBe(expected)
         })

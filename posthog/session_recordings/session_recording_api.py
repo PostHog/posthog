@@ -20,6 +20,7 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 import requests
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -39,6 +40,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
@@ -93,11 +95,19 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_video_stream
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.session_summary.workflow import (
+    SummarizeSingleSessionWorkflow,
+    execute_summarize_session_video_stream,
+)
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
-from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
@@ -156,6 +166,21 @@ SESSION_RECORDING_THROTTLED = Counter(
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+async def _cancel_summary_workflow(workflow_id: str) -> None:
+    """Issue a Temporal cancel for the given workflow id.
+
+    Treats NOT_FOUND as success so the cancel endpoint stays idempotent —
+    the workflow may have already finished, been cancelled, or never started.
+    """
+    client = await async_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    try:
+        await handle.cancel()
+    except RPCError as exc:
+        if exc.status != RPCStatusCode.NOT_FOUND:
+            raise
 
 
 def _request_auth_type(request) -> str:
@@ -1413,7 +1438,10 @@ class SessionRecordingViewSet(
         self,
         session_id: str,
         user: User,
+        tracking_id: str,
         product_context: str | None = None,
+        custom_tags: dict[str, str] | None = None,
+        force_restart: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
 
@@ -1426,25 +1454,54 @@ class SessionRecordingViewSet(
         hit Django's ``list()``-materialize fallback path and buffer the entire
         response server-side before any bytes reach the client.
         """
+        success: bool | None = None
+        error_type: str | None = None
+        error_message: str | None = None
         try:
             async for chunk in execute_summarize_session_video_stream(
                 session_id=session_id,
                 user=user,
                 team=self.team,
+                force_restart=force_restart,
                 product_context=product_context,
+                custom_tags=custom_tags,
             ):
+                if chunk.startswith("event: session-summary-stream"):
+                    success = True
+                elif chunk.startswith("event: session-summary-error"):
+                    success = False
+                    error_type = "stream_error"
                 yield chunk
         except Exception as e:
+            success = False
+            error_type = type(e).__name__
+            error_message = str(e)
             capture_exception(e)
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
+        finally:
+            if success is not None:
+                await asyncio.to_thread(
+                    capture_session_summary_generated,
+                    user=user,
+                    team=self.team,
+                    tracking_id=tracking_id,
+                    summary_source="dock",
+                    summary_type="single",
+                    session_ids=[session_id],
+                    video_based=True,
+                    success=success,
+                    error_type=error_type,
+                    error_message=error_message,
+                )
 
-    def _load_team_product_context(self) -> str | None:
+    def _load_team_summary_config(self) -> tuple[str | None, dict[str, str] | None]:
         team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
-        product_context = (team_config.product_context or "").strip()
-        return product_context or None
+        product_context = (team_config.product_context or "").strip() or None
+        custom_tags = team_config.custom_tags or None
+        return product_context, custom_tags
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1480,24 +1537,64 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
-        product_context = self._load_team_product_context()
+        force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
+        product_context, custom_tags = self._load_team_summary_config()
 
         capture_session_summary_started(
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source="dock",
             summary_type="single",
             session_ids=[session_id],
             video_based=True,
         )
         response = StreamingHttpResponse(
-            self._generate_video_based_summary(session_id, user, product_context),
+            self._generate_video_based_summary(
+                session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
+            ),
             content_type=ServerSentEventRenderer.media_type,
         )
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=True, url_path="summarize/cancel")
+    def cancel_summary(self, request: request.Request, **kwargs):
+        """Cancel an in-flight session summary Temporal workflow.
+
+        Idempotent: if the workflow doesn't exist (already finished, never started,
+        or already cancelled) we still return 200 so the client can fire-and-forget.
+        Stops billable LLM/rasterizer work that the user no longer cares about.
+        """
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        recording = self.get_object()
+        session_id = str(recording.session_id)
+        workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(self.team.id, session_id)
+
+        try:
+            async_to_sync(_cancel_summary_workflow)(workflow_id)
+        except Exception as e:
+            # Don't surface raw Temporal error strings to the client — gRPC
+            # error messages can leak internal hostnames, namespaces, or TLS
+            # error details. Log the full exception server-side, return a
+            # generic message to the client.
+            logger.exception(
+                "session_summary_cancel_failed",
+                error=str(e),
+                team_id=self.team.id,
+                session_id=session_id,
+                workflow_id=workflow_id,
+            )
+            return Response(
+                {"cancelled": False, "error": "An internal server error occurred. Please try again later."},
+                status=500,
+            )
+
+        return Response({"cancelled": True})
 
     async def _stream_lts_blob_v2_to_client_async(
         self,

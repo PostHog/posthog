@@ -14,9 +14,14 @@ from ..facade.contracts import (
     ApproveSnapshotInput,
     Artifact,
     AutoApproveResult,
+    BaselineEntry,
+    BaselineOverview,
+    BaselineTotals,
+    ClusterSummary,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
+    DiffCluster,
     QuarantinedIdentifierEntry,
     QuarantineInput,
     RecomputeResult,
@@ -57,12 +62,25 @@ class UserBasicInfoSerializer(DataclassSerializer):
         dataclass = UserBasicInfo
 
 
+class DiffClusterSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DiffCluster
+
+
+class ClusterSummarySerializer(DataclassSerializer):
+    items = DiffClusterSerializer(many=True)
+
+    class Meta:
+        dataclass = ClusterSummary
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
     baseline_artifact = ArtifactSerializer(allow_null=True, required=False)
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
@@ -176,3 +194,23 @@ class UnquarantineQuerySerializer(serializers.Serializer):
 class CreateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRepoInput
+
+
+class BaselineEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BaselineEntry
+
+
+class BaselineTotalsSerializer(DataclassSerializer):
+    by_run_type = serializers.DictField(child=serializers.IntegerField())
+
+    class Meta:
+        dataclass = BaselineTotals
+
+
+class BaselineOverviewSerializer(DataclassSerializer):
+    entries = BaselineEntrySerializer(many=True)
+    totals = BaselineTotalsSerializer()
+
+    class Meta:
+        dataclass = BaselineOverview

@@ -3,30 +3,27 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
-import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from '~/scenes/dashboard/dashboardUtils'
-import { DashboardPlacement } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
+
+const LazyDashboardScene = lazy(() => import('./scenes/ExporterDashboardScene'))
+const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
+const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
+const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
+const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
 
 function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dark' | null {
     if (theme === 'light' || theme === 'dark') {
@@ -40,77 +37,20 @@ function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dar
         : 'light'
 }
 
-function ExportHeatmap(): JSX.Element {
-    const { exportedData, isLoading, screenshotUrl } = useValues(exporterViewLogic)
-    const { exportToken } = exportedData
-    const width = exportedData.heatmap_context?.width
-
-    return (
-        <div
-            className="heatmap-exporter relative"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: width ? `${width}px` : '100%',
-                minHeight: '100vh',
-                overflow: 'hidden',
-            }}
-        >
-            <HeatmapCanvas
-                positioning="absolute"
-                widthOverride={width ?? null}
-                context="in-app"
-                exportToken={exportToken}
-            />
-            {exportedData.heatmap_context?.heatmap_type === 'screenshot' ? (
-                isLoading ? null : (
-                    <img
-                        src={screenshotUrl ?? ''}
-                        alt="Heatmap"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: '100%', height: 'auto', display: 'block' }}
-                    />
-                )
-            ) : (
-                <iframe
-                    id="heatmap-iframe"
-                    ref={null}
-                    title="Heatmap export"
-                    className="bg-white"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: '100%', height: '100vh', display: 'block' }}
-                    src={exportedData.heatmap_url ?? ''}
-                    onLoad={() => {}}
-                    // these two sandbox values are necessary so that the site and toolbar can run
-                    // this is a very loose sandbox,
-                    // but we specify it so that at least other capabilities are denied
-                    sandbox="allow-scripts allow-same-origin"
-                    // we don't allow things such as camera access though
-                    allow=""
-                />
-            )}
-        </div>
-    )
-}
-
-function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
-    const { setAutoRefresh, setPageVisibility } = dashboardLogic({
-        id: dashboardId,
-        placement: DashboardPlacement.Public,
-    }).actions
-
-    // Tie dashboard auto-refresh to tab visibility, same as in-app dashboard.
-    usePageVisibilityCb(setPageVisibility)
-
-    useEffect(() => {
-        setAutoRefresh(true, AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)
-    }, [setAutoRefresh])
-
-    return null
-}
-
 export function Exporter(props: ExportedData): JSX.Element {
-    // NOTE: Mounting the logic is important as it is used by sub-logics
-    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = props
+    const {
+        type,
+        dashboard,
+        insight,
+        recording,
+        notebook,
+        insights,
+        inline_query_results: inlineQueryResults,
+        themes,
+        accessToken,
+        exportToken,
+        ...exportOptions
+    } = props
     const { whitelabel, showInspector = false } = exportOptions
     const forcedTheme = resolveForcedTheme(exportOptions.theme)
 
@@ -132,8 +72,11 @@ export function Exporter(props: ExportedData): JSX.Element {
         } else if (insight && (type === ExportType.Scene || type === ExportType.Embed)) {
             const baseTitle = insight.name || insight.derived_name || 'Insight'
             document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (notebook && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = notebook.title || 'Notebook'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
         }
-    }, [dashboard, insight, type, whitelabel])
+    }, [dashboard, insight, notebook, type, whitelabel])
 
     useThemedHtml(false, forcedTheme)
 
@@ -148,6 +91,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--insight': !!insight,
                     'Exporter--dashboard': !!dashboard,
                     'Exporter--recording': !!recording,
+                    'Exporter--notebook': !!notebook,
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
@@ -190,32 +134,52 @@ export function Exporter(props: ExportedData): JSX.Element {
                         </>
                     ) : null
                 ) : null}
-                {insight ? (
-                    <ExportedInsight insight={insight} themes={themes!} exportOptions={exportOptions} />
+                {notebook ? (
+                    <div className="SharedNotebook">
+                        {!whitelabel && type === ExportType.Scene && (
+                            <div className="SharedDashboard-header">
+                                <Link
+                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-notebook"
+                                    target="_blank"
+                                >
+                                    <Logo className="text-lg" />
+                                </Link>
+                                <div className="SharedDashboard-header-team text-right">
+                                    <span className="block">{currentTeam?.name}</span>
+                                </div>
+                            </div>
+                        )}
+                        <Suspense fallback={null}>
+                            <LazyNotebookScene
+                                notebook={notebook}
+                                insights={insights}
+                                inline_query_results={inlineQueryResults}
+                            />
+                        </Suspense>
+                    </div>
+                ) : insight ? (
+                    <Suspense fallback={null}>
+                        <LazyInsightScene insight={insight} themes={themes!} exportOptions={exportOptions} />
+                    </Suspense>
                 ) : dashboard ? (
-                    <>
-                        {type !== ExportType.Image && <SharedDashboardAutoRefresh dashboardId={dashboard.id} />}
-                        <Dashboard
-                            id={String(dashboard.id)}
-                            dashboard={getQueryBasedDashboard(dashboard)!}
-                            placement={
-                                type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public
-                            }
-                            themes={themes}
-                        />
-                    </>
+                    <Suspense fallback={null}>
+                        <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
+                    </Suspense>
                 ) : recording ? (
-                    <SessionRecordingPlayer
-                        playerKey="exporter"
-                        sessionRecordingId={recording.id}
-                        mode={props.mode ?? SessionRecordingPlayerMode.Sharing}
-                        autoPlay={props.autoplay ?? false}
-                        withSidebar={showInspector}
-                        noBorder={props.noBorder ?? false}
-                        accessToken={exportToken}
-                    />
+                    <Suspense fallback={null}>
+                        <LazyRecordingScene
+                            recording={recording}
+                            mode={props.mode}
+                            autoplay={props.autoplay}
+                            noBorder={props.noBorder}
+                            exportToken={exportToken}
+                            showInspector={showInspector}
+                        />
+                    </Suspense>
                 ) : type === ExportType.Heatmap ? (
-                    <ExportHeatmap />
+                    <Suspense fallback={null}>
+                        <LazyHeatmapScene />
+                    </Suspense>
                 ) : (
                     <h1 className="text-center p-4">Something went wrong...</h1>
                 )}

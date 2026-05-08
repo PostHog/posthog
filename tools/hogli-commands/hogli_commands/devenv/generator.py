@@ -208,8 +208,8 @@ class MprocsGenerator(ConfigGenerator):
     def _build_info_process(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
         """Update the info process config with a generated shell command.
 
-        News is read at runtime from devenv/news.txt so developers always see the
-        latest items without re-running hogli dev:generate.
+        News is fetched live from master so developers on older branches still
+        see current announcements. Falls back to the local copy when offline.
         """
         process_count = len(resolved.units)
         products = sorted(resolved.intents) if resolved.intents else ["(none)"]
@@ -221,21 +221,18 @@ class MprocsGenerator(ConfigGenerator):
         bold = r"\033[1m"
         reset = r"\033[0m"
 
-        # news.txt sits next to intent-map.yaml in the devenv/ directory, which
-        # is at the repo root — the same cwd mprocs launches from.
-        news_path = "devenv/news.txt"
+        news_url = "https://raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt"
+        news_local = "devenv/news.txt"
 
         shell = f"""\
 echo ''
 printf '{orange}{bold}  PostHog Dev Environment{reset}\\n'
 printf '{gray}  ─────────────────────────────────────{reset}\\n'
 echo ''
-if [ -f {news_path} ]; then
+_news=$(curl -sf --max-time 2 '{news_url}' 2>/dev/null || cat {news_local} 2>/dev/null || true)
+if [ -n "$_news" ]; then
     printf '  {orange}{bold}News:{reset}\\n'
-    while IFS= read -r line || [ -n "$line" ]; do
-        [ -z "$line" ] && continue
-        printf '    {gray}·{reset} %s\\n' "$line"
-    done < {news_path}
+    printf '%s\\n' "$_news" | sed 's/^/  /'
     echo ''
 fi
 printf '  {bold}Commands:{reset}\\n'
