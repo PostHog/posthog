@@ -71,6 +71,12 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
 
+    def query_strategy(self) -> str | None:
+        return None
+
+    def clickhouse_query_type(self) -> str | None:
+        return None
+
     def validate_query_runner_access(self, user: User) -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
@@ -84,15 +90,24 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         start = perf_counter()
         response: Optional[WAR] = None
         error_type = ""
+        query_strategy: str | None = None
+        clickhouse_query_type: str | None = None
 
         try:
             response = super().calculate()
             return response
-        except Exception as e:
-            error_type = type(e).__name__
+        except Exception as exc:
+            error_type = type(exc).__name__
             raise
         finally:
             duration_s = perf_counter() - start
+
+            try:
+                query_strategy = self.query_strategy()
+                clickhouse_query_type = self.clickhouse_query_type()
+            except Exception:
+                query_strategy = query_strategy or "strategy_resolution_failed"
+                clickhouse_query_type = clickhouse_query_type or None
 
             used_preaggregated_label = "unknown"
             if response is not None:
@@ -100,8 +115,10 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 if val is not None:
                     used_preaggregated_label = str(val).lower()
 
+            query_strategy_label = query_strategy or "none"
             metric_labels = {
                 "query_kind": query_kind,
+                "query_strategy": query_strategy_label,
                 "used_preaggregated": used_preaggregated_label,
                 "breakdown": breakdown_label,
                 "has_conversion_goal": has_conversion_goal,
@@ -112,6 +129,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             if error_type:
                 WEB_ANALYTICS_QUERY_ERRORS.labels(
                     query_kind=query_kind,
+                    query_strategy=query_strategy_label,
                     breakdown=breakdown_label,
                     error_type=error_type,
                 ).inc()
@@ -123,6 +141,8 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 organization_id=str(self.team.organization_id),
                 user_id=get_query_tag_value("user_id"),
                 query_kind=query_kind,
+                query_strategy=query_strategy,
+                clickhouse_query_type=clickhouse_query_type,
                 breakdown=breakdown_label,
                 has_conversion_goal=has_conversion_goal,
                 used_preaggregated=used_preaggregated_label,

@@ -19,6 +19,7 @@ def _make_runner(
     conversion_goal: object | None = None,
     sampling: object | None = None,
     properties: list | None = None,
+    query_strategy: str | None = None,
 ) -> WebAnalyticsQueryRunner:
     """Build a WebAnalyticsQueryRunner with a fake query, team, and date range."""
     query = MagicMock()
@@ -35,6 +36,8 @@ def _make_runner(
     runner = MagicMock(spec=WebAnalyticsQueryRunner)
     runner.query = query
     runner.team = team
+    runner.query_strategy.return_value = query_strategy
+    runner.clickhouse_query_type.return_value = f"{query_strategy}_query" if query_strategy is not None else None
 
     date_range = MagicMock()
     date_range.date_from_str = "2024-01-01"
@@ -78,14 +81,26 @@ class TestWebAnalyticsMetrics(TestCase):
                 "WebStatsTableQuery",
                 WebStatsBreakdown.PAGE,
                 None,
-                {"query_kind": "WebStatsTableQuery", "breakdown": "Page", "has_conversion_goal": "false"},
+                {
+                    "query_kind": "WebStatsTableQuery",
+                    "query_strategy": "stats_table_main",
+                    "breakdown": "Page",
+                    "has_conversion_goal": "false",
+                },
+                "stats_table_main",
             ),
             (
                 "overview",
                 "WebOverviewQuery",
                 None,
                 None,
-                {"query_kind": "WebOverviewQuery", "breakdown": "none", "has_conversion_goal": "false"},
+                {
+                    "query_kind": "WebOverviewQuery",
+                    "query_strategy": "none",
+                    "breakdown": "none",
+                    "has_conversion_goal": "false",
+                },
+                None,
             ),
             (
                 "stats_table_with_conversion",
@@ -94,16 +109,24 @@ class TestWebAnalyticsMetrics(TestCase):
                 MagicMock(),
                 {
                     "query_kind": "WebStatsTableQuery",
+                    "query_strategy": "stats_table_main",
                     "breakdown": "InitialChannelType",
                     "has_conversion_goal": "true",
                 },
+                "stats_table_main",
             ),
             (
                 "trends",
                 "WebTrendsQuery",
                 None,
                 None,
-                {"query_kind": "WebTrendsQuery", "breakdown": "none", "has_conversion_goal": "false"},
+                {
+                    "query_kind": "WebTrendsQuery",
+                    "query_strategy": "none",
+                    "breakdown": "none",
+                    "has_conversion_goal": "false",
+                },
+                None,
             ),
         ],
     )
@@ -111,9 +134,14 @@ class TestWebAnalyticsMetrics(TestCase):
         "posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value="user_123"
     )
     def test_successful_query_emits_correct_labels(
-        self, _name, query_kind, breakdown, conversion_goal, expected_labels, _mock_tag
+        self, _name, query_kind, breakdown, conversion_goal, expected_labels, query_strategy, _mock_tag
     ):
-        runner = _make_runner(query_kind=query_kind, breakdown=breakdown, conversion_goal=conversion_goal)
+        runner = _make_runner(
+            query_kind=query_kind,
+            breakdown=breakdown,
+            conversion_goal=conversion_goal,
+            query_strategy=query_strategy,
+        )
 
         fake_response = MagicMock()
         fake_response.usedPreAggregatedTables = True
@@ -126,16 +154,29 @@ class TestWebAnalyticsMetrics(TestCase):
 
     @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
     def test_error_query_increments_error_counter(self, _mock_tag):
-        runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.BROWSER)
+        runner = _make_runner(
+            query_kind="WebStatsTableQuery",
+            breakdown=WebStatsBreakdown.BROWSER,
+            query_strategy="stats_table_main",
+        )
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", side_effect=ValueError("boom")):
             with self.assertRaises(ValueError):
                 WebAnalyticsQueryRunner.calculate(runner)
 
-        error_filter = {"query_kind": "WebStatsTableQuery", "breakdown": "Browser", "error_type": "ValueError"}
+        error_filter = {
+            "query_kind": "WebStatsTableQuery",
+            "query_strategy": "stats_table_main",
+            "breakdown": "Browser",
+            "error_type": "ValueError",
+        }
         assert _get_counter_value(WEB_ANALYTICS_QUERY_ERRORS, error_filter) == 1.0
 
-        counter_filter = {"query_kind": "WebStatsTableQuery", "used_preaggregated": "unknown"}
+        counter_filter = {
+            "query_kind": "WebStatsTableQuery",
+            "query_strategy": "stats_table_main",
+            "used_preaggregated": "unknown",
+        }
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, counter_filter) == 1.0
 
     @patch(
@@ -161,6 +202,8 @@ class TestWebAnalyticsMetrics(TestCase):
         assert kw["organization_id"] == "org_abc"
         assert kw["user_id"] == "user_456"
         assert kw["query_kind"] == "WebOverviewQuery"
+        assert kw["query_strategy"] is None
+        assert kw["clickhouse_query_type"] is None
         assert kw["breakdown"] == "none"
         assert kw["used_preaggregated"] == "false"
         assert kw["error"] is False
@@ -168,6 +211,24 @@ class TestWebAnalyticsMetrics(TestCase):
         assert kw["filter_count"] == 1
         assert kw["date_from"] == "2024-01-01"
         assert kw["date_to"] == "2024-01-07"
+
+    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    def test_stats_table_log_line_includes_query_strategy(self, _mock_tag):
+        runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.PAGE)
+        runner.query_strategy.return_value = "stats_table_path_bounce"
+        runner.clickhouse_query_type.return_value = "stats_table_path_bounce_query"
+
+        fake_response = MagicMock()
+        fake_response.usedPreAggregatedTables = False
+
+        with (
+            patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response),
+            patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.logger") as mock_logger,
+        ):
+            WebAnalyticsQueryRunner.calculate(runner)
+
+        assert mock_logger.info.call_args[1]["query_strategy"] == "stats_table_path_bounce"
+        assert mock_logger.info.call_args[1]["clickhouse_query_type"] == "stats_table_path_bounce_query"
 
     @parameterized.expand([(b.name, b) for b in WebStatsBreakdown])
     @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
@@ -191,7 +252,13 @@ class TestWebAnalyticsMetrics(TestCase):
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
 
-        assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, {"used_preaggregated": "unknown"}) == 1.0
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_QUERY_COUNTER,
+                {"query_strategy": "none", "used_preaggregated": "unknown"},
+            )
+            == 1.0
+        )
 
     @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
     def test_response_missing_preaggregated_attr_maps_to_unknown(self, _mock_tag):
@@ -201,4 +268,33 @@ class TestWebAnalyticsMetrics(TestCase):
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
 
-        assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, {"used_preaggregated": "unknown"}) == 1.0
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_QUERY_COUNTER,
+                {"query_strategy": "none", "used_preaggregated": "unknown"},
+            )
+            == 1.0
+        )
+
+    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    def test_strategy_resolution_failure_still_emits_error_metrics(self, _mock_tag):
+        runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.PAGE)
+        runner.query_strategy.side_effect = RuntimeError("strategy boom")
+        runner.clickhouse_query_type.side_effect = RuntimeError("strategy boom")
+
+        with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", side_effect=ValueError("boom")):
+            with self.assertRaises(ValueError):
+                WebAnalyticsQueryRunner.calculate(runner)
+
+        assert (
+            _get_counter_value(
+                WEB_ANALYTICS_QUERY_ERRORS,
+                {
+                    "query_kind": "WebStatsTableQuery",
+                    "query_strategy": "strategy_resolution_failed",
+                    "breakdown": "Page",
+                    "error_type": "ValueError",
+                },
+            )
+            == 1.0
+        )

@@ -9,9 +9,12 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     PropertyOperator,
     SamplingRate,
@@ -114,3 +117,72 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(9_999_999))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(10_000_000))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(99_999_999))
+
+    @parameterized.expand(
+        [
+            ("main", WebStatsBreakdown.PAGE, False, False, None, "stats_table_main_query"),
+            ("path_bounce", WebStatsBreakdown.PAGE, True, False, None, "stats_table_path_bounce_query"),
+            (
+                "path_bounce_and_avg_time",
+                WebStatsBreakdown.PAGE,
+                False,
+                True,
+                None,
+                "stats_table_path_bounce_and_avg_time_query",
+            ),
+            (
+                "entry_bounce",
+                WebStatsBreakdown.INITIAL_PAGE,
+                True,
+                False,
+                None,
+                "stats_table_entry_bounce_query",
+            ),
+            (
+                "frustration_metrics",
+                WebStatsBreakdown.FRUSTRATION_METRICS,
+                False,
+                False,
+                None,
+                "stats_table_frustration_metrics_query",
+            ),
+            (
+                "preaggregated",
+                WebStatsBreakdown.PAGE,
+                False,
+                False,
+                HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+                "stats_table_preaggregated_path_bounce_query",
+            ),
+            (
+                "preaggregated_entry_bounce",
+                WebStatsBreakdown.INITIAL_PAGE,
+                True,
+                False,
+                HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+                "stats_table_preaggregated_entry_bounce_query",
+            ),
+        ]
+    )
+    def test_stats_table_query_type_tracks_strategy(
+        self,
+        _name: str,
+        breakdown_by: WebStatsBreakdown,
+        include_bounce_rate: bool,
+        include_avg_time_on_page: bool,
+        modifiers: HogQLQueryModifiers | None,
+        expected_query_type: str,
+    ) -> None:
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-12-08", date_to="2023-12-15"),
+            properties=[],
+            breakdownBy=breakdown_by,
+            includeBounceRate=include_bounce_rate,
+            includeAvgTimeOnPage=include_avg_time_on_page,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
+
+        if modifiers and modifiers.useWebAnalyticsPreAggregatedTables:
+            self.team.web_analytics_pre_aggregated_tables_version = "v2"
+
+        self.assertEqual(runner.clickhouse_query_type(), expected_query_type)

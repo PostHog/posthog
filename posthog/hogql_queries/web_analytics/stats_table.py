@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Literal, Optional, Union, cast
 
 from posthog.schema import (
@@ -40,6 +42,13 @@ BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
 
 
+@dataclass(frozen=True)
+class StatsTableQueryPlan:
+    strategy: str
+    build_query: Callable[[], ast.SelectQuery]
+    uses_preaggregated_tables: bool = False
+
+
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
     query: WebStatsTableQuery
     cached_response: CachedWebStatsTableQueryResponse
@@ -75,20 +84,65 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
-    def to_query(self) -> ast.SelectQuery:
-        should_use_preaggregated = (
+    def _resolve_query_plan(self) -> StatsTableQueryPlan:
+        if (
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
             and not self.query.conversionGoal
+        ):
+            if self.query.breakdownBy == WebStatsBreakdown.PAGE:
+                return StatsTableQueryPlan(
+                    strategy="stats_table_preaggregated_path_bounce",
+                    build_query=self.preaggregated_query_builder.get_query,
+                    uses_preaggregated_tables=True,
+                )
+            if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
+                return StatsTableQueryPlan(
+                    strategy="stats_table_preaggregated_entry_bounce",
+                    build_query=self.preaggregated_query_builder.get_query,
+                    uses_preaggregated_tables=True,
+                )
+            return StatsTableQueryPlan(
+                strategy="stats_table_preaggregated",
+                build_query=self.preaggregated_query_builder.get_query,
+                uses_preaggregated_tables=True,
+            )
+
+        strategy = self._get_strategy()
+        return StatsTableQueryPlan(
+            strategy=self._strategy_name(strategy),
+            build_query=strategy.build_query,
         )
 
-        if should_use_preaggregated:
-            self.used_preaggregated_tables = True
-            return self.preaggregated_query_builder.get_query()
+    def query_strategy(self) -> str:
+        return self._resolve_query_plan().strategy
 
-        return self._get_strategy().build_query()
+    def clickhouse_query_type(self) -> str:
+        return f"{self.query_strategy()}_query"
+
+    def to_query(self) -> ast.SelectQuery:
+        query_plan = self._resolve_query_plan()
+        self.used_preaggregated_tables = query_plan.uses_preaggregated_tables
+        return query_plan.build_query()
+
+    def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
+        if isinstance(strategy, FrustrationMetricsStrategy):
+            return "stats_table_frustration_metrics"
+        if isinstance(strategy, PathBounceAvgTimeStrategy):
+            return "stats_table_path_bounce_and_avg_time"
+        if isinstance(strategy, PathBounceStrategy):
+            return "stats_table_path_bounce"
+
+        if (
+            isinstance(strategy, MainQueryStrategy)
+            and self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE
+            and self.query.includeBounceRate
+        ):
+            return "stats_table_entry_bounce"
+
+        return "stats_table_main"
 
     def _get_strategy(self) -> StatsTableQueryStrategy:
         if self.query.breakdownBy == WebStatsBreakdown.FRUSTRATION_METRICS:
@@ -301,7 +355,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             modifiers.convertToProjectTimezone = False
 
         response = self.paginator.execute_hogql_query(
-            query_type="stats_table_query",
+            query_type=self.clickhouse_query_type(),
             query=query,
             team=self.team,
             timings=self.timings,
