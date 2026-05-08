@@ -68,3 +68,6 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
             models.Index(fields=["team", "status"], name="bk_source_team_status"),
             models.Index(fields=["team", "source_type"], name="bk_source_team_type"),
         ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.source_type})"

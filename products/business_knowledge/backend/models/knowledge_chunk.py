@@ -54,6 +54,9 @@ class KnowledgeChunk(models.Model):
             ),
         ]
 
+    def __str__(self) -> str:
+        return f"Chunk {self.ordinal} of {self.document_id}"
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self.pk is None:
             raise ValueError(

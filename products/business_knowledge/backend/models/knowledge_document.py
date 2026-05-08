@@ -55,3 +55,6 @@ class KnowledgeDocument(UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["source", "stable_id"], name="bk_doc_unique_per_source"),
         ]
+
+    def __str__(self) -> str:
+        return self.title or self.stable_id

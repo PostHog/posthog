@@ -571,8 +571,10 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
+    "backend\\.api.*",
+    "backend\\.logic.*",
+    "backend\\.enums.*",
+    "backend\\.models.*",
 ]
 from = [
     "products.business_knowledge",
