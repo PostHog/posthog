@@ -53,7 +53,7 @@ export function humanFriendlyDuration(
     }
     d = Number(d)
     if (d < 0) {
-        return `-${humanFriendlyDuration(-d)}`
+        return `-${humanFriendlyDuration(-d, { maxUnits, secondsPrecision, secondsFixed })}`
     }
     if (d === 0) {
         return `0s`

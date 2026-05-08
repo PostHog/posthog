@@ -22,14 +22,14 @@ export interface Dayjs extends DayjsOriginal {}
  *   are treated as wall-clock time in the given timezone.
  * - Strings with explicit timezone info (trailing "Z" or "±HH:MM") are real instants;
  *   parse them as such and convert into the requested timezone. */
-export function parseDateInTimezone(dateStr: string, timezone: string): Dayjs {
+export function parseDateInTimezone(dateStr: string, tz: string): Dayjs {
     const hasExplicitTz = /([Zz]|[+-]\d{2}:?\d{2})$/.test(dateStr)
     try {
         if (hasExplicitTz) {
             const instant = dayjs(dateStr)
-            return instant.isValid() ? instant.tz(timezone) : dayjs(null)
+            return instant.isValid() ? instant.tz(tz) : dayjs(null)
         }
-        return dayjs.tz(dateStr, timezone)
+        return dayjs.tz(dateStr, tz)
     } catch {
         return dayjs(null)
     }
