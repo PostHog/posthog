@@ -1,6 +1,6 @@
-import api from 'lib/api'
-
 import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
@@ -55,13 +55,13 @@ describe('projectTreeDataLogic', () => {
 
         expect(api.fileSystem.list).toHaveBeenCalledWith({
             parent: 'Unfiled',
-            depth: 1,
+            depth: 2,
             limit: 101,
             offset: 0,
         })
         expect(api.fileSystem.list).toHaveBeenCalledWith({
             parent: 'Unfiled/Insights',
-            depth: 2,
+            depth: 3,
             limit: 101,
             offset: 0,
         })
