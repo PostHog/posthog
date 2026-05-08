@@ -93,6 +93,11 @@ pub const FLAG_BODY_READ_FAILED_COUNTER: &str = "flags_body_read_failed_total";
 // errors. Pod-level: no `team_id` label.
 pub const FLAG_BODY_READ_TOO_LARGE_COUNTER: &str = "flags_body_read_too_large_total";
 
+// Counter for requests rejected because the gzip-*decompressed* body exceeded
+// `MAX_FLAGS_DECOMPRESSED_BYTES`. Distinct from `FLAG_BODY_READ_TOO_LARGE_COUNTER`,
+// which fires on the *compressed* size before decompression.
+pub const FLAG_GZIP_OUTPUT_EXCEEDED_COUNTER: &str = "flags_gzip_output_exceeded_total";
+
 // Per-phase wall-clock duration inside `process_request_inner`. Phases
 // match handler-level state transitions:
 // `auth → billing_check → cookieless → fetch_and_filter → evaluate →
