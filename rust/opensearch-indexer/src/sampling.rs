@@ -909,6 +909,7 @@ mod tests {
         assert_eq!(Decision::IndexSample.label(), "sample");
         assert_eq!(Decision::IndexError.label(), "error");
         assert_eq!(Decision::Deny.label(), "deny");
+        assert_eq!(Decision::NotEnrolled.label(), "not_enrolled");
     }
 
     // ---- Decision-write joinset / shutdown drain ----

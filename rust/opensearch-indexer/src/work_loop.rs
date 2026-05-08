@@ -20,16 +20,16 @@ use crate::{
 /// of the consumer loop so the fail-open behavior is unit-testable without
 /// constructing a Kafka consumer.
 ///
-/// Anything other than `Ok(Decision::Drop | Decision::Deny)` indexes,
-/// including any `Err(_)`, which is the fail-open commit. Reversing the
-/// `Err(_)` arm to `SinkMsg::Skip` would silently drop events during a
+/// Anything other than `Ok(Decision::Drop | Decision::Deny | Decision::NotEnrolled)`
+/// indexes, including any `Err(_)`, which is the fail-open commit. Reversing
+/// the `Err(_)` arm to `SinkMsg::Skip` would silently drop events during a
 /// Redis outage.
 fn classify_for_sink(
     decide_result: Result<Decision, CustomRedisError>,
     doc: Box<IndexDoc>,
 ) -> SinkMsg {
     match decide_result {
-        Ok(Decision::Drop | Decision::Deny) => SinkMsg::Skip,
+        Ok(Decision::Drop | Decision::Deny | Decision::NotEnrolled) => SinkMsg::Skip,
         Ok(_) | Err(_) => SinkMsg::Index(doc),
     }
 }
@@ -411,6 +411,12 @@ mod tests {
     }
 
     #[test]
+    fn classify_for_sink_skips_on_decision_not_enrolled() {
+        let msg = classify_for_sink(Ok(Decision::NotEnrolled), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Skip));
+    }
+
+    #[test]
     fn classify_for_sink_indexes_on_decision_floor() {
         let msg = classify_for_sink(Ok(Decision::IndexFloor), fixture_doc());
         assert!(matches!(msg, SinkMsg::Index(_)));
@@ -472,6 +478,11 @@ mod tests {
     #[test]
     fn decision_label_deny() {
         assert_eq!(decision_label(&Ok(Decision::Deny)), "deny");
+    }
+
+    #[test]
+    fn decision_label_not_enrolled() {
+        assert_eq!(decision_label(&Ok(Decision::NotEnrolled)), "not_enrolled");
     }
 
     #[test]
