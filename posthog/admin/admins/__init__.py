@@ -1,82 +1,22 @@
-from products.links.backend.admin import LinkAdmin
+"""Central PostHog model admin classes.
 
-from .async_deletion_admin import AsyncDeletionAdmin
-from .batch_imports import BatchImportAdmin
-from .cohort_admin import CohortAdmin
-from .column_configuration_admin import ColumnConfigurationAdmin
-from .dashboard_admin import DashboardAdmin
-from .dashboard_template_admin import DashboardTemplateAdmin
-from .data_color_theme_admin import DataColorThemeAdmin
-from .data_deletion_request_admin import DataDeletionRequestAdmin
-from .data_warehouse_table_admin import DataWarehouseTableAdmin
-from .duckgres_server_admin import DuckgresServerAdmin
-from .ducklake_catalog_admin import DuckLakeCatalogAdmin
-from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
-from .experiment_admin import ExperimentAdmin
-from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
-from .exported_asset_admin import ExportedAssetAdmin
-from .external_data_schema_admin import ExternalDataSchemaAdmin
-from .feature_flag_admin import FeatureFlagAdmin
-from .group_type_mapping_admin import GroupTypeMappingAdmin
-from .hog_flow_admin import HogFlowAdmin
-from .hog_function_admin import HogFunctionAdmin
-from .insight_admin import InsightAdmin
-from .instance_setting_admin import InstanceSettingAdmin
-from .integration_admin import IntegrationAdmin, OrganizationIntegrationAdmin, UserIntegrationAdmin
-from .oauth_admin import OAuthApplicationAdmin
-from .organization_admin import OrganizationAdmin
-from .organization_domain_admin import OrganizationDomainAdmin
-from .person_distinct_id_admin import PersonDistinctIdAdmin
-from .personal_api_key_admin import PersonalAPIKeyAdmin
-from .plugin_admin import PluginAdmin
-from .plugin_config_admin import PluginConfigAdmin
-from .product_tour_admin import ProductTourAdmin
-from .project_admin import ProjectAdmin
-from .survey_admin import SurveyAdmin
-from .team_admin import TeamAdmin
-from .text_admin import TextAdmin
-from .user_admin import UserAdmin
-from .user_product_list_admin import UserProductListAdmin
+Importing this package triggers every ``@admin.register(Model)`` decorator in
+``posthog/admin/admins/*.py``. ``register_all_admin()`` does ``import
+posthog.admin.admins`` for that side effect; nothing else relies on the
+package re-exporting names. Consumers that want a specific admin class
+should import it directly from its submodule, e.g.
+``from posthog.admin.admins.user_admin import UserAdmin``.
 
-__all__ = [
-    "AsyncDeletionAdmin",
-    "BatchImportAdmin",
-    "CohortAdmin",
-    "ColumnConfigurationAdmin",
-    "DataDeletionRequestAdmin",
-    "DashboardAdmin",
-    "DashboardTemplateAdmin",
-    "DataColorThemeAdmin",
-    "DataWarehouseTableAdmin",
-    "DuckgresServerAdmin",
-    "DuckLakeCatalogAdmin",
-    "EventIngestionRestrictionConfigAdmin",
-    "ExternalDataSchemaAdmin",
-    "ExperimentAdmin",
-    "ExperimentSavedMetricAdmin",
-    "ExportedAssetAdmin",
-    "FeatureFlagAdmin",
-    "GroupTypeMappingAdmin",
-    "HogFlowAdmin",
-    "HogFunctionAdmin",
-    "InsightAdmin",
-    "InstanceSettingAdmin",
-    "IntegrationAdmin",
-    "OrganizationIntegrationAdmin",
-    "UserIntegrationAdmin",
-    "LinkAdmin",
-    "OAuthApplicationAdmin",
-    "OrganizationAdmin",
-    "OrganizationDomainAdmin",
-    "PersonalAPIKeyAdmin",
-    "PersonDistinctIdAdmin",
-    "PluginAdmin",
-    "PluginConfigAdmin",
-    "ProductTourAdmin",
-    "ProjectAdmin",
-    "SurveyAdmin",
-    "TeamAdmin",
-    "TextAdmin",
-    "UserAdmin",
-    "UserProductListAdmin",
-]
+Submodules are discovered dynamically so adding a new admin file is a
+one-step operation (drop the file, add the ``@admin.register`` decorator) —
+no central list to keep in sync. Modules without ``@admin.register`` (e.g.
+the ``*_admin.py`` files that back custom admin URLs in ``ee/urls.py``) are
+still imported here, which is harmless: they only register decorators if
+they have any.
+"""
+
+import pkgutil
+import importlib
+
+for _module_info in pkgutil.iter_modules(__path__):
+    importlib.import_module(f"{__name__}.{_module_info.name}")
