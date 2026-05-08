@@ -427,6 +427,30 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert flag.filters["aggregation_group_type_index"] == 0
         assert len(flag.filters["groups"][0]["properties"]) == 1
 
+    async def test_create_flag_rejects_invalid_regex(self):
+        tool = self._create_tool()
+
+        schema = FeatureFlagCreationSchema(
+            key="bad-regex-flag",
+            name="Bad Regex Flag",
+            groups=[
+                FeatureFlagGroupType(
+                    properties=[
+                        PersonPropertyFilter(
+                            key="email",
+                            value="[unclosed",
+                            operator=PropertyOperator.REGEX,
+                        )
+                    ],
+                    rollout_percentage=None,
+                )
+            ],
+        )
+
+        result, artifact = await tool._arun_impl(feature_flag=schema)
+        assert "Failed to create feature flag" in result
+        assert "invalid regex pattern" in result
+
     @staticmethod
     async def _get_tag_names(flag: FeatureFlag) -> list[str]:
         from posthog.models import TaggedItem

@@ -1071,6 +1071,16 @@ class FeatureFlagSerializer(
                     f"groups[{group_index}].properties[{prop_index}].group_type_index",
                 )
 
+                if prop.get("operator") in ("regex", "not_regex"):
+                    pattern = prop.get("value")
+                    if isinstance(pattern, str):
+                        try:
+                            re.compile(pattern)
+                        except re.error:
+                            raise serializers.ValidationError(
+                                f"groups[{group_index}].properties[{prop_index}].value: invalid regex pattern"
+                            )
+
         for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
             _validate_rollout_percentage(
                 variant.get("rollout_percentage"),
