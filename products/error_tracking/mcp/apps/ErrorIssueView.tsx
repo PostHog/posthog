@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 
 import { DescriptionList, formatDate } from '@posthog/mcp-ui'
-import { Badge, Card, CardContent } from '@posthog/quill'
+import { Badge, Button, Card, CardContent } from '@posthog/quill'
 
 export interface ExternalIssue {
     external_url: string
@@ -71,14 +71,14 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                                 {issue.external_issues.map((ext, i) => (
                                     <div key={i} className="flex items-center gap-2">
                                         {ext.integration?.display_name && <Badge>{ext.integration.display_name}</Badge>}
-                                        <a
-                                            href={ext.external_url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-sm text-primary hover:underline"
+                                        <Button
+                                            variant="link"
+                                            size="sm"
+                                            // eslint-disable-next-line react/forbid-elements
+                                            render={<a href={ext.external_url} target="_blank" rel="noreferrer" />}
                                         >
                                             {ext.external_url}
-                                        </a>
+                                        </Button>
                                     </div>
                                 ))}
                             </div>

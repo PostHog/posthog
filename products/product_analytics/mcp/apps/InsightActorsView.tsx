@@ -1,7 +1,7 @@
 import { type ReactElement, type ReactNode, useMemo } from 'react'
 
 import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
-import { Badge } from '@posthog/quill'
+import { Badge, Button } from '@posthog/quill'
 
 export interface InsightActorsData {
     query: Record<string, unknown>
@@ -86,17 +86,23 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                     return (
                         <div className="flex gap-1 justify-end flex-wrap">
                             {row.recordings.map((url, i) => (
-                                <a
+                                <Button
                                     key={i}
-                                    href={url}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        openLink(url)
-                                    }}
-                                    className="text-xs text-primary hover:underline"
+                                    variant="link"
+                                    size="xs"
+                                    // eslint-disable-next-line react/forbid-elements
+                                    render={
+                                        <a
+                                            href={url}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                openLink(url)
+                                            }}
+                                        />
+                                    }
                                 >
                                     {i + 1}
-                                </a>
+                                </Button>
                             ))}
                         </div>
                     )
