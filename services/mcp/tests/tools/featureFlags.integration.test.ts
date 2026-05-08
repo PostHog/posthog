@@ -290,14 +290,6 @@ describe('Feature flags', { concurrent: false }, () => {
         const personsListTool = PERSONS_GENERATED_TOOLS['persons-list']!()
 
         it('should evaluate a feature flag for a real distinct_id', async () => {
-            // The Django endpoint requires INTERNAL_REQUEST_TOKEN to be set on the
-            // backend; skip when the test runner can confirm it isn't configured so
-            // the test fails loudly only when the token is genuinely missing.
-            if (!process.env.INTERNAL_REQUEST_TOKEN) {
-                console.warn('INTERNAL_REQUEST_TOKEN not set, skipping test_evaluation integration test')
-                return
-            }
-
             const personsResult = await personsListTool.handler(context, { limit: 100 })
             const personsResponse = parseToolResponse(personsResult)
             const personWithDistinctId = personsResponse.results.find(

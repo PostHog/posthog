@@ -251,6 +251,10 @@ jobs:
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
             POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting'
+            # Required for the feature_flags test_evaluation endpoint, which authenticates
+            # historical-flag override requests to the Rust flags service. Any non-empty
+            # value is fine for CI — the Rust service in the test stack accepts it.
+            INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
 
         steps:
             - uses: actions/checkout@v6
