@@ -142,20 +142,20 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         }
     )
 
-    it('builds the xAxis from interval/timezone/allDays', () => {
-        const cfg = buildTrendsBarTimeSeriesConfig({
-            isPercentStackView: false,
-            isGrouped: false,
-            interval: 'day',
-            timezone: 'UTC',
-            allDays: ['2024-06-10', '2024-06-11'],
-        })
-        expect(cfg.xAxis).toEqual({ timezone: 'UTC', interval: 'day', allDays: ['2024-06-10', '2024-06-11'] })
-    })
-
-    it('defaults the xAxis interval to "day" and allDays to empty when omitted', () => {
-        const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false })
-        expect(cfg.xAxis).toEqual({ timezone: undefined, interval: 'day', allDays: [] })
+    it.each([
+        {
+            name: 'builds the xAxis from interval/timezone/allDays',
+            input: { interval: 'day' as const, timezone: 'UTC', allDays: ['2024-06-10', '2024-06-11'] },
+            expected: { timezone: 'UTC', interval: 'day', allDays: ['2024-06-10', '2024-06-11'] },
+        },
+        {
+            name: 'defaults interval to "day" and allDays to empty when omitted',
+            input: {},
+            expected: { timezone: undefined, interval: 'day', allDays: [] },
+        },
+    ])('$name', ({ input, expected }) => {
+        const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
+        expect(cfg.xAxis).toEqual(expected)
     })
 
     it('forwards the y-axis from buildTrendsYAxisConfig with showGrid: true', () => {
