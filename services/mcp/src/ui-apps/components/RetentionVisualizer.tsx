@@ -1,6 +1,7 @@
 import { type ReactElement, useMemo, useState } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { BarChart, LineChart, Select, type Series } from './charts'
 import type {
@@ -157,7 +158,14 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
     }, [results, aggregationType, reference, period])
 
     if (!results || results.length === 0 || series.length === 0 || labels.length === 0) {
-        return <EmptyState icon="chart" description="No retention data available" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                    <EmptyDescription>No retention data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     const yAxisLabel = isPercentage ? 'Retention %' : aggregationType === 'sum' ? 'Sum' : 'Avg'

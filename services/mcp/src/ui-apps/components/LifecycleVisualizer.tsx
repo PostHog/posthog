@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import type { LifecycleResultItem, LifecycleStatus, LifecycleVisualizerProps } from './types'
 import { formatDate, formatNumber } from './utils'
@@ -98,14 +99,23 @@ function computeBounds(
 }
 
 export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps): ReactElement {
+    const renderEmpty = (): ReactElement => (
+        <Empty>
+            <EmptyHeader>
+                <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                <EmptyDescription>No data available</EmptyDescription>
+            </EmptyHeader>
+        </Empty>
+    )
+
     if (!results || results.length === 0) {
-        return <EmptyState icon="chart" description="No data available" />
+        return renderEmpty()
     }
 
     const { byStatus, labels } = groupByStatus(results)
     const dataLength = labels.length
     if (dataLength === 0 || byStatus.size === 0) {
-        return <EmptyState icon="chart" description="No data available" />
+        return renderEmpty()
     }
 
     // `toggledLifecycles` is a client-side filter in the main app: the backend always returns
