@@ -32,19 +32,19 @@ export function NotebookStaleConflictModal(): JSX.Element | null {
             width={1200}
         >
             <div className="grid grid-cols-2 border rounded overflow-hidden">
-                <div className="border-r">
+                <div className="min-w-0 border-r">
                     <div className="p-2 border-b text-xs font-medium text-secondary bg-surface-secondary">
                         Last saved version
                     </div>
-                    <div className="p-3 max-h-96 overflow-auto">
+                    <div className="p-3 max-h-[30rem] overflow-y-auto overflow-x-hidden break-words">
                         <NotebookPreview content={staleConflict.serverContent} />
                     </div>
                 </div>
-                <div>
+                <div className="min-w-0">
                     <div className="p-2 border-b text-xs font-medium text-secondary bg-surface-secondary">
                         Your unsaved changes
                     </div>
-                    <div className="p-3 max-h-96 overflow-auto">
+                    <div className="p-3 max-h-[30rem] overflow-y-auto overflow-x-hidden break-words">
                         <NotebookPreview content={staleConflict.localContent} />
                     </div>
                 </div>
