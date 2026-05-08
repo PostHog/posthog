@@ -44,7 +44,12 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
         return WAWeeklyDigestInput()
 
     @workflow.run
-    async def run(self, input: WAWeeklyDigestInput) -> dict:
+    async def run(self, input: WAWeeklyDigestInput | None = None) -> dict:
+        # Default lets the workflow be started from the Temporal UI without
+        # supplying input — the schedule always passes one explicitly.
+        if input is None:
+            input = WAWeeklyDigestInput()
+
         batches = await workflow.execute_activity(
             get_org_id_batches,
             input,
@@ -52,45 +57,48 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
 
-        if not batches:
-            workflow.logger.info("No org batches for WA weekly digest")
-            return {"orgs": 0, "batches": 0}
-
-        workflow.logger.info(
-            "Fanning out WA digest",
-            batches=len(batches),
-            orgs=sum(len(b) for b in batches),
-        )
-
-        semaphore = asyncio.Semaphore(input.max_concurrent)
-
-        async def _run_batch(batch: list[str]) -> DigestBatchResult:
-            async with semaphore:
-                return await workflow.execute_activity(
-                    run_wa_digest_batch,
-                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
-                    start_to_close_timeout=timedelta(minutes=30),
-                    heartbeat_timeout=timedelta(minutes=5),
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-
-        results = await asyncio.gather(
-            *[_run_batch(b) for b in batches],
-            return_exceptions=True,
-        )
-
         totals = DigestBatchResult()
         failed_batches = 0
-        for batch, r in zip(batches, results):
-            if isinstance(r, BaseException):
-                failed_batches += 1
-                totals += DigestBatchResult(batch_size=len(batch), orgs_failed=len(batch))
-                workflow.logger.error("WA digest batch failed: %s", str(r))
-            else:
-                totals += r
+
+        if batches:
+            workflow.logger.info(
+                "Fanning out WA digest",
+                batches=len(batches),
+                orgs=sum(len(b) for b in batches),
+            )
+
+            semaphore = asyncio.Semaphore(input.max_concurrent)
+
+            async def _run_batch(batch: list[str]) -> DigestBatchResult:
+                async with semaphore:
+                    return await workflow.execute_activity(
+                        run_wa_digest_batch,
+                        DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
+                        start_to_close_timeout=timedelta(minutes=30),
+                        heartbeat_timeout=timedelta(minutes=5),
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+
+            results = await asyncio.gather(
+                *[_run_batch(b) for b in batches],
+                return_exceptions=True,
+            )
+
+            for batch, r in zip(batches, results):
+                if isinstance(r, BaseException):
+                    failed_batches += 1
+                    totals += DigestBatchResult(batch_size=len(batch), orgs_failed=len(batch))
+                    workflow.logger.error("WA digest batch failed: %s", str(r))
+                else:
+                    totals += r
+        else:
+            workflow.logger.info("No org batches for WA weekly digest — pushing zero-counts metric")
 
         threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
 
+        # Always push metrics, even on empty runs — staleness alerts and "did the
+        # run actually happen" dashboards depend on the timestamp gauge updating
+        # on every successful workflow completion.
         await workflow.execute_activity(
             push_wa_digest_metrics_activity,
             args=[dataclasses.asdict(totals), not threshold_exceeded],
