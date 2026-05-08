@@ -72,7 +72,7 @@ function BarBranch({ results }: { results: TrendsResultItem[] }): ReactElement {
     )
 }
 
-export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
 
@@ -98,7 +98,11 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
-            {chartMode === 'bar' ? <BarBranch results={results} /> : <McpTrendsLineChart results={results} />}
+            {chartMode === 'bar' ? (
+                <BarBranch results={results} />
+            ) : (
+                <McpTrendsLineChart results={results} interval={query?.interval} timezone={timezone} />
+            )}
         </div>
     )
 }

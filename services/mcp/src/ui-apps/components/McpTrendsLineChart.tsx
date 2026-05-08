@@ -1,39 +1,20 @@
 import type { ReactElement } from 'react'
 
-// Deep imports on purpose — pulling from the `lib/hog-charts` barrel would
-// drag every re-exported module into typecheck, including `TimeSeriesLineChart`
-// and its `lib/dayjs` / `lib/utils` / `lib/statistics` transitive deps. The
-// narrow alias surface only works if we reach into the specific files we need.
-import { LineChart } from 'lib/hog-charts/charts/LineChart'
+import { TimeSeriesLineChart } from 'lib/hog-charts/charts/TimeSeriesLineChart/TimeSeriesLineChart'
 import type { Series } from 'lib/hog-charts/core/types'
+import type { XAxisConfig } from 'lib/hog-charts/utils/use-axis-formatters'
 
 import { MCP_CHART_THEME } from './McpChartTheme'
-import type { TrendsResultItem } from './types'
+import type { TrendsInterval, TrendsResultItem } from './types'
 import { formatDate, formatNumber, getSeriesLabel } from './utils'
 
 export interface McpTrendsLineChartProps {
     results: TrendsResultItem[]
+    interval?: TrendsInterval
+    timezone?: string
 }
 
-/**
- * MCP adapter from `TrendsResultItem[]` to hog-charts `LineChart`.
- *
- * Uses the lower-level `LineChart` rather than `TimeSeriesLineChart` so the
- * MCP IIFE bundle stays narrow. `TimeSeriesLineChart` transitively imports
- * `lib/dayjs`, `lib/utils`, and `lib/statistics` via its auto-axis formatters
- * and derived-series helpers — pulling those would balloon the alias surface
- * (and bundle) far beyond what the POC needs.
- *
- * Inlined mapper on purpose — the kea-bound transform module under
- * `frontend/src/scenes/trends/viz/trends-line-chart/trendsChartTransforms.ts`
- * transitively pulls `~/types` and `lib/statistics`.
- *
- * X-axis date formatting and y-axis numeric compaction are handled with the
- * MCP-local helpers in `./utils`. Hour / week / month insights will have
- * suboptimal X-axis ticks until a follow-up reads `query.dateRange` /
- * `query.interval` from the TrendsQuery.
- */
-export function McpTrendsLineChart({ results }: McpTrendsLineChartProps): ReactElement | null {
+export function McpTrendsLineChart({ results, interval, timezone }: McpTrendsLineChartProps): ReactElement | null {
     if (results.length === 0) {
         return null
     }
@@ -48,16 +29,21 @@ export function McpTrendsLineChart({ results }: McpTrendsLineChartProps): ReactE
 
     const labels = results[0]?.days ?? results[0]?.labels ?? []
 
+    // Prefer the auto formatter (interval-aware ticks: "14:00" / "Mar 5" / "Mar 2026").
+    // Fall back to the static MCP formatter when `interval` or `timezone` is missing —
+    // both come from upstream, so older tools or non-cached query paths still render.
+    const xAxis: XAxisConfig =
+        interval && timezone ? { interval, timezone } : { tickFormatter: (label) => formatDate(label) }
+
     return (
-        <LineChart
+        <TimeSeriesLineChart
             series={series}
             labels={labels}
             theme={MCP_CHART_THEME}
             config={{
-                showGrid: true,
                 showCrosshair: true,
-                xTickFormatter: (label) => formatDate(label),
-                yTickFormatter: (value) => formatNumber(value),
+                xAxis,
+                yAxis: { tickFormatter: (value) => formatNumber(value), showGrid: true },
             }}
         />
     )

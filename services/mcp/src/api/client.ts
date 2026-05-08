@@ -1145,8 +1145,8 @@ export class ApiClient {
                 query,
             }: {
                 query: Record<string, unknown>
-            }): Promise<{ results: unknown; formatted_results?: string }> => {
-                return this.request<{ results: unknown; formatted_results?: string }>({
+            }): Promise<{ results: unknown; formatted_results?: string; timezone?: string }> => {
+                return this.request<{ results: unknown; formatted_results?: string; timezone?: string }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
                     body: { query: normalizeQuery(query) },

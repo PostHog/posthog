@@ -79,10 +79,12 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
-            // `trendsFilter.display`.
+            // `trendsFilter.display`. `timezone` from the cached response drives interval-aware
+            // x-axis formatting in the line chart.
             return {
                 query,
                 results: data.results,
+                ...(data.timezone ? { timezone: data.timezone } : {}),
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }

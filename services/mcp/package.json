@@ -45,11 +45,13 @@
         "d3-color": "^3.1.0",
         "d3-scale": "^4.0.2",
         "d3-shape": "^3.2.0",
+        "dayjs": "1.11.11",
         "eventsource-parser": "^3.0.0",
         "fflate": "^0.8.2",
         "mcpcat": "0.1.15",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.25.0",
+        "simple-statistics": "^7.8.8",
         "uuid": "^11.1.0",
         "yaml": "^2.8.2",
         "zod": "^4.3.6"

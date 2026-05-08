@@ -33,7 +33,10 @@
             "d3-color": ["./node_modules/@types/d3-color"],
             "d3-scale": ["./node_modules/@types/d3-scale"],
             "d3-shape": ["./node_modules/@types/d3-shape"],
-            "@floating-ui/react": ["./node_modules/@floating-ui/react"]
+            "@floating-ui/react": ["./node_modules/@floating-ui/react"],
+            "dayjs": ["./node_modules/dayjs"],
+            "dayjs/*": ["./node_modules/dayjs/*"],
+            "simple-statistics": ["./node_modules/simple-statistics"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],

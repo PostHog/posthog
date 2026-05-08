@@ -464,7 +464,7 @@ importers:
         version: 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@5.9.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
       '@storybook/test-runner':
         specifier: ^0.16.0
-        version: 0.16.0(encoding@0.1.13)
+        version: 0.16.0(@types/node@22.18.8)(encoding@0.1.13)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
       '@storybook/theming':
         specifier: ^7.6.4
         version: 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3484,6 +3484,9 @@ importers:
       d3-shape:
         specifier: ^3.2.0
         version: 3.2.0
+      dayjs:
+        specifier: 1.11.11
+        version: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
       eventsource-parser:
         specifier: ^3.0.0
         version: 3.0.6
@@ -3499,6 +3502,9 @@ importers:
       posthog-node:
         specifier: ^5.25.0
         version: 5.25.0
+      simple-statistics:
+        specifier: ^7.8.8
+        version: 7.8.8
       uuid:
         specifier: ^11.1.0
         version: 11.1.0
@@ -35088,46 +35094,6 @@ snapshots:
       - supports-color
       - ts-node
 
-  '@storybook/test-runner@0.16.0(encoding@0.1.13)':
-    dependencies:
-      '@babel/core': 7.29.0
-      '@babel/generator': 7.29.1
-      '@babel/template': 7.28.6
-      '@babel/types': 7.29.0
-      '@jest/types': 29.6.3
-      '@storybook/core-common': 7.6.4(encoding@0.1.13)
-      '@storybook/csf': 0.1.13
-      '@storybook/csf-tools': 7.6.4
-      '@storybook/preview-api': 7.6.20
-      '@swc/core': 1.15.18
-      '@swc/jest': 0.2.37(@swc/core@1.15.18)
-      can-bind-to-host: 1.1.2
-      commander: 9.4.1
-      expect-playwright: 0.8.0
-      glob: 10.4.5
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      jest-circus: 29.7.0
-      jest-environment-node: 29.7.0
-      jest-junit: 16.0.0
-      jest-playwright-preset: 4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0)
-      jest-runner: 29.7.0
-      jest-serializer-html: 7.1.0
-      jest-watch-typeahead: 2.2.2(jest@29.7.0)
-      node-fetch: 2.7.0(encoding@0.1.13)
-      playwright: 1.45.0
-      read-pkg-up: 7.0.1
-      tempy: 1.0.1
-      ts-dedent: 2.2.0
-    transitivePeerDependencies:
-      - '@swc/helpers'
-      - '@types/node'
-      - babel-plugin-macros
-      - debug
-      - encoding
-      - node-notifier
-      - supports-color
-      - ts-node
-
   '@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@emotion/use-insertion-effect-with-fallbacks': 1.2.0(react@18.3.1)
@@ -43206,22 +43172,6 @@ snapshots:
       - debug
       - supports-color
 
-  jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
-    dependencies:
-      expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
-      jest-circus: 29.7.0
-      jest-environment-node: 29.7.0
-      jest-process-manager: 0.4.0
-      jest-runner: 29.7.0
-      nyc: 15.1.0
-      playwright-core: 1.45.0
-      rimraf: 3.0.2
-      uuid: 8.3.2
-    transitivePeerDependencies:
-      - debug
-      - supports-color
-
   jest-pnp-resolver@1.2.3(jest-resolve@27.5.1):
     optionalDependencies:
       jest-resolve: 27.5.1
@@ -43634,17 +43584,6 @@ snapshots:
       ansi-escapes: 6.0.0
       chalk: 5.6.2
       jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3))
-      jest-regex-util: 29.6.3
-      jest-watcher: 29.7.0
-      slash: 5.1.0
-      string-length: 5.0.1
-      strip-ansi: 7.2.0
-
-  jest-watch-typeahead@2.2.2(jest@29.7.0):
-    dependencies:
-      ansi-escapes: 6.0.0
-      chalk: 5.6.2
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.9.3))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0

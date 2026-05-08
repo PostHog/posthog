@@ -140,6 +140,7 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 interface DataPayload {
     query?: TrendsQuery | FunnelsQuery | LifecycleQuery | Record<string, unknown>
     results: TrendsResult | FunnelResult | LifecycleResult | HogQLResult
+    timezone?: string
     _posthogUrl?: string
 }
 
@@ -183,7 +184,11 @@ export function Component({ data }: ComponentProps): ReactElement {
         switch (visualizationType) {
             case 'trends':
                 return (
-                    <TrendsVisualizer query={payload.query as TrendsQuery} results={payload.results as TrendsResult} />
+                    <TrendsVisualizer
+                        query={payload.query as TrendsQuery}
+                        results={payload.results as TrendsResult}
+                        timezone={payload.timezone}
+                    />
                 )
 
             case 'funnel':
