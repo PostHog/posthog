@@ -109,7 +109,45 @@ class TestBedrockSpecific:
         )
 
         assert response.status_code == 200
-        assert mock_litellm.call_args.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
+        assert mock_litellm.call_args.kwargs["model"] == "bedrock/us.anthropic.claude-sonnet-4-6"
+
+    @pytest.mark.parametrize(
+        "model,expected_litellm_model",
+        [
+            pytest.param("claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="anthropic_name_mapped"),
+            pytest.param("claude-opus-4-7", "bedrock/us.anthropic.claude-opus-4-7-v1", id="opus_4_7_inference_profile"),
+            pytest.param(
+                "us.anthropic.claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="already_bedrock_id"
+            ),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    @BEDROCK_SETTINGS_PATCH
+    def test_bedrock_model_passed_to_litellm_with_bedrock_prefix(
+        self,
+        mock_get_settings: MagicMock,
+        mock_litellm: MagicMock,
+        authenticated_client: TestClient,
+        mock_bedrock_response: dict,
+        model: str,
+        expected_litellm_model: str,
+    ) -> None:
+        # Regression: litellm needs the "bedrock/" prefix to route requests; without
+        # it, regional inference profile ids (e.g. "us.anthropic.claude-opus-4-7-v1")
+        # don't match litellm's pattern matchers and the request 400s with
+        # "LLM Provider NOT provided" before leaving the gateway.
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_bedrock_response)
+        mock_litellm.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
+        )
+
+        assert response.status_code == 200
+        assert mock_litellm.call_args.kwargs["model"] == expected_litellm_model
 
 
 class TestBedrockFallback:
