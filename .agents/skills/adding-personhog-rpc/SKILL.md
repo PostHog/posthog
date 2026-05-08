@@ -27,6 +27,7 @@ If the data being accessed doesn't live in one of these tables, this RPC doesn't
 | `posthog_cohortpeople`               | NonPersonData | All ops: replica                                             |
 | `posthog_featureflaghashkeyoverride` | NonPersonData | All ops: replica                                             |
 | `posthog_personoverride`             | PersonData    | Reads/writes follow person routing                           |
+| `posthog_personlessdistinctid`       | PersonData    | Same as person                                               |
 
 If the table is not listed above, **stop** — this data should not go through personhog.
 
@@ -80,6 +81,7 @@ cd nodejs && pnpm run generate:personhog-proto
 
 Then update:
 
+- `nodejs/src/ingestion/personhog/client.ts` — add a wrapper method matching the pattern of existing methods
 - `nodejs/src/ingestion/personhog/client.test.ts` — add a default stub to `SERVICE_DEFAULTS` for the new RPC
 
 ### Rust
@@ -113,11 +115,11 @@ The compiler guides you — once the proto is defined, `cargo build` errors tell
 ### 3c. Router wiring (personhog-router)
 
 1. **Add the method** to `rust/personhog-router/src/router/mod.rs`
-   - Use `route_request()` with the correct `DataCategory` and `OperationType`
+   - Use the `route_request` function (imported from `routing.rs`) with the correct `DataCategory` and `OperationType`
    - Call the replica (or leader) backend
    - Use the `call_backend!` macro for instrumentation
 2. **Add the service impl** to `rust/personhog-router/src/service/mod.rs`
-   - Use the `route_request!` macro to delegate to the router
+   - Invoke the `route_request!` macro (defined at the top of this file) to delegate to the router
 3. **Add to the backend trait** in `rust/personhog-router/src/backend/mod.rs` and implement in `replica.rs`
 4. **Add router tests** in `rust/personhog-router/tests/`
 
