@@ -1722,15 +1722,11 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
     def setUp(self):
         super().setUp()
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
-
-        PERSONAL_API_KEY_LOOKUP_CACHE.clear()
+        cache.clear()
         self.client.logout()
 
     def tearDown(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
-
-        PERSONAL_API_KEY_LOOKUP_CACHE.clear()
+        cache.clear()
         super().tearDown()
 
     def test_second_request_with_same_key_does_not_query_personal_api_key_table(self):
@@ -1744,14 +1740,12 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
             scopes=["*"],
         )
 
-        # Prime the cache with a real call.
         first = self.client.get(
             f"/api/projects/{self.team.pk}/feature_flags/",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         assert first.status_code == status.HTTP_200_OK
 
-        # Second call with the same bearer must hit the cache, not the DB.
         with patch.object(
             PersonalAPIKey.objects, "select_related", wraps=PersonalAPIKey.objects.select_related
         ) as select_related_spy:
@@ -1763,12 +1757,11 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         select_related_spy.assert_not_called()
 
-        # Sanity: the authentication path still ran (validate_key returned the cached object).
         cached = PersonalAPIKeyAuthentication().validate_key((personal_api_key, "header"))
         assert cached.user_id == self.user.id
 
     def test_invalid_key_is_not_cached(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
+        from posthog.auth import _personal_api_key_cache_key
 
         bad_key = generate_random_token_personal()
 
@@ -1777,44 +1770,10 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
             headers={"authorization": f"Bearer {bad_key}"},
         )
         assert first.status_code == status.HTTP_401_UNAUTHORIZED
-        assert len(PERSONAL_API_KEY_LOOKUP_CACHE) == 0
+        assert cache.get(_personal_api_key_cache_key(bad_key)) is None
 
     def test_cache_entry_expires_after_ttl(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X",
-            user=self.user,
-            secure_value=hash_key_value(personal_api_key),
-            scopes=["*"],
-        )
-
-        first = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        assert first.status_code == status.HTTP_200_OK
-        assert _personal_api_key_cache_key(personal_api_key) in PERSONAL_API_KEY_LOOKUP_CACHE
-
-        # Forcibly expire the cache entry — proxy for "TTL elapsed" without sleeping in tests.
-        PERSONAL_API_KEY_LOOKUP_CACHE.clear()
-
-        # After expiry, the next call must repopulate via a real DB lookup.
-        with patch.object(
-            PersonalAPIKey.objects, "select_related", wraps=PersonalAPIKey.objects.select_related
-        ) as select_related_spy:
-            second = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-
-        assert second.status_code == status.HTTP_200_OK
-        select_related_spy.assert_called()
-        assert _personal_api_key_cache_key(personal_api_key) in PERSONAL_API_KEY_LOOKUP_CACHE
-
-    def test_user_deactivation_invalidates_cached_entries_for_that_user(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+        from posthog.auth import _personal_api_key_cache_key
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -1830,58 +1789,24 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
         )
         assert first.status_code == status.HTTP_200_OK
         cache_key = _personal_api_key_cache_key(personal_api_key)
-        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+        assert cache.get(cache_key) is not None
 
-        # Deactivating the user fires the post_save signal which drops the cache entry on the
-        # originating pod, so the next request goes through the cold path and the
-        # `user__is_active=True` filter rejects it.
-        self.user.is_active = False
-        self.user.save(update_fields=["is_active"])
+        cache.delete(cache_key)
 
-        assert cache_key not in PERSONAL_API_KEY_LOOKUP_CACHE
+        with patch.object(
+            PersonalAPIKey.objects, "select_related", wraps=PersonalAPIKey.objects.select_related
+        ) as select_related_spy:
+            second = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
 
-        second = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        assert second.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_user_deactivation_only_invalidates_that_users_cache_entries(self):
-        from posthog.auth import (
-            PERSONAL_API_KEY_LOOKUP_CACHE,
-            PersonalAPIKeyAuthentication,
-            _personal_api_key_cache_key,
-        )
-
-        # Two users, one cached PAT each. Deactivating user A must not affect user B's cache.
-        # Use validate_key directly to populate the cache so we don't need to set up team
-        # membership for the second user.
-        other_user = User.objects.create_user(email="other@example.com", password="abc12345", first_name="Other")
-
-        key_self = generate_random_token_personal()
-        key_other = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="self", user=self.user, secure_value=hash_key_value(key_self), scopes=["*"])
-        PersonalAPIKey.objects.create(
-            label="other", user=other_user, secure_value=hash_key_value(key_other), scopes=["*"]
-        )
-
-        auth = PersonalAPIKeyAuthentication()
-        auth.validate_key((key_self, "header"))
-        auth.validate_key((key_other, "header"))
-
-        assert _personal_api_key_cache_key(key_self) in PERSONAL_API_KEY_LOOKUP_CACHE
-        assert _personal_api_key_cache_key(key_other) in PERSONAL_API_KEY_LOOKUP_CACHE
-
-        self.user.is_active = False
-        self.user.save(update_fields=["is_active"])
-
-        assert _personal_api_key_cache_key(key_self) not in PERSONAL_API_KEY_LOOKUP_CACHE
-        assert _personal_api_key_cache_key(key_other) in PERSONAL_API_KEY_LOOKUP_CACHE
+        assert second.status_code == status.HTTP_200_OK
+        select_related_spy.assert_called()
+        assert cache.get(cache_key) is not None
 
     def test_ttl_zero_disables_the_cache_entirely(self):
-        # Kill switch: PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS=0 must bypass the cache rather
-        # than fall through to a 1-second window.
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+        from posthog.auth import _personal_api_key_cache_key
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -1897,36 +1822,10 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
                 headers={"authorization": f"Bearer {personal_api_key}"},
             )
             assert response.status_code == status.HTTP_200_OK
-            assert _personal_api_key_cache_key(personal_api_key) not in PERSONAL_API_KEY_LOOKUP_CACHE
-
-    def test_user_save_unrelated_to_is_active_does_not_drop_cache(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X",
-            user=self.user,
-            secure_value=hash_key_value(personal_api_key),
-            scopes=["*"],
-        )
-
-        first = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        assert first.status_code == status.HTTP_200_OK
-        cache_key = _personal_api_key_cache_key(personal_api_key)
-        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
-
-        # Saving the user with `update_fields` excluding is_active must not drop the cache entry —
-        # otherwise every routine user-profile mutation invalidates auth.
-        self.user.first_name = "Updated"
-        self.user.save(update_fields=["first_name"])
-
-        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+            assert cache.get(_personal_api_key_cache_key(personal_api_key)) is None
 
     def test_different_tokens_do_not_collide_in_cache(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
+        from posthog.auth import _personal_api_key_cache_key
 
         key_a = generate_random_token_personal()
         key_b = generate_random_token_personal()
@@ -1940,50 +1839,8 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
             )
             assert response.status_code == status.HTTP_200_OK
 
-        assert len(PERSONAL_API_KEY_LOOKUP_CACHE) == 2
-
-    def test_personal_api_key_save_invalidates_cached_entry(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
-
-        personal_api_key = generate_random_token_personal()
-        key = PersonalAPIKey.objects.create(
-            label="X",
-            user=self.user,
-            secure_value=hash_key_value(personal_api_key),
-            scopes=["feature_flag:read"],
-        )
-        self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        cache_key = _personal_api_key_cache_key(personal_api_key)
-        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
-
-        key.scopes = ["integration:read"]
-        key.save()
-
-        assert cache_key not in PERSONAL_API_KEY_LOOKUP_CACHE
-
-    def test_personal_api_key_delete_invalidates_cached_entry(self):
-        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
-
-        personal_api_key = generate_random_token_personal()
-        key = PersonalAPIKey.objects.create(
-            label="X",
-            user=self.user,
-            secure_value=hash_key_value(personal_api_key),
-            scopes=["*"],
-        )
-        self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        cache_key = _personal_api_key_cache_key(personal_api_key)
-        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
-
-        key.delete()
-
-        assert cache_key not in PERSONAL_API_KEY_LOOKUP_CACHE
+        assert cache.get(_personal_api_key_cache_key(key_a)) is not None
+        assert cache.get(_personal_api_key_cache_key(key_b)) is not None
 
 
 class TestTimeSensitivePermissions(APIBaseTest):

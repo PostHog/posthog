@@ -5,7 +5,6 @@ import time
 import hashlib
 import logging
 import functools
-import threading
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
@@ -17,14 +16,11 @@ from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
 import jwt
 import structlog
-from cachetools import TTLCache
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -49,6 +45,7 @@ from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
+from posthog.utils import get_safe_cache, safe_cache_set
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -177,25 +174,6 @@ class SessionAuthentication(authentication.SessionAuthentication):
         return "Session"
 
 
-# Short-TTL in-process cache for `PersonalAPIKey` lookups. Agent traffic (MCP, Terraform, posthog-code)
-# bursts many requests per minute on the same bearer token; without this each call paid a Postgres
-# round-trip on the API hot path. Keyed by sha256(token) so the cache is independent of the salted
-# PBKDF2 form the underlying record may currently be stored in. Successful hits only — caching misses
-# would create a probing oracle.
-#
-# Treat cached entries as read-mostly: the same Python object is shared across requests in the
-# process, so don't mutate fields on it (the existing `last_used_at` write in `authenticate` is
-# the only sanctioned mutation, and it's idempotent within the hourly grace window).
-#
-# What stays stale for up to TTL on each pod (cleared by `PERSONAL_API_KEY_LOOKUP_CACHE.clear()`
-# on key/user mutation if you need an instant invalidation hook):
-#   - the key being deleted or its `secure_value` rotated
-#   - `scopes`, `scoped_teams`, `scoped_organizations` changes on the key
-#   - `user.current_team_id` changes (affects `tag_queries(team_id=...)` attribution, not authz)
-#
-# `user.is_active` flipping to False is invalidated immediately on the originating pod via the
-# `post_save` signal handler below. Other pods catch up within TTL — Django signals don't cross
-# the process boundary, so cross-pod consistency is bounded by TTL rather than instant.
 def _read_personal_api_key_lookup_cache_ttl_seconds() -> int:
     raw = os.environ.get("PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS", "60")
     try:
@@ -206,66 +184,15 @@ def _read_personal_api_key_lookup_cache_ttl_seconds() -> int:
 
 
 PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS = _read_personal_api_key_lookup_cache_ttl_seconds()
-# Set TTL <= 0 to disable the cache entirely (kill switch). Otherwise TTLCache requires ttl > 0,
-# so we floor at 1s for the cache instance — but `validate_key` checks the raw TTL value before
-# touching the cache, so a 0/negative configuration genuinely bypasses the cache rather than
-# falling back to a 1-second cache window.
-PERSONAL_API_KEY_LOOKUP_CACHE: TTLCache[str, "PersonalAPIKey"] = TTLCache(
-    maxsize=10_000,
-    ttl=max(PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS, 1),
-)
-_PERSONAL_API_KEY_LOOKUP_CACHE_LOCK = threading.Lock()
 PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER = Counter(
     "personal_api_key_lookup_cache_total",
-    "Personal API key lookups served from / missed by the in-process auth cache.",
+    "Personal API key lookups served from / missed by the Redis auth cache.",
     labelnames=["result"],
 )
 
 
 def _personal_api_key_cache_key(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-@receiver(post_save, sender=User)
-def _invalidate_personal_api_key_cache_on_user_deactivation(sender, instance, update_fields=None, **kwargs):
-    """When a user is deactivated, drop any cached PersonalAPIKey entries that reference them so
-    the originating pod stops accepting their bearer tokens immediately rather than waiting for
-    the TTL to expire. Other pods catch up within TTL — Django signals are in-process only."""
-    if update_fields is not None and "is_active" not in update_fields:
-        return
-    if instance.is_active:
-        return
-    user_id = instance.pk
-    with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
-        stale_keys = [k for k, v in PERSONAL_API_KEY_LOOKUP_CACHE.items() if v.user_id == user_id]
-        for k in stale_keys:
-            PERSONAL_API_KEY_LOOKUP_CACHE.pop(k, None)
-
-
-def _invalidate_personal_api_key_cache_for_secure_value(secure_value: Optional[str]) -> None:
-    if not secure_value:
-        return
-    with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
-        stale_keys = [k for k, v in PERSONAL_API_KEY_LOOKUP_CACHE.items() if v.secure_value == secure_value]
-        for k in stale_keys:
-            PERSONAL_API_KEY_LOOKUP_CACHE.pop(k, None)
-
-
-@receiver(post_save, sender=PersonalAPIKey)
-def _invalidate_personal_api_key_cache_on_save(sender, instance, update_fields=None, **kwargs):
-    """Drop any cached entry for this key so scope/label edits take effect immediately on the
-    saving pod. Other pods catch up within TTL.
-
-    Skipped when the only field being updated is `last_used_at` — that write happens on every
-    authenticated request via the cached path itself, so invalidating would defeat the cache."""
-    if update_fields is not None and set(update_fields) <= {"last_used_at"}:
-        return
-    _invalidate_personal_api_key_cache_for_secure_value(instance.secure_value)
-
-
-@receiver(post_delete, sender=PersonalAPIKey)
-def _invalidate_personal_api_key_cache_on_delete(sender, instance, **kwargs):
-    _invalidate_personal_api_key_cache_for_secure_value(instance.secure_value)
+    return f"personal_api_key_lookup:{hashlib.sha256(token.encode('utf-8')).hexdigest()}"
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
@@ -339,12 +266,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         cache_enabled = PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS > 0
         cache_key = _personal_api_key_cache_key(personal_api_key)
         if cache_enabled:
-            with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
-                cached = PERSONAL_API_KEY_LOOKUP_CACHE.get(cache_key)
+            cached = get_safe_cache(cache_key)
             if cached is not None:
                 PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="hit").inc()
                 if source == cls.SOURCE_QUERY_STRING:
-                    # Mirror the cold-path increment so query-string usage isn't undercounted on cache hits.
                     PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(cached.user.uuid).inc()
                 return cached
             PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="miss").inc()
@@ -383,8 +308,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 key_to_update.save(update_fields=["secure_value"])
 
         if cache_enabled:
-            with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
-                PERSONAL_API_KEY_LOOKUP_CACHE[cache_key] = personal_api_key_object
+            safe_cache_set(cache_key, personal_api_key_object, timeout=PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS)
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
@@ -403,10 +327,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         key_last_used_at = personal_api_key_object.last_used_at
         # Only updating last_used_at if the hour's changed
         # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI.
-        # NOTE: `personal_api_key_object` is shared across requests in the same process via the lookup cache,
-        # so this mutation is in-place on the cached instance. That's safe today because `last_used_at` is the
-        # only field we touch and the hourly grace makes concurrent writes idempotent. Don't add other in-place
-        # mutations here without invalidating the cache entry first.
         if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
             personal_api_key_object.last_used_at = now
             personal_api_key_object.save(update_fields=["last_used_at"])
