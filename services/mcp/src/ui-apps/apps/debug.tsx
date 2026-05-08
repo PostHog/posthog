@@ -207,7 +207,7 @@ function DebugTab({
         return (
             <Card>
                 <CardContent>
-                    <span className="text-sm text-destructive">Error: {error.message}</span>
+                    <span className="text-sm text-destructive-foreground">Error: {error.message}</span>
                 </CardContent>
             </Card>
         )

@@ -45,7 +45,7 @@ export function AppErrorState({ message }: { message: string }): ReactElement {
     return (
         <div className="flex flex-col items-center justify-center gap-3 h-[200px]">
             <PostHogLogo size={40} />
-            <span className="text-xs text-destructive">{message}</span>
+            <span className="text-xs text-destructive-foreground">{message}</span>
         </div>
     )
 }
@@ -153,7 +153,7 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
                     <PostHogLogo size={40} />
                 </div>
                 {isCancelled && <span className="text-xs text-muted-foreground">Tool call was cancelled</span>}
-                {error && !isCancelled && <span className="text-xs text-destructive">{error.message}</span>}
+                {error && !isCancelled && <span className="text-xs text-destructive-foreground">{error.message}</span>}
             </div>
         )
     }

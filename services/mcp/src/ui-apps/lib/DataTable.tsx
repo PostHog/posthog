@@ -146,7 +146,10 @@ export function DataTable<T extends object>({
     }, [data, sort])
 
     const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(sortedData.length / pageSize)) : 1
-    const pagedData = pageSize > 0 ? sortedData.slice(page * pageSize, (page + 1) * pageSize) : sortedData
+    // Clamp during render so an out-of-range `page` (e.g. parent passed a shorter `data`)
+    // can't render an empty body with no empty-state fallback.
+    const safePage = Math.min(page, totalPages - 1)
+    const pagedData = pageSize > 0 ? sortedData.slice(safePage * pageSize, (safePage + 1) * pageSize) : sortedData
     const showPagination = pageSize > 0 && sortedData.length > pageSize
 
     if (data.length === 0) {
@@ -168,6 +171,15 @@ export function DataTable<T extends object>({
                             {columns.map((col) => (
                                 <th
                                     key={col.key}
+                                    aria-sort={
+                                        col.sortable
+                                            ? sort?.key === col.key
+                                                ? sort.direction === 'asc'
+                                                    ? 'ascending'
+                                                    : 'descending'
+                                                : 'none'
+                                            : undefined
+                                    }
                                     className={cn(
                                         'group/th px-3 py-2 font-medium text-muted-foreground',
                                         'max-w-[200px] truncate',
@@ -217,27 +229,27 @@ export function DataTable<T extends object>({
             {showPagination && (
                 <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
                     <span>
-                        {page * pageSize + 1}&ndash;{Math.min((page + 1) * pageSize, sortedData.length)} of{' '}
+                        {safePage * pageSize + 1}&ndash;{Math.min((safePage + 1) * pageSize, sortedData.length)} of{' '}
                         {sortedData.length}
                     </span>
                     <div className="flex items-center gap-1">
                         <Button
                             variant="ghost"
                             size="icon-xs"
-                            onClick={() => setPage((p) => Math.max(0, p - 1))}
-                            disabled={page === 0}
+                            onClick={() => setPage(Math.max(0, safePage - 1))}
+                            disabled={safePage === 0}
                             aria-label="Previous page"
                         >
                             <ChevronLeft className="h-3.5 w-3.5" />
                         </Button>
                         <span className="px-1 tabular-nums">
-                            {page + 1} / {totalPages}
+                            {safePage + 1} / {totalPages}
                         </span>
                         <Button
                             variant="ghost"
                             size="icon-xs"
-                            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                            disabled={page >= totalPages - 1}
+                            onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
+                            disabled={safePage >= totalPages - 1}
                             aria-label="Next page"
                         >
                             <ChevronRight className="h-3.5 w-3.5" />

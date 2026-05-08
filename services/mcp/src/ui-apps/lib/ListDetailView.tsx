@@ -6,10 +6,9 @@ import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 // stack-based `Navigator`). Migration is then a render-prop swap.
 //
 // What's needed from Quill:
-//   - Managed view-state for `list | loading | detail`, with async loading
-//     while the caller fetches the detail row. Today we own this in a
-//     three-variant `useState<ViewState>` and run the caller's `onItemClick`
-//     promise inline.
+//   - Managed view-state for `list | loading | detail | error`, with async
+//     loading while the caller fetches the detail row. Today we own this in a
+//     `useState<ViewState>` and run the caller's `onItemClick` promise inline.
 //   - A back-affordance that integrates with the host's navigation. We use
 //     `<Button variant="link-muted" size="sm">` + a lucide `<ChevronLeft>`
 //     because that's the closest visual to a "go back" link in Quill today.
@@ -36,7 +35,11 @@ export interface ListDetailViewProps<TItem, TDetail = TItem> {
     renderList: (handleClick: (item: TItem) => void) => ReactNode
 }
 
-type ViewState<TDetail> = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; detail: TDetail }
+type ViewState<TDetail> =
+    | { view: 'list' }
+    | { view: 'loading'; name: string }
+    | { view: 'detail'; detail: TDetail }
+    | { view: 'error'; name: string; message: string }
 
 function BackLink({ label, onClick }: { label: string; onClick: () => void }): ReactElement {
     return (
@@ -62,16 +65,20 @@ export function ListDetailView<TItem, TDetail = TItem>({
                 return
             }
 
-            setViewState({ view: 'loading', name: getItemName(item) })
-            const detail = await onItemClick(item).catch((error) => {
+            const name = getItemName(item)
+            setViewState({ view: 'loading', name })
+            try {
+                const detail = await onItemClick(item)
+                if (detail) {
+                    setViewState({ view: 'detail', detail })
+                } else {
+                    // `Promise<TDetail | null>` is part of the contract — a null resolution
+                    // is the caller saying "no detail to show", not a failure.
+                    setViewState({ view: 'error', name, message: `No details available for ${name}.` })
+                }
+            } catch (error) {
                 console.error(`Error loading detail:`, error)
-                return null
-            })
-
-            if (detail) {
-                setViewState({ view: 'detail', detail })
-            } else {
-                setViewState({ view: 'list' })
+                setViewState({ view: 'error', name, message: `Couldn't load ${name}.` })
             }
         },
         [onItemClick, getItemName]
@@ -103,6 +110,21 @@ export function ListDetailView<TItem, TDetail = TItem>({
                 <div className="flex flex-col gap-2">
                     <BackLink label={backLabel} onClick={handleBack} />
                     {renderDetail(viewState.detail)}
+                </div>
+            </div>
+        )
+    }
+
+    if (viewState.view === 'error') {
+        return (
+            <div className="p-4">
+                <div className="flex flex-col gap-2">
+                    <BackLink label={backLabel} onClick={handleBack} />
+                    <Empty className="py-10">
+                        <EmptyHeader>
+                            <EmptyDescription>{viewState.message}</EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
                 </div>
             </div>
         )
