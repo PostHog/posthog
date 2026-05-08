@@ -143,6 +143,28 @@ tools:
     session-recording-playlists-update:
         operation: session_recording_playlists_update
         enabled: false
+    session-recording-summary-search:
+        operation: search_session_summaries
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search session recording summaries
+        description: >
+            Search session recording summaries by meaning using natural language. Use this tool when the user wants to
+            find, search, look up, or get recordings matching a behavioral description — e.g. "users who struggled with
+            checkout", "rage clicking on settings page", "confused by onboarding flow", "error during payment". This is
+            the right tool whenever the user describes *what happened* in a session rather than filtering by event names
+            or properties (use query-session-recordings-list for that). Returns the most relevant recordings ranked by
+            semantic similarity, deduplicated to one result per session. Each result includes the session_id, a
+            description of the matching segment, and segment timestamps. Only searches recordings that have already been
+            summarized — if no results are found, recordings may not have been summarized yet. Use
+            session-recording-summarize to generate summaries first, then search.
+        requires_ai_consent: true
+        feature_flag: replay-video-based-summarization
     session-recordings-list:
         operation: session_recordings_list
         enabled: false

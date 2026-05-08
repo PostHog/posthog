@@ -1,10 +1,14 @@
 import os
 import re
 import json
+import time
+import uuid
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -12,6 +16,7 @@ from django.db.models import Func, IntegerField, QuerySet
 from django.http import StreamingHttpResponse
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -23,11 +28,27 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.schema import (
+    CachedDocumentSimilarityQueryResponse,
+    DateRange,
+    DistanceFunc,
+    DocumentSimilarityQuery,
+    EmbeddedDocument,
+    EmbeddingDistance,
+    EmbeddingModelName,
+    OrderBy,
+    OrderDirection1,
+)
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.event_usage import EventSource, get_event_source
+from posthog.errors import CHQueryErrorUnknownTable
+from posthog.event_usage import EventSource, get_event_source, groups
+from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+from posthog.kafka_client.routing import get_producer
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -54,7 +75,7 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
-from ee.models.session_summaries import SessionGroupSummary
+from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
 from ee.models.team_session_summaries_config import (
     CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
     CUSTOM_TAG_NAME_MAX_LENGTH,
@@ -149,6 +170,77 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
                 )
             cleaned[name] = description
         return cleaned
+
+
+SESSION_SUMMARY_SEARCH_PRODUCT = "session-replay"
+SESSION_SUMMARY_SEARCH_DOCUMENT_TYPE = "video-segment"
+SESSION_SUMMARY_SEARCH_QUERY_DOCUMENT_TYPE = "session-summary-search-query"
+SESSION_SUMMARY_SEARCH_RENDERING = "video-analysis"
+SESSION_SUMMARY_SEARCH_EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
+SESSION_SUMMARY_SEARCH_POLL_INTERVAL_SECONDS = 3
+SESSION_SUMMARY_SEARCH_MAX_POLL_ATTEMPTS = 10
+SESSION_SUMMARY_SEARCH_DEFAULT_LIMIT = 10
+SESSION_SUMMARY_SEARCH_MAX_LIMIT = 50
+
+
+class SessionSummarySearchRequestSerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=1000,
+        help_text="Natural language search query to find similar session recording segments (e.g. 'user struggled with checkout').",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        default="-30d",
+        help_text="Start of the date range to search within, as a relative date string (e.g. '-7d', '-30d') or ISO 8601 date. Defaults to '-30d'.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="End of the date range to search within, as a relative date string or ISO 8601 date. Defaults to now.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=SESSION_SUMMARY_SEARCH_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=SESSION_SUMMARY_SEARCH_MAX_LIMIT,
+        help_text=f"Maximum number of results to return (1-{SESSION_SUMMARY_SEARCH_MAX_LIMIT}, default {SESSION_SUMMARY_SEARCH_DEFAULT_LIMIT}).",
+    )
+
+
+class SessionSummarySearchResultSerializer(serializers.Serializer):
+    session_id = serializers.CharField(
+        help_text="The session recording ID that contains this matching segment.",
+    )
+    segment_description = serializers.CharField(
+        help_text="AI-generated text description of what happened in this segment of the recording.",
+    )
+    distance = serializers.FloatField(
+        help_text="Cosine distance between the search query and this segment (0 = identical meaning, lower = more similar).",
+    )
+    segment_start_time = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Start time of the segment within the recording, in milliseconds from recording start.",
+    )
+    segment_end_time = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="End time of the segment within the recording, in milliseconds from recording start.",
+    )
+    has_full_summary = serializers.BooleanField(
+        help_text="Whether a full AI-generated summary exists for this session (available via session-recording-summarize).",
+    )
+
+
+class SessionSummarySearchResponseSerializer(serializers.Serializer):
+    results = SessionSummarySearchResultSerializer(
+        many=True,
+        help_text="List of session recording segments ranked by semantic similarity to the search query.",
+    )
+    query = serializers.CharField(
+        help_text="The search query that was used.",
+    )
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -600,6 +692,260 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         else:
             serializer = SessionSummariesConfigSerializer(team_config)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        operation_id="search_session_summaries",
+        description=(
+            "Semantic search across AI-generated session recording segment summaries. "
+            "Finds recordings where user behavior matches a natural language query. "
+            "Only searches recordings that have been previously summarized via the video-based summarization path."
+        ),
+        request=SessionSummarySearchRequestSerializer,
+        responses={200: SessionSummarySearchResponseSerializer},
+        tags=["replay"],
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
+    def search_summaries(self, request: Request, **kwargs) -> Response:
+        user = self._validate_user(request)
+        if not posthoganalytics.feature_enabled(
+            "replay-video-based-summarization",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
+            raise exceptions.ValidationError("Session summary search is not enabled for this user.")
+        tag_queries(product=Product.SESSION_SUMMARY, feature=Feature.QUERY)
+
+        search_serializer = SessionSummarySearchRequestSerializer(data=request.data)
+        search_serializer.is_valid(raise_exception=True)
+        query_text: str = search_serializer.validated_data["query"]
+        date_from: str = search_serializer.validated_data["date_from"]
+        date_to: str | None = search_serializer.validated_data.get("date_to")
+        limit: int = search_serializer.validated_data["limit"]
+
+        request_id = str(uuid.uuid4())
+
+        try:
+            # Embed the search query via Kafka and poll until it lands in ClickHouse
+            embedding_timestamp = _embed_search_query_and_wait(
+                team=self.team,
+                query_text=query_text,
+                request_id=request_id,
+            )
+
+            # Over-fetch to account for dedup — multiple segments from the same session
+            # will be collapsed to keep only the best-matching segment per session
+            fetch_limit = limit * 5
+
+            # Run similarity search against session replay segment embeddings
+            similarity_query = DocumentSimilarityQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                distance_func=DistanceFunc.COSINE_DISTANCE,
+                document_types=[SESSION_SUMMARY_SEARCH_DOCUMENT_TYPE],
+                products=[SESSION_SUMMARY_SEARCH_PRODUCT],
+                renderings=[SESSION_SUMMARY_SEARCH_RENDERING],
+                limit=fetch_limit,
+                model=SESSION_SUMMARY_SEARCH_EMBEDDING_MODEL.value,
+                order_by=OrderBy.DISTANCE,
+                order_direction=OrderDirection1.ASC,
+                origin=EmbeddedDocument(
+                    document_id=request_id,
+                    document_type=SESSION_SUMMARY_SEARCH_QUERY_DOCUMENT_TYPE,
+                    product=SESSION_SUMMARY_SEARCH_PRODUCT,
+                    timestamp=embedding_timestamp,
+                ),
+            )
+            runner = DocumentEmbeddingsQueryRunner(query=similarity_query, team=self.team)
+            response = runner.run()
+            if not isinstance(response, CachedDocumentSimilarityQueryResponse):
+                raise exceptions.APIException("Failed to run semantic search query.")
+        except CHQueryErrorUnknownTable:
+            raise exceptions.ValidationError(
+                "Session summary search requires the embedding infrastructure which is not available in this environment."
+            )
+
+        deduped = _deduplicate_by_session(response.results, limit)
+
+        # Fetch segment descriptions from ClickHouse (the content field isn't returned by the query runner)
+        segment_descriptions = _fetch_segment_descriptions(
+            team_id=self.team.pk,
+            document_ids=[seg.document_id for seg in deduped],
+        )
+
+        # Check which sessions have any full summary in Postgres (regardless of extra_summary_context)
+        session_ids_with_summaries = set(
+            SingleSessionSummary.objects.filter(
+                team_id=self.team.pk,
+                session_id__in=[seg.session_id for seg in deduped],
+            )
+            .values_list("session_id", flat=True)
+            .distinct()
+        )
+        sessions_with_summaries = {
+            sid: sid in session_ids_with_summaries for sid in [seg.session_id for seg in deduped]
+        }
+
+        results = _build_search_results(deduped, segment_descriptions, sessions_with_summaries)
+
+        summary_source = self._resolve_summary_source(request)
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id,
+            event="session summary search",
+            properties={
+                "ai_product": "session_replay",
+                "summary_source": summary_source,
+                "query_length": len(query_text),
+                "date_from": date_from,
+                "results_count": len(results),
+                "limit": limit,
+            },
+            groups=groups(None, self.team),
+        )
+
+        response_serializer = SessionSummarySearchResponseSerializer(data={"results": results, "query": query_text})
+        response_serializer.is_valid(raise_exception=True)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+@dataclass
+class _DedupedSegment:
+    session_id: str
+    document_id: str
+    distance: float
+    segment_start_time: float | None
+    segment_end_time: float | None
+
+
+def _deduplicate_by_session(
+    results: list[EmbeddingDistance],
+    limit: int,
+) -> list[_DedupedSegment]:
+    """Keep only the best-matching (lowest distance) segment per session_id.
+
+    Results must be sorted by distance ASC (best first). Returns at most `limit` unique sessions.
+    """
+    best_per_session: dict[str, _DedupedSegment] = {}
+    for distance_result in results:
+        doc_id = distance_result.result.document_id
+        parts = doc_id.split(":")
+        if len(parts) < 3:
+            logger.warning(f"Unexpected document_id format: {doc_id}")
+            continue
+        session_id = parts[0]
+        if session_id in best_per_session:
+            continue
+        try:
+            segment_start: float | None = float(parts[1])
+            segment_end: float | None = float(parts[2])
+        except ValueError:
+            segment_start = None
+            segment_end = None
+        best_per_session[session_id] = _DedupedSegment(
+            session_id=session_id,
+            document_id=doc_id,
+            distance=distance_result.distance,
+            segment_start_time=segment_start,
+            segment_end_time=segment_end,
+        )
+        if len(best_per_session) >= limit:
+            break
+    return list(best_per_session.values())
+
+
+def _build_search_results(
+    deduped: list[_DedupedSegment],
+    segment_descriptions: dict[str, str],
+    sessions_with_summaries: dict[str, bool],
+) -> list[dict[str, Any]]:
+    """Build the final result dicts from deduped segments + enrichment data."""
+    return [
+        {
+            "session_id": seg.session_id,
+            "segment_description": segment_descriptions.get(seg.document_id, ""),
+            "distance": seg.distance,
+            "segment_start_time": seg.segment_start_time,
+            "segment_end_time": seg.segment_end_time,
+            "has_full_summary": sessions_with_summaries.get(seg.session_id, False),
+        }
+        for seg in deduped
+    ]
+
+
+def _embed_search_query_and_wait(
+    team: Team,
+    query_text: str,
+    request_id: str,
+) -> datetime:
+    """Embed a search query string via Kafka and poll until it lands in ClickHouse."""
+    producer = get_producer(topic="document_embeddings_input")
+    timestamp = datetime.now(tz=ZoneInfo("UTC"))
+    payload = {
+        "team_id": team.pk,
+        "product": SESSION_SUMMARY_SEARCH_PRODUCT,
+        "document_type": SESSION_SUMMARY_SEARCH_QUERY_DOCUMENT_TYPE,
+        "rendering": SESSION_SUMMARY_SEARCH_RENDERING,
+        "document_id": request_id,
+        "timestamp": timestamp.isoformat(),
+        "content": query_text,
+        "models": [SESSION_SUMMARY_SEARCH_EMBEDDING_MODEL.value],
+    }
+    producer.produce(topic="document_embeddings_input", data=payload)
+    producer.flush()
+
+    # Poll ClickHouse until the embedding appears
+    for _ in range(SESSION_SUMMARY_SEARCH_MAX_POLL_ATTEMPTS):
+        result = sync_execute(
+            """
+            SELECT count()
+            FROM posthog_document_embeddings_union_view
+            WHERE team_id = %(team_id)s
+              AND product = %(product)s
+              AND document_type = %(document_type)s
+              AND document_id = %(document_id)s
+            """,
+            {
+                "team_id": team.pk,
+                "product": SESSION_SUMMARY_SEARCH_PRODUCT,
+                "document_type": SESSION_SUMMARY_SEARCH_QUERY_DOCUMENT_TYPE,
+                "document_id": request_id,
+            },
+        )
+        if result[0][0] > 0:
+            return timestamp
+        time.sleep(SESSION_SUMMARY_SEARCH_POLL_INTERVAL_SECONDS)
+
+    raise exceptions.APIException("Search query embedding did not become available in time. Please try again.")
+
+
+def _fetch_segment_descriptions(
+    team_id: int,
+    document_ids: list[str],
+) -> dict[str, str]:
+    """Fetch the text content of segment embeddings from ClickHouse by document_id."""
+    if not document_ids:
+        return {}
+
+    result = sync_execute(
+        """
+        SELECT
+            document_id,
+            argMax(content, inserted_at) as content
+        FROM posthog_document_embeddings_union_view
+        WHERE team_id = %(team_id)s
+          AND product = %(product)s
+          AND document_type = %(document_type)s
+          AND document_id IN %(document_ids)s
+        GROUP BY document_id
+        """,
+        {
+            "team_id": team_id,
+            "product": SESSION_SUMMARY_SEARCH_PRODUCT,
+            "document_type": SESSION_SUMMARY_SEARCH_DOCUMENT_TYPE,
+            "document_ids": document_ids,
+        },
+    )
+    return {row[0]: row[1] for row in result}
 
 
 class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):

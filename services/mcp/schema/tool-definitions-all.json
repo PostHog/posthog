@@ -4878,6 +4878,23 @@
             "readOnlyHint": true
         }
     },
+    "session-recording-summary-search": {
+        "description": "Search session recording summaries by meaning using natural language. Use this tool when the user wants to find, search, look up, or get recordings matching a behavioral description — e.g. \"users who struggled with checkout\", \"rage clicking on settings page\", \"confused by onboarding flow\", \"error during payment\". This is the right tool whenever the user describes *what happened* in a session rather than filtering by event names or properties (use query-session-recordings-list for that). Returns the most relevant recordings ranked by semantic similarity, deduplicated to one result per session. Each result includes the session_id, a description of the matching segment, and segment timestamps. Only searches recordings that have already been summarized — if no results are found, recordings may not have been summarized yet. Use session-recording-summarize to generate summaries first, then search.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Search session recording summaries",
+        "title": "Search session recording summaries",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-video-based-summarization"
+    },
     "sql-variables-create": {
         "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
         "category": "Data warehouse",

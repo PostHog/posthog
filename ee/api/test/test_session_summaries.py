@@ -1,7 +1,7 @@
 import os
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
 from posthog.test.base import APIBaseTest
@@ -12,15 +12,112 @@ from django.http import HttpResponse
 from parameterized import parameterized
 from rest_framework import exceptions
 
+from posthog.schema import EmbeddingDistance, EmbeddingModelName, EmbeddingRecord
+
 from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
 
-from ee.api.session_summaries import _NO_READY_SUMMARY_ERROR_SUBSTRING
+from ee.api.session_summaries import _NO_READY_SUMMARY_ERROR_SUBSTRING, _build_search_results, _deduplicate_by_session
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
 )
 from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
+
+
+def _make_embedding_distance(document_id: str, distance: float) -> EmbeddingDistance:
+    return EmbeddingDistance(
+        distance=distance,
+        origin=None,
+        result=EmbeddingRecord(
+            document_id=document_id,
+            document_type="video-segment",
+            model_name=EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072,
+            product="session-replay",
+            rendering="video-analysis",
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+    )
+
+
+class TestDeduplicateBySession(APIBaseTest):
+    def test_keeps_best_segment_per_session(self):
+        results = [
+            _make_embedding_distance("sess_a:0:5000", 0.1),
+            _make_embedding_distance("sess_a:5000:10000", 0.2),
+            _make_embedding_distance("sess_b:0:3000", 0.3),
+        ]
+        deduped = _deduplicate_by_session(results, limit=10)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped[0].session_id, "sess_a")
+        self.assertEqual(deduped[0].distance, 0.1)
+        self.assertEqual(deduped[0].segment_start_time, 0.0)
+        self.assertEqual(deduped[0].segment_end_time, 5000.0)
+        self.assertEqual(deduped[1].session_id, "sess_b")
+        self.assertEqual(deduped[1].distance, 0.3)
+
+    def test_respects_limit(self):
+        results = [
+            _make_embedding_distance("sess_a:0:1000", 0.1),
+            _make_embedding_distance("sess_b:0:1000", 0.2),
+            _make_embedding_distance("sess_c:0:1000", 0.3),
+        ]
+        deduped = _deduplicate_by_session(results, limit=2)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped[0].session_id, "sess_a")
+        self.assertEqual(deduped[1].session_id, "sess_b")
+
+    def test_skips_malformed_document_ids(self):
+        results = [
+            _make_embedding_distance("bad_format", 0.1),
+            _make_embedding_distance("also:bad", 0.15),
+            _make_embedding_distance("sess_a:0:5000", 0.2),
+        ]
+        deduped = _deduplicate_by_session(results, limit=10)
+        self.assertEqual(len(deduped), 1)
+        self.assertEqual(deduped[0].session_id, "sess_a")
+
+    def test_empty_results(self):
+        deduped = _deduplicate_by_session([], limit=10)
+        self.assertEqual(deduped, [])
+
+    def test_preserves_order_by_distance(self):
+        results = [
+            _make_embedding_distance("sess_c:0:1000", 0.05),
+            _make_embedding_distance("sess_a:0:1000", 0.1),
+            _make_embedding_distance("sess_b:0:1000", 0.3),
+        ]
+        deduped = _deduplicate_by_session(results, limit=10)
+        self.assertEqual([s.session_id for s in deduped], ["sess_c", "sess_a", "sess_b"])
+
+
+class TestBuildSearchResults(APIBaseTest):
+    def test_enriches_with_descriptions_and_summaries(self):
+        results = [
+            _make_embedding_distance("sess_a:0:5000", 0.1),
+            _make_embedding_distance("sess_b:1000:3000", 0.3),
+        ]
+        deduped = _deduplicate_by_session(results, limit=10)
+        descriptions = {
+            "sess_a:0:5000": "User clicked checkout button repeatedly",
+            "sess_b:1000:3000": "User scrolled through pricing page",
+        }
+        summaries = {"sess_a": True, "sess_b": False}
+
+        built = _build_search_results(deduped, descriptions, summaries)
+
+        self.assertEqual(len(built), 2)
+        self.assertEqual(built[0]["session_id"], "sess_a")
+        self.assertEqual(built[0]["segment_description"], "User clicked checkout button repeatedly")
+        self.assertEqual(built[0]["has_full_summary"], True)
+        self.assertEqual(built[1]["session_id"], "sess_b")
+        self.assertEqual(built[1]["has_full_summary"], False)
+
+    def test_missing_description_defaults_to_empty(self):
+        results = [_make_embedding_distance("sess_a:0:5000", 0.1)]
+        deduped = _deduplicate_by_session(results, limit=10)
+        built = _build_search_results(deduped, {}, {"sess_a": False})
+        self.assertEqual(built[0]["segment_description"], "")
 
 
 class TestSessionSummariesAPI(APIBaseTest):

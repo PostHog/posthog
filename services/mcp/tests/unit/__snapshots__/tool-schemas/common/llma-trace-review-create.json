@@ -76,7 +76,6 @@
                     "numeric_value": {
                         "anyOf": [
                             {
-                                "format": "decimal",
                                 "pattern": "^-?\\d{0,6}(?:\\.\\d{0,6})?$",
                                 "type": "string"
                             },

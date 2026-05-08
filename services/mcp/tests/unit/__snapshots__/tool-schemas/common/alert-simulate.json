@@ -1118,7 +1118,6 @@
                             "type": "array"
                         },
                         "operator": {
-                            "description": "How to combine sub-detector results",
                             "enum": ["and", "or"],
                             "type": "string"
                         },

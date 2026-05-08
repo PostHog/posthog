@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    SearchSessionSummariesBody,
     SessionRecordingPlaylistsCreateBody,
     SessionRecordingPlaylistsListQueryParams,
     SessionRecordingPlaylistsPartialUpdateBody,
@@ -167,6 +168,38 @@ const sessionRecordingPlaylistsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SessionRecordingSummarySearchSchema = SearchSessionSummariesBody
+
+const sessionRecordingSummarySearch = (): ToolBase<
+    typeof SessionRecordingSummarySearchSchema,
+    Schemas.SessionSummarySearchResponse
+> => ({
+    name: 'session-recording-summary-search',
+    schema: SessionRecordingSummarySearchSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummarySearchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        if (params.date_to !== undefined) {
+            body['date_to'] = params.date_to
+        }
+        if (params.limit !== undefined) {
+            body['limit'] = params.limit
+        }
+        const result = await context.api.request<Schemas.SessionSummarySearchResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/search_summaries/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -617,6 +650,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
+    'session-recording-summary-search': sessionRecordingSummarySearch,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,

@@ -18,6 +18,8 @@ import type {
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
     SessionSummariesApi,
+    SessionSummarySearchRequestApi,
+    SessionSummarySearchResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -54,6 +56,26 @@ export const createSessionSummariesIndividually = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sessionSummariesApi),
+    })
+}
+
+export const getSearchSessionSummariesUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/session_summaries/search_summaries/`
+}
+
+/**
+ * Semantic search across AI-generated session recording segment summaries. Finds recordings where user behavior matches a natural language query. Only searches recordings that have been previously summarized via the video-based summarization path.
+ */
+export const searchSessionSummaries = async (
+    projectId: string,
+    sessionSummarySearchRequestApi: SessionSummarySearchRequestApi,
+    options?: RequestInit
+): Promise<SessionSummarySearchResponseApi> => {
+    return apiMutator<SessionSummarySearchResponseApi>(getSearchSessionSummariesUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummarySearchRequestApi),
     })
 }
 

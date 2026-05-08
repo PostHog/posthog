@@ -3,10 +3,54 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Semantic search across AI-generated session recording segment summaries. Finds recordings where user behavior matches a natural language query. Only searches recordings that have been previously summarized via the video-based summarization path.
+ */
+export const SearchSessionSummariesParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const searchSessionSummariesBodyQueryMax = 1000
+
+export const searchSessionSummariesBodyDateFromDefault = `-30d`
+export const searchSessionSummariesBodyLimitDefault = 10
+export const searchSessionSummariesBodyLimitMax = 50
+
+export const SearchSessionSummariesBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(searchSessionSummariesBodyQueryMax)
+        .describe(
+            "Natural language search query to find similar session recording segments (e.g. 'user struggled with checkout')."
+        ),
+    date_from: zod
+        .string()
+        .default(searchSessionSummariesBodyDateFromDefault)
+        .describe(
+            "Start of the date range to search within, as a relative date string (e.g. '-7d', '-30d') or ISO 8601 date. Defaults to '-30d'."
+        ),
+    date_to: zod
+        .string()
+        .nullish()
+        .describe(
+            'End of the date range to search within, as a relative date string or ISO 8601 date. Defaults to now.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(searchSessionSummariesBodyLimitMax)
+        .default(searchSessionSummariesBodyLimitDefault)
+        .describe('Maximum number of results to return (1-50, default 10).'),
+})
 
 /**
  * Override list to include synthetic playlists
