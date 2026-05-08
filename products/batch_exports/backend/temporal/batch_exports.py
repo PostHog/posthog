@@ -498,6 +498,7 @@ class FinishBatchExportRunInputs:
     failure_check_window: int = 50
     bytes_exported: int | None = None
     records_failed: int | None = None
+    on_demand: bool = False
 
 
 @activity.defn
@@ -511,7 +512,9 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     'failure_check_window' exceeds 'failure_threshold' and attempt to pause the batch export if
     that's the case. Also, a notification is sent to users on every failure.
     """
-    bind_contextvars(team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status)
+    bind_contextvars(
+        team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status, on_demand=inputs.on_demand
+    )
     logger = LOGGER.bind()
     external_logger = EXTERNAL_LOGGER.bind()
 
@@ -521,6 +524,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         "batch_export_id",
         "failure_threshold",
         "failure_check_window",
+        "on_demand",
     )
     update_params = {
         key: value
@@ -552,7 +556,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             batch_export_run.latest_error,
         )
 
-    elif batch_export_run.status == BatchExportRun.Status.FAILED:
+    elif batch_export_run.status == BatchExportRun.Status.FAILED and not inputs.on_demand:
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
