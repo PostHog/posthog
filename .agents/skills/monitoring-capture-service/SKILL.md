@@ -281,7 +281,8 @@ Both envs have a **dedicated ingestion MSK** cluster separate from the events cl
 These pipelines produce to in-cluster WarpStream agents, not MSK.
 Key signals: `warpstream_agent_control_plane_operation_counter` (by `operation`),
 `warpstream_agent_file_cache_client_fetch_local_or_remote_counter` (cache hit/miss ratio).
-Dashboards: `warpstream` (Agent Overview), `ws-coarse-lag-explore` (lag exploration).
+Dashboards: `warpstream` (Agent Overview), `dbfj5c31spa1ogf` (MSK vs WarpStream — Active Produce Topics).
+US-only personal dashboards (not synced to EU): `ws-coarse-lag-explore` (Coarse Lag), `8e93b023-…` (CH Consumer Lag).
 Per-VC KMinion instances: `kminion-warpstream-replay`, `kminion-warpstream-logs`, `kminion-warpstream-traces`.
 
 **K8s resources** — `container_*` and `kube_*` for CPU, memory, restarts, HPA state.

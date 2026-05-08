@@ -189,8 +189,8 @@ ClickHouse lag means users see stale data even if ingestion workers are healthy.
    `kminion_kafka_consumer_group_topic_lag{app_kubernetes_io_instance="kminion-warpstream-ingestion", group_id=~"clickhouse_events_json|group1|group1_recent", topic_name="clickhouse_events_json"}`.
    Also check `kminion_kafka_consumer_group_topic_lag_seconds` for time-based lag.
    (Consumer group name differs by env: `clickhouse_events_json` in prod-us, `group1`/`group1_recent` in prod-eu.)
-   Dashboard: `8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream: ClickHouse Consumer Lag),
-   `dbfgkwxs3gw8owd` (KMinion Consumer Group Lag — all backing systems).
+   Dashboards: `dbfgkwxs3gw8owd` (KMinion Consumer Group Lag — all backing systems),
+   `8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream CH Consumer Lag — US only, personal dashboard).
 
 2. **CH Kafka engine errors** — `ClickHouseProfileEvents_KafkaRowsRejected{type="events"}` rate.
    Also `ClickHouseProfileEvents_KafkaConsumerErrors` and `KafkaCommitFailures`.
