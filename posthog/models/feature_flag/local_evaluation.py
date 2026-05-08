@@ -529,10 +529,8 @@ def _get_flags_response_for_local_evaluation_batch(
     # serialize — one DB round trip instead of two.
     all_flags = list(
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team_id__in=team_ids,
-        )
+        .filter(team_id__in=team_ids)
+        .exclude(has_encrypted_payloads=True)
         .exclude(id__in=survey_flag_ids)
         .annotate(
             evaluation_tag_names_agg=ArrayAgg(

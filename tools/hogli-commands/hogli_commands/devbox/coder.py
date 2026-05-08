@@ -37,10 +37,12 @@ DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
-# workspaces. Injected as the GIT_SIGNING_KEY env var on every workspace start
-# (including coder task runs); the workspace template reads it to populate
-# user.signingkey. The matching private key never leaves 1Password.
-GIT_SIGNING_KEY_SECRET = "GIT_SIGNING_KEY"
+# workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
+# start (including coder task runs); the workspace template reads it to populate
+# user.signingkey. The matching private key never leaves 1Password. The `GIT_`
+# prefix is reserved by Coder, so the workspace-side env name cannot start with
+# it.
+GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
 # Default values for all optional template parameters. Passing these explicitly

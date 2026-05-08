@@ -77,7 +77,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     )
     monkeypatch.setenv("DUCKLAKE_BUCKET", "ducklake-test-bucket")
     # Mock Delta partition column detection
-    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["timestamp"])
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["timestamp"])
 
     metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
 
@@ -95,10 +95,10 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
 
 def test_detect_partition_column_name_returns_first_partition(monkeypatch):
     monkeypatch.setattr(
-        ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["partition_ts", "timestamp"]
+        ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["partition_ts", "timestamp"]
     )
 
-    column = ducklake_module._detect_partition_column_name("s3://source/table")
+    column = ducklake_module._detect_partition_column_name("s3://source/table", team_id=1)
 
     assert column == "partition_ts"
 
@@ -245,7 +245,13 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
 
     copy_data_modeling_model_to_ducklake_activity(inputs)
 
-    mock_stage.assert_called_once()
+    mock_stage.assert_called_once_with(
+        source_uri="s3://source/table",
+        catalog_bucket="test-bucket",
+        role_arn="arn:aws:iam::123456789012:role/test-role",
+        external_id="external-id-123",
+        organization_id="org-123",
+    )
     execute_calls = mock_conn.execute.call_args_list
     assert any("CREATE SCHEMA IF NOT EXISTS" in str(call) for call in execute_calls)
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)

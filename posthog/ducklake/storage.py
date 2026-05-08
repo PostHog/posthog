@@ -507,7 +507,13 @@ def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
     return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
 
 
-def _get_delta_snapshot_files(source_uri: str) -> tuple[int, list[str]]:
+def _get_delta_snapshot_files(
+    source_uri: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> tuple[int, list[str]]:
     """Pin to the current Delta table version and return its data file S3 keys.
 
     Opens the Delta table at *source_uri* using the deltalake library (which
@@ -521,7 +527,14 @@ def _get_delta_snapshot_files(source_uri: str) -> tuple[int, list[str]]:
     """
     import deltalake
 
-    dt = deltalake.DeltaTable(table_uri=source_uri, storage_options=get_deltalake_storage_options())
+    dt = deltalake.DeltaTable(
+        table_uri=source_uri,
+        storage_options=get_deltalake_storage_options(
+            storage_config=storage_config,
+            team_id=team_id,
+            organization_id=organization_id,
+        ),
+    )
     version = dt.version()
     keys: list[str] = []
     for uri in dt.file_uris():
@@ -572,6 +585,10 @@ def stage_delta_table(
     catalog_bucket: str,
     role_arn: str,
     external_id: str | None = None,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
 ) -> str:
     """Copy a version-pinned Delta table snapshot to the catalog bucket under __posthog_staging/.
 
@@ -591,7 +608,12 @@ def stage_delta_table(
     if not source_prefix.endswith("/"):
         source_prefix += "/"
 
-    version, data_keys = _get_delta_snapshot_files(source_uri)
+    version, data_keys = _get_delta_snapshot_files(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
 
     access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
 
