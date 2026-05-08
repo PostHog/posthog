@@ -26,6 +26,7 @@ from posthog.temporal.backfill_materialized_property.activities import (
     PopulateSlotAssignmentsResult,
     RunBatchedMutationInputs,
     _ColumnAssignment,
+    _SlotBranch,
     compute_cycle_marker_int,
 )
 from posthog.temporal.backfill_materialized_property.workflows import (
@@ -51,7 +52,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
         sample_assignments = [
             _ColumnAssignment(
                 column_index=10,
-                branches=[(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")],
+                branches=[_SlotBranch(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")],
             )
         ]
 
@@ -72,7 +73,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
         async def mock_run(inputs: RunBatchedMutationInputs) -> None:
             recorded["mutation"].append(
                 {
-                    "assignments": [(a.column_index, a.branches) for a in inputs.assignments],
+                    "assignments": inputs.assignments,
                     "cycle_marker_int": inputs.cycle_marker_int,
                 }
             )
@@ -113,7 +114,10 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
         # cycle_marker_int passed through from run_id (NOT workflow_id).
         assert recorded["mutation"][0]["cycle_marker_int"] == compute_cycle_marker_int(run_id)
         assert recorded["mutation"][0]["assignments"] == [
-            (10, [(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")])
+            _ColumnAssignment(
+                column_index=10,
+                branches=[_SlotBranch(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")],
+            )
         ]
         assert recorded["activate"] == [["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]]
         assert recorded["fail"] == []
@@ -171,7 +175,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
         sample_assignments = [
             _ColumnAssignment(
                 column_index=10,
-                branches=[(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")],
+                branches=[_SlotBranch(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")],
             )
         ]
 
@@ -240,7 +244,7 @@ class TestCompactMaterializedColumnsWorkflow:
         sample_assignments = [
             _ColumnAssignment(
                 column_index=3,
-                branches=[(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")],
+                branches=[_SlotBranch(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")],
             )
         ]
 
@@ -261,7 +265,7 @@ class TestCompactMaterializedColumnsWorkflow:
         async def mock_run(inputs: RunBatchedMutationInputs) -> None:
             recorded["mutation"].append(
                 {
-                    "assignments": [(a.column_index, a.branches) for a in inputs.assignments],
+                    "assignments": inputs.assignments,
                     "cycle_marker_int": inputs.cycle_marker_int,
                 }
             )
@@ -300,7 +304,12 @@ class TestCompactMaterializedColumnsWorkflow:
         assert recorded["populate"] == [True], "populate must run between assign and mutation"
         assert len(recorded["mutation"]) == 1
         assert recorded["mutation"][0]["cycle_marker_int"] == compute_cycle_marker_int(run_id)
-        assert recorded["mutation"][0]["assignments"] == [(3, [(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")])]
+        assert recorded["mutation"][0]["assignments"] == [
+            _ColumnAssignment(
+                column_index=3,
+                branches=[_SlotBranch(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")],
+            )
+        ]
         assert recorded["finalize"] == [["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"]]
         assert recorded["clear"] == []
 
@@ -364,7 +373,7 @@ class TestCompactMaterializedColumnsWorkflow:
         sample_assignments = [
             _ColumnAssignment(
                 column_index=3,
-                branches=[(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")],
+                branches=[_SlotBranch(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")],
             )
         ]
 

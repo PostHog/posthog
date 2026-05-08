@@ -120,3 +120,21 @@ def ttl_period(field: str = "created_at", amount: int = 3, unit: Literal["DAY", 
 
 def trim_quotes_expr(expr: str) -> str:
     return f"replaceRegexpAll({expr}, '^\"|\"$', '')"
+
+
+def json_extract_trim_quotes(*args: str) -> str:
+    """Build a ClickHouse SQL expression that extracts a JSON value as a trimmed string.
+
+    Takes the same arguments as JSONExtractRaw (field, key1, key2, ...) and wraps the
+    result to: strip surrounding quotes, convert empty string and literal 'null' to NULL.
+
+    Three code paths must produce byte-identical output for the same input:
+    - HogQL printer's JSON fallback (``_unsafe_json_extract_trim_quotes``)
+    - SQL backfill mutation (``_generate_property_extraction_sql``)
+    - Plugin-server live ingest (``jsonExtractRawAndTrimQuotes`` in create-event.ts)
+
+    This function is the single source of truth for the SQL shape so the Python
+    paths can't drift from each other. The TypeScript path is covered by the
+    shared coercion fixture in ``coercion_fixtures.json``.
+    """
+    return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join(args)}), ''), 'null'), '^\"|\"$', '')"

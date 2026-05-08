@@ -202,6 +202,6 @@ if _is_cloud:
 # Order matters: the dictionary's SOURCE references the table, so the table
 # must be created first.
 operations += [
-    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=True)),
-    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=True)),
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=False)),
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False)),
 ]

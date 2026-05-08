@@ -105,27 +105,27 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
             logger.info("Nothing to do — no PENDING slots", run_id=run_id)
             return
 
-        await workflow.execute_activity(
-            populate_slot_assignments,
-            PopulateSlotAssignmentsInputs(),
-            start_to_close_timeout=dt.timedelta(minutes=10),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(minutes=1),
-                maximum_attempts=3,
-            ),
-        )
-
-        if inputs.cache_refresh_wait_seconds > 0:
-            logger.info(
-                "Waiting for ingestion cache refresh",
-                wait_seconds=inputs.cache_refresh_wait_seconds,
-                pending_count=len(assignment.assigned_slot_ids),
+        try:
+            await workflow.execute_activity(
+                populate_slot_assignments,
+                PopulateSlotAssignmentsInputs(),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
             )
-            await workflow.sleep(dt.timedelta(seconds=inputs.cache_refresh_wait_seconds))
 
-        if assignment.assignments:
-            try:
+            if inputs.cache_refresh_wait_seconds > 0:
+                logger.info(
+                    "Waiting for ingestion cache refresh",
+                    wait_seconds=inputs.cache_refresh_wait_seconds,
+                    pending_count=len(assignment.assigned_slot_ids),
+                )
+                await workflow.sleep(dt.timedelta(seconds=inputs.cache_refresh_wait_seconds))
+
+            if assignment.assignments:
                 await workflow.execute_activity(
                     run_batched_mutation,
                     RunBatchedMutationInputs(
@@ -142,39 +142,39 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
                         maximum_attempts=3,
                     ),
                 )
-            except Exception as e:
-                logger.exception("Batched mutation failed; rolling back slot transitions", run_id=run_id)
-                try:
-                    await workflow.execute_activity(
-                        fail_slots,
-                        FailSlotsInputs(
-                            slot_ids=assignment.assigned_slot_ids,
-                            error_message=str(e),
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=5),
-                        retry_policy=RetryPolicy(
-                            initial_interval=dt.timedelta(seconds=10),
-                            maximum_interval=dt.timedelta(minutes=1),
-                            maximum_attempts=5,
-                        ),
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to roll back slot transitions after mutation failure",
-                        run_id=run_id,
-                    )
-                raise
 
-        await workflow.execute_activity(
-            activate_slots,
-            ActivateSlotsInputs(slot_ids=assignment.assigned_slot_ids),
-            start_to_close_timeout=dt.timedelta(minutes=10),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(minutes=1),
-                maximum_attempts=5,
-            ),
-        )
+            await workflow.execute_activity(
+                activate_slots,
+                ActivateSlotsInputs(slot_ids=assignment.assigned_slot_ids),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=5,
+                ),
+            )
+        except Exception as e:
+            logger.exception("Backfill failed after slot assignment; marking slots as ERROR", run_id=run_id)
+            try:
+                await workflow.execute_activity(
+                    fail_slots,
+                    FailSlotsInputs(
+                        slot_ids=assignment.assigned_slot_ids,
+                        error_message=str(e),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(minutes=1),
+                        maximum_attempts=5,
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to mark slots as ERROR after backfill failure",
+                    run_id=run_id,
+                )
+            raise
 
         logger.info(
             "Batched dmat PENDING workflow completed",

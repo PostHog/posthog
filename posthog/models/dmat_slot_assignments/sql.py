@@ -7,8 +7,9 @@ follows reads the mapping via `dictGetString` / `dictHas`, which keeps the
 mutation SQL constant-size regardless of how many teams have adopted dmat.
 
 Pattern mirrors `posthog/models/web_preaggregated/team_selection.py` —
-ReplacingMergeTree backing table + CLICKHOUSE-source dictionary, both ON
-CLUSTER. Differs from that pattern in one place: we use TRUNCATE+INSERT every
+ReplacingMergeTree backing table + CLICKHOUSE-source dictionary, created
+per-host via `run_sql_with_exceptions`. Differs from that pattern in one
+place: we use TRUNCATE+INSERT every
 cycle rather than append-only, because dmat slots can be deleted/reset/
 compacted and append-only would leave stale rows in the dict that silently
 overwrite columns no longer assigned to that (team, slot_index).
@@ -22,14 +23,11 @@ DMAT_SLOT_ASSIGNMENTS_TABLE_NAME = "dmat_slot_assignments"
 DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME = "dmat_slot_assignments_dict"
 
 
-def DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster: bool = True) -> str:
-    # NOT_SHARDED → plain `ReplacingMergeTree` (no ZK), so each host gets a truly local
-    # copy of the table when created ON CLUSTER. This is what makes the per-host
-    # populate-and-reload pattern in `populate_slot_assignments` correct: TRUNCATE+INSERT
-    # on host A does not replicate to hosts B/C/D, so concurrent populates on multiple
-    # hosts don't race through ZK and there's no insert-deduplication-across-truncate
-    # window to worry about. The engine's default REPLICATED scheme would set up a
-    # cluster-wide single logical table via ZK and break that mental model.
+def DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster: bool = False) -> str:
+    # NOT_SHARDED → plain `ReplacingMergeTree` (no ZK/replication), so each host
+    # gets a truly independent local table. This is what makes the per-host
+    # TRUNCATE+INSERT pattern in `populate_slot_assignments` correct: writes on
+    # host A don't replicate to hosts B/C/D, so concurrent populates don't race.
     return """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     team_id UInt64,
@@ -65,7 +63,7 @@ FINAL
 """.replace("\n", " ").strip()
 
 
-def DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster: bool = True) -> str:
+def DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster: bool = False) -> str:
     return """
 CREATE DICTIONARY IF NOT EXISTS {dictionary_name} {on_cluster_clause} (
     team_id UInt64,
@@ -84,13 +82,13 @@ LAYOUT(COMPLEX_KEY_HASHED())""".format(
     )
 
 
-def DROP_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster: bool = True) -> str:
+def DROP_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster: bool = False) -> str:
     return (
         f"DROP DICTIONARY IF EXISTS `{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}` {ON_CLUSTER_CLAUSE(on_cluster)}".strip()
     )
 
 
-def DROP_DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster: bool = True) -> str:
+def DROP_DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster: bool = False) -> str:
     return f"DROP TABLE IF EXISTS `{DMAT_SLOT_ASSIGNMENTS_TABLE_NAME}` {ON_CLUSTER_CLAUSE(on_cluster)}".strip()
 
 

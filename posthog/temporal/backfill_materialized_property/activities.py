@@ -1,5 +1,6 @@
 """Activities for materialized property backfill workflow."""
 
+import time
 import hashlib
 import dataclasses
 
@@ -11,6 +12,7 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dmat_slot_assignments.sql import (
@@ -22,6 +24,7 @@ from posthog.models.dmat_slot_assignments.sql import (
 from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
 from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD, MaterializedColumnSlotState
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
 
@@ -29,14 +32,17 @@ DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 
 
 def _generate_property_extraction_sql(property_name_param: str = "property_name") -> str:
-    """SQL fragment that extracts one property out of `properties` as a string.
+    """SQL fragment that extracts one property out of `properties` as a string."""
+    return json_extract_trim_quotes("properties", f"%({property_name_param})s")
 
-    Must stay byte-identical to the HogQL printer's JSON-fallback (`_unsafe_json_extract_trim_quotes`
-    in posthog/hogql/printer/base.py) and plugin-server's `jsonExtractRawAndTrimQuotes`
-    (create-event.ts) — all three paths read the same rows, so disagreement would show up
-    as values changing across backfill.
-    """
-    return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %({property_name_param})s), ''), 'null'), '^\"|\"$', '')"
+
+@dataclasses.dataclass(order=True)
+class _SlotBranch:
+    """One team's property mapped to a dmat column."""
+
+    team_id: int
+    property_name: str
+    slot_id: str
 
 
 @dataclasses.dataclass
@@ -44,8 +50,7 @@ class _ColumnAssignment:
     """Plan for a single dmat_string column: which (team_id, property_name) pairs land in it."""
 
     column_index: int
-    # `slot_id` is the slot UUID stringified.
-    branches: list[tuple[int, str, str]]
+    branches: list[_SlotBranch]
 
 
 @dataclasses.dataclass
@@ -109,7 +114,9 @@ def _plan_column_assignments(
                 "Compaction is needed."
             )
         plan_by_column.setdefault(chosen, _ColumnAssignment(column_index=chosen, branches=[]))
-        plan_by_column[chosen].branches.append((slot.team_id, slot.property_definition.name, str(slot.id)))
+        plan_by_column[chosen].branches.append(
+            _SlotBranch(team_id=slot.team_id, property_name=slot.property_definition.name, slot_id=str(slot.id))
+        )
         team_columns_in_plan.setdefault(slot.team_id, set()).add(chosen)
 
     # Return assignments sorted by column index for stable SQL.
@@ -167,6 +174,7 @@ def _plan_compaction_targets(
 
 
 @activity.defn
+@close_db_connections
 def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingColumnsResult:
     """Atomically allocate columns for PENDING slots and transition them to BACKFILL.
 
@@ -301,8 +309,8 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
         # Apply PENDING assignments.
         slot_index_by_id: dict[str, int] = {}
         for assignment in pending_assignments:
-            for _team_id, _prop_name, slot_id in assignment.branches:
-                slot_index_by_id[slot_id] = assignment.column_index
+            for branch in assignment.branches:
+                slot_index_by_id[branch.slot_id] = assignment.column_index
 
         assigned_slot_ids: list[str] = []
         for slot in pending:
@@ -331,7 +339,7 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
                 slot.slot_index, _ColumnAssignment(column_index=slot.slot_index, branches=[])
             )
             reclaimed_assignments_by_column[slot.slot_index].branches.append(
-                (slot.team_id, slot.property_definition.name, str(slot.id))
+                _SlotBranch(team_id=slot.team_id, property_name=slot.property_definition.name, slot_id=str(slot.id))
             )
             assigned_slot_ids.append(str(slot.id))
 
@@ -354,6 +362,7 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
 
 
 @activity.defn
+@close_db_connections
 def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCompactionTargetsResult:
     """Plan compaction targets, in priority order:
 
@@ -450,7 +459,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
             compacted_slot_ids.append(str(slot.id))
             compaction_assignments_by_column.setdefault(target, _ColumnAssignment(column_index=target, branches=[]))
             compaction_assignments_by_column[target].branches.append(
-                (slot.team_id, slot.property_definition.name, str(slot.id))
+                _SlotBranch(team_id=slot.team_id, property_name=slot.property_definition.name, slot_id=str(slot.id))
             )
 
         # Include in-flight targets in the assignment plan so the mutation step drives them
@@ -461,7 +470,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
             assert target is not None  # filtered above
             compaction_assignments_by_column.setdefault(target, _ColumnAssignment(column_index=target, branches=[]))
             compaction_assignments_by_column[target].branches.append(
-                (slot.team_id, slot.property_definition.name, str(slot.id))
+                _SlotBranch(team_id=slot.team_id, property_name=slot.property_definition.name, slot_id=str(slot.id))
             )
             compacted_slot_ids.append(str(slot.id))
 
@@ -492,6 +501,7 @@ class PopulateSlotAssignmentsResult:
 
 
 @activity.defn
+@close_db_connections
 def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> PopulateSlotAssignmentsResult:
     """Sync slot assignments from Postgres to `dmat_slot_assignments` on every host, then
     reload `dmat_slot_assignments_dict` everywhere.
@@ -624,6 +634,7 @@ def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
 
     # The mutation can run for hours; HeartbeaterSync keeps Temporal from killing the
     # activity at `heartbeat_timeout`.
+    t0 = time.monotonic()
     with HeartbeaterSync(logger=logger):
         cluster = get_cluster()
         runner = AlterTableMutationRunner(
@@ -632,8 +643,23 @@ def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
             parameters=params,
         )
         runner.run_on_shards(cluster)
+    duration_seconds = time.monotonic() - t0
 
-    logger.info("Dict-backed dmat backfill mutation complete", column_count=len(inputs.assignments))
+    logger.info(
+        "Dict-backed dmat backfill mutation complete",
+        column_count=len(inputs.assignments),
+        duration_seconds=round(duration_seconds, 1),
+    )
+    posthoganalytics.capture(
+        "dmat-system",
+        "dmat_mutation_completed",
+        properties={
+            "column_count": len(inputs.assignments),
+            "column_indexes": column_indexes,
+            "cycle_marker_int": inputs.cycle_marker_int,
+            "duration_seconds": round(duration_seconds, 1),
+        },
+    )
 
 
 @dataclasses.dataclass
@@ -642,6 +668,7 @@ class ActivateSlotsInputs:
 
 
 @activity.defn
+@close_db_connections
 def activate_slots(inputs: ActivateSlotsInputs) -> int:
     """
     Transition the given slot IDs from BACKFILL → READY in a single bulk update.
@@ -694,6 +721,7 @@ class FinalizeCompactionInputs:
 
 
 @activity.defn
+@close_db_connections
 def finalize_compaction(inputs: FinalizeCompactionInputs) -> int:
     """
     After the batched mutation has populated `compaction_target_slot_index` columns,
@@ -784,6 +812,7 @@ class ClearCompactionTargetsInputs:
 
 
 @activity.defn
+@close_db_connections
 def clear_compaction_targets(inputs: ClearCompactionTargetsInputs) -> int:
     """
     Reset `compaction_target_slot_index = NULL` on the given slots.
@@ -811,6 +840,7 @@ class FailSlotsInputs:
 
 
 @activity.defn
+@close_db_connections
 def fail_slots(inputs: FailSlotsInputs) -> int:
     """
     Transition the given slot IDs to ERROR with the supplied error_message. Used when the

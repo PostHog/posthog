@@ -15,6 +15,7 @@ from posthog.temporal.backfill_materialized_property.activities import (
     _build_dict_backed_update_command,
     _ColumnAssignment,
     _plan_column_assignments,
+    _SlotBranch,
     activate_slots,
     assign_compaction_targets,
     assign_pending_columns,
@@ -57,7 +58,7 @@ class TestPlanColumnAssignments:
 
         assert len(plan) == 1
         assert plan[0].column_index == 0
-        team_ids = {t for (t, _, _) in plan[0].branches}
+        team_ids = {b.team_id for b in plan[0].branches}
         assert team_ids == {team_a.id, team_b.id}
 
     def test_same_team_with_two_pending_uses_two_columns(self, team):
@@ -70,7 +71,7 @@ class TestPlanColumnAssignments:
         # Each column has exactly one branch for this team.
         for assignment in plan:
             assert len(assignment.branches) == 1
-            assert assignment.branches[0][0] == team.id
+            assert assignment.branches[0].team_id == team.id
 
     def test_skips_columns_already_used_by_team(self, team):
         slot = _make_pending_slot(team, "browser")
@@ -155,8 +156,10 @@ class TestBuildDictBackedUpdateCommand:
     def test_sql_size_is_independent_of_team_count(self):
         # The point of the dict-based design: SQL stays constant size regardless of adoption.
         # We verify by changing the (vestigial) branches list across runs and asserting size.
-        few_teams = [_ColumnAssignment(column_index=3, branches=[(1, "p", "x")])]
-        many_teams = [_ColumnAssignment(column_index=3, branches=[(t, f"prop_{t}", f"slot-{t}") for t in range(1000)])]
+        few_teams = [_ColumnAssignment(column_index=3, branches=[_SlotBranch(1, "p", "x")])]
+        many_teams = [
+            _ColumnAssignment(column_index=3, branches=[_SlotBranch(t, f"prop_{t}", f"slot-{t}") for t in range(1000)])
+        ]
         cmd_few, _ = _build_dict_backed_update_command(few_teams, cycle_marker_int=42)
         cmd_many, _ = _build_dict_backed_update_command(many_teams, cycle_marker_int=42)
         assert cmd_few == cmd_many, "dict-backed SQL must not depend on per-column branch count"
