@@ -146,6 +146,13 @@ export function ActionFilterRow({
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const useMenuRebuild = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
+    const useHeadlessAutocomplete = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_HEADLESS]
+    // The new picker ramps in via either flag — `useNewPicker` gates the
+    // entire wrapper so users with both flags off see only the legacy
+    // `filterElement`. Without this guard the parity widget mounts for
+    // every user (even outside the rollout), which contradicts the
+    // "legacy path unchanged" promise.
+    const useNewPicker = useMenuRebuild || useHeadlessAutocomplete
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -562,149 +569,104 @@ export function ActionFilterRow({
                                 TaxonomicFilterMenu (column / preview-pane
                                 view) renders alongside the legacy
                                 TaxonomicPopover so we can ramp it as the
-                                series-row picker. */}
-                            <div
-                                className="flex-1 min-w-36 overflow-hidden"
-                                data-attr={`series-parity-autocomplete-${index}`}
-                            >
-                                <TaxonomicFilterHeadless.Root
-                                    // Skip the legacy rootProps wrapper —
-                                    // its onKeyDown intercepts Tab/Arrow
-                                    // for the old list UI we don't render
-                                    // here, and traps Tab off the trigger.
-                                    bindRootProps={false}
-                                    taxonomicGroupTypes={effectiveActionsTaxonomicGroupTypes}
-                                    onChange={(group, changedValue, item) => {
-                                        const groupType = taxonomicFilterGroupTypeToEntityType(group.type)
-                                        if (!groupType) {
-                                            return
-                                        }
-                                        updateFilter({
-                                            type: groupType,
-                                            id: changedValue ? String(changedValue) : null,
-                                            name: item?.name ?? '',
-                                            index,
-                                        })
-                                    }}
+                                series-row picker. Gated behind either
+                                rollout flag so the parity wrapper +
+                                `TaxonomicFilterHeadless.Root` orchestrator
+                                aren't mounted for users outside the
+                                ramp — preserves the "legacy path
+                                unchanged" promise from the PR. */}
+                            {useNewPicker && (
+                                <div
+                                    className="flex-1 min-w-36 overflow-hidden"
+                                    data-attr={`series-parity-autocomplete-${index}`}
                                 >
-                                    {useMenuRebuild ? (
-                                        <TaxonomicFilterMenu
-                                            triggerLabel="All events"
-                                            comboboxTitle="Choose series filter"
-                                            // Synthetic entry — the menu only
-                                            // reads `group.type` (to route
-                                            // the initial open) and `name` /
-                                            // `friendlyLabel` (for the
-                                            // trigger label). A full
-                                            // `TaxonomicFilterGroup` isn't
-                                            // needed here.
-                                            selected={
-                                                // DWH filters often have `filter.id == null`
-                                                // (the table name lives on `filter.name`),
-                                                // so gate on whichever of id/name is present
-                                                // — otherwise the trigger label falls back to
-                                                // the default and ignores the active selection.
-                                                filter.type && (filter.id != null || filter.name)
-                                                    ? ({
-                                                          // DWH filters need the saved column
-                                                          // mapping (`id_field` /
-                                                          // `timestamp_field` /
-                                                          // `distinct_id_field` etc.) on the
-                                                          // `item` so re-opening the menu
-                                                          // routes into `dwh-config` with the
-                                                          // form pre-filled. Spread the whole
-                                                          // filter for DWH; events/actions
-                                                          // only need id + name.
-                                                          item:
-                                                              filter.type === EntityTypes.DATA_WAREHOUSE
-                                                                  ? {
-                                                                        ...filter,
-                                                                        name: filter.name,
-                                                                        // DWH `getValue` reads `name`,
-                                                                        // not `id` — make sure both
-                                                                        // are present so routing +
-                                                                        // checkmark match.
-                                                                        ...dataWarehouseTablesMap[String(filter.name)],
-                                                                    }
-                                                                  : { id: filter.id, name: filter.name },
-                                                          group: {
-                                                              type:
-                                                                  filter.type === EntityTypes.ACTIONS
-                                                                      ? TaxonomicFilterGroupType.Actions
-                                                                      : filter.type === EntityTypes.DATA_WAREHOUSE
-                                                                        ? TaxonomicFilterGroupType.DataWarehouse
-                                                                        : TaxonomicFilterGroupType.Events,
-                                                              // DWH config form reads `getName`
-                                                              // / `getValue` off `selected.group`
-                                                              // when re-opening, so provide them
-                                                              // for the DWH branch. Events /
-                                                              // Actions don't need them — the
-                                                              // resolved orchestrator group is
-                                                              // used for those once the user
-                                                              // commits.
-                                                              getName: (t: any) => t?.name,
-                                                              getValue: (t: any) => t?.name,
-                                                          },
-                                                          name: String(name ?? filter.name ?? filter.id),
-                                                          friendlyLabel: name ? String(name) : undefined,
-                                                      } as unknown as MenuFilterEntry)
-                                                    : null
+                                    <TaxonomicFilterHeadless.Root
+                                        // Skip the legacy rootProps wrapper —
+                                        // its onKeyDown intercepts Tab/Arrow
+                                        // for the old list UI we don't render
+                                        // here, and traps Tab off the trigger.
+                                        bindRootProps={false}
+                                        taxonomicGroupTypes={effectiveActionsTaxonomicGroupTypes}
+                                        onChange={(group, changedValue, item) => {
+                                            const groupType = taxonomicFilterGroupTypeToEntityType(group.type)
+                                            if (!groupType) {
+                                                return
                                             }
-                                            trigger={({ selected, label, open }) => (
-                                                <div className="relative border border-dashed border-accent p-1 rounded-sm">
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        fullWidth
-                                                        data-attr={`series-parity-autocomplete-trigger-${index}`}
-                                                        aria-expanded={open}
-                                                        sideIcon={<IconChevronDown />}
-                                                    >
-                                                        {selected ? (
-                                                            <EntityFilterInfo filter={filter} showIcon />
-                                                        ) : (
-                                                            <span className="text-secondary">{label}</span>
-                                                        )}
-                                                    </LemonButton>
-                                                    <div className="absolute -top-1 -right-1">
-                                                        <Tooltip
-                                                            title={
-                                                                <>
-                                                                    INTERNAL ONLY
-                                                                    <br />
-                                                                    The new TaxonomicFilterMenu. <br />
-                                                                    Try it out, leave feedback/wishlist!
-                                                                    <br />
-                                                                    Owned by <b>#platform-ux</b>
-                                                                </>
-                                                            }
-                                                        >
-                                                            <IconInfo className="size-4 text-accent bg-surface-primary" />
-                                                        </Tooltip>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        />
-                                    ) : (
-                                        <TaxonomicAutocomplete.Root
-                                            key={`${filter.type}:${String(filter.id ?? '')}`}
-                                            triggerLabel="All events"
-                                            defaultSelected={
-                                                filter.id != null && filter.type
-                                                    ? {
-                                                          groupType:
-                                                              filter.type === EntityTypes.ACTIONS
-                                                                  ? TaxonomicFilterGroupType.Actions
-                                                                  : TaxonomicFilterGroupType.Events,
-                                                          value: value ?? null,
-                                                          name: String(name ?? filter.id),
-                                                          friendlyLabel: name ? String(name) : undefined,
-                                                      }
-                                                    : null
-                                            }
-                                        >
-                                            <TaxonomicAutocomplete.Popover>
-                                                <TaxonomicAutocomplete.Trigger>
-                                                    {({ selected, label, open }) => (
+                                            updateFilter({
+                                                type: groupType,
+                                                id: changedValue ? String(changedValue) : null,
+                                                name: item?.name ?? '',
+                                                index,
+                                            })
+                                        }}
+                                    >
+                                        {useMenuRebuild ? (
+                                            <TaxonomicFilterMenu
+                                                triggerLabel="All events"
+                                                comboboxTitle="Choose series filter"
+                                                // Synthetic entry — the menu only
+                                                // reads `group.type` (to route
+                                                // the initial open) and `name` /
+                                                // `friendlyLabel` (for the
+                                                // trigger label). A full
+                                                // `TaxonomicFilterGroup` isn't
+                                                // needed here.
+                                                selected={
+                                                    // DWH filters often have `filter.id == null`
+                                                    // (the table name lives on `filter.name`),
+                                                    // so gate on whichever of id/name is present
+                                                    // — otherwise the trigger label falls back to
+                                                    // the default and ignores the active selection.
+                                                    filter.type && (filter.id != null || filter.name)
+                                                        ? ({
+                                                              // DWH filters need the saved column
+                                                              // mapping (`id_field` /
+                                                              // `timestamp_field` /
+                                                              // `distinct_id_field` etc.) on the
+                                                              // `item` so re-opening the menu
+                                                              // routes into `dwh-config` with the
+                                                              // form pre-filled. Spread the whole
+                                                              // filter for DWH; events/actions
+                                                              // only need id + name.
+                                                              item:
+                                                                  filter.type === EntityTypes.DATA_WAREHOUSE
+                                                                      ? {
+                                                                            ...filter,
+                                                                            name: filter.name,
+                                                                            // DWH `getValue` reads `name`,
+                                                                            // not `id` — make sure both
+                                                                            // are present so routing +
+                                                                            // checkmark match.
+                                                                            ...dataWarehouseTablesMap[
+                                                                                String(filter.name)
+                                                                            ],
+                                                                        }
+                                                                      : { id: filter.id, name: filter.name },
+                                                              group: {
+                                                                  type:
+                                                                      filter.type === EntityTypes.ACTIONS
+                                                                          ? TaxonomicFilterGroupType.Actions
+                                                                          : filter.type === EntityTypes.DATA_WAREHOUSE
+                                                                            ? TaxonomicFilterGroupType.DataWarehouse
+                                                                            : TaxonomicFilterGroupType.Events,
+                                                                  // DWH config form reads `getName`
+                                                                  // / `getValue` off `selected.group`
+                                                                  // when re-opening, so provide them
+                                                                  // for the DWH branch. Events /
+                                                                  // Actions don't need them — the
+                                                                  // resolved orchestrator group is
+                                                                  // used for those once the user
+                                                                  // commits.
+                                                                  getName: (t: any) => t?.name,
+                                                                  getValue: (t: any) => t?.name,
+                                                              },
+                                                              name: String(name ?? filter.name ?? filter.id),
+                                                              friendlyLabel: name ? String(name) : undefined,
+                                                          } as unknown as MenuFilterEntry)
+                                                        : null
+                                                }
+                                                trigger={({ selected, label, open }) => (
+                                                    <div className="relative border border-dashed border-accent p-1 rounded-sm">
                                                         <LemonButton
                                                             type="secondary"
                                                             fullWidth
@@ -718,23 +680,77 @@ export function ActionFilterRow({
                                                                 <span className="text-secondary">{label}</span>
                                                             )}
                                                         </LemonButton>
-                                                    )}
-                                                </TaxonomicAutocomplete.Trigger>
-                                                <TaxonomicAutocomplete.Content>
-                                                    <TaxonomicAutocomplete.Header rootTitle="Pick event or action" />
-                                                    <TaxonomicAutocomplete.RootView>
-                                                        <div className="p-1">
-                                                            <TaxonomicAutocomplete.Input />
+                                                        <div className="absolute -top-1 -right-1">
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        INTERNAL ONLY
+                                                                        <br />
+                                                                        The new TaxonomicFilterMenu. <br />
+                                                                        Try it out, leave feedback/wishlist!
+                                                                        <br />
+                                                                        Owned by <b>#platform-ux</b>
+                                                                    </>
+                                                                }
+                                                            >
+                                                                <IconInfo className="size-4 text-accent bg-surface-primary" />
+                                                            </Tooltip>
                                                         </div>
-                                                        <TaxonomicAutocomplete.Chips />
-                                                        <TaxonomicAutocomplete.List />
-                                                    </TaxonomicAutocomplete.RootView>
-                                                </TaxonomicAutocomplete.Content>
-                                            </TaxonomicAutocomplete.Popover>
-                                        </TaxonomicAutocomplete.Root>
-                                    )}
-                                </TaxonomicFilterHeadless.Root>
-                            </div>
+                                                    </div>
+                                                )}
+                                            />
+                                        ) : (
+                                            <TaxonomicAutocomplete.Root
+                                                key={`${filter.type}:${String(filter.id ?? '')}`}
+                                                triggerLabel="All events"
+                                                defaultSelected={
+                                                    filter.id != null && filter.type
+                                                        ? {
+                                                              groupType:
+                                                                  filter.type === EntityTypes.ACTIONS
+                                                                      ? TaxonomicFilterGroupType.Actions
+                                                                      : TaxonomicFilterGroupType.Events,
+                                                              value: value ?? null,
+                                                              name: String(name ?? filter.id),
+                                                              friendlyLabel: name ? String(name) : undefined,
+                                                          }
+                                                        : null
+                                                }
+                                            >
+                                                <TaxonomicAutocomplete.Popover>
+                                                    <TaxonomicAutocomplete.Trigger>
+                                                        {({ selected, label, open }) => (
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                fullWidth
+                                                                data-attr={`series-parity-autocomplete-trigger-${index}`}
+                                                                aria-expanded={open}
+                                                                sideIcon={<IconChevronDown />}
+                                                            >
+                                                                {selected ? (
+                                                                    <EntityFilterInfo filter={filter} showIcon />
+                                                                ) : (
+                                                                    <span className="text-secondary">{label}</span>
+                                                                )}
+                                                            </LemonButton>
+                                                        )}
+                                                    </TaxonomicAutocomplete.Trigger>
+                                                    <TaxonomicAutocomplete.Content>
+                                                        <TaxonomicAutocomplete.Header rootTitle="Pick event or action" />
+                                                        <TaxonomicAutocomplete.RootView>
+                                                            <div className="p-1">
+                                                                <TaxonomicAutocomplete.Input />
+                                                            </div>
+                                                            <TaxonomicAutocomplete.Chips />
+                                                            <TaxonomicAutocomplete.List />
+                                                        </TaxonomicAutocomplete.RootView>
+                                                    </TaxonomicAutocomplete.Content>
+                                                </TaxonomicAutocomplete.Popover>
+                                            </TaxonomicAutocomplete.Root>
+                                        )}
+                                    </TaxonomicFilterHeadless.Root>
+                                </div>
+                            )}
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (

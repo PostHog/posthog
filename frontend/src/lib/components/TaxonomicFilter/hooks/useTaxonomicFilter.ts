@@ -115,8 +115,13 @@ export interface TaxonomicFilterApi {
     /** Forwards Enter to the registered active list, falling back to onEnter(query). */
     selectSelected: () => void
 
-    // active-list registration (called by the per-tab list component)
-    registerActiveList: (api: UseGroupListResult | null) => void
+    // active-list registration (called by the per-tab list component).
+    // Pass a getter that returns the current `useGroupList` snapshot, or
+    // `null` to deregister. The orchestrator invokes the getter at the
+    // moment it needs to read the list (Enter / arrow keys), so the
+    // returned snapshot is always fresh — even though `useGroupList`
+    // returns a new object reference on every render of the consumer.
+    registerActiveList: (getter: (() => UseGroupListResult | null) | null) => void
 
     // factory for per-tab consumers
     /** Build the input object for `useGroupList`, for a given group. */
@@ -368,9 +373,21 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     }, [groups])
 
     // ---- active-list registration for keyboard nav --------------------------
-    const activeListRef = useRef<UseGroupListResult | null>(null)
-    const registerActiveList = useCallback((api: UseGroupListResult | null) => {
-        activeListRef.current = api
+    // Consumers register a *getter* (or `null` to deregister) so the
+    // orchestrator always reads the freshest list snapshot at call time.
+    // Snapshotting the API directly turned out to be racy: `useGroupList`
+    // returns a fresh object reference on every render, which made the
+    // `useEffect([list])` in `Panel.tsx` fire its cleanup + re-register
+    // continuously and opened a brief null window between the two —
+    // enough to make `selectSelected()` fall through to `onEnter(query)`
+    // mid-commit under concurrent rendering. With a getter, the consumer
+    // can register once on mount and always serve the current value.
+    const activeListGetterRef = useRef<(() => UseGroupListResult | null) | null>(null)
+    const registerActiveList = useCallback((getter: (() => UseGroupListResult | null) | null) => {
+        activeListGetterRef.current = getter
+    }, [])
+    const readActiveList = useCallback((): UseGroupListResult | null => {
+        return activeListGetterRef.current?.() ?? null
     }, [])
 
     const selectItem = useCallback(
@@ -412,7 +429,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     )
 
     const selectSelected = useCallback(() => {
-        const list = activeListRef.current
+        const list = readActiveList()
         const selected = list?.itemAtIndex()
         if (selected && activeGroup) {
             const itemValue = activeGroup.getValue?.(selected) ?? null
@@ -420,7 +437,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         } else {
             onEnter?.(searchQuery)
         }
-    }, [activeGroup, selectItem, onEnter, searchQuery])
+    }, [activeGroup, selectItem, onEnter, searchQuery, readActiveList])
 
     // ---- per-tab input factory ---------------------------------------------
     const getGroupListInput = useCallback(
@@ -458,7 +475,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     // ---- keyboard handler --------------------------------------------------
     const onKeyDown = useCallback(
         (e: React.KeyboardEvent<any>) => {
-            const list = activeListRef.current
+            const list = readActiveList()
             switch (e.key) {
                 case 'ArrowUp':
                     list?.moveUp()
@@ -482,7 +499,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                     break
             }
         },
-        [selectSelected, setSearchQuery, tabLeft, tabRight]
+        [selectSelected, setSearchQuery, tabLeft, tabRight, readActiveList]
     )
 
     return {

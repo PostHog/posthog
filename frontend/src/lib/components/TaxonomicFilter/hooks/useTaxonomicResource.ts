@@ -141,8 +141,20 @@ export function useTaxonomicResource<T>(
             entry.subscribers.add(notifyChange)
             return () => {
                 entry.subscribers.delete(notifyChange)
-                if (entry.subscribers.size === 0 && entry.abort) {
-                    entry.abort.abort()
+                if (entry.subscribers.size === 0) {
+                    // Abort any in-flight request the last consumer cared
+                    // about — without subscribers, no one's listening to
+                    // the result anyway.
+                    entry.abort?.abort()
+                    // Drop the entry once it's settled and unobserved.
+                    // Otherwise long-lived sessions with many distinct
+                    // search queries (each its own hash) leak `data` for
+                    // the lifetime of the page. Re-mount with the same
+                    // key just re-fetches; the cost is bounded by
+                    // `staleTime` UX rather than permanent memory growth.
+                    if (!entry.inflight) {
+                        cache.delete(hash)
+                    }
                 }
             }
         },

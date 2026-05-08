@@ -49,6 +49,7 @@ export function TaxonomicFilterAdapter(props: TaxonomicFilterProps): JSX.Element
         suggestedFiltersLabel,
         hideSearchInput,
         searchQuery,
+        initialSearchQuery,
         enableKeywordShortcuts,
         selectFirstItem = true,
         width,
@@ -86,6 +87,7 @@ export function TaxonomicFilterAdapter(props: TaxonomicFilterProps): JSX.Element
                 onChange={onChange}
                 onEnter={onEnter}
                 searchQuery={searchQuery}
+                initialSearchQuery={initialSearchQuery}
                 eventNames={eventNames}
                 schemaColumns={schemaColumns}
                 schemaColumnsLoading={schemaColumnsLoading}

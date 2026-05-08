@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 
 import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
 
@@ -68,11 +68,19 @@ function TaxonomicFilterActivePanel({
     const { getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
     const list: UseGroupListResult = useGroupList(getGroupListInput(group))
 
-    // Register this list as the keyboard target as long as it is mounted.
+    // Register this list as the keyboard target for as long as the panel
+    // is mounted. We pass a stable getter (`useRef`-backed) instead of
+    // the `list` object itself so the registration doesn't churn on
+    // every render — `useGroupList` returns a fresh reference each
+    // render, and registering it directly produced a brief null window
+    // between cleanup and re-register that broke `selectSelected()`
+    // under concurrent rendering.
+    const listRef = useRef(list)
+    listRef.current = list
     useEffect(() => {
-        registerActiveList(list)
+        registerActiveList(() => listRef.current)
         return () => registerActiveList(null)
-    }, [list, registerActiveList])
+    }, [registerActiveList])
 
     if (list.showLoadingState) {
         return (

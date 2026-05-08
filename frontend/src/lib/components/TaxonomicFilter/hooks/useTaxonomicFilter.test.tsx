@@ -280,7 +280,7 @@ describe('useTaxonomicFilter', () => {
             expand: jest.fn(),
             refetch: jest.fn(),
         }
-        act(() => result.current.registerActiveList(fakeApi))
+        act(() => result.current.registerActiveList(() => fakeApi))
         act(() =>
             result.current.rootProps.onKeyDown({
                 key: 'Enter',
