@@ -151,29 +151,27 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         rightSlot={
-                            isDraft ? (
-                                <span className="flex items-center gap-3">
-                                    {autoSaveEnabled && showSaving ? (
-                                        <span className="text-xs text-tertiary flex items-center gap-1">
-                                            <Spinner textColored /> Saving…
-                                        </span>
-                                    ) : lastSavedAt ? (
-                                        <span className="text-xs text-tertiary">
-                                            Last saved <RelativeTime timestamp={lastSavedAt} />
-                                        </span>
-                                    ) : null}
-                                    <LemonSwitch
-                                        checked={autoSaveEnabled}
-                                        onChange={setAutoSaveEnabled}
-                                        label="Auto-save"
-                                        size="small"
-                                    />
-                                </span>
-                            ) : lastSavedAt ? (
-                                <span className="text-xs text-tertiary">
-                                    Last saved <RelativeTime timestamp={lastSavedAt} />
-                                </span>
-                            ) : null
+                            <span className="flex items-center gap-3">
+                                {autoSaveEnabled && showSaving ? (
+                                    <span className="text-xs text-tertiary flex items-center gap-1">
+                                        <Spinner textColored /> Saving…
+                                    </span>
+                                ) : lastSavedAt ? (
+                                    <span className="text-xs text-tertiary">
+                                        Last saved <RelativeTime timestamp={lastSavedAt} />
+                                    </span>
+                                ) : null}
+                                <LemonSwitch
+                                    checked={autoSaveEnabled}
+                                    onChange={setAutoSaveEnabled}
+                                    label="Auto-save"
+                                    size="small"
+                                    disabledReason={
+                                        !isDraft ? 'Auto-save is only available for draft workflows' : undefined
+                                    }
+                                    tooltip="Automatically saves draft workflows as you edit"
+                                />
+                            </span>
                         }
                         className={clsx({
                             'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
