@@ -81,7 +81,7 @@ Capture-related clusters:
 capture-replay also has a proxy-as-a-service cluster used in KEDA autoscaling:
 `proxy-as-a-service_capture-replay_3000`.
 
-Scope with: `envoy_cluster_name=~"posthog_capture.*"`.
+Scope with: `envoy_cluster_name=~"posthog_capture-.*"`.
 
 ### Redis instance topology
 
@@ -137,7 +137,7 @@ using `datasourceUid: "victoriametrics"` and `regex: "<prefix>.*"`.
 | `capture_billing_*`            | Billing/quota tokens loaded             | `namespace`, `cache_key`                       |
 | `capture_event_restrictions_*` | Event restrictions (6 metrics)          | `namespace`, `restriction_type`                |
 | `capture_ai_otel_*`            | AI/OTel capture (12 metrics)            | `namespace="capture-ai"`                       |
-| `envoy_cluster_*`              | L7 proxy                                | `envoy_cluster_name=~"posthog_capture.*"`      |
+| `envoy_cluster_*`              | L7 proxy                                | `envoy_cluster_name=~"posthog_capture-.*"`     |
 | `aws_msk_*`                    | MSK broker-side (JMX)                   | `environment="prod-us"` or `"prod-eu"`         |
 | `ratelimit_service_*`          | Contour rate limit                      | `domain="posthog"`                             |
 | `overflow_redirect_*`          | Node.js ingestion overflow (downstream) | `ingestion_pipeline`                           |
@@ -266,7 +266,7 @@ staleness, loaded count, applied restrictions by `restriction_type`
 
 **Envoy proxy** — upstream latency, response codes (2xx/4xx/5xx), connection health,
 circuit breakers (`_open` gauges), backend membership (healthy vs total),
-timeouts, retries. Always filter: `envoy_cluster_name=~"posthog_capture.*"`.
+timeouts, retries. Always filter: `envoy_cluster_name=~"posthog_capture-.*"`.
 For capture-replay, also check `proxy-as-a-service_capture-replay_3000`.
 
 **Contour rate limit** — `ratelimit_service_*` for per-IP DoS protection.

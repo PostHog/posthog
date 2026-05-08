@@ -173,7 +173,8 @@ Ingestion workers interact with **three Kafka systems** via separate producer/co
    In-cluster WarpStream agents (`warpstream-ingestion-v2`) with multi-AZ pools; plaintext, no TLS.
    KMinion: `kminion-warpstream-ingestion`.
 
-3. **MSK ingestion cluster** (feedback) — `KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST`.
+3. **MSK ingestion cluster (feedback/DLQ producer)** — same physical cluster as item 1,
+   different producer config via `KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST`.
    Used for overflow/DLQ/async topics that route events BACK to the ingestion system.
 
 - **MSK (events/analytics)** — the original events cluster. Still carries some legacy topics and
