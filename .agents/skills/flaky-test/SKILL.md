@@ -6,9 +6,10 @@ description: >
   run URL on their PR and asks to look at a failing test, invokes /flaky-test,
   or asks "is this CI failure mine?". Determines whether the failure is caused
   by the PR's diff (then stop and report), or unrelated (then open a draft fix
-  PR off master and identify the owning team via CODEOWNERS so the user can
-  ping them on Slack). Never posts to Slack itself — returns suggested reply
-  text the user can paste.
+  PR off master, resolve the owning team via CODEOWNERS / the feature ownership
+  handbook, and resolve the corresponding Slack sub-team handle by listing
+  user groups via the Slack MCP — never hardcoded, never guessed). Never posts
+  to Slack itself — returns suggested reply text the user can paste.
 ---
 
 # Triaging flaky / unrelated test failures on PostHog PRs
@@ -117,7 +118,20 @@ If the fix needs more than one PR (cross-cutting refactor, deeper
 investigation, ambiguous root cause), don't open a PR. Capture what you
 learned for the team handoff in step 4.
 
-### Step 4: Identify the owning team
+### Step 4: Resolve the owning team — twice
+
+You need *two* identifiers and they are not interchangeable:
+
+- a **GitHub team handle** like `@PostHog/team-product-analytics`, used in
+  PR review requests
+- a **Slack handle** for the corresponding user group, used in the Slack
+  reply
+
+A GitHub team handle pasted into Slack does not ping anyone. Always resolve
+the Slack handle separately. Do **not** hardcode a github-team-to-slack
+mapping inside this skill or guess based on naming similarity.
+
+#### 4a. GitHub team via CODEOWNERS / handbook
 
 Look up CODEOWNERS for the failing test's path:
 
@@ -126,40 +140,76 @@ grep -E '<test-path-fragment-or-parent-dir>' .github/CODEOWNERS
 ```
 
 CODEOWNERS uses longest-prefix match — start specific (the test file's
-exact path) and walk up parent directories until you find a match. Cross-
-reference with the public feature ownership handbook at
-<https://posthog.com/handbook/engineering/feature-ownership> when CODEOWNERS
-doesn't cover the path or the match is ambiguous.
+exact path) and walk up parent directories until you find a match. PostHog's
+CODEOWNERS is intentionally sparse — most paths have no explicit owner.
+When that's the case, the public feature ownership handbook at
+<https://posthog.com/handbook/engineering/feature-ownership> is the source
+of truth (`WebFetch` it, search for the directory or feature name).
 
-Note that PostHog's CODEOWNERS file is intentionally sparse — most paths
-have no explicit owner. When that's the case, the handbook's feature
-ownership table is the source of truth. If neither resolves the owner with
-confidence, say so explicitly in the suggested reply rather than guessing —
-it's better to leave a question for humans than to ping the wrong team.
+The output of this step is a *team identity* — the GitHub handle if
+CODEOWNERS gave one, otherwise the team's name as written in the handbook
+(e.g. "Product analytics", "Replay", "Pipeline"). That identity is the
+input to step 4b.
+
+#### 4b. Slack handle via the Slack MCP
+
+The harness should expose a Slack MCP server with user-group / sub-team
+listing tools (typical names: `slack_get_user_groups`,
+`slack_user_groups_list`, `list_user_groups`, `usergroups.list`). List
+all user groups, then match the team identity from 4a against:
+
+- the user group's `handle` (e.g. `team-replay`)
+- the user group's `name` / display name
+- the user group's `description`
+
+Pick the user group whose handle/name most directly corresponds to the
+GitHub team or feature-handbook entry. If the GitHub handle is
+`@PostHog/team-replay` and Slack has a user group with handle
+`team-replay` or name `Team Replay`, that's the match. If the only match
+candidates differ (e.g. handbook says "Pipeline" and Slack has both
+`team-pipeline` and `team-pipeline-ingest`), prefer the more general one
+unless the failing test path narrows it.
+
+For the actual ping, use Slack's sub-team mention syntax so the message
+pings the group:
+
+```text
+<!subteam^SXXXXXXX|team-replay>
+```
+
+`SXXXXXXX` is the user group's `id` from the list call; `team-replay` is
+its `handle`. A bare `@team-replay` in skill output text does not ping —
+only the `<!subteam^...>` form does.
+
+If no Slack MCP is available, or no user group plausibly matches, do not
+guess a handle — fall through to the "owning team unclear" reply template
+and ask the user to fill in the right handle.
 
 ### Step 5: Compose the Slack reply
 
 Return suggested reply text for the user to paste into Slack. Don't post
-it yourself. Templates:
+it yourself. Templates (substitute the resolved Slack sub-team mention into
+`<slack-team-mention>`):
 
 **Unrelated, fix PR opened:**
 
 > Failure on `<test-path>::<test-name>` looks unrelated to your PR — the
 > test exercises `<area>` which your diff doesn't touch. I opened
 > <https://github.com/PostHog/posthog/pull/><n> with a likely fix. cc
-> @PostHog/<team> — please review.
+> <slack-team-mention> — please review.
 
 **Unrelated, not a one-PR fix:**
 
 > Failure on `<test-path>::<test-name>` looks unrelated to your PR but
 > isn't a one-PR fix — root cause appears to be `<short summary>`. cc
-> @PostHog/<team> — flagging for triage.
+> <slack-team-mention> — flagging for triage.
 
-**Unrelated, owning team unclear:**
+**Unrelated, Slack handle unresolved:**
 
 > Failure on `<test-path>::<test-name>` looks unrelated to your PR. I
-> couldn't confidently identify an owning team from CODEOWNERS or the
-> feature ownership handbook — would appreciate a pointer.
+> believe the owning team is `<team identity from 4a>` (per
+> CODEOWNERS / feature-ownership handbook), but I couldn't resolve the
+> Slack handle — could you tag them?
 
 ## Safety rules
 
@@ -171,6 +221,10 @@ Inherit all safety rules from `debugging-ci-failures`. In addition:
 - Keep fix PRs minimal and scoped to the failing test's root cause. No
   drive-by cleanups, no scope creep.
 - Never post to Slack — return suggested reply text only.
+- Never hardcode or guess a Slack handle. The team-to-Slack mapping must
+  always be resolved at run time via the Slack MCP. If no Slack MCP is
+  available or no user group plausibly matches, use the "Slack handle
+  unresolved" template and let the user fill it in.
 - Do not rerun CI, accept snapshots, or modify `.github/workflows/`
   without explicit approval.
 - If you can't confidently determine PR-caused vs unrelated, say so and
@@ -186,5 +240,6 @@ Always respond with:
 3. If unrelated:
    - link to the fix PR (if you opened one), or the reason no PR is
      possible
-   - the owning team handle (or "unknown" if you couldn't determine)
+   - the GitHub team handle / feature-handbook team name (or "unknown")
+   - the resolved Slack sub-team mention (or "unresolved" — never guessed)
    - the suggested Slack reply text, ready to copy-paste
