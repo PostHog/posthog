@@ -465,9 +465,19 @@ function ColumnsSection({
             primaryButton: {
                 children: 'Full resync now',
                 onClick: () => {
-                    updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
-                    resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
-                    lemonToast.success('Columns saved — full resync queued')
+                    // Bypass the bulk-update debounce so the Temporal workflow reads the new
+                    // enabled_columns from the DB; firing resync against the queued (but unsent)
+                    // PATCH would otherwise re-sync against the old column selection.
+                    void api.externalDataSchemas
+                        .update(schema.id, { enabled_columns: nextSyncedColumns })
+                        .then(() => {
+                            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                            resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                            lemonToast.success('Columns saved — full resync queued')
+                        })
+                        .catch((e: any) => {
+                            lemonToast.error(e?.message || "Can't save columns at this time")
+                        })
                 },
             },
             secondaryButton: {
