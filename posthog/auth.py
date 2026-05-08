@@ -179,9 +179,29 @@ class SessionAuthentication(authentication.SessionAuthentication):
 # bursts many requests per minute on the same bearer token; without this each call paid a Postgres
 # round-trip on the API hot path. Keyed by sha256(token) so the cache is independent of the salted
 # PBKDF2 form the underlying record may currently be stored in. Successful hits only — caching misses
-# would create a probing oracle. TTL bounds revocation latency: a deactivated user / revoked key
-# remains accepted for at most this window across each pod's local cache.
-PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS = int(os.environ.get("PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS", "60"))
+# would create a probing oracle.
+#
+# Treat cached entries as read-mostly: the same Python object is shared across requests in the
+# process, so don't mutate fields on it (the existing `last_used_at` write in `authenticate` is
+# the only sanctioned mutation, and it's idempotent within the hourly grace window).
+#
+# What stays stale for up to TTL on each pod (cleared by `PERSONAL_API_KEY_LOOKUP_CACHE.clear()`
+# on key/user mutation if you need an instant invalidation hook):
+#   - the key being deleted or its `secure_value` rotated
+#   - `scopes`, `scoped_teams`, `scoped_organizations` changes on the key
+#   - `user.is_active` flipping to False (cold-path's `user__is_active=True` filter is bypassed
+#     within the cache window — accept this latency or call `clear()` from your deactivation flow)
+#   - `user.current_team_id` changes (affects `tag_queries(team_id=...)` attribution, not authz)
+def _read_personal_api_key_lookup_cache_ttl_seconds() -> int:
+    raw = os.environ.get("PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS", "60")
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS=%r is not an integer; falling back to 60", raw)
+        return 60
+
+
+PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS = _read_personal_api_key_lookup_cache_ttl_seconds()
 PERSONAL_API_KEY_LOOKUP_CACHE: TTLCache[str, "PersonalAPIKey"] = TTLCache(
     maxsize=10_000,
     ttl=max(PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS, 1),
@@ -326,7 +346,11 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         now = timezone.now()
         key_last_used_at = personal_api_key_object.last_used_at
         # Only updating last_used_at if the hour's changed
-        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI.
+        # NOTE: `personal_api_key_object` is shared across requests in the same process via the lookup cache,
+        # so this mutation is in-place on the cached instance. That's safe today because `last_used_at` is the
+        # only field we touch and the hourly grace makes concurrent writes idempotent. Don't add other in-place
+        # mutations here without invalidating the cache entry first.
         if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
             personal_api_key_object.last_used_at = now
             personal_api_key_object.save(update_fields=["last_used_at"])
