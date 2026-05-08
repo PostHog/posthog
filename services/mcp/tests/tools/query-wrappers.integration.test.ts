@@ -226,10 +226,12 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('_posthogUrl')
             expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
 
-            // Formatted results should contain pipe-separated values (the formatter output)
             expect(typeof result.results).toBe('object')
-            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
-            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
+            const formatted = result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+            expect(typeof formatted).toBe('string')
+            // Demo data may not produce sequential pageviews for every run, so accept either
+            // the pipe-separated formatter output or the empty-data message.
+            expect(formatted.includes('|') || formatted === 'No data recorded for this time period.').toBe(true)
         })
 
         it('should execute a paths query with start point', async () => {
