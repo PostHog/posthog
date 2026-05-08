@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 
 import {
     CyclotronJobInvocation,
@@ -9,6 +9,7 @@ import {
     HogFunctionMasking,
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
+import { mirrorCall } from '../../utils/mirror-call'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
@@ -91,7 +92,10 @@ function getTtl(invocation: CyclotronJobInvocation, maskingConfig: HogFunctionMa
 
 // Hog masker is meant to be done per batch
 export class HogMaskerService {
-    constructor(private redis: RedisV2) {}
+    constructor(
+        private redis: RedisV2,
+        private redisMirror: RedisV2 | null = null
+    ) {}
 
     public async filterByMasking<T extends CyclotronJobInvocation>(
         invocations: T[]
@@ -142,13 +146,20 @@ export class HogMaskerService {
             return { masked: [], notMasked: invocations }
         }
 
-        const result = await this.redis.usePipeline({ name: 'masker', failOpen: true }, (pipeline) => {
+        const buildPipeline = (pipeline: RedisClientPipeline): void => {
             Object.values(masks).forEach(({ hogFunctionId, hash, increment, ttl }) => {
                 pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, increment)
                 // @ts-expect-error - NX is not typed in ioredis
                 pipeline.expire(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, ttl, 'NX')
             })
-        })
+        }
+
+        const [result] = await Promise.all([
+            this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
+            mirrorCall('hog-masker.filterByMasking', () =>
+                this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline)
+            ),
+        ])
 
         Object.values(masks).forEach((masker, index) => {
             const newValue: number | null = result ? result[index * 2][1] : null
