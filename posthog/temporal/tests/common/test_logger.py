@@ -775,3 +775,44 @@ def test_resolve_log_source_dwh_cdp_producer_job():
 
     assert source == "dwh_cdp_producer_job"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_log_messages_renderer_event_level_log_source_override():
+    """Per-event log_source_id (and log_source) overrides feed into the produce message.
+
+    CDC extraction relies on this so per-schema log lines can route under each schema
+    even though the workflow is source-scoped.
+    """
+    from posthog.temporal.common.logger import LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "per-schema line",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "cdc-extraction",
+        "workflow_id": "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
+        "workflow_run_id": "abc-run-id",
+        "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",  # per-schema override
+    }
+
+    rendered = renderer(logger=None, name="info", event_dict=event_dict)
+    assert rendered["produce_message"] is not None
+
+    payload = json.loads(rendered["produce_message"].decode("utf-8"))
+    assert payload["log_source"] == "external_data_jobs"
+    assert payload["log_source_id"] == "019df430-79ff-0000-4434-e9fc02f7216b"
+    assert payload["instance_id"] == "abc-run-id"
+
+
+def test_resolve_log_source_cdc_extraction():
+    # CDC schedule fires workflows with id `cdc-extraction-{source_uuid}-{iso_ts}`. The renderer
+    # uses the source uuid as the default log_source_id; per-schema log lines override it at emit time.
+    source, source_id = resolve_log_source(
+        "cdc-extraction",
+        "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
+    )
+
+    assert source == "external_data_jobs"
+    assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"

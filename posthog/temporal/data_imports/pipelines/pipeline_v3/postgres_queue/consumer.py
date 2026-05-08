@@ -37,6 +37,36 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)
 
+
+def _bind_log_context_for_batch(
+    batch: PendingBatch, workflow_id: str | None, workflow_run_id: str | None
+) -> dict[str, Any]:
+    """Build the kwargs passed to `structlog.contextvars.bind_contextvars` for a batch.
+
+    `LogMessagesRenderer` (in `posthog.temporal.common.logger`) requires `workflow_type`,
+    `workflow_id`, `workflow_run_id`, and `team_id` to produce a log_entries-bound message,
+    plus an event-level `log_source_id` so the line routes under the right schema in the
+    Syncs UI. Setting these via contextvars means every existing `logger.info(...)` call
+    on the consumer side picks them up automatically — no rewrite of call sites needed.
+
+    Falls back to placeholder values when the workflow lookup failed (job row deleted between
+    produce and consume): logs still write to stdout but won't be routed into log_entries.
+    """
+    return {
+        "team_id": batch.team_id,
+        "schema_id": batch.schema_id,
+        "source_id": batch.source_id,
+        "job_id": batch.job_id,
+        "run_uuid": batch.run_uuid,
+        "batch_id": batch.id,
+        "resource_name": batch.resource_name,
+        "workflow_type": "cdc-extraction",
+        "workflow_id": workflow_id or "",
+        "workflow_run_id": workflow_run_id or "",
+        "log_source_id": batch.schema_id,
+    }
+
+
 MAX_ATTEMPTS = 3
 POLL_INTERVAL_SECONDS = 2.0
 
@@ -171,12 +201,48 @@ class BatchConsumer:
             await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
     async def _process_single(self, batch: PendingBatch) -> None:
-        """Increment attempt, check max retries, then process the batch."""
+        """Increment attempt, check max retries, then process the batch.
+
+        Wraps the body in `structlog.contextvars` bindings so every log line emitted from this
+        consumer (including downstream calls like `process_message` in the loader) lands in
+        ClickHouse `log_entries` under the right schema and workflow run, surfacing in the
+        Syncs UI panel for that schema.
+        """
         assert self._conn is not None
 
         team_id = str(batch.team_id)
         schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
+
+        workflow_id, workflow_run_id = await self._lookup_workflow_ids(batch.job_id)
+
+        structlog.contextvars.bind_contextvars(
+            **_bind_log_context_for_batch(batch, workflow_id, workflow_run_id),
+            attempt=attempt,
+        )
+        try:
+            await self._process_single_inner(batch, attempt, team_id, schema_id)
+        finally:
+            structlog.contextvars.clear_contextvars()
+
+    async def _lookup_workflow_ids(self, job_id: str) -> tuple[str | None, str | None]:
+        """Resolve `(workflow_id, workflow_run_id)` for a batch's job by querying Postgres.
+
+        No caching — pipelines should not hold mutable in-memory state that can drift from the
+        source of truth. The lookup is one indexed PK read per batch (~1ms), and CDC runs
+        produce single-digit batches per cycle, so the cost is negligible. If profiling later
+        shows this dominates, persist `workflow_run_id` directly on `sourcebatch` rather than
+        reintroducing a cache.
+
+        Returns `(None, None)` when the job row is missing — the consumer keeps processing
+        (the batch produces a stdout log line) but the line won't reach `log_entries` because
+        `LogMessagesRenderer` requires both fields. This is the right trade-off versus crashing
+        the consumer for a missing audit-only field.
+        """
+        return await sync_to_async(_load_job_workflow_ids, thread_sensitive=False)(job_id)
+
+    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
+        assert self._conn is not None
 
         # Check before we even try — if already at max, fail the whole run.
         if attempt > self._config.max_attempts:
@@ -188,6 +254,16 @@ class BatchConsumer:
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
             return
+
+        logger.info(
+            "batch_picked_up",
+            batch_id=batch.id,
+            run_uuid=batch.run_uuid,
+            batch_index=batch.batch_index,
+            is_final_batch=batch.is_final_batch,
+            attempt=attempt,
+            resource_name=batch.resource_name,
+        )
 
         # Pre-increment: if we OOM here, recovery sees attempt=N+1
         # and knows this attempt was consumed.
@@ -201,9 +277,8 @@ class BatchConsumer:
         try:
             start = time.monotonic()
             await self._process_batch(batch)
-            BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(
-                time.monotonic() - start
-            )
+            duration = time.monotonic() - start
+            BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(duration)
 
             await BatchQueue.update_status(
                 self._conn,
@@ -212,6 +287,14 @@ class BatchConsumer:
                 attempt=attempt,
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            logger.info(
+                "batch_processed_ok",
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
+                is_final_batch=batch.is_final_batch,
+                duration_seconds=round(duration, 3),
+            )
         except Exception as e:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(e).__name__).inc()
@@ -329,6 +412,26 @@ class BatchConsumer:
 
 
 ProcessBatchFn = Callable[[PendingBatch], Coroutine[Any, Any, None]]
+
+
+def _load_job_workflow_ids(job_id: str) -> tuple[str | None, str | None]:
+    """Look up `(workflow_id, workflow_run_id)` for a job row, returning `(None, None)` if missing.
+
+    Wraps the query in a broad except so a malformed `job_id` (e.g. test fixtures with
+    non-UUID strings) or a missing row degrades gracefully — the consumer keeps processing,
+    and the line just doesn't make it into log_entries.
+    """
+    from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+
+    try:
+        row = ExternalDataJob.objects.filter(id=job_id).values("workflow_id", "workflow_run_id").first()
+    except Exception as e:
+        logger.warning("workflow_lookup_failed", job_id=job_id, error=str(e))
+        return (None, None)
+    if row is None:
+        logger.warning("workflow_lookup_missing_job_row", job_id=job_id)
+        return (None, None)
+    return (row.get("workflow_id"), row.get("workflow_run_id"))
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:

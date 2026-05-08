@@ -40,6 +40,16 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         blank=True,
         help_text="Snapshot of the ExternalDataSchema at the time this job was created.",
     )
+    cdc_write_mode = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "For CDC syncs, the write mode this job materialised: `incremental_merge` for the "
+            "consolidated table or `scd2_append` for the cdc-only history table. Lets the Syncs "
+            "UI distinguish the two ExternalDataJob rows produced when `cdc_table_mode='both'`."
+        ),
+    )
 
     __repr__ = sane_repr("id")
 
