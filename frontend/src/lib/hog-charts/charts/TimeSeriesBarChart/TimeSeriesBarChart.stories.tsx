@@ -1,8 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { TimeSeriesLineChart } from 'lib/hog-charts'
+import { TimeSeriesBarChart } from 'lib/hog-charts'
 import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
-import { ciRanges } from 'lib/statistics'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import {
@@ -23,7 +22,7 @@ import {
 } from '../time-series-fixtures'
 
 const meta: Meta = {
-    title: 'Components/HogCharts/TimeSeriesLineChart',
+    title: 'Components/HogCharts/TimeSeriesBarChart',
     parameters: { layout: 'centered' },
 }
 export default meta
@@ -35,11 +34,43 @@ export const Basic: Story = {
         const theme = useReactiveTheme()
         return (
             <Stage>
-                <TimeSeriesLineChart
+                <TimeSeriesBarChart
                     series={SERIES}
                     labels={DAYS}
                     theme={theme}
                     config={{ yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const Grouped: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesBarChart
+                    series={SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ barLayout: 'grouped', yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const Percent: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesBarChart
+                    series={SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ barLayout: 'percent', yAxis: { showGrid: true } }}
                 />
             </Stage>
         )
@@ -61,7 +92,7 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span className="text-xs text-muted">{title}</span>
             <Stage width={420} height={220}>
-                <TimeSeriesLineChart
+                <TimeSeriesBarChart
                     series={series}
                     labels={labels}
                     theme={theme}
@@ -88,7 +119,7 @@ function YFormatCell({ title, config, series }: YFormatCellProps): JSX.Element {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span className="text-xs text-muted">{title}</span>
             <Stage width={420} height={220}>
-                <TimeSeriesLineChart
+                <TimeSeriesBarChart
                     series={series}
                     labels={DAYS}
                     theme={theme}
@@ -123,26 +154,18 @@ export const YAxisFormats: Story = {
     ),
 }
 
-const DERIVED_SERIES: Series[] = [
-    { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
-    { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
-]
-const [DERIVED_CI_LOWER, DERIVED_CI_UPPER] = ciRanges(DERIVED_SERIES[0].data, 0.95)
-
-export const ConfidenceIntervals: Story = {
+export const WithGoalLine: Story = {
     render: () => {
         const theme = useReactiveTheme()
         return (
             <Stage>
-                <TimeSeriesLineChart
-                    series={DERIVED_SERIES}
+                <TimeSeriesBarChart
+                    series={SERIES}
                     labels={DAYS}
                     theme={theme}
                     config={{
                         yAxis: { showGrid: true },
-                        confidenceIntervals: [
-                            { seriesKey: 'visits', lower: DERIVED_CI_LOWER, upper: DERIVED_CI_UPPER },
-                        ],
+                        goalLines: [{ value: 50, label: 'Target' }],
                     }}
                 />
             </Stage>
@@ -150,69 +173,16 @@ export const ConfidenceIntervals: Story = {
     },
 }
 
-export const MovingAverage: Story = {
+export const WithValueLabels: Story = {
     render: () => {
         const theme = useReactiveTheme()
         return (
             <Stage>
-                <TimeSeriesLineChart
-                    series={DERIVED_SERIES}
+                <TimeSeriesBarChart
+                    series={[SERIES[0]]}
                     labels={DAYS}
                     theme={theme}
-                    config={{
-                        yAxis: { showGrid: true },
-                        movingAverage: [{ seriesKey: 'visits', window: 3 }],
-                    }}
-                />
-            </Stage>
-        )
-    },
-}
-
-export const TrendLines: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={DERIVED_SERIES}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{
-                        yAxis: { showGrid: true },
-                        trendLines: [
-                            { seriesKey: 'visits', kind: 'linear' },
-                            { seriesKey: 'signups', kind: 'linear' },
-                        ],
-                    }}
-                />
-            </Stage>
-        )
-    },
-}
-
-export const ComparisonOf: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        const series: Series[] = [
-            { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52], color: theme.colors[0] },
-            {
-                key: 'visits-prev',
-                label: 'Visits (previous)',
-                data: [15, 25, 32, 40, 38, 50, 44],
-                color: theme.colors[0],
-            },
-        ]
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={series}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{
-                        yAxis: { showGrid: true },
-                        comparisonOf: { 'visits-prev': 'visits' },
-                    }}
+                    config={{ yAxis: { showGrid: true }, valueLabels: true }}
                 />
             </Stage>
         )
