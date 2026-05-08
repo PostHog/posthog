@@ -122,7 +122,7 @@ export const getAccountsPartialUpdateUrl = (projectId: string, id: string) => {
 export const accountsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedAccountApi: NonReadonly<PatchedAccountApi>,
+    patchedAccountApi?: NonReadonly<PatchedAccountApi>,
     options?: RequestInit
 ): Promise<AccountApi> => {
     return apiMutator<AccountApi>(getAccountsPartialUpdateUrl(projectId, id), {

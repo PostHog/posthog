@@ -72,18 +72,18 @@ export type PatchedAccountApiProperties = {
     csm?: {
         id: number
         email: string
-    } | null | null
+    } | null
     /** @nullable */
     account_executive?: {
         id: number
         email: string
-    } | null | null
+    } | null
     /** @nullable */
     account_owner?: {
         id: number
         email: string
-    } | null | null
-} | null | null
+    } | null
+} | null
 
 export interface PatchedAccountApi {
     readonly id?: string

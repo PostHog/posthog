@@ -12,7 +12,6 @@ tools:
     accounts-create:
         operation: accounts_create
         enabled: true
-        feature_flag: posthog-csp
         scopes:
             - account:write
         annotations:
@@ -21,23 +20,18 @@ tools:
             idempotent: false
         title: Create account
         description: >
-            Create a new Customer Analytics account. An account is a logical container that can be linked to one or more
-            groups (e.g. companies, workspaces) of the team's configured account group type. Provide `name` (required),
-            optional `external_id` (CRM ID or similar), and optional `properties` to set the `group_type_index` and
-            `group_keys` the account is attached to, plus assignments (`csm`, `account_executive`, `account_owner`). If
-            `properties.group_keys` is non-empty, `properties.group_type_index` must also be set and must match the team's
-            configured `account_group_type_index`.
+            Create a new Customer Analytics account. An account is a logical container for assigning ownership across
+            the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and
+            optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`).
         param_overrides:
             properties:
                 description: >
-                    Typed account properties. `group_type_index` selects which group type the account is attached to and
-                    must match the team config. `group_keys` lists the group keys (string identifiers) that belong to this
-                    account. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}`
-                    of an existing user.
+                    Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each
+                    takes `{id, email}` of an existing user. All three are optional.
+        feature_flag: posthog-csp
     accounts-destroy:
         operation: accounts_destroy
         enabled: true
-        feature_flag: posthog-csp
         scopes:
             - account:write
         annotations:
@@ -47,10 +41,10 @@ tools:
         title: Delete account
         description: >
             Permanently delete a Customer Analytics account by id.
+        feature_flag: posthog-csp
     accounts-list:
         operation: accounts_list
         enabled: true
-        feature_flag: posthog-csp
         scopes:
             - account:read
         annotations:
@@ -61,12 +55,12 @@ tools:
         title: List accounts
         description: >
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
-            account `id`, `name`, `external_id`, typed `properties` (group_type_index, group_keys, csm, account_executive,
-            account_owner), and creation/update metadata. Use `accounts-retrieve` for a single account by id.
+            account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), and
+            creation/update metadata. Use `accounts-retrieve` for a single account by id.
+        feature_flag: posthog-csp
     accounts-partial-update:
         operation: accounts_partial_update
         enabled: true
-        feature_flag: posthog-csp
         scopes:
             - account:write
         annotations:
@@ -76,18 +70,17 @@ tools:
         title: Update account
         description: >
             Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are
-            left unchanged. When updating `properties.group_keys`, the keys must belong to groups of the team's configured
-            account group type and must not already be attached to a different account.
+            left unchanged.
         param_overrides:
             properties:
                 description: >
-                    Typed account properties. Pass only the fields you want to change — the server replaces the
-                    `properties` object as a whole, so include any existing values you want to preserve. `group_keys` must
-                    reference groups of the configured `group_type_index`.
+                    Typed account properties. The server replaces the `properties` object as a whole, so include any
+                    existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`,
+                    each taking `{id, email}` of an existing user.
+        feature_flag: posthog-csp
     accounts-retrieve:
         operation: accounts_retrieve
         enabled: true
-        feature_flag: posthog-csp
         scopes:
             - account:read
         annotations:
@@ -98,6 +91,7 @@ tools:
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
             (csm, account_executive, account_owner assignments).
+        feature_flag: posthog-csp
     accounts-update:
         operation: accounts_update
         enabled: false
