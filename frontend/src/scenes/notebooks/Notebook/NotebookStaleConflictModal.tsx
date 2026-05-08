@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
-
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { notebookLogic } from './notebookLogic'
+import { NotebookPreview } from './NotebookPreview'
 
 export function NotebookStaleConflictModal(): JSX.Element | null {
     const { staleConflict } = useValues(notebookLogic)
@@ -30,33 +29,26 @@ export function NotebookStaleConflictModal(): JSX.Element | null {
                     </LemonButton>
                 </>
             }
-            width={900}
+            width={1200}
         >
-            <p className="text-secondary">
-                Your local edits are preserved here. Choose to discard them, or overwrite the server's version.
-            </p>
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'preview',
-                        header: 'Preview changes',
-                        content: (
-                            <MonacoDiffEditor
-                                original={staleConflict.serverText}
-                                modified={staleConflict.localText}
-                                language="markdown"
-                                options={{
-                                    readOnly: true,
-                                    renderSideBySide: true,
-                                    minimap: { enabled: false },
-                                    scrollBeyondLastLine: false,
-                                    hideUnchangedRegions: { enabled: true },
-                                }}
-                            />
-                        ),
-                    },
-                ]}
-            />
+            <div className="grid grid-cols-2 border rounded overflow-hidden">
+                <div className="border-r">
+                    <div className="p-2 border-b text-xs font-medium text-secondary bg-surface-secondary">
+                        Last saved version
+                    </div>
+                    <div className="p-3 max-h-96 overflow-auto">
+                        <NotebookPreview content={staleConflict.serverContent} />
+                    </div>
+                </div>
+                <div>
+                    <div className="p-2 border-b text-xs font-medium text-secondary bg-surface-secondary">
+                        Your unsaved changes
+                    </div>
+                    <div className="p-3 max-h-96 overflow-auto">
+                        <NotebookPreview content={staleConflict.localContent} />
+                    </div>
+                </div>
+            </div>
         </LemonModal>
     )
 }
