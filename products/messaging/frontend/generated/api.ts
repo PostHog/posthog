@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddOptOutRequestApi,
     MessageCategoryApi,
+    MessagePreferencesApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
     MessagingTemplatesListParams,
@@ -252,6 +254,27 @@ export const messagingCategoriesSaveWebhookConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(messageCategoryApi),
+    })
+}
+
+export const getMessagingPreferencesAddOptOutCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_preferences/add_opt_out/`
+}
+
+/**
+ * Manually add a recipient to the opt-out list for a specific category or all marketing messages.
+ * @summary Manually add a recipient to the opt-out list
+ */
+export const messagingPreferencesAddOptOutCreate = async (
+    projectId: string,
+    addOptOutRequestApi: AddOptOutRequestApi,
+    options?: RequestInit
+): Promise<MessagePreferencesApi> => {
+    return apiMutator<MessagePreferencesApi>(getMessagingPreferencesAddOptOutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addOptOutRequestApi),
     })
 }
 
