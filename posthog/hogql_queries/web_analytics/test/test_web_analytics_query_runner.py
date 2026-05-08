@@ -152,7 +152,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 False,
                 False,
                 HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
-                "stats_table_preaggregated_path_bounce_query",
+                "stats_table_preaggregated_path_breakdown_query",
             ),
             (
                 "preaggregated_entry_bounce",
@@ -161,6 +161,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 False,
                 HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
                 "stats_table_preaggregated_entry_bounce_query",
+            ),
+            (
+                "preaggregated_generic",
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                False,
+                False,
+                HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+                "stats_table_preaggregated_query",
             ),
         ]
     )

@@ -94,7 +94,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         ):
             if self.query.breakdownBy == WebStatsBreakdown.PAGE:
                 return StatsTableQueryPlan(
-                    strategy="stats_table_preaggregated_path_bounce",
+                    strategy="stats_table_preaggregated_path_breakdown",
                     build_query=self.preaggregated_query_builder.get_query,
                     uses_preaggregated_tables=True,
                 )
