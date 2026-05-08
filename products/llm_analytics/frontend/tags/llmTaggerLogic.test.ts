@@ -523,5 +523,47 @@ describe('llmTaggerLogic', () => {
                     ],
                 })
         })
+
+        // Regression: combining `values: { tagger_id }` with `{filters}` made the
+        // backend's parse_select throw, the loader's catch silently returned [],
+        // and the runs tab rendered empty even when matching events existed.
+        // Lock in that the request inlines (and escapes) the id into the query
+        // string and does not send a `values` dict.
+        it.each([
+            ['plain id', 'tagger-abc', "properties.$ai_tagger_id = 'tagger-abc'"],
+            ['id with single quote', "o'malley", "properties.$ai_tagger_id = 'o\\'malley'"],
+            ['id with backslash', 'tagger\\abc', "properties.$ai_tagger_id = 'tagger\\\\abc'"],
+        ])('inlines the tagger id without a values dict (%s)', async (_label, taggerId, expectedSnippet) => {
+            const capturedQueries: { query: string; values?: unknown }[] = []
+            useMocks({
+                get: {
+                    [`/api/environments/:team_id/taggers/${taggerId}/`]: mockTagger,
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': async (req, res, ctx) => {
+                        const body = (await req.json()) as { query?: { query?: string; values?: unknown } }
+                        if (body.query?.query?.includes('$ai_tagger_id')) {
+                            capturedQueries.push({
+                                query: body.query.query,
+                                values: body.query.values,
+                            })
+                        }
+                        return res(ctx.json({ results: [] }))
+                    },
+                },
+            })
+
+            logic = llmTaggerLogic({ id: taggerId })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTagRunsSuccess'])
+
+            expect(capturedQueries).toHaveLength(1)
+            const sent = capturedQueries[0]
+            expect(sent.query).toContain(expectedSnippet)
+            expect(sent.query).toContain('{filters}')
+            expect(sent.query).not.toContain('{tagger_id}')
+            expect(sent.values).toBeUndefined()
+        })
     })
 })
