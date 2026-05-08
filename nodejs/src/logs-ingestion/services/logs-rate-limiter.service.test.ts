@@ -202,7 +202,7 @@ describe('LogsRateLimiterService', () => {
             expect(res).toEqual([[teamId1, { tokensBefore: 100, tokensAfter: 100, isRateLimited: false }]])
         })
 
-        it('should recover from negative pool over time', async () => {
+        it('should recover from empty pool over time', async () => {
             // Exhaust the bucket completely
             await rateLimiter.rateLimitMany([[teamId1, 100, Math.round(now / 1000)]])
             const res = await rateLimiter.rateLimitMany([[teamId1, 50, Math.round(now / 1000)]])
@@ -211,14 +211,15 @@ describe('LogsRateLimiterService', () => {
             expect(res[0][1].tokensAfter).toBe(-1)
             expect(res[0][1].isRateLimited).toBe(true)
 
-            // Wait for refill (2 seconds = 20KB)
+            // Wait for refill (2 seconds = 20KB). The cost=50 denial above didn't
+            // drain the bucket below 0 — denied requests don't deduct — so refill
+            // starts from 0, not -1.
             advanceTime(2000)
 
             const res2 = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
-            // Pool was -1, refills by 20, so now 19
-            expect(res2[0][1].tokensBefore).toBe(19)
-            expect(res2[0][1].tokensAfter).toBe(19)
+            expect(res2[0][1].tokensBefore).toBe(20)
+            expect(res2[0][1].tokensAfter).toBe(20)
             expect(res2[0][1].isRateLimited).toBe(false)
         })
 

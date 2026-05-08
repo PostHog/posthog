@@ -13,13 +13,19 @@ local before = redis.call('hget', key, 'ts')
 if before == false then
   local tokensBefore = poolMax
   local tokensAfter
+  local poolToStore
   if poolMax - cost >= 0 then
     tokensAfter = poolMax - cost
+    poolToStore = tokensAfter
   else
+    -- Don't deduct cost we couldn't afford. Public return stays -1 so
+    -- callers' tokensAfter <= 0 denial check is unchanged, but we store the
+    -- full bucket so an impossible-cost first call doesn't burn the credit.
     tokensAfter = -1
+    poolToStore = poolMax
   end
   redis.call('hset', key, 'ts', now)
-  redis.call('hset', key, 'pool', tokensAfter)
+  redis.call('hset', key, 'pool', poolToStore)
   redis.call('expire', key, expiry)
   return {tokensBefore, tokensAfter}
 end
@@ -47,15 +53,21 @@ currentTokens = currentTokens + owedTokens
 local tokensBefore = currentTokens
 
 -- Remove the cost and calculate tokens after; cap stored pool at poolMax so silent
--- periods do not let saved credit grow unbounded across many calls.
+-- periods do not let saved credit grow unbounded across many calls. On denial we
+-- still return -1 (preserves caller-side tokensAfter <= 0 contract) but persist the
+-- un-deducted balance so partial refills accumulate across calls — without this,
+-- sub-2 fractional fillRates wedge at -1 forever under sustained 1 req/s traffic.
 local tokensAfter
+local poolToStore
 if currentTokens - cost >= 0 then
   tokensAfter = math.min(currentTokens - cost, poolMax)
+  poolToStore = tokensAfter
 else
   tokensAfter = -1
+  poolToStore = math.min(currentTokens, poolMax)
 end
 
-redis.call('hset', key, 'pool', tokensAfter)
+redis.call('hset', key, 'pool', poolToStore)
 redis.call('expire', key, expiry)
 
 -- Return both values for partial allowance calculation
