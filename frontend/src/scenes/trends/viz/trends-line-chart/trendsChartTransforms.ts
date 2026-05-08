@@ -1,8 +1,19 @@
 import { DEFAULT_Y_AXIS_ID, movingAverageKey } from 'lib/hog-charts'
-import type { ConfidenceIntervalConfig, MovingAverageConfig, Series, TrendLineConfig } from 'lib/hog-charts'
+import type {
+    ConfidenceIntervalConfig,
+    MovingAverageConfig,
+    Series,
+    TimeSeriesLineChartConfig,
+    TooltipConfig,
+    TrendLineConfig,
+} from 'lib/hog-charts'
 import { ciRanges } from 'lib/statistics'
 
-import { ChartDisplayType } from '~/types'
+import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+import { ChartDisplayType, type IntervalType } from '~/types'
+
+import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -153,4 +164,64 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
     }
 
     return out
+}
+
+export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike> {
+    results: readonly R[]
+    trendsFilter?: TrendsFilter | null
+    baseCurrency?: CurrencyCode
+    isPercentStackView: boolean
+    isStickiness?: boolean
+    yAxisScaleType?: string | null
+    interval?: IntervalType | null
+    timezone?: string
+    allDays?: string[]
+    goalLines?: SchemaGoalLine[] | null
+    incompletenessOffsetFromEnd?: number
+    getHidden?: (r: R) => boolean
+
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
+    showTrendLines?: boolean
+
+    valueLabels?: TimeSeriesLineChartConfig['valueLabels']
+
+    showCrosshair?: boolean
+    tooltip?: TooltipConfig
+}
+
+export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
+    opts: BuildTrendsLineTimeSeriesConfigOpts<R>
+): TimeSeriesLineChartConfig {
+    const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
+        yAxisScaleType: opts.yAxisScaleType,
+        showGrid: true,
+    })
+    const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
+    const derivedConfigs = buildDerivedConfigs(opts.results, {
+        showConfidenceIntervals: opts.showConfidenceIntervals,
+        confidenceLevel: opts.confidenceLevel,
+        showMovingAverage: opts.showMovingAverage,
+        movingAverageIntervals: opts.movingAverageIntervals,
+        showTrendLines: opts.showTrendLines,
+        isStickiness: opts.isStickiness,
+        incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
+        getHidden: opts.getHidden,
+    })
+    return {
+        xAxis: {
+            timezone: opts.timezone,
+            interval: opts.interval ?? 'day',
+            allDays: opts.allDays ?? [],
+        },
+        yAxis,
+        valueLabels: opts.valueLabels,
+        goalLines: goalLineConfigs,
+        ...derivedConfigs,
+        percentStackView: opts.isPercentStackView,
+        showCrosshair: opts.showCrosshair,
+        tooltip: opts.tooltip,
+    }
 }
