@@ -260,6 +260,22 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
     assert_never(kind)
 
 
+class HogQLFeatures(BaseModel):
+    """Product-attribution hints extracted from a parsed HogQL query AST.
+
+    Populated on every HogQL-backed ClickHouse query (HogQLQuery, TrendsQuery,
+    FunnelsQuery, ...). Used by ``add_fallback_query_tags`` to attribute
+    ``HogQLQuery`` runs to a product when the caller hasn't tagged one — the
+    raw query body alone is enough to tell apart e.g. an LLM analytics
+    investigation from an error tracking lookup.
+    """
+
+    tables: list[str] = []
+    events: list[str] = []
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
 class TemporalTags(BaseModel):
     """
     Tags for temporalio workflows and activities.
@@ -388,6 +404,11 @@ class QueryTags(BaseModel):
 
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
+
+    # Tables and events referenced by the parsed HogQL AST — set by
+    # HogQLQueryExecutor for any HogQL-backed query. Used as a fallback signal
+    # for product attribution on `kind=HogQLQuery` runs.
+    hogql_features: Optional[HogQLFeatures] = None
 
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
@@ -532,8 +553,48 @@ def _apply_fallback_tags(tags: QueryTags, mapped: FallbackTags) -> None:
         tags.feature = mapped["feature"]
 
 
+# AST-level event filters that pinpoint a single product. Order matters when a
+# query touches multiple products' events — first match wins (LLM > error >
+# web > flags), prioritising the more specific signal.
+_EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
+    (
+        frozenset({"$ai_generation", "$ai_span", "$ai_trace", "$ai_embedding", "$ai_metric", "$ai_feedback"}),
+        {"product": Product.LLM_ANALYTICS},
+    ),
+    (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
+    (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
+    (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+)
+
+# Table-level fallbacks — only consulted if no event filter narrowed things
+# down. ``events`` on its own implies product analytics by default.
+_TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
+    (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
+    (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
+)
+
+
+def _hogql_features_fallback_tags(features: HogQLFeatures) -> FallbackTags | None:
+    """Pick the most specific product hinted at by an extracted set of HogQL
+    features. Returns ``None`` when the features don't match anything we
+    attribute (e.g. a plain ``SELECT 1`` or a warehouse-only query)."""
+    events = set(features.events)
+    for matchers, mapped in _EVENT_TO_TAGS:
+        if events & matchers:
+            return mapped
+
+    tables = set(features.tables)
+    for matchers, mapped in _TABLE_TO_TAGS:
+        if tables & matchers:
+            return mapped
+
+    return None
+
+
 def add_fallback_query_tags(tags: QueryTags) -> None:
-    """Order: scene → kind → mcp source. Never overrides values that are already set."""
+    """Order: scene → kind → hogql features (HogQLQuery only) → mcp source.
+    Never overrides values that are already set."""
     if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
         _apply_fallback_tags(tags, scene_mapped)
 
@@ -544,6 +605,16 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
             kind = None
         if kind is not None and (kind_mapped := kind_fallback_tags(kind)) is not None:
             _apply_fallback_tags(tags, kind_mapped)
+
+    # HogQLQuery has no inherent product (the kind fallback returns None on
+    # purpose) — fall back to whatever the AST-level features tell us.
+    if (
+        tags.product is None
+        and tags.query_type == NodeKind.HOG_QL_QUERY.value
+        and tags.hogql_features is not None
+        and (features_mapped := _hogql_features_fallback_tags(tags.hogql_features)) is not None
+    ):
+        _apply_fallback_tags(tags, features_mapped)
 
     from posthog.event_usage import EventSource
 
