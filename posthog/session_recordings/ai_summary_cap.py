@@ -129,8 +129,8 @@ def consume_summary_quota(team_id: int, n: int = 1, *, now: datetime | None = No
     """Increment the team's monthly counter by `n`. Sets a TTL on first write
     so abandoned keys GC themselves. Returns the new counter value.
 
-    No bound check — callers that want to enforce the cap should use
-    `check_and_consume` instead.
+    No bound check — callers that want to enforce the cap should call
+    `check_only` first and only consume after they've committed to LLM work.
     """
     if n <= 0:
         return current_usage(team_id, now=now)
@@ -171,25 +171,3 @@ def check_only(team_id: int, *, requested: int = 1, now: datetime | None = None)
     cap = get_cap_for_team(team_id)
     used = current_usage(team_id, now=now)
     return CapDecision(allowed=used + requested <= cap, used=used, cap=cap)
-
-
-def check_and_consume(team_id: int, *, requested: int = 1, now: datetime | None = None) -> CapDecision:
-    """GET-then-conditional-INCRBY. The race window between read and write
-    allows ~maxConcurrentCalls overshoot (sub-cap concurrent requests can all
-    pass the read, then all increment past the cap). Acceptable for a backstop;
-    do not use this for billing.
-
-    Prefer `check_only` + a later `consume_summary_quota` when the caller has
-    no-op short-circuits between entry and LLM dispatch — `check_and_consume`
-    will burn quota on those.
-
-    `requested` must be non-negative. A negative value would silently "refund"
-    quota under the previous implementation, which is almost never what a
-    caller wants — surface it loudly instead.
-    """
-    now = now or datetime.now(UTC)
-    decision = check_only(team_id, requested=requested, now=now)
-    if not decision.allowed:
-        return decision
-    new_used = consume_summary_quota(team_id, requested, now=now)
-    return CapDecision(allowed=True, used=new_used, cap=decision.cap)

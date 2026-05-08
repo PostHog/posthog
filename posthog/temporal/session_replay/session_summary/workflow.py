@@ -621,16 +621,22 @@ async def _check_handle_data(
 
 
 async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
-    """Best-effort: True iff a workflow with this id is currently RUNNING.
+    """True iff a workflow with this id is currently RUNNING.
 
     Used to distinguish a brand-new LLM run from a silent attach to one already
     in flight: ``_start_video_summary_workflow`` uses ``USE_EXISTING``, so when
     a workflow with the same id is already running, ``start_workflow`` returns
     a handle to it without ever raising ``WorkflowAlreadyStartedError``.
 
-    Failures here surface as "not running" so a flaky describe call falls back
-    to the safer side (treat as fresh start, charge the cap) rather than
-    silently bypassing the backstop.
+    Error semantics are deliberately asymmetric:
+    - ``NOT_FOUND`` → ``False``. The workflow id has never been used, so this
+      call will create a fresh run; the caller MUST charge the cap.
+    - Any other ``RPCError`` (``UNAVAILABLE``, ``DEADLINE_EXCEEDED``, etc.) is
+      re-raised. Silently treating a transient Temporal blip as "not running"
+      would push the caller down the fresh-run path and double-charge the cap
+      against an attach that the user can no longer observe; surfacing the
+      error lets the outer SSE handler emit ``session-summary-error`` and
+      leave the cap counter alone. The caller can retry.
     """
     handle = client.get_workflow_handle(workflow_id)
     try:
@@ -864,13 +870,13 @@ async def execute_summarize_session_video_stream(
     will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
 
     if will_start_fresh_run:
-        cap_decision = await database_sync_to_async(check_only, thread_sensitive=False)(team.pk)
+        cap_decision = await database_sync_to_async(check_only, thread_sensitive=False)(team.id)
         if not cap_decision.allowed:
             posthoganalytics.capture(
                 distinct_id=user.distinct_id,
                 event="replay summary quota blocked",
                 properties={
-                    "team_id": team.pk,
+                    "team_id": team.id,
                     "used": cap_decision.used,
                     "cap": cap_decision.cap,
                     "source": "dock",
@@ -903,11 +909,11 @@ async def execute_summarize_session_video_stream(
         # the previous run) — charge the per-team monthly cost backstop. Wrapped
         # so a Redis blip can't fail a user request already going to the LLM.
         try:
-            await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.pk, 1)
+            await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.id, 1)
         except Exception as e:
             logger.warning(
                 "video summary cap consume failed (best-effort)",
-                team_id=team.pk,
+                team_id=team.id,
                 session_id=session_id,
                 error=str(e),
                 signals_type="session-summaries",

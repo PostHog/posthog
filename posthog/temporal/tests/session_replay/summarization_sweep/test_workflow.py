@@ -2,6 +2,8 @@ import uuid
 
 import pytest
 
+from django.conf import settings
+
 import temporalio.worker
 from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
@@ -22,7 +24,9 @@ from posthog.temporal.session_replay.summarization_sweep.workflow import Summari
 class _NoopChildWorkflow:
     """Stand-in for the real summarize-session child so the sweep workflow has
     something to dispatch into. ABANDON parent close policy means the parent
-    doesn't await this; we don't care what it does past being startable."""
+    doesn't await child completion; the child still has to *start* on a worker
+    or `start_child_workflow` waits forever, hence registering this on the
+    same task queue as the sweep worker via monkeypatched settings."""
 
     @workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
@@ -59,7 +63,7 @@ async def test_workflow_noop_when_no_sessions():
 
 
 @pytest.mark.asyncio
-async def test_workflow_consumes_quota_after_dispatching_children():
+async def test_workflow_consumes_quota_after_dispatching_children(monkeypatch: pytest.MonkeyPatch):
     @activity.defn(name="find_sessions_for_team_activity")
     async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
         return FindSessionsResult(
@@ -76,6 +80,7 @@ async def test_workflow_consumes_quota_after_dispatching_children():
         consume_calls.append(inputs)
 
     task_queue = str(uuid.uuid4())
+    monkeypatch.setattr(settings, "SESSION_REPLAY_TASK_QUEUE", task_queue)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -98,7 +103,7 @@ async def test_workflow_consumes_quota_after_dispatching_children():
 
 
 @pytest.mark.asyncio
-async def test_workflow_does_not_fail_when_consume_quota_activity_fails():
+async def test_workflow_does_not_fail_when_consume_quota_activity_fails(monkeypatch: pytest.MonkeyPatch):
     """A transient Redis blip in the bookkeeping activity must not roll up as
     a workflow failure — the children were dispatched successfully, and the
     next sweep tick refills the increment naturally."""
@@ -117,6 +122,7 @@ async def test_workflow_does_not_fail_when_consume_quota_activity_fails():
         raise RuntimeError("redis is on fire")
 
     task_queue = str(uuid.uuid4())
+    monkeypatch.setattr(settings, "SESSION_REPLAY_TASK_QUEUE", task_queue)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,

@@ -15,7 +15,6 @@ from posthog.session_recordings.ai_summary_cap import (
     DEFAULT_MAX_SUMMARIES_PER_PERIOD,
     CapDecision,
     _redis_key,
-    check_and_consume,
     check_only,
     coerce_max_summaries_per_period,
     consume_summary_quota,
@@ -203,74 +202,11 @@ class TestCounter(BaseTest):
         assert current_usage(self.team.pk) == 7
 
 
-class TestCheckAndConsume(BaseTest):
-    def setUp(self):
-        super().setUp()
-        _create_cluster_config(self.team, max_summaries_per_period=3)
-
-    def test_allows_under_cap_and_increments(self):
-        assert check_and_consume(self.team.pk) == CapDecision(allowed=True, used=1, cap=3)
-        assert check_and_consume(self.team.pk) == CapDecision(allowed=True, used=2, cap=3)
-        assert check_and_consume(self.team.pk) == CapDecision(allowed=True, used=3, cap=3)
-
-    def test_blocks_at_cap_without_incrementing(self):
-        consume_summary_quota(self.team.pk, 3)
-        decision = check_and_consume(self.team.pk)
-        assert decision == CapDecision(allowed=False, used=3, cap=3)
-        assert current_usage(self.team.pk) == 3
-
-    def test_requested_more_than_headroom_blocks(self):
-        consume_summary_quota(self.team.pk, 2)
-        decision = check_and_consume(self.team.pk, requested=2)
-        assert decision == CapDecision(allowed=False, used=2, cap=3)
-        assert current_usage(self.team.pk) == 2
-
-    def test_requested_equal_to_headroom_allowed(self):
-        consume_summary_quota(self.team.pk, 1)
-        decision = check_and_consume(self.team.pk, requested=2)
-        assert decision == CapDecision(allowed=True, used=3, cap=3)
-
-    def test_exactly_at_cap_then_blocks(self):
-        # Boundary regression: off-by-one in the `>` comparator would flip these.
-        consume_summary_quota(self.team.pk, 2)
-        assert check_and_consume(self.team.pk).allowed is True  # 3rd: lands on cap
-        assert check_and_consume(self.team.pk).allowed is False  # 4th: blocked
-
-    def test_blocked_then_unblocked_after_cap_raise(self):
-        # Emulates the ops "bump the cap" recovery path.
-        consume_summary_quota(self.team.pk, 3)
-        assert check_and_consume(self.team.pk).allowed is False
-        SignalSourceConfig.objects.filter(team=self.team).update(config={"max_summaries_per_period": 10})
-        assert check_and_consume(self.team.pk).allowed is True
-        assert current_usage(self.team.pk) == 4
-
-    def test_requested_zero_is_allowed_noop(self):
-        # Edge: requested=0 should pass the comparator and not advance the counter.
-        decision = check_and_consume(self.team.pk, requested=0)
-        assert decision.allowed is True
-        assert current_usage(self.team.pk) == 0
-
-    def test_requested_negative_raises(self):
-        # Negative requested would silently "refund" quota — almost certainly a
-        # caller bug, so we surface it loudly rather than corrupting the counter.
-        with pytest.raises(ValueError, match="requested must be >= 0"):
-            check_and_consume(self.team.pk, requested=-1)
-
-    def test_cross_team_quota_isolation(self):
-        # Burning team A's quota must not affect team B.
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        _create_cluster_config(other_team, max_summaries_per_period=3)
-
-        consume_summary_quota(self.team.pk, 3)
-        assert check_and_consume(self.team.pk).allowed is False
-        assert check_and_consume(other_team.pk).allowed is True
-
-
 class TestCheckOnly(BaseTest):
-    """`check_only` is the entrypoint primitive used at DRF-level cost-backstop
-    checks. The defining invariant vs. `check_and_consume`: it MUST NEVER
-    advance the counter, no matter the decision. Pair with a later
-    `consume_summary_quota` once the caller commits to actual LLM work.
+    """`check_only` is the entrypoint primitive used at the cost-backstop
+    check. The defining invariant: it MUST NEVER advance the counter, no
+    matter the decision. Pair with a later `consume_summary_quota` once the
+    caller commits to actual LLM work.
     """
 
     def setUp(self):
@@ -321,9 +257,9 @@ class TestCheckOnly(BaseTest):
         with pytest.raises(ValueError, match="requested must be >= 0"):
             check_only(self.team.pk, requested=-1)
 
-    def test_check_only_then_consume_matches_check_and_consume(self):
-        # The split (check_only + consume) must be observationally equivalent to
-        # the atomic check_and_consume when the caller always commits.
+    def test_check_only_then_consume_advances_counter_only_when_committed(self):
+        # The split (check_only + consume) must advance the counter exactly
+        # once per committed work item, never on the check itself.
         for _ in range(3):
             decision = check_only(self.team.pk)
             if decision.allowed:
@@ -359,15 +295,16 @@ class TestHeadroom(BaseTest):
 
 
 class TestConcurrency(BaseTest):
-    """Pin the documented overshoot bound so a future change to the GET-then-INCRBY
-    pattern can't silently widen the race window past what we're willing to accept.
+    """Pin the documented overshoot bound on the `check_only`+`consume_summary_quota`
+    split so a future change to the GET-then-INCRBY pattern can't silently widen
+    the race window past what we're willing to accept.
     """
 
     def setUp(self):
         super().setUp()
         _create_cluster_config(self.team, max_summaries_per_period=3)
 
-    def test_concurrent_check_and_consume_overshoot_bounded(self):
+    def test_concurrent_check_only_then_consume_overshoot_bounded(self):
         n_threads = 10
         barrier = threading.Barrier(n_threads)
         results: list[CapDecision] = []
@@ -375,7 +312,9 @@ class TestConcurrency(BaseTest):
 
         def worker():
             barrier.wait()
-            decision = check_and_consume(self.team.pk)
+            decision = check_only(self.team.pk)
+            if decision.allowed:
+                consume_summary_quota(self.team.pk, 1)
             with results_lock:
                 results.append(decision)
 
@@ -391,10 +330,10 @@ class TestConcurrency(BaseTest):
         allowed_count = sum(1 for r in results if r.allowed)
         # Floor: we must have honored at least the cap.
         assert allowed_count >= 3
-        # Ceiling: in the worst case all 10 threads could pass GET before any
-        # INCRBY, but never more than the thread count.
+        # Ceiling: in the worst case all 10 threads could pass `check_only` before
+        # any `consume`, but never more than the thread count.
         assert allowed_count <= n_threads
-        # The counter MUST equal allowed_count: blocked decisions never increment.
+        # The counter MUST equal allowed_count: blocked decisions never consume.
         assert current_usage(self.team.pk) == allowed_count
 
 
@@ -411,29 +350,10 @@ class TestMonthBoundary(BaseTest):
         assert current_usage(self.team.pk, now=feb) == 2
         assert current_usage(self.team.pk, now=jan) == 5
 
-    def test_check_and_consume_uses_now_for_bucket(self):
+    def test_check_only_uses_now_for_bucket(self):
         feb = datetime(2026, 2, 15, 12, 0, 0, tzinfo=UTC)
+        consume_summary_quota(self.team.pk, 5, now=feb)
 
         with patch("posthog.session_recordings.ai_summary_cap.datetime") as mock_dt:
             mock_dt.now.return_value = feb
-            assert check_and_consume(self.team.pk) == CapDecision(
-                allowed=True, used=1, cap=DEFAULT_MAX_SUMMARIES_PER_PERIOD
-            )
-        assert current_usage(self.team.pk, now=feb) == 1
-
-    def test_check_and_consume_snapshots_now_for_both_read_and_write(self):
-        # Regression: before snapshotting, a call straddling midnight on the 1st
-        # could read from one bucket and write to the next. With snapshotting,
-        # both sides MUST see the same bucket.
-        jan_last = datetime(2026, 1, 31, 23, 59, 59, 999999, tzinfo=UTC)
-        feb_first = datetime(2026, 2, 1, 0, 0, 0, tzinfo=UTC)
-
-        # Pre-fill January almost to the cap.
-        _create_cluster_config(self.team, max_summaries_per_period=10)
-        consume_summary_quota(self.team.pk, 9, now=jan_last)
-
-        # Within a single check_and_consume call, both reads must hit the snapshot.
-        decision = check_and_consume(self.team.pk, now=jan_last)
-        assert decision.allowed is True
-        assert current_usage(self.team.pk, now=jan_last) == 10
-        assert current_usage(self.team.pk, now=feb_first) == 0
+            assert check_only(self.team.pk) == CapDecision(allowed=True, used=5, cap=DEFAULT_MAX_SUMMARIES_PER_PERIOD)
