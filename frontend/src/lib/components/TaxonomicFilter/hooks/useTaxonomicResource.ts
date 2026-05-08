@@ -135,37 +135,23 @@ export function useTaxonomicResource<T>(
     const fnRef = useRef(fn)
     fnRef.current = fn
 
-    // Subscribe to cache entry changes.
+    // Subscribe to cache entry changes. Aborts any in-flight request
+    // when the last consumer unmounts, but deliberately leaves the
+    // settled entry in the cache — `staleTime` preserves data for
+    // re-mounts within the freshness window (one of the documented
+    // behaviours: see the "returns cached data within staleTime
+    // without refetching" test). Memory growth from long-lived
+    // sessions with many distinct cache keys is a real concern but
+    // belongs in a separate eviction strategy (LRU cap or time-based
+    // purge), not on unsubscribe — the latter conflicts with the
+    // staleTime contract.
     useSyncExternalStore(
         (notifyChange) => {
             entry.subscribers.add(notifyChange)
             return () => {
                 entry.subscribers.delete(notifyChange)
-                if (entry.subscribers.size === 0) {
-                    // Abort synchronously so in-flight requests don't
-                    // finish into a void on unmount (the existing
-                    // `useTaxonomicResource` test asserts the signal is
-                    // aborted right after `unmount()`).
-                    entry.abort?.abort()
-                    entry.abort = undefined
-                    entry.inflight = undefined
-                    // Defer the actual cache eviction one task — React's
-                    // strict-mode double-invoke and Jest's `cleanup()`
-                    // between tests both tear the subscriber down and
-                    // re-attach it within the same tick. Synchronous
-                    // `cache.delete` would force the re-mount to
-                    // re-fetch, but more importantly any code path that
-                    // captured `entry` already (other consumers, the
-                    // in-flight closure) would write into a detached
-                    // entry the cache can no longer find. Re-check
-                    // subscriber count on the next task; only evict
-                    // when the entry is still genuinely orphaned.
-                    setTimeout(() => {
-                        if (entry.subscribers.size > 0) {
-                            return
-                        }
-                        cache.delete(hash)
-                    }, 0)
+                if (entry.subscribers.size === 0 && entry.abort) {
+                    entry.abort.abort()
                 }
             }
         },
