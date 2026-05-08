@@ -514,7 +514,11 @@ class TestAddFallbackQueryTags(BaseTest):
     @parameterized.expand(
         [
             ("ai_generation", ["$ai_generation"], Product.LLM_ANALYTICS),
+            ("ai_span", ["$ai_span"], Product.LLM_ANALYTICS),
             ("ai_trace", ["$ai_trace"], Product.LLM_ANALYTICS),
+            ("ai_embedding", ["$ai_embedding"], Product.LLM_ANALYTICS),
+            ("ai_metric", ["$ai_metric"], Product.LLM_ANALYTICS),
+            ("ai_feedback", ["$ai_feedback"], Product.LLM_ANALYTICS),
             ("exception", ["$exception"], Product.ERROR_TRACKING),
             ("web_vitals", ["$web_vitals"], Product.WEB_ANALYTICS),
             ("feature_flag_called", ["$feature_flag_called"], Product.FEATURE_FLAGS),

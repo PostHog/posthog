@@ -555,6 +555,11 @@ _EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
 )
 
+# Union of every event the fallback can match — exposed so HogQLFeatureExtractor can use it as
+# its allow-list without duplicating the names. Adding a new mapping to _EVENT_TO_TAGS
+# automatically widens what the extractor records.
+EVENT_TAG_MATCHERS: frozenset[str] = frozenset().union(*(matchers for matchers, _ in _EVENT_TO_TAGS))
+
 # Table-level fallbacks — only consulted if no event filter narrowed things down.
 _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),

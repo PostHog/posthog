@@ -9,20 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
 
-# Restricted to the set add_fallback_query_tags actually maps — over-collecting bloats query_log without buying anything.
-_INTERESTING_EVENT_NAMES: frozenset[str] = frozenset(
-    {
-        "$ai_generation",
-        "$ai_span",
-        "$ai_trace",
-        "$ai_embedding",
-        "$ai_metric",
-        "$ai_feedback",
-        "$exception",
-        "$web_vitals",
-        "$feature_flag_called",
-    }
-)
+from posthog.clickhouse.query_tagging import EVENT_TAG_MATCHERS
 
 
 class HogQLFeatureExtractor(TraversingVisitor):
@@ -52,7 +39,7 @@ class HogQLFeatureExtractor(TraversingVisitor):
                 right = right.expr
             for field_side, value_side in ((left, right), (right, left)):
                 if _looks_like_event_field(field_side):
-                    self.events.update(v for v in _iter_string_constants(value_side) if v in _INTERESTING_EVENT_NAMES)
+                    self.events.update(v for v in _iter_string_constants(value_side) if v in EVENT_TAG_MATCHERS)
         super().visit_compare_operation(node)
 
 
