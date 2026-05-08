@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, Team } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
@@ -24,13 +25,14 @@ export interface TestingEventSubpipelineInput {
 export interface TestingEventSubpipelineConfig {
     outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
     groupId: string
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export function createTestingEventSubpipeline<TInput extends TestingEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { outputs, groupId } = config
+    const { outputs, groupId, materializedColumnSlotManager } = config
 
     // Compared to event-subpipeline.ts:
     // CHANGED: createNormalizeProcessPersonFlagStep → createDisablePersonProcessingWithFakePersonStep
@@ -45,7 +47,7 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
         .pipe(createNormalizeEventStep())
         .pipe(createPrepareEventStep())
         .pipe(createExtractHeatmapDataStep(outputs))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager))
         .pipe(
             createEmitEventStep({
                 outputs,

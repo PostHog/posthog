@@ -79,6 +79,10 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
         } as any,
+        materializedColumnSlotManager: {
+            getSlots: jest.fn().mockResolvedValue([]),
+            getSlotsForTeams: jest.fn().mockResolvedValue({}),
+        } as any,
         groupTypeManager: {
             fetchGroupTypeIndex: jest.fn().mockResolvedValue(0),
         } as any,

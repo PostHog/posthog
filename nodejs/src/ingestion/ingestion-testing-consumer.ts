@@ -7,6 +7,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, PluginServerService, PluginsServerConfig } from '../types'
 import { logger } from '../utils/logger'
+import { MaterializedColumnSlotManager } from '../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
 import { EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './analytics/outputs'
@@ -40,6 +41,7 @@ export interface IngestionTestingConsumerDeps {
     /** Single producer for all output (events, DLQ, internal messages) — writes to WarpStream */
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export class IngestionTestingConsumer {
@@ -122,6 +124,7 @@ export class IngestionTestingConsumer {
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
+            materializedColumnSlotManager: this.deps.materializedColumnSlotManager,
         }
         this.joinedPipeline = createTestingJoinedIngestionPipeline(
             newBatchPipelineBuilder<TestingJoinedIngestionPipelineInput, TestingJoinedIngestionPipelineContext>(),

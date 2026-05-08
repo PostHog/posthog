@@ -4,6 +4,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { EventHeaders, Team } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
@@ -46,6 +47,7 @@ export interface EventSubpipelineConfig {
         EventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
     >
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
@@ -62,6 +64,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         options,
         outputs,
         teamManager,
+        materializedColumnSlotManager,
         groupTypeManager,
         hogTransformer,
         personsStore,
@@ -115,7 +118,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createExtractHeatmapDataStep(outputs))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager))
         .pipe(
             topHog(
                 createEmitEventStep({

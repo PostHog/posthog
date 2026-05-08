@@ -62,6 +62,7 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
+import { MaterializedColumnSlotManager } from '../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
@@ -200,6 +201,7 @@ export class IngestionApiServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
+        const materializedColumnSlotManager = new MaterializedColumnSlotManager(this.postgres)
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -358,6 +360,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService,
             overflowLaneTTLRefreshService,
             teamManager,
+            materializedColumnSlotManager,
             cookielessManager: this.cookielessManager,
             groupTypeManager,
             topHog: this.topHog,

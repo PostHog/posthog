@@ -17,6 +17,7 @@ import { PostgresRouter } from '../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
+import { MaterializedColumnSlotManager } from '../utils/materialized-column-slot-manager'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
@@ -82,6 +83,7 @@ export interface IngestionConsumerDeps {
         | TophogOutput
     >
     teamManager: TeamManager
+    materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
@@ -285,6 +287,7 @@ export class IngestionConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             teamManager: this.deps.teamManager,
+            materializedColumnSlotManager: this.deps.materializedColumnSlotManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
             topHog: this.topHog!,

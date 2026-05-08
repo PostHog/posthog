@@ -302,6 +302,10 @@ describe('ErrorTrackingPipeline', () => {
             groupId: 'error-tracking-test',
             promiseScheduler,
             teamManager: mockTeamManager,
+            materializedColumnSlotManager: {
+                getSlots: jest.fn().mockResolvedValue([]),
+                getSlotsForTeams: jest.fn().mockResolvedValue({}),
+            } as any,
             personRepository: mockPersonRepository,
             hogTransformer: mockHogTransformer,
             cymbalClient: mockCymbalClient,

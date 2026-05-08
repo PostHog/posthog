@@ -105,6 +105,8 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
         person_created_at: castTimestampOrNow(event.person_created_at, TimestampFormat.ClickHouseSecondPrecision),
         person_mode: event.person_mode,
         ...(event.historical_migration ? { historical_migration: true } : {}),
+        // Flat top-level so the events_json MV reads each as its own column.
+        ...(event.dmat_columns ?? {}),
     }
 }
 
