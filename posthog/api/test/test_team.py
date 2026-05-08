@@ -3230,6 +3230,55 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
 
+    @parameterized.expand(
+        [
+            (
+                "missing_key",
+                [{"type": "person", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_type",
+                [{"key": "email", "type": "not_a_type", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_operator",
+                [{"key": "email", "type": "person", "operator": "not_an_operator", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_cohort_value",
+                [{"key": "id", "type": "cohort", "operator": "in", "value": "not-a-cohort-id"}],
+            ),
+        ]
+    )
+    def test_filter_permission_rejects_invalid_filters(self, _name: str, test_account_filters: list[dict[str, Any]]):
+        original_test_account_filters = self.team.test_account_filters
+
+        with self.settings(TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"test_account_filters": test_account_filters},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "test_account_filters")
+        self.assertIn("Must provide an array of valid property filters.", response.json()["detail"])
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    def test_filter_permission_allows_is_set_filters_without_value(self):
+        with self.settings(TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"test_account_filters": [{"key": "email", "type": "person", "operator": "is_set"}]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["test_account_filters"],
+            [{"key": "email", "type": "person", "operator": "is_set"}],
+        )
+
 
 class TestTeamSerializerHomeViewWins(APIBaseTest):
     def setUp(self):
