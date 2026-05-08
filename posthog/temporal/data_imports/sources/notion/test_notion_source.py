@@ -53,11 +53,6 @@ class TestNotionSource:
         assert by_name["pages"].supports_append is True
         assert by_name["users"].supports_incremental is False
 
-        # Static endpoints get human-readable labels (underscores → spaces).
-        assert by_name["users"].label == "Users"
-        assert by_name["pages"].label == "Pages"
-        assert by_name["data_sources"].label == "Data sources"
-
         # Data source row schemas use the Notion data source title as their label,
         # falling back to "Untitled data source" when the title is empty.
         assert by_name[data_source_rows_schema_name("ds-id-aaa")].label == "Engineering tasks"

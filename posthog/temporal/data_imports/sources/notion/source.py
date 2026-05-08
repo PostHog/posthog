@@ -88,9 +88,6 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         schemas: list[SourceSchema] = [
             SourceSchema(
                 name=endpoint,
-                # Render `data_sources` as "Data sources" — straight `.capitalize()` keeps
-                # the underscore (`Data_sources`) which looks ugly in the UI.
-                label=endpoint.replace("_", " ").capitalize(),
                 supports_incremental=bool(NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=bool(NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields),
                 incremental_fields=NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields,
