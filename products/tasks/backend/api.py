@@ -2340,13 +2340,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if method == "set_config_option":
             if self._persist_config_option_state(task_run, params):
-                response_payload: dict[str, Any] = {
+                config_response_payload: dict[str, Any] = {
                     "jsonrpc": request.validated_data["jsonrpc"],
                     "result": {"updated": True},
                 }
                 if request_id is not None:
-                    response_payload["id"] = request_id
-                return Response(TaskRunCommandResponseSerializer(response_payload).data)
+                    config_response_payload["id"] = request_id
+                return Response(TaskRunCommandResponseSerializer(config_response_payload).data)
 
         if method == "user_message":
             command_params = dict(params or {})
@@ -2375,13 +2375,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
-            response_payload: dict[str, Any] = {
+            user_message_response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],
                 "result": {"queued": True},
             }
             if request_id is not None:
-                response_payload["id"] = request_id
-            return Response(TaskRunCommandResponseSerializer(response_payload).data)
+                user_message_response_payload["id"] = request_id
+            return Response(TaskRunCommandResponseSerializer(user_message_response_payload).data)
 
         run_state = parse_run_state(task_run.state)
 
