@@ -10,8 +10,9 @@ def load_trace_file(path):
         raw = json.load(f)
     if isinstance(raw, list) and raw and raw[0].get("type") == "text":
         raw = json.loads(raw[0]["text"])
-    results = raw.get("results", raw)
-    return [results] if isinstance(results, dict) else results
+    metadata = raw if isinstance(raw, dict) else {}
+    results = raw.get("results", raw) if isinstance(raw, dict) else raw
+    return ([results] if isinstance(results, dict) else results), metadata
 
 
 def summarize(val, max_len=500):
@@ -41,9 +42,37 @@ def extract_final_output(choices):
     return "\n".join(parts_text) or None, "\n".join(parts_thinking) or None
 
 
+def as_float(value):
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def print_collection_summary(traces, metadata):
+    if len(traces) <= 1:
+        return
+
+    print(f"{'='*80}")
+    print("TRACE COLLECTION SUMMARY")
+    print(f"{'='*80}")
+    print(f"  Total traces: {len(traces)}")
+    print(f"  Total latency: {sum(as_float(t.get('totalLatency')) for t in traces):.2f}s")
+    print(f"  Total cost: ${sum(as_float(t.get('totalCost')) for t in traces):.6f}")
+    print(f"  Tokens in: {int(sum(as_float(t.get('inputTokens')) for t in traces))}")
+    print(f"  Tokens out:{int(sum(as_float(t.get('outputTokens')) for t in traces))}")
+    print(f"  Errors:    {int(sum(as_float(t.get('errorCount')) for t in traces))}")
+    if metadata.get("_posthogUrl"):
+        print(f"  PostHog URL: {metadata['_posthogUrl']}")
+    print()
+
+
 max_len = int(os.environ.get("MAX_LEN", "500"))
 
-traces = load_trace_file(sys.argv[1])
+traces, metadata = load_trace_file(sys.argv[1])
+print_collection_summary(traces, metadata)
 for trace in traces:
     print(f"{'='*80}")
     print(f"TRACE SUMMARY")
