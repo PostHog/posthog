@@ -18,6 +18,7 @@ from posthog.schema import (
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
+    DashboardAutoRefreshInterval,
     DashboardFilter,
     DateRange,
     EndpointsUsageOverviewQuery,
@@ -196,10 +197,10 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`. Must match the
-# frontend `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` (1800s) — drift would silently drop
-# periodic refresh ticks. Best-effort throttle, not a hard rate limit.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=30)
+# Minimum age before a shared insight may honor `?refresh=force_blocking`.
+# Sourced from the same generated schema as the frontend's auto-refresh interval so the
+# two cannot drift. Best-effort throttle, not a hard rate limit.
+SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {

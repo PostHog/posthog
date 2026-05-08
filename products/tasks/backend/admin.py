@@ -72,22 +72,16 @@ class CodeInviteAdmin(admin.ModelAdmin):
     autocomplete_fields = ("created_by",)
     inlines = []
 
-    def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return ("id", "code", "redemption_count", "created_at")
-        return ("id", "redemption_count", "created_at")
-
     def get_fieldsets(self, request, obj=None):
         if obj:
-            # Show auto-generated code as readonly on existing records
             return (
                 (None, {"fields": ("id", "code", "description")}),
                 ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
                 ("Metadata", {"fields": ("created_by", "created_at")}),
             )
-        # On add, omit code — it will be auto-generated on save
+        # On add, code may be set manually or left blank to auto-generate on save
         return (
-            (None, {"fields": ("id", "description")}),
+            (None, {"fields": ("id", "code", "description")}),
             ("Limits", {"fields": ("is_active", "max_redemptions", "expires_at")}),
             ("Metadata", {"fields": ("created_by",)}),
         )

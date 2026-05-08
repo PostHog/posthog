@@ -199,6 +199,9 @@ export const advancedActivityLogsExportCreateBodyUserLastNameMax = 150
 
 export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
 
+export const advancedActivityLogsExportCreateBodyTeamIdMin = 0
+export const advancedActivityLogsExportCreateBodyTeamIdMax = 2147483647
+
 export const advancedActivityLogsExportCreateBodyClientMax = 32
 
 export const advancedActivityLogsExportCreateBodyActivityMax = 79
@@ -229,6 +232,11 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
             ])
             .nullish(),
     }),
+    team_id: zod
+        .number()
+        .min(advancedActivityLogsExportCreateBodyTeamIdMin)
+        .max(advancedActivityLogsExportCreateBodyTeamIdMax)
+        .nullish(),
     organization_id: zod.uuid().nullish(),
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
