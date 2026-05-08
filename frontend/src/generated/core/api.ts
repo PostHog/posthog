@@ -140,16 +140,6 @@ export const subscriptionsDeliveriesRetrieve = async (
     })
 }
 
-/**
- * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
- */
 export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -166,6 +156,16 @@ export const getCimdVerificationTokensListUrl = (organizationId: string, params?
         : `/api/organizations/${organizationId}/cimd_verification_tokens/`
 }
 
+/**
+ * Manage CIMD verification tokens for an organization.
+
+A partner embeds the plaintext token in their CIMD metadata document under
+`posthog_verification_token`. When PostHog fetches the metadata, matching
+the token links the partner app to this organization and grants a higher
+default rate limit for account provisioning.
+
+The plaintext value is only available on creation; we store a hash.
+ */
 export const cimdVerificationTokensList = async (
     organizationId: string,
     params?: CimdVerificationTokensListParams,
@@ -175,6 +175,10 @@ export const cimdVerificationTokensList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/`
 }
 
 /**
@@ -187,10 +191,6 @@ default rate limit for account provisioning.
 
 The plaintext value is only available on creation; we store a hash.
  */
-export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/cimd_verification_tokens/`
-}
-
 export const cimdVerificationTokensCreate = async (
     organizationId: string,
     cIMDVerificationTokenApi: NonReadonly<CIMDVerificationTokenApi>,
@@ -204,6 +204,10 @@ export const cimdVerificationTokensCreate = async (
     })
 }
 
+export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
+}
+
 /**
  * Manage CIMD verification tokens for an organization.
 
@@ -214,10 +218,6 @@ default rate limit for account provisioning.
 
 The plaintext value is only available on creation; we store a hash.
  */
-export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
-}
-
 export const cimdVerificationTokensRetrieve = async (
     organizationId: string,
     id: string,
@@ -229,6 +229,10 @@ export const cimdVerificationTokensRetrieve = async (
     })
 }
 
+export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
+}
+
 /**
  * Manage CIMD verification tokens for an organization.
 
@@ -239,10 +243,6 @@ default rate limit for account provisioning.
 
 The plaintext value is only available on creation; we store a hash.
  */
-export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
-}
-
 export const cimdVerificationTokensDestroy = async (
     organizationId: string,
     id: string,

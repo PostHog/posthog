@@ -809,14 +809,14 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
     })
 }
 
-/**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
- * @summary Get compact error tracking issue details
- */
 export const getErrorTrackingQueryIssueCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/query/issue/`
 }
 
+/**
+ * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * @summary Get compact error tracking issue details
+ */
 export const errorTrackingQueryIssueCreate = async (
     projectId: string,
     errorTrackingIssueQueryRequestApi: ErrorTrackingIssueQueryRequestApi,
@@ -830,14 +830,14 @@ export const errorTrackingQueryIssueCreate = async (
     })
 }
 
-/**
- * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.
- * @summary List sampled exception events for an error tracking issue
- */
 export const getErrorTrackingQueryIssueEventsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/query/issue_events/`
 }
 
+/**
+ * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.
+ * @summary List sampled exception events for an error tracking issue
+ */
 export const errorTrackingQueryIssueEventsCreate = async (
     projectId: string,
     errorTrackingIssueEventsQueryRequestApi: ErrorTrackingIssueEventsQueryRequestApi,
@@ -851,17 +851,17 @@ export const errorTrackingQueryIssueEventsCreate = async (
     })
 }
 
-/**
- * List error tracking issues with typed filters and compact aggregate counts.
- * @summary List compact error tracking issues
- */
 export const getErrorTrackingQueryIssuesListCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/query/issues/`
 }
 
+/**
+ * List error tracking issues with typed filters and compact aggregate counts.
+ * @summary List compact error tracking issues
+ */
 export const errorTrackingQueryIssuesListCreate = async (
     projectId: string,
-    errorTrackingIssuesListQueryRequestApi: ErrorTrackingIssuesListQueryRequestApi,
+    errorTrackingIssuesListQueryRequestApi?: ErrorTrackingIssuesListQueryRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingIssuesListResponseApi> => {
     return apiMutator<ErrorTrackingIssuesListResponseApi>(getErrorTrackingQueryIssuesListCreateUrl(projectId), {

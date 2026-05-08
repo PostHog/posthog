@@ -2401,7 +2401,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
                             ),
                         zod.enum(['']),
-                        zod.literal(null),
+                        zod.null(),
                     ])
                     .default(errorTrackingQueryIssueEventsCreateBodyFilterGroupItemOperatorDefault),
                 type: zod
@@ -2542,14 +2542,17 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
             'Filter by issue status. Defaults to active.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all'
         ),
     assignee: zod
-        .object({
-            id: zod.union([zod.string(), zod.number()]).describe('User ID or role UUID to filter by.'),
-            type: zod
-                .enum(['user', 'role'])
-                .describe('* `user` - user\n* `role` - role')
-                .describe('Assignee target type: user or role.\n\n* `user` - user\n* `role` - role'),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                id: zod.union([zod.string(), zod.number(), zod.null()]).describe('User ID or role UUID to filter by.'),
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('* `user` - user\n* `role` - role')
+                    .describe('Assignee target type: user or role.\n\n* `user` - user\n* `role` - role'),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe('Filter by issue assignee. Omit to include all assignees.'),
     filterTestAccounts: zod
         .boolean()
@@ -2602,7 +2605,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
                             ),
                         zod.enum(['']),
-                        zod.literal(null),
+                        zod.null(),
                     ])
                     .default(errorTrackingQueryIssuesListCreateBodyFilterGroupItemOperatorDefault),
                 type: zod

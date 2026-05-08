@@ -830,10 +830,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `event` - event
  * `event_metadata` - event_metadata
@@ -895,13 +891,14 @@ export const PropertyFilterTypeEnumApi = {
     WorkflowVariable: 'workflow_variable',
 } as const
 
+export const PropertyItemApiType = { ...PropertyFilterTypeEnumApi, ...BlankEnumApi } as const
 export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
-    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: PropertyFilterTypeEnumApi | BlankEnumApi
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | null
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 /**
@@ -944,8 +941,8 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
     searchQuery?: string
     /** Timestamp sort direction. Defaults to DESC.
 
-* `ASC` - ASC
-* `DESC` - DESC */
+  * `ASC` - ASC
+  * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -960,9 +957,9 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
     offset?: number
     /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
 
-* `summary` - summary
-* `stack` - stack
-* `raw` - raw */
+  * `summary` - summary
+  * `stack` - stack
+  * `raw` - raw */
     verbosity?: VerbosityEnumApi
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
@@ -1019,11 +1016,11 @@ export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
 
 export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
-    id: string | number
+    id: string | number | null
     /** Assignee target type: user or role.
 
-* `user` - user
-* `role` - role */
+  * `user` - user
+  * `role` - role */
     type: AssigneeTypeEnumApi
 }
 
@@ -1050,12 +1047,12 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
 
-* `archived` - archived
-* `active` - active
-* `resolved` - resolved
-* `pending_release` - pending_release
-* `suppressed` - suppressed
-* `all` - all */
+  * `archived` - archived
+  * `active` - active
+  * `resolved` - resolved
+  * `pending_release` - pending_release
+  * `suppressed` - suppressed
+  * `all` - all */
     status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
@@ -1070,16 +1067,16 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     filterGroup?: PropertyItemApi[]
     /** Field used to sort issues. Defaults to occurrences.
 
-* `last_seen` - last_seen
-* `first_seen` - first_seen
-* `occurrences` - occurrences
-* `users` - users
-* `sessions` - sessions */
+  * `last_seen` - last_seen
+  * `first_seen` - first_seen
+  * `occurrences` - occurrences
+  * `users` - users
+  * `sessions` - sessions */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
 
-* `ASC` - ASC
-* `DESC` - DESC */
+  * `ASC` - ASC
+  * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.

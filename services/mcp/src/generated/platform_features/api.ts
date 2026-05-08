@@ -302,16 +302,34 @@ export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
 
 export const advancedActivityLogsListQueryScopesDefault = []
+export const advancedActivityLogsListQueryTeamIdsDefault = []
 export const advancedActivityLogsListQueryUsersDefault = []
 
 export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
-    activities: zod.array(zod.string()).default(advancedActivityLogsListQueryActivitiesDefault),
-    clients: zod.array(zod.string()).default(advancedActivityLogsListQueryClientsDefault),
-    detail_filters: zod.string().optional(),
-    end_date: zod.iso.datetime({ offset: true }).optional(),
-    hogql_filter: zod.string().optional(),
-    is_system: zod.boolean().nullish(),
-    item_ids: zod.array(zod.string()).default(advancedActivityLogsListQueryItemIdsDefault),
+    activities: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryActivitiesDefault)
+        .describe('Filter by activity types (e.g. "created", "updated", "deleted").'),
+    clients: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryClientsDefault)
+        .describe('Filter by API clients that generated the activity (from x-posthog-client header).'),
+    detail_filters: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.'
+        ),
+    end_date: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+    hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
+    is_system: zod.boolean().nullish().describe('When set, filters rows authored by the system (no user).'),
+    item_ids: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryItemIdsDefault)
+        .describe('Filter by the `item_id` of the affected resource(s).'),
     page: zod
         .number()
         .min(1)
@@ -325,11 +343,29 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .max(advancedActivityLogsListQueryPageSizeMax)
         .default(advancedActivityLogsListQueryPageSizeDefault)
         .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
-    scopes: zod.array(zod.string()).default(advancedActivityLogsListQueryScopesDefault),
-    search_text: zod.string().optional(),
-    start_date: zod.iso.datetime({ offset: true }).optional(),
-    users: zod.array(zod.string()).default(advancedActivityLogsListQueryUsersDefault),
-    was_impersonated: zod.boolean().nullish(),
+    scopes: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryScopesDefault)
+        .describe('Filter by activity scopes (e.g. "FeatureFlag", "Insight").'),
+    search_text: zod.string().optional().describe('Free-text search across the `detail` JSON column.'),
+    start_date: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Lower bound on `created_at` (inclusive), ISO-8601.'),
+    team_ids: zod
+        .array(zod.number())
+        .default(advancedActivityLogsListQueryTeamIdsDefault)
+        .describe(
+            'Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.'
+        ),
+    users: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryUsersDefault)
+        .describe('Filter by users who performed the activity (user UUIDs).'),
+    was_impersonated: zod
+        .boolean()
+        .nullish()
+        .describe('When set, filters rows where the actor was impersonating another user.'),
 })
 
 export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ */ zod.object({

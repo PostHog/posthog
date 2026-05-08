@@ -421,3 +421,58 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
+    query-error-tracking-issue:
+        operation: error_tracking_query_issue_create
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.issueId}'
+        title: Query error tracking issue
+        description_file: ./prompts/query-error-tracking-issue.md
+        system_prompt_hint: Error issue details and impact (error-tracking category)
+        ui_app: error-issue
+    query-error-tracking-issue-events:
+        operation: error_tracking_query_issue_events_create
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.issueId}'
+        title: Query error tracking issue events
+        description_file: ./prompts/query-error-tracking-issue-events.md
+        system_prompt_hint: Error event samples, stack traces, and session IDs (error-tracking category)
+        ui_app: error-details
+    query-error-tracking-issues-list:
+        operation: error_tracking_query_issues_list_create
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Query error tracking issues list
+        description_file: ./prompts/query-error-tracking-issues-list.md
+        system_prompt_hint: Error issue filtering and aggregation (error-tracking category)
+        ui_app: error-issue-list
+        response:
+            include:
+                - id
+                - name
+                - description
+                - status
+                - first_seen
+                - last_seen
+                - library
+                - source
+                - assignee
+                - aggregations
