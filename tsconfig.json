@@ -1,34 +1,34 @@
 {
     "compilerOptions": {
-        "baseUrl": "frontend/",
         "paths": {
-            "lib/*": ["src/lib/*"],
-            "scenes/*": ["src/scenes/*"],
-            "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
-            "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
-            "@posthog/icons": ["node_modules/@posthog/icons"],
-            "@posthog/shared-onboarding/*": ["../docs/onboarding/*"],
-            "storybook/*": ["../.storybook/*"],
-            "~/*": ["src/*"],
-            "public/*": ["public/*"],
-            "products/*": ["../products/*"],
-            "@common/*": ["../common/*"],
-            "@posthog/mosaic": ["../common/mosaic/src/index.ts"],
-            "@posthog/mosaic/*": ["../common/mosaic/src/*"],
-            "@posthog/replay-shared": ["../common/replay-shared/src/index.ts"],
-            "@posthog/replay-shared/*": ["../common/replay-shared/src/*"],
+            "lib/*": ["./frontend/src/lib/*"],
+            "scenes/*": ["./frontend/src/scenes/*"],
+            "@posthog/lemon-ui": ["./frontend/@posthog/lemon-ui/src/index"],
+            "@posthog/lemon-ui/*": ["./frontend/@posthog/lemon-ui/src/*"],
+            "@posthog/icons": ["./frontend/node_modules/@posthog/icons"],
+            "@posthog/shared-onboarding/*": ["./docs/onboarding/*"],
+            "storybook/*": ["./.storybook/*"],
+            "~/*": ["./frontend/src/*"],
+            "public/*": ["./frontend/public/*"],
+            "products/*": ["./products/*"],
+            "@common/*": ["./common/*"],
+            "@posthog/mosaic": ["./common/mosaic/src/index.ts"],
+            "@posthog/mosaic/*": ["./common/mosaic/src/*"],
+            "@posthog/replay-shared": ["./common/replay-shared/src/index.ts"],
+            "@posthog/replay-shared/*": ["./common/replay-shared/src/*"],
             // Needed to access the subpath since torph didn't set up types properly
-            "torph/react": ["node_modules/torph/dist/react/index"]
+            "torph/react": ["./frontend/node_modules/torph/dist/react/index"],
+            "*": ["./frontend/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
         "skipLibCheck": true, // Skip type checking of all declaration files
-        "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS/AMD/UMD style imports (import fs from "fs")
+        "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS style imports (import fs from "fs")
         "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
         "strict": true, // Enable all strict type checking options
         "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
         "module": "esnext", // Specify module code generation
-        "moduleResolution": "node", // Resolve modules using Node.js style
+        "moduleResolution": "bundler", // Frontend is bundled (esbuild); pairs with module: esnext
         "isolatedModules": true,
         "incremental": true,
         "resolveJsonModule": true, // Include modules imported with .json extension

@@ -38,7 +38,7 @@
         "react-dom": "*",
         "react-window": "*",
         "stylelint": "*",
-        "typescript": "*",
+        "typescript": "catalog:*",
         "use-debounce": "*"
     }
 }

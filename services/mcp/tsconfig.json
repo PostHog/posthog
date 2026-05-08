@@ -4,7 +4,7 @@
         "lib": ["es2021", "dom", "dom.iterable"],
         "jsx": "react-jsx",
         "module": "es2022",
-        "moduleResolution": "Bundler",
+        "moduleResolution": "bundler",
         "resolveJsonModule": true,
         "allowJs": true,
         "checkJs": false,
@@ -19,11 +19,10 @@
         "exactOptionalPropertyTypes": true,
         "skipLibCheck": true,
         "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
-        "baseUrl": ".",
         "paths": {
             "products/*": ["../../products/*"],
-            "@/*": ["src/*", "tests/*"],
-            "@shared/*": ["shared/*"],
+            "@/*": ["./src/*", "./tests/*"],
+            "@shared/*": ["./shared/*"],
             "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
             "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
             "@common/*": ["../../common/*"]

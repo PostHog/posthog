@@ -19,5 +19,7 @@ module.exports = {
     moduleNameMapper: {
         '^~/tests/(.*)$': '<rootDir>/tests/$1',
         '^~/(.*)$': '<rootDir>/src/$1',
+        // Strip .js from relative imports so Jest resolves to .ts source under module: nodenext
+        '^(\\.{1,2}/.*)\\.js$': '$1',
     },
 }

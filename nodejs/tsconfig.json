@@ -1,12 +1,12 @@
 {
     "compilerOptions": {
-        "module": "CommonJS",
-        "target": "ESNext",
+        "module": "nodenext",
+        "target": "esnext",
         "declaration": true,
         "removeComments": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
-        "moduleResolution": "node",
+        "moduleResolution": "nodenext",
         "esModuleInterop": true,
         "allowJs": true,
         "sourceMap": true,

@@ -28,7 +28,7 @@
         "jest": "*",
         "react": "*",
         "stylelint": "*",
-        "typescript": "*",
+        "typescript": "catalog:*",
         "use-debounce": "*"
     }
 }

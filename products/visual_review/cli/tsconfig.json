@@ -1,14 +1,13 @@
 {
     "compilerOptions": {
-        "target": "ES2022",
-        "module": "ESNext",
+        "target": "es2022",
+        "module": "esnext",
         "moduleResolution": "bundler",
         "outDir": "dist",
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
         "declaration": true,
-        "baseUrl": ".",
         "paths": {
             "@visual-review/types": ["../frontend/generated/api.schemas.ts"]
         }

@@ -4,14 +4,13 @@
         "lib": ["es2021", "dom"],
         "jsx": "react-jsx",
         "module": "es2022",
-        "moduleResolution": "Bundler",
+        "moduleResolution": "bundler",
         "strict": true,
         "noEmit": true,
         "skipLibCheck": true,
-        "baseUrl": ".",
         "paths": {
-            "@posthog/mosaic": ["src/index.ts"],
-            "@posthog/mosaic/*": ["src/*"],
+            "@posthog/mosaic": ["./src/index.ts"],
+            "@posthog/mosaic/*": ["./src/*"],
             "@common/*": ["../*"]
         }
     },
