@@ -94,11 +94,16 @@ function isRetentionResult(results: unknown): results is RetentionResult {
     if (typeof first !== 'object' || first === null) {
         return false
     }
-    if (!Array.isArray(first.values)) {
+    if (!Array.isArray(first.values) || !('date' in first)) {
         return false
     }
-    const firstValue = first.values[0] as Record<string, unknown> | undefined
-    return typeof firstValue === 'object' && firstValue !== null && 'count' in firstValue && 'date' in first
+    // A brand-new cohort can legitimately have an empty `values` array — accept it as long as
+    // the surrounding shape is right. Only validate the inner `count` field when there's a row.
+    if (first.values.length === 0) {
+        return true
+    }
+    const firstValue = first.values[0] as Record<string, unknown>
+    return typeof firstValue === 'object' && firstValue !== null && 'count' in firstValue
 }
 
 /**

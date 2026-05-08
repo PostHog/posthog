@@ -92,13 +92,18 @@ function sortCohorts(results: RetentionResult): RetentionResult {
     return [...results].sort((a, b) => {
         const ta = a.date ? new Date(a.date).getTime() : Number.POSITIVE_INFINITY
         const tb = b.date ? new Date(b.date).getTime() : Number.POSITIVE_INFINITY
-        if (Number.isNaN(ta) && Number.isNaN(tb)) {
+        // `ta`/`tb` can each be a finite ms timestamp, NaN (invalid `date`), or POSITIVE_INFINITY
+        // (missing `date`). `ta - tb` returns NaN whenever both are non-finite (Inf-Inf or NaN-*),
+        // which violates the sort comparator contract — handle those pairings explicitly.
+        const aMissing = Number.isNaN(ta) || !Number.isFinite(ta)
+        const bMissing = Number.isNaN(tb) || !Number.isFinite(tb)
+        if (aMissing && bMissing) {
             return 0
         }
-        if (Number.isNaN(ta)) {
+        if (aMissing) {
             return 1
         }
-        if (Number.isNaN(tb)) {
+        if (bMissing) {
             return -1
         }
         return ta - tb
