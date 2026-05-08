@@ -18048,6 +18048,29 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface TagDefinition {
+      /**
+         * Tag identifier
+         * @maxLength 100
+         */
+      name: string;
+      /**
+         * Description to help the LLM classify
+         * @maxLength 500
+         */
+      description?: string;
+    }
+
+    export interface HogTaggerConfig {
+      /**
+         * Hog source code to classify a generation into tags.
+         * @minLength 1
+         */
+      source: string;
+      /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
+      tags?: TagDefinition[];
+    }
+
     /**
      * @nullable
      */
@@ -18805,6 +18828,27 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
+    }
+
+    export interface LLMTaggerConfig {
+      /**
+         * Prompt instructing the LLM how to tag generations
+         * @minLength 1
+         */
+      prompt: string;
+      /** Available tags the LLM can assign */
+      tags: TagDefinition[];
+      /**
+         * Minimum number of tags to apply
+         * @minimum 0
+         */
+      min_tags?: number;
+      /**
+         * Maximum number of tags to apply (null = no limit)
+         * @minimum 1
+         * @nullable
+         */
+      max_tags?: number | null;
     }
 
     /**
@@ -22890,6 +22934,8 @@ export namespace Schemas {
       Hog: 'hog',
     } as const;
 
+    export type TaggerConfig = LLMTaggerConfig | HogTaggerConfig;
+
     export type TaggerConditionPropertiesItem = { [key: string]: unknown };
 
     export interface TaggerCondition {
@@ -22912,10 +22958,25 @@ export namespace Schemas {
      * Nested serializer for model configuration.
      */
     export interface TaggerModelConfiguration {
+      /** LLM provider to use for this tagger.
+
+      * `openai` - Openai
+      * `anthropic` - Anthropic
+      * `gemini` - Gemini
+      * `openrouter` - Openrouter
+      * `fireworks` - Fireworks
+      * `azure_openai` - Azure OpenAI
+      * `together_ai` - Together AI */
       provider: LLMProviderEnum;
-      /** @maxLength 100 */
+      /**
+         * Provider model identifier to use for this tagger.
+         * @maxLength 100
+         */
       model: string;
-      /** @nullable */
+      /**
+         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+         * @nullable
+         */
       provider_key_id?: string | null;
       /** @nullable */
       readonly provider_key_name: string | null;
@@ -22928,8 +22989,8 @@ export namespace Schemas {
       description?: string;
       enabled?: boolean;
       tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration (varies by tagger_type) */
-      tagger_config: unknown;
+      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+      tagger_config: TaggerConfig;
       /** Conditions that scope when the tagger runs */
       conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfiguration | null;
@@ -28615,21 +28676,40 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export interface PatchedTagger {
-      readonly id?: string;
+    export interface TaggerModelConfigurationWrite {
+      /** LLM provider to use for this tagger.
+
+      * `openai` - Openai
+      * `anthropic` - Anthropic
+      * `gemini` - Gemini
+      * `openrouter` - Openrouter
+      * `fireworks` - Fireworks
+      * `azure_openai` - Azure OpenAI
+      * `together_ai` - Together AI */
+      provider: LLMProviderEnum;
+      /**
+         * Provider model identifier to use for this tagger.
+         * @maxLength 100
+         */
+      model: string;
+      /**
+         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+         * @nullable
+         */
+      provider_key_id?: string | null;
+    }
+
+    export interface PatchedTaggerUpdate {
       /** @maxLength 400 */
       name?: string;
       description?: string;
       enabled?: boolean;
       tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration (varies by tagger_type) */
-      tagger_config?: unknown;
+      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+      tagger_config?: TaggerConfig;
       /** Conditions that scope when the tagger runs */
       conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfiguration | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly created_by?: UserBasic;
+      model_configuration?: TaggerModelConfigurationWrite | null;
       deleted?: boolean;
     }
 
@@ -33228,6 +33308,33 @@ export namespace Schemas {
       rates: SurveyStatsResponseRates;
     }
 
+    export interface TaggerCreate {
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+      tagger_config: TaggerConfig;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
+      model_configuration?: TaggerModelConfigurationWrite | null;
+    }
+
+    export interface TaggerUpdate {
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+      tagger_config: TaggerConfig;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
+      model_configuration?: TaggerModelConfigurationWrite | null;
+      deleted?: boolean;
+    }
+
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
@@ -33988,6 +34095,65 @@ export namespace Schemas {
     export interface TestHogResponse {
       results: TestHogResultItem[];
       /** Optional message, e.g. when no recent events were found. */
+      message?: string;
+    }
+
+    export interface TestHogTaggerTag {
+      /**
+         * Tag identifier to allow in Hog test results.
+         * @maxLength 100
+         */
+      name: string;
+      /**
+         * Optional description for the tag.
+         * @maxLength 500
+         */
+      description?: string;
+    }
+
+    export interface TestHogTaggerRequest {
+      /**
+         * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
+         * @minLength 1
+         */
+      source: string;
+      /**
+         * Number of recent $ai_generation events to test against (1-10, default 5).
+         * @minimum 1
+         * @maximum 10
+         */
+      sample_count?: number;
+      /** Optional tag whitelist. Returned tags outside this list are filtered out. */
+      tags?: TestHogTaggerTag[];
+    }
+
+    export interface TestHogTaggerResultItem {
+      /** UUID of the sampled $ai_generation event. */
+      event_uuid: string;
+      /**
+         * Trace ID if available.
+         * @nullable
+         */
+      trace_id?: string | null;
+      /** First 200 characters of the generation input. */
+      input_preview: string;
+      /** First 200 characters of the generation output. */
+      output_preview: string;
+      /** Tag names returned by the Hog code. */
+      tags: string[];
+      /** Text written to stdout by the Hog code. */
+      reasoning: string;
+      /**
+         * Error message if the Hog code failed.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
+    export interface TestHogTaggerResponse {
+      /** Per-event Hog tagger test results. */
+      results: TestHogTaggerResultItem[];
+      /** Optional message, for example when no recent AI events were found. */
       message?: string;
     }
 

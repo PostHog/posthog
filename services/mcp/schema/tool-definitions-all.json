@@ -3438,6 +3438,51 @@
         },
         "requires_ai_consent": true
     },
+    "llma-tagger-create": {
+        "description": "Create an LLM analytics tagger that automatically adds custom tags to $ai_generation events. For tagger_type \"llm\", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description); optionally set min_tags and max_tags. For tagger_type \"hog\", provide tagger_config.source Hog code that returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create tagger",
+        "title": "Create tagger",
+        "required_scopes": ["tagger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-tagger-list": {
+        "description": "List LLM analytics taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List taggers",
+        "title": "List taggers",
+        "required_scopes": ["tagger:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-tagger-test-hog": {
+        "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Test Hog tagger code",
+        "title": "Test Hog tagger code",
+        "required_scopes": ["tagger:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
         "category": "LLM analytics",
