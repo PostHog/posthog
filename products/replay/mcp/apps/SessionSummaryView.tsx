@@ -1,6 +1,7 @@
+import { AlertTriangle, Check, ChevronRight } from 'lucide-react'
 import { type ReactElement, useState } from 'react'
 
-import { Badge, Card, cn } from '@posthog/quill'
+import { Badge, Card, CardContent, cn, Progress } from '@posthog/quill'
 
 export interface SessionSummarySegment {
     index?: number | null
@@ -107,6 +108,18 @@ function formatPercentage(value?: number | null): string {
     return `${(value * 100).toFixed(1)}%`
 }
 
+// Bespoke (intentionally — not @posthog/quill `Progress`).
+//
+// `Progress` models a single 0-100% fill anchored to the start of the track.
+// This bar is a *segment* on a timeline: it has an `offsetPercent` (where
+// in the session the segment starts) AND a `widthPercent` (how much of the
+// session it covers). Base UI's Progress.Root has no concept of an offset;
+// you'd have to absolute-position the indicator with custom CSS, defeating
+// the purpose of using the primitive.
+//
+// If Quill ever ships a `Timeline` / `RangeIndicator` primitive that
+// supports start+end (or offset+length), migrate to that. Until then this
+// stays a small custom div + token-aligned colours.
 function SegmentTimelineBar({
     offsetPercent,
     widthPercent,
@@ -116,7 +129,12 @@ function SegmentTimelineBar({
     widthPercent: number
     success?: boolean | null | undefined
 }): ReactElement {
-    const fillClass = success === false ? 'bg-destructive' : success === true ? 'bg-emerald-500' : 'bg-muted-foreground'
+    const fillClass =
+        success === false
+            ? 'bg-destructive-foreground'
+            : success === true
+              ? 'bg-success-foreground'
+              : 'bg-muted-foreground'
 
     return (
         <div className="w-full h-2 rounded-full bg-muted">
@@ -128,26 +146,6 @@ function SegmentTimelineBar({
                 }}
             />
         </div>
-    )
-}
-
-function ChevronIcon({ expanded }: { expanded: boolean }): ReactElement {
-    return (
-        <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            className={cn('shrink-0 transition-transform duration-150', expanded && 'rotate-90')}
-        >
-            <path
-                d="M6 4l4 4-4 4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-        </svg>
     )
 }
 
@@ -206,12 +204,16 @@ function SingleSessionSummary({
                     className={cn(
                         'rounded-lg p-3 border-l-4',
                         outcome.success
-                            ? 'bg-emerald-500/10 border-emerald-500'
-                            : 'bg-destructive/10 border-destructive'
+                            ? 'bg-success border-success-foreground'
+                            : 'bg-destructive border-destructive-foreground'
                     )}
                 >
                     <div className="flex items-start gap-2">
-                        <span className="text-lg">{outcome.success ? '\u2713' : '\u26A0'}</span>
+                        {outcome.success ? (
+                            <Check className="h-5 w-5 shrink-0 text-success-foreground" />
+                        ) : (
+                            <AlertTriangle className="h-5 w-5 shrink-0 text-destructive-foreground" />
+                        )}
                         <div>
                             <span className="text-sm font-semibold">
                                 {outcome.success ? 'Session successful' : 'Session abandoned'}
@@ -272,13 +274,13 @@ function SegmentCard({
 
     const borderClass =
         segOutcome?.success === false
-            ? 'border-l-destructive'
+            ? 'border-l-destructive-foreground'
             : segOutcome?.success === true
-              ? 'border-l-emerald-500'
+              ? 'border-l-success-foreground'
               : 'border-l-border'
 
     return (
-        <Card className="overflow-hidden">
+        <div className="rounded-lg border bg-card overflow-hidden">
             <div
                 onClick={hasEvents ? () => setExpanded(!expanded) : undefined}
                 className={cn('border-l-4 px-4 py-3', borderClass, hasEvents ? 'cursor-pointer' : 'cursor-default')}
@@ -286,9 +288,12 @@ function SegmentCard({
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                         {hasEvents && (
-                            <span className="text-muted-foreground">
-                                <ChevronIcon expanded={expanded} />
-                            </span>
+                            <ChevronRight
+                                className={cn(
+                                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150',
+                                    expanded && 'rotate-90'
+                                )}
+                            />
                         )}
                         <span className="text-sm font-semibold flex-1">
                             {segment.name ?? `Segment ${segment.index}`}
@@ -330,7 +335,7 @@ function SegmentCard({
                             <div key={i} className={cn('py-2', i < segActions.events!.length - 1 && 'border-b')}>
                                 <div className="flex items-start gap-3">
                                     {event.milliseconds_since_start != null && (
-                                        <span className="text-xs font-mono whitespace-nowrap text-amber-500">
+                                        <span className="text-xs font-mono whitespace-nowrap text-warning-foreground">
                                             {formatTimestamp(event.milliseconds_since_start)}
                                         </span>
                                     )}
@@ -351,14 +356,14 @@ function SegmentCard({
                     </div>
                 </div>
             )}
-        </Card>
+        </div>
     )
 }
 
 function SentimentSection({ sentiment }: { sentiment: SessionSummarySentiment }): ReactElement {
     return (
         <Card>
-            <div className="p-3">
+            <CardContent>
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3">
                         <span className="text-sm font-semibold">Sentiment</span>
@@ -379,26 +384,24 @@ function SentimentSection({ sentiment }: { sentiment: SessionSummarySentiment })
                     {sentiment.frustration_score != null && (
                         <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">Frustration:</span>
-                            <div className="h-2 w-[100px] rounded-full bg-muted overflow-hidden">
-                                <div
-                                    className={cn(
-                                        'h-2 rounded-full',
-                                        sentiment.outcome === 'successful'
-                                            ? 'bg-emerald-500'
-                                            : sentiment.outcome === 'friction'
-                                              ? 'bg-amber-500'
-                                              : 'bg-destructive'
-                                    )}
-                                    style={{ width: `${Math.round(sentiment.frustration_score * 100)}%` }}
-                                />
-                            </div>
+                            <Progress
+                                value={Math.round(sentiment.frustration_score * 100)}
+                                variant={
+                                    sentiment.outcome === 'successful'
+                                        ? 'success'
+                                        : sentiment.outcome === 'friction'
+                                          ? 'warning'
+                                          : 'destructive'
+                                }
+                                className="w-25"
+                            />
                             <span className="text-xs text-muted-foreground">
                                 {Math.round(sentiment.frustration_score * 100)}%
                             </span>
                         </div>
                     )}
                 </div>
-            </div>
+            </CardContent>
         </Card>
     )
 }

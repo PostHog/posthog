@@ -1,5 +1,6 @@
 import { type ReactElement } from 'react'
 
+import { DescriptionList } from '@posthog/mcp-ui'
 import { Badge, Card, CardContent } from '@posthog/quill'
 
 export interface SessionRecordingData {
@@ -109,23 +110,39 @@ export function SessionRecordingView({ recording }: { recording: SessionRecordin
 
                 <Card>
                     <CardContent>
-                        <div className="flex flex-col gap-2">
-                            <Row
-                                label="Started"
-                                value={recording.start_time ? formatStartedUtc(recording.start_time) : '\u2014'}
-                            />
-                            <Row label="Active time" value={formatDuration(recording.active_seconds)} />
-                            {recording.start_url && (
-                                <div className="min-w-0">
-                                    <Row label="Start URL" value={recording.start_url} truncate />
-                                </div>
-                            )}
-                            {userDisplay && (
-                                <div className="min-w-0">
-                                    <Row label="User" value={userDisplay} truncate />
-                                </div>
-                            )}
-                        </div>
+                        <DescriptionList
+                            items={[
+                                {
+                                    label: 'Started',
+                                    value: recording.start_time ? formatStartedUtc(recording.start_time) : '\u2014',
+                                },
+                                { label: 'Active time', value: formatDuration(recording.active_seconds) },
+                                ...(recording.start_url
+                                    ? [
+                                          {
+                                              label: 'Start URL',
+                                              value: (
+                                                  <span className="block truncate" title={recording.start_url}>
+                                                      {recording.start_url}
+                                                  </span>
+                                              ),
+                                          },
+                                      ]
+                                    : []),
+                                ...(userDisplay
+                                    ? [
+                                          {
+                                              label: 'User',
+                                              value: (
+                                                  <span className="block truncate" title={userDisplay}>
+                                                      {userDisplay}
+                                                  </span>
+                                              ),
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
                     </CardContent>
                 </Card>
 
@@ -152,17 +169,6 @@ export function SessionRecordingView({ recording }: { recording: SessionRecordin
                     </CardContent>
                 </Card>
             </div>
-        </div>
-    )
-}
-
-function Row({ label, value, truncate }: { label: string; value: string; truncate?: boolean }): ReactElement {
-    return (
-        <div className="flex min-w-0 gap-3">
-            <span className="text-sm text-muted-foreground whitespace-nowrap min-w-[100px] shrink-0">{label}</span>
-            <span className={`min-w-0 text-sm ${truncate ? 'truncate' : ''}`} title={truncate ? value : undefined}>
-                {value}
-            </span>
         </div>
     )
 }
