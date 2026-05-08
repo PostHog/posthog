@@ -540,7 +540,9 @@ class CDCExtractActivity:
 
         for schema in self.cdc_schemas:
             enabled = schema.enabled_columns
-            if isinstance(enabled, list) and enabled:
+            # `None` = sync all; `[]` = retain PKs + incremental only. Match the
+            # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
+            if isinstance(enabled, list):
                 retained: set[str] = {str(c) for c in enabled}
                 # PKs must stay even if the user dropped them from enabled_columns — merges break otherwise.
                 for pk in self.pk_columns_by_table.get(schema.name, []):
