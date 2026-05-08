@@ -124,6 +124,7 @@ const advancedActivityLogsList = (): ToolBase<
                 scopes: params.scopes,
                 search_text: params.search_text,
                 start_date: params.start_date,
+                team_ids: params.team_ids,
                 users: params.users,
                 was_impersonated: params.was_impersonated,
             },
