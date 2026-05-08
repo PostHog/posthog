@@ -341,7 +341,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 markAutoSave: (_, { isAutoSave }) => isAutoSave,
                 submitWorkflow: () => false,
                 saveWorkflowPartial: () => false,
-                saveWorkflowSuccess: () => false,
             },
         ],
         lastSavedAt: [
@@ -708,6 +707,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             actions.resetWorkflow(originalWorkflow)
+            actions.markAutoSave(false)
         },
         discardChanges: () => {
             if (!values.originalWorkflow) {
