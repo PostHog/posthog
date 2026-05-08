@@ -88,7 +88,7 @@ class TraceSpansFilterBuilder:
                     if prop_type == SpanPropertyFilterType.SPAN:
                         self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                        if isinstance(prop, SpanPropertyFilter) and prop.value:
+                        if prop.value:
                             property_type = "str"
                             if isinstance(prop.value, list):
                                 property_types = {get_property_type(v) for v in prop.value}
