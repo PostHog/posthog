@@ -5,7 +5,10 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import {
     logsSamplingRulesCreate,
@@ -14,6 +17,7 @@ import {
     logsServicesCreate,
 } from 'products/logs/frontend/generated/api'
 import {
+    _LogsSparklineBucketApi,
     LogsSamplingRuleApi,
     PatchedLogsSamplingRuleApi,
     RuleTypeEnumApi,
@@ -22,31 +26,18 @@ import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSe
 
 import type { logsSamplingFormLogicType } from './logsSamplingFormLogicType'
 
-export type SeverityActionChoice = 'keep' | 'drop' | 'sample'
-
-/** What `path_drop` regex lines are evaluated against (maps to config.match_attribute_key). */
-export type PathDropMatchTarget = 'auto_path' | 'custom_attribute'
+/** Inner group held in form state. The API wire format wraps this in another { type, values: [innerGroup] }. */
+const EMPTY_DROP_FILTER_GROUP: UniversalFiltersGroup = {
+    type: FilterLogicalOperator.And,
+    values: [],
+}
 
 export interface LogsSamplingFormType {
     name: string
     enabled: boolean
     rule_type: RuleTypeEnumApi
     scope_service: string
-    scope_path_pattern: string
-    path_drop_match_target: PathDropMatchTarget
-    /** When path_drop_match_target is custom_attribute, patterns match only this attribute. */
-    path_drop_match_attribute_key: string
-    path_drop_patterns: string
-    severity_debug: SeverityActionChoice
-    severity_debug_rate: number
-    severity_info: SeverityActionChoice
-    severity_info_rate: number
-    severity_warn: SeverityActionChoice
-    severity_warn_rate: number
-    severity_error: SeverityActionChoice
-    severity_error_rate: number
-    always_keep_status_gte: string
-    always_keep_latency_ms_gt: string
+    path_drop_filter_group: UniversalFiltersGroup
     rate_limit_logs_per_second: string
     rate_limit_burst_logs: string
 }
@@ -56,50 +47,30 @@ const DEFAULT_FORM: LogsSamplingFormType = {
     enabled: true,
     rule_type: RuleTypeEnumApi.PathDrop,
     scope_service: '',
-    scope_path_pattern: '',
-    path_drop_match_target: 'auto_path',
-    path_drop_match_attribute_key: '',
-    path_drop_patterns: '',
-    severity_debug: 'keep',
-    severity_debug_rate: 0.5,
-    severity_info: 'keep',
-    severity_info_rate: 0.5,
-    severity_warn: 'keep',
-    severity_warn_rate: 0.5,
-    severity_error: 'keep',
-    severity_error_rate: 0.5,
-    always_keep_status_gte: '',
-    always_keep_latency_ms_gt: '',
+    path_drop_filter_group: EMPTY_DROP_FILTER_GROUP,
     rate_limit_logs_per_second: '',
     rate_limit_burst_logs: '',
 }
 
-function parseSeverityPart(
-    key: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR',
-    actionsObj: Record<string, unknown> | undefined,
-    form: LogsSamplingFormType
-): void {
-    const raw = actionsObj?.[key] as Record<string, unknown> | undefined
-    const prefix =
-        key === 'DEBUG'
-            ? 'severity_debug'
-            : key === 'INFO'
-              ? 'severity_info'
-              : key === 'WARN'
-                ? 'severity_warn'
-                : 'severity_error'
-    if (!raw || typeof raw.type !== 'string') {
-        return
+/** Read either the wrapped `{type, values: [innerGroup]}` (logs-viewer/alerts shape) or the bare inner group. */
+function extractFilterGroup(stored: unknown): UniversalFiltersGroup {
+    if (!stored || typeof stored !== 'object') {
+        return EMPTY_DROP_FILTER_GROUP
     }
-    const patch = form as unknown as Record<string, unknown>
-    if (raw.type === 'drop') {
-        patch[prefix] = 'drop'
-    } else if (raw.type === 'sample') {
-        // Sampling is not exposed in the UI; coerce legacy configs to keep on load.
-        patch[prefix] = 'keep'
-    } else {
-        patch[prefix] = 'keep'
+    const candidate = stored as { type?: unknown; values?: unknown[] }
+    if (!Array.isArray(candidate.values)) {
+        return EMPTY_DROP_FILTER_GROUP
     }
+    const first = candidate.values[0] as { type?: unknown; values?: unknown[] } | undefined
+    if (first && Array.isArray(first.values) && typeof first.type === 'string') {
+        return first as UniversalFiltersGroup
+    }
+    return candidate as UniversalFiltersGroup
+}
+
+/** Wrap inner group as the logs-viewer / sparkline endpoint expects: { type: AND, values: [innerGroup] }. */
+function wrapFilterGroup(inner: UniversalFiltersGroup): UniversalFiltersGroup {
+    return { type: FilterLogicalOperator.And, values: [inner] as never }
 }
 
 export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): LogsSamplingFormType {
@@ -107,33 +78,13 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
         return { ...DEFAULT_FORM }
     }
     const form: LogsSamplingFormType = { ...DEFAULT_FORM, name: rule.name, enabled: rule.enabled ?? false }
-    form.rule_type = rule.rule_type
+    // Merge legacy SEVERITY_SAMPLING rules into the unified PathDrop form — the UI no longer distinguishes them.
+    form.rule_type =
+        rule.rule_type === RuleTypeEnumApi.SeveritySampling ? RuleTypeEnumApi.PathDrop : rule.rule_type
     form.scope_service = rule.scope_service ?? ''
-    form.scope_path_pattern = rule.scope_path_pattern ?? ''
     const cfg = (rule.config ?? {}) as Record<string, unknown>
-    if (rule.rule_type === RuleTypeEnumApi.PathDrop) {
-        const patterns = (cfg.patterns as string[]) || []
-        form.path_drop_patterns = patterns.join('\n')
-        const mak = cfg.match_attribute_key
-        const makStr = typeof mak === 'string' ? mak : ''
-        form.path_drop_match_attribute_key = makStr
-        form.path_drop_match_target = makStr.trim() !== '' ? 'custom_attribute' : 'auto_path'
-    }
-    if (rule.rule_type === RuleTypeEnumApi.SeveritySampling) {
-        const actionsObj = cfg.actions as Record<string, unknown> | undefined
-        parseSeverityPart('DEBUG', actionsObj, form)
-        parseSeverityPart('INFO', actionsObj, form)
-        parseSeverityPart('WARN', actionsObj, form)
-        parseSeverityPart('ERROR', actionsObj, form)
-        const ak = cfg.always_keep as Record<string, unknown> | undefined
-        if (ak && typeof ak === 'object') {
-            if (typeof ak.status_gte === 'number') {
-                form.always_keep_status_gte = String(ak.status_gte)
-            }
-            if (typeof ak.latency_ms_gt === 'number') {
-                form.always_keep_latency_ms_gt = String(ak.latency_ms_gt)
-            }
-        }
+    if (form.rule_type === RuleTypeEnumApi.PathDrop) {
+        form.path_drop_filter_group = extractFilterGroup(cfg.filter_group)
     }
     if (rule.rule_type === RuleTypeEnumApi.RateLimit) {
         form.rate_limit_logs_per_second =
@@ -146,29 +97,7 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     return form
 }
 
-function severityActionPayload(choice: SeverityActionChoice, rate: number): Record<string, unknown> {
-    if (choice === 'drop') {
-        return { type: 'drop' }
-    }
-    if (choice === 'sample') {
-        return { type: 'sample', rate: Math.max(0, Math.min(1, rate)) }
-    }
-    return { type: 'keep' }
-}
-
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
-    if (form.rule_type === RuleTypeEnumApi.PathDrop) {
-        const patterns = form.path_drop_patterns
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        const key = form.path_drop_match_target === 'custom_attribute' ? form.path_drop_match_attribute_key.trim() : ''
-        const out: Record<string, unknown> = { patterns }
-        if (key !== '') {
-            out.match_attribute_key = key
-        }
-        return out
-    }
     if (form.rule_type === RuleTypeEnumApi.RateLimit) {
         const lps = parseInt(form.rate_limit_logs_per_second.trim(), 10)
         const out: Record<string, unknown> = { logs_per_second: lps }
@@ -181,33 +110,12 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
         }
         return out
     }
-    const always: Record<string, unknown> = {}
-    const sg = form.always_keep_status_gte.trim()
-    if (sg !== '') {
-        const n = parseInt(sg, 10)
-        if (!Number.isNaN(n)) {
-            always.status_gte = n
-        }
+    return {
+        // patterns retained as empty list to keep the existing path_drop config validator happy;
+        // ingestion is unchanged in this PR — filter-group evaluation will be wired in a follow-up.
+        patterns: [],
+        filter_group: wrapFilterGroup(form.path_drop_filter_group),
     }
-    const lat = form.always_keep_latency_ms_gt.trim()
-    if (lat !== '') {
-        const n = parseFloat(lat)
-        if (!Number.isNaN(n)) {
-            always.latency_ms_gt = n
-        }
-    }
-    const out: Record<string, unknown> = {
-        actions: {
-            DEBUG: severityActionPayload(form.severity_debug, form.severity_debug_rate),
-            INFO: severityActionPayload(form.severity_info, form.severity_info_rate),
-            WARN: severityActionPayload(form.severity_warn, form.severity_warn_rate),
-            ERROR: severityActionPayload(form.severity_error, form.severity_error_rate),
-        },
-    }
-    if (Object.keys(always).length > 0) {
-        out.always_keep = always
-    }
-    return out
 }
 
 export interface LogsSamplingFormLogicProps {
@@ -226,6 +134,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
     actions({
         scheduleSimulate: true,
         refreshServiceTraffic: true,
+        refreshDropPreview: true,
     }),
 
     loaders(({ values, props }) => ({
@@ -245,15 +154,38 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 },
             },
         ],
+        dropPreviewSparkline: [
+            [] as _LogsSparklineBucketApi[],
+            {
+                loadDropPreviewSparkline: async (_, breakpoint) => {
+                    await breakpoint(500)
+                    const form = values.samplingForm
+                    if (form.rule_type !== RuleTypeEnumApi.PathDrop) {
+                        return []
+                    }
+                    if (form.path_drop_filter_group.values.length === 0) {
+                        return []
+                    }
+                    const wrapped = wrapFilterGroup(form.path_drop_filter_group)
+                    // The /logs/sparkline endpoint returns the bare bucket array (not { results: [...] }) —
+                    // the generated client's type is wrong, so use the handwritten api.logs.sparkline instead.
+                    const rows = (await api.logs.sparkline({
+                        query: {
+                            dateRange: { date_from: '-1h', date_to: null },
+                            filterGroup: wrapped as never,
+                            sparklineBreakdownBy: 'service',
+                        } as never,
+                    })) as _LogsSparklineBucketApi[]
+                    return rows
+                },
+            },
+        ],
         serviceTraffic: [
             null as { log_count: number; avg_logs_per_sec: number } | null,
             {
                 loadServiceTraffic: async (_, breakpoint) => {
                     await breakpoint(400)
                     const form = values.samplingForm
-                    if (form.rule_type !== RuleTypeEnumApi.RateLimit) {
-                        return null
-                    }
                     const svc = form.scope_service.trim()
                     if (!svc) {
                         return null
@@ -281,6 +213,9 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
         refreshServiceTraffic: () => {
             actions.loadServiceTraffic(null)
         },
+        refreshDropPreview: () => {
+            actions.loadDropPreviewSparkline(null)
+        },
         scheduleSimulate: () => {
             if (!props.rule?.id) {
                 return
@@ -296,6 +231,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
         setSamplingFormValue: () => {
             actions.scheduleSimulate()
             actions.refreshServiceTraffic()
+            actions.refreshDropPreview()
         },
         submitSamplingFormSuccess: () => {
             actions.scheduleSimulate()
@@ -323,6 +259,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             actions.scheduleSimulate()
         }
         actions.refreshServiceTraffic()
+        actions.refreshDropPreview()
     }),
 
     forms(({ props, values }) => ({
@@ -334,11 +271,10 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 const burst = burstRaw === '' ? null : parseInt(burstRaw, 10)
                 return {
                     name: !form.name?.trim() ? 'Name is required' : undefined,
-                    path_drop_match_attribute_key:
+                    path_drop_filter_group:
                         form.rule_type === RuleTypeEnumApi.PathDrop &&
-                        form.path_drop_match_target === 'custom_attribute' &&
-                        !form.path_drop_match_attribute_key?.trim()
-                            ? 'Enter the log attribute key (e.g. http.route)'
+                        form.path_drop_filter_group.values.length === 0
+                            ? 'Add at least one filter — empty filters would drop every log line.'
                             : undefined,
                     scope_service:
                         form.rule_type === RuleTypeEnumApi.RateLimit && !form.scope_service?.trim()
@@ -361,8 +297,6 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 const projectId = String(values.currentTeamId)
                 try {
                     const scope_service = form.scope_service.trim() || null
-                    const scope_path_pattern =
-                        form.rule_type === RuleTypeEnumApi.RateLimit ? null : form.scope_path_pattern.trim() || null
                     const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
                         []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
                     const payload = {
@@ -370,7 +304,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                         enabled: form.enabled,
                         rule_type: form.rule_type,
                         scope_service,
-                        scope_path_pattern,
+                        scope_path_pattern: null,
                         scope_attribute_filters,
                         config: buildSamplingConfigPayload(form),
                     }
