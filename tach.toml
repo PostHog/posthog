@@ -221,6 +221,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.event_definitions",
+    "products.notifications",
     "products.product_tours",
     "products.surveys",
 ]

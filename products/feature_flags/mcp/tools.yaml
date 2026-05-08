@@ -50,6 +50,9 @@ tools:
         title: Delete feature flag
         description: |
             Soft-delete a feature flag by ID in the current project.
+        param_overrides:
+            id:
+                cast: string-int
         soft_delete: true
     feature-flag-get-all:
         operation: feature_flags_list
@@ -71,6 +74,10 @@ tools:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
         response:
             include:
                 - id
@@ -92,6 +99,9 @@ tools:
         title: Get feature flag definition
         description: |
             Get a feature flag by ID.
+        param_overrides:
+            id:
+                cast: string-int
     feature-flags-activity-retrieve:
         operation: feature_flags_activity_retrieve
         enabled: true
@@ -105,6 +115,9 @@ tools:
         description: >
             Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes including who
             made changes, what was changed, and when. Use limit and page query params for pagination.
+        param_overrides:
+            id:
+                cast: string-int
     feature-flags-all-activity-retrieve:
         operation: feature_flags_all_activity_retrieve
         enabled: false
@@ -150,6 +163,9 @@ tools:
         description: >
             Get other active feature flags that depend on this flag. Use this to understand flag dependency chains
             before making changes to a flag's rollout conditions or disabling it.
+        param_overrides:
+            id:
+                cast: string-int
     feature-flags-enrich-usage-dashboard-create:
         operation: feature_flags_enrich_usage_dashboard_create
         enabled: false
@@ -192,6 +208,9 @@ tools:
         description: >
             Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
             unknown) and a human-readable reason explaining the status.
+        param_overrides:
+            id:
+                cast: string-int
     feature-flags-test-evaluation-create:
         operation: feature_flags_test_evaluation_create
         enabled: false
@@ -318,3 +337,6 @@ tools:
             - active
             - tags
             - evaluation_contexts
+        param_overrides:
+            id:
+                cast: string-int

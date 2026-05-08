@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
@@ -312,9 +313,13 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             }
             const dateFrom = values.dateFilter?.dateFrom || '-24h'
             const dateTo = values.dateFilter?.dateTo || null
-            // Use a HogQL parameter placeholder rather than string interpolation —
-            // props.id comes from the URL path, so interpolating it directly into
-            // the query text would open an injection vector.
+            // Inline the tagger_id rather than using a `values` dict: parse_select
+            // eagerly resolves all placeholders against `values` before
+            // find_placeholders runs, which means combining `{tagger_id}` with
+            // `{filters}` fails — `{filters}` is missing from `values` and the
+            // whole query errors out, leaving the runs list silently empty.
+            // escapeHogQLString returns the value already wrapped in single quotes.
+            const escapedTaggerId = escapeHogQLString(props.id)
             const query: HogQLQuery = {
                 kind: NodeKind.HogQLQuery,
                 query: `
@@ -328,12 +333,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                         properties.$ai_tagger_name as tagger_name
                     FROM events
                     WHERE event = '$ai_tag'
-                      AND properties.$ai_tagger_id = {tagger_id}
+                      AND properties.$ai_tagger_id = ${escapedTaggerId}
                       AND {filters}
                     ORDER BY timestamp DESC
                     LIMIT 100
                 `,
-                values: { tagger_id: props.id },
                 filters: {
                     dateRange: {
                         date_from: dateFrom,

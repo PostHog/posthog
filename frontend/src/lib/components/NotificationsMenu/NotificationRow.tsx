@@ -37,6 +37,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Issues assigned',
         description: 'When an error tracking issue is assigned to you',
     },
+    experiment_concluded: {
+        label: 'Experiments concluded',
+        description: 'When an experiment you created ends',
+    },
 }
 
 export function NotificationRow({
