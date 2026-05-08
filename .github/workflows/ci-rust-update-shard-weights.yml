@@ -1,0 +1,146 @@
+name: Rust CI - Update shard weights
+
+on:
+    workflow_dispatch:
+        inputs:
+            run_id:
+                description: 'Rust CI run ID (leave empty to use latest successful runs)'
+                required: false
+                type: string
+    schedule:
+        # Every Monday at 6am UTC — job skips on odd ISO weeks (biweekly cadence)
+        - cron: '0 6 * * 1'
+
+permissions:
+    contents: write
+    actions: read
+    pull-requests: write
+
+jobs:
+    update-weights:
+        name: Recompute Rust shard weights from CI logs
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - name: Check biweekly schedule
+              id: schedule
+              run: |
+                  if [ "${{ github.event_name }}" = "schedule" ]; then
+                    week=$(date +%V)
+                    if (( week % 2 != 0 )); then
+                      echo "skip=true" >> $GITHUB_OUTPUT
+                      echo "Skipping — odd ISO week ($week)"
+                      exit 0
+                    fi
+                  fi
+                  echo "skip=false" >> $GITHUB_OUTPUT
+
+            - name: Get app token
+              if: steps.schedule.outputs.skip != 'true'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@v6
+              if: steps.schedule.outputs.skip != 'true'
+              with:
+                  ref: master
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Set up Python
+              if: steps.schedule.outputs.skip != 'true'
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+
+            - name: Compute updated weights
+              if: steps.schedule.outputs.skip != 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  INPUT_RUN_ID: ${{ inputs.run_id }}
+              run: |
+                  args=""
+                  if [ -n "$INPUT_RUN_ID" ]; then
+                      args="--run-id $INPUT_RUN_ID"
+                  else
+                      args="--num-runs 3"
+                  fi
+                  python .github/scripts/update_rust_shard_weights.py $args
+
+            - name: Check for changes
+              if: steps.schedule.outputs.skip != 'true'
+              id: check-changes
+              run: |
+                  if git diff --quiet .github/workflows/ci-rust.yml; then
+                      echo "No changes to Rust shard weights"
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                      echo "Rust shard weights updated"
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                      git diff --stat .github/workflows/ci-rust.yml
+                  fi
+
+            - name: Clean up stale branch if no changes
+              if: steps.schedule.outputs.skip != 'true' && steps.check-changes.outputs.changed == 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-rust-shard-weights" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr close "$existing_pr" --delete-branch || true
+                    echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Reset branch to master
+              if: steps.check-changes.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/update-rust-shard-weights >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/update-rust-shard-weights \
+                      -f sha="${{ github.sha }}" -F force=true
+                  else
+                    gh api repos/${{ github.repository }}/git/refs \
+                      -f ref=refs/heads/chore/update-rust-shard-weights \
+                      -f sha="${{ github.sha }}"
+                  fi
+
+            - name: Commit via GitHub API (signed)
+              if: steps.check-changes.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'perf(ci): update Rust test shard weights from CI data'
+                  repo: ${{ github.repository }}
+                  branch: chore/update-rust-shard-weights
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Create or update pull request
+              if: steps.check-changes.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-rust-shard-weights" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists — updated by commit"
+                  else
+                    gh pr create \
+                      --title "perf(ci): update Rust test shard weights" \
+                      --body "$(cat <<'EOF'
+                  ## Summary
+                  Automated biweekly update of Rust test shard weights.
+
+                  Weights are recomputed from the 3 most recent successful Rust CI runs on master.
+                  This keeps the bin-packing balanced as test durations evolve.
+
+                  **How it works:** parses `cargo test` step logs to measure per-shard wall-clock
+                  time, distributes weight proportionally among packages in each shard, and averages
+                  across multiple runs to smooth out variance.
+                  EOF
+                  )" \
+                      --base master \
+                      --head chore/update-rust-shard-weights \
+                      --reviewer "PostHog/team-devex"
+                  fi
