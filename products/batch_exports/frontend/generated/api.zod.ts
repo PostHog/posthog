@@ -317,6 +317,7 @@ export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
             .max(batchExportsRunsCancelCreateBodyBytesExportedMax)
             .nullish()
             .describe('The number of bytes that have been exported in this BatchExportRun.'),
+        batch_export_on_demand: zod.uuid().nullish().describe('The `BatchExportOnDemand` this run belongs to.'),
         backfill: zod.uuid().nullish().describe('The backfill this run belongs to.'),
     })
     .describe('Serializer for a BatchExportRun model.')
@@ -392,6 +393,7 @@ export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
             .max(batchExportsRunsRetryCreateBodyBytesExportedMax)
             .nullish()
             .describe('The number of bytes that have been exported in this BatchExportRun.'),
+        batch_export_on_demand: zod.uuid().nullish().describe('The `BatchExportOnDemand` this run belongs to.'),
         backfill: zod.uuid().nullish().describe('The backfill this run belongs to.'),
     })
     .describe('Serializer for a BatchExportRun model.')

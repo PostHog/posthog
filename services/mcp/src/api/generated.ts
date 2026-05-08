@@ -5239,8 +5239,16 @@ export namespace Schemas {
          * @nullable
          */
       bytes_exported?: number | null;
-      /** The BatchExport this run belongs to. */
-      readonly batch_export: string;
+      /**
+         * The `BatchExport` this run belongs to.
+         * @nullable
+         */
+      readonly batch_export: string | null;
+      /**
+         * The `BatchExportOnDemand` this run belongs to.
+         * @nullable
+         */
+      batch_export_on_demand?: string | null;
       /**
          * The backfill this run belongs to.
          * @nullable
