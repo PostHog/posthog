@@ -9,6 +9,8 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES
 
+MAX_UNIQ_SET_SIZE = 2000
+
 
 def SESSION_REPLAY_FEATURES_DATA_TABLE():
     return "sharded_session_replay_features"
@@ -126,7 +128,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     long_idle_gap_count SimpleAggregateFunction(sum, Int64),
     quick_back_count SimpleAggregateFunction(sum, Int64),
     page_visit_count SimpleAggregateFunction(sum, Int64),
-    unique_url_count AggregateFunction(uniqExact, String),
+    unique_url_count AggregateFunction(uniqUpTo({max_uniq_set_size}), String),
     login_path_visit_count SimpleAggregateFunction(sum, Int64),
     signup_path_visit_count SimpleAggregateFunction(sum, Int64),
     checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
@@ -155,8 +157,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     viewport_resize_count SimpleAggregateFunction(sum, Int64),
     touch_event_count SimpleAggregateFunction(sum, Int64),
     max_scroll_y SimpleAggregateFunction(max, Float64),
-    unique_click_target_count AggregateFunction(uniqExact, Int64),
-    unique_form_field_count AggregateFunction(uniqExact, Int64),
+    unique_click_target_count AggregateFunction(uniqUpTo({max_uniq_set_size}), Int64),
+    unique_form_field_count AggregateFunction(uniqUpTo({max_uniq_set_size}), Int64),
     text_selection_count SimpleAggregateFunction(sum, Int64),
     selection_copy_count SimpleAggregateFunction(sum, Int64),
     is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
@@ -178,6 +180,7 @@ SETTINGS index_granularity=512
 """
     ).format(
         table_name=SESSION_REPLAY_FEATURES_DATA_TABLE(),
+        max_uniq_set_size=MAX_UNIQ_SET_SIZE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=SESSION_REPLAY_FEATURES_DATA_TABLE_ENGINE(),
     )
@@ -186,6 +189,7 @@ SETTINGS index_granularity=512
 def KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=True):
     return KAFKA_SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
         table_name="kafka_session_replay_features",
+        max_uniq_set_size=MAX_UNIQ_SET_SIZE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(
             topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
@@ -194,7 +198,7 @@ def KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=True):
     )
 
 
-SESSION_REPLAY_FEATURES_MV_SELECT_SQL = """SELECT
+_SESSION_REPLAY_FEATURES_MV_SELECT_SQL_TEMPLATE = """SELECT
 session_id,
 team_id,
 any(distinct_id) as distinct_id,
@@ -229,7 +233,7 @@ max(max_idle_gap_ms) as max_idle_gap_ms,
 sum(long_idle_gap_count) as long_idle_gap_count,
 sum(quick_back_count) as quick_back_count,
 sum(page_visit_count) as page_visit_count,
-uniqExactArrayState(visited_urls) as unique_url_count,
+uniqUpToArrayState({max_uniq_set_size})(visited_urls) as unique_url_count,
 sum(login_path_visit_count) as login_path_visit_count,
 sum(signup_path_visit_count) as signup_path_visit_count,
 sum(checkout_path_visit_count) as checkout_path_visit_count,
@@ -258,11 +262,15 @@ sum(mutation_count) as mutation_count,
 sum(viewport_resize_count) as viewport_resize_count,
 sum(touch_event_count) as touch_event_count,
 max(max_scroll_y) as max_scroll_y,
-uniqExactArrayState(click_target_ids) as unique_click_target_count,
-uniqExactArrayState(form_field_ids) as unique_form_field_count,
+uniqUpToArrayState({max_uniq_set_size})(click_target_ids) as unique_click_target_count,
+uniqUpToArrayState({max_uniq_set_size})(form_field_ids) as unique_form_field_count,
 sum(text_selection_count) as text_selection_count,
 sum(selection_copy_count) as selection_copy_count,
 max(is_deleted) as is_deleted"""
+
+SESSION_REPLAY_FEATURES_MV_SELECT_SQL = _SESSION_REPLAY_FEATURES_MV_SELECT_SQL_TEMPLATE.format(
+    max_uniq_set_size=MAX_UNIQ_SET_SIZE
+)
 
 
 def SESSION_REPLAY_FEATURES_TABLE_MV_SQL(on_cluster=True):
@@ -279,6 +287,7 @@ GROUP BY session_id, team_id
 def WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
     return SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
         table_name="writable_session_replay_features",
+        max_uniq_set_size=MAX_UNIQ_SET_SIZE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSION_REPLAY_FEATURES_DATA_TABLE(),
@@ -290,6 +299,7 @@ def WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
 def DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False):
     return SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
         table_name="session_replay_features",
+        max_uniq_set_size=MAX_UNIQ_SET_SIZE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSION_REPLAY_FEATURES_DATA_TABLE(),
@@ -326,6 +336,7 @@ DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL = f"DROP TABLE IF EXISTS {SESSION_REPLAY_
 def KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL(on_cluster=False):
     return KAFKA_SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
         table_name=KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE,
+        max_uniq_set_size=MAX_UNIQ_SET_SIZE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(
             topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,

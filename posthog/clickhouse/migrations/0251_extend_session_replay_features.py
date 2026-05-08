@@ -8,13 +8,17 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
     DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL,
     KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL,
     KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL,
+    MAX_UNIQ_SET_SIZE,
     SESSION_REPLAY_FEATURES_DATA_TABLE,
     SESSION_REPLAY_FEATURES_TABLE_MV_SQL,
     SESSION_REPLAY_FEATURES_WS_MV_SQL,
 )
 
-ADD_COLUMNS_SQL = """
+# Drop old uniqExact columns and add all set-based aggregations as uniqUpTo(MAX_UNIQ_SET_SIZE)
+ALTER_SQL = """
 ALTER TABLE {table_name}
+    DROP COLUMN IF EXISTS unique_url_count,
+    DROP COLUMN IF EXISTS unique_click_target_count,
     ADD COLUMN IF NOT EXISTS scroll_to_top_count {sum_int},
     ADD COLUMN IF NOT EXISTS backspace_count {sum_int},
     ADD COLUMN IF NOT EXISTS long_idle_gap_count {sum_int},
@@ -38,34 +42,33 @@ ALTER TABLE {table_name}
     ADD COLUMN IF NOT EXISTS mutation_count {sum_int},
     ADD COLUMN IF NOT EXISTS viewport_resize_count {sum_int},
     ADD COLUMN IF NOT EXISTS touch_event_count {sum_int},
+    ADD COLUMN IF NOT EXISTS unique_url_count {uniq_string},
+    ADD COLUMN IF NOT EXISTS unique_click_target_count {uniq_int},
     ADD COLUMN IF NOT EXISTS unique_form_field_count {uniq_int},
     ADD COLUMN IF NOT EXISTS selection_copy_count {sum_int}
 """
 
 
 def _alter_aggregating(table_name: str) -> str:
-    return ADD_COLUMNS_SQL.format(
+    return ALTER_SQL.format(
         table_name=table_name,
         sum_int="SimpleAggregateFunction(sum, Int64)",
-        uniq_int="AggregateFunction(uniqExact, Int64)",
+        uniq_int=f"AggregateFunction(uniqUpTo({MAX_UNIQ_SET_SIZE}), Int64)",
+        uniq_string=f"AggregateFunction(uniqUpTo({MAX_UNIQ_SET_SIZE}), String)",
     )
 
 
+# Cloud deployments (US/EU/DEV) run only the WarpStream Kafka + MV after migration 0248
+# dropped the MSK pair. Non-cloud envs (CI, dev, hobby) run only the MSK pair (the WS
+# pair was never created off-cloud — see migration 0246). The DROPs below run on every
+# env because they all use IF EXISTS and no-op when the target doesn't exist.
 _is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
     run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
-    *(
-        [
-            run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
-            run_sql_with_exceptions(
-                DROP_KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]
-            ),
-        ]
-        if _is_cloud
-        else []
-    ),
+    run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
+    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(
         _alter_aggregating(SESSION_REPLAY_FEATURES_DATA_TABLE()),
         node_roles=[NodeRole.DATA],
@@ -84,15 +87,8 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    run_sql_with_exceptions(
-        KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
-        node_roles=[NodeRole.INGESTION_MEDIUM],
-    ),
-    run_sql_with_exceptions(
-        SESSION_REPLAY_FEATURES_TABLE_MV_SQL(on_cluster=False),
-        node_roles=[NodeRole.INGESTION_MEDIUM],
-    ),
     *(
+        # WS only for cloud
         [
             run_sql_with_exceptions(
                 KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]
@@ -100,6 +96,15 @@ operations = [
             run_sql_with_exceptions(SESSION_REPLAY_FEATURES_WS_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
         ]
         if _is_cloud
-        else []
+        else [
+            run_sql_with_exceptions(
+                KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
+                node_roles=[NodeRole.INGESTION_MEDIUM],
+            ),
+            run_sql_with_exceptions(
+                SESSION_REPLAY_FEATURES_TABLE_MV_SQL(on_cluster=False),
+                node_roles=[NodeRole.INGESTION_MEDIUM],
+            ),
+        ]
     ),
 ]
