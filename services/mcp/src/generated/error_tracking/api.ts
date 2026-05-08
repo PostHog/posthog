@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2175,6 +2175,28 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .nullish()
         .describe('Optional human-readable description of what this grouping rule is for.'),
+})
+
+export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this error tracking grouping rule.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const errorTrackingGroupingRulesUpdateBodyOrderKeyMin = -2147483648
+export const errorTrackingGroupingRulesUpdateBodyOrderKeyMax = 2147483647
+
+export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod.unknown(),
+    description: zod.string().nullish(),
+    order_key: zod
+        .number()
+        .min(errorTrackingGroupingRulesUpdateBodyOrderKeyMin)
+        .max(errorTrackingGroupingRulesUpdateBodyOrderKeyMax),
+    disabled_data: zod.unknown().optional(),
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({

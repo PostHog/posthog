@@ -128,7 +128,18 @@ tools:
         enabled: false
     error-tracking-grouping-rules-update:
         operation: error_tracking_grouping_rules_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update error tracking grouping rule
+        description: >
+            Update an error tracking grouping rule by ID. Replaces the rule with the provided `filters`, `order_key`,
+            and optional `description`. Use `error-tracking-grouping-rules-partial-update` if you only want to change a
+            subset of fields.
     error-tracking-issues-activity-retrieve:
         operation: error_tracking_issues_activity_retrieve
         enabled: false

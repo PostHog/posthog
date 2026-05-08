@@ -1278,6 +1278,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-grouping-rules-update": {
+        "description": "Update an error tracking grouping rule by ID. Replaces the rule with the provided `filters`, `order_key`, and optional `description`. Use `error-tracking-grouping-rules-partial-update` if you only want to change a subset of fields.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking grouping rule",
+        "title": "Update error tracking grouping rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-merge-create": {
         "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
         "category": "Error tracking",
