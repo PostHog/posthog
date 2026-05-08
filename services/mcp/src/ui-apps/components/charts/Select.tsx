@@ -1,5 +1,17 @@
 import type { CSSProperties, ReactElement } from 'react'
 
+// TODO(quill): consider migrating to Quill's `Select` primitive (composed
+// `<Select>` + `<SelectTrigger>` + `<SelectContent>` + `<SelectItem>`).
+// Kept as a native `<select>` for now because:
+//   - Bundles inside an MCP UI app loaded as a sandboxed iframe in the
+//     host. Floating UI portals (used by Quill's Select for popover
+//     positioning) need careful handling inside iframes — the trigger and
+//     content may render in different stacking contexts.
+//   - Native `<select>` plays better with iOS/Android system pickers
+//     when MCP apps are surfaced in mobile hosts.
+// The styling already uses Quill tokens (`rounded-sm`, `border-input`,
+// `bg-background`, `text-foreground`) so a future migration is JSX-only.
+
 export interface SelectOption<T extends string = string> {
     value: T
     label: string
@@ -12,19 +24,14 @@ export interface SelectProps<T extends string = string> {
     style?: CSSProperties
 }
 
-const defaultStyle: CSSProperties = {
-    padding: '0.25rem 1.5rem 0.25rem 0.5rem',
-    fontSize: '0.75rem',
-    border: '1px solid var(--color-border-primary, #e5e7eb)',
-    borderRadius: 'var(--border-radius-sm, 0.25rem)',
-    backgroundColor: 'var(--color-background-primary, #fff)',
-    color: 'var(--color-text-primary, #101828)',
-    cursor: 'pointer',
-}
-
 export function Select<T extends string = string>({ value, onChange, options, style }: SelectProps<T>): ReactElement {
     return (
-        <select value={value} onChange={(e) => onChange(e.target.value as T)} style={{ ...defaultStyle, ...style }}>
+        <select
+            value={value}
+            onChange={(e) => onChange(e.target.value as T)}
+            className="cursor-pointer rounded-sm border border-input bg-background py-1 pl-2 pr-6 text-xs text-foreground"
+            style={style}
+        >
             {options.map((option) => (
                 <option key={option.value} value={option.value}>
                     {option.label}

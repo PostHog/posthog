@@ -53,13 +53,6 @@ const mcpAppsCssVariables: Record<string, string> = {
     '--font-weight-medium': '500',
     '--font-weight-semibold': '600',
     '--font-weight-bold': '700',
-    // Border radius
-    '--border-radius-xs': '0.125rem',
-    '--border-radius-sm': '0.25rem',
-    '--border-radius-md': '0.375rem',
-    '--border-radius-lg': '0.5rem',
-    '--border-radius-xl': '0.75rem',
-    '--border-radius-full': '9999px',
 }
 
 /** Decorator that injects MCP Apps host CSS variables onto the story root. */
