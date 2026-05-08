@@ -18373,6 +18373,7 @@ export namespace Schemas {
     * `linear` - Linear
     * `linkedin-ads` - Linkedin Ads
     * `meta-ads` - Meta Ads
+    * `notion` - Notion
     * `pinterest-ads` - Pinterest Ads
     * `postgresql` - Postgresql
     * `reddit-ads` - Reddit Ads
@@ -18413,6 +18414,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Notion: 'notion',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
@@ -36640,6 +36642,7 @@ export namespace Schemas {
     * `linear` - Linear
     * `linkedin-ads` - Linkedin Ads
     * `meta-ads` - Meta Ads
+    * `notion` - Notion
     * `pinterest-ads` - Pinterest Ads
     * `postgresql` - Postgresql
     * `reddit-ads` - Reddit Ads
@@ -36691,6 +36694,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Notion: 'notion',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
@@ -41485,6 +41489,7 @@ export namespace Schemas {
     * `linear` - Linear
     * `linkedin-ads` - Linkedin Ads
     * `meta-ads` - Meta Ads
+    * `notion` - Notion
     * `pinterest-ads` - Pinterest Ads
     * `postgresql` - Postgresql
     * `reddit-ads` - Reddit Ads
@@ -41536,6 +41541,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Notion: 'notion',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',

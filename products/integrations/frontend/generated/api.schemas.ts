@@ -173,6 +173,7 @@ export interface RoleLookupResponseApi {
  * `linear` - Linear
  * `linkedin-ads` - Linkedin Ads
  * `meta-ads` - Meta Ads
+ * `notion` - Notion
  * `pinterest-ads` - Pinterest Ads
  * `postgresql` - Postgresql
  * `reddit-ads` - Reddit Ads
@@ -212,6 +213,7 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Notion: 'notion',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
@@ -438,6 +440,7 @@ export type IntegrationsListParams = {
      * `linear` - Linear
      * `linkedin-ads` - Linkedin Ads
      * `meta-ads` - Meta Ads
+     * `notion` - Notion
      * `pinterest-ads` - Pinterest Ads
      * `postgresql` - Postgresql
      * `reddit-ads` - Reddit Ads
@@ -488,6 +491,7 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Notion: 'notion',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
