@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 
 import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
-import { Badge, Card, CardContent, cn } from '@posthog/quill'
+import { Badge, Card, CardContent, Progress } from '@posthog/quill'
 
 export interface ExperimentExposure {
     variant: string
@@ -32,12 +32,10 @@ export interface ExperimentResultsViewProps {
 
 function ProbabilityBar({ value }: { value: number }): ReactElement {
     const pct = Math.max(0, Math.min(100, value * 100))
-    const fillClass = value > 0.95 ? 'bg-emerald-500' : value > 0.5 ? 'bg-primary' : 'bg-amber-500'
+    const variant: 'success' | 'default' | 'warning' = value > 0.95 ? 'success' : value > 0.5 ? 'default' : 'warning'
     return (
         <div className="flex items-center gap-2 justify-end">
-            <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
-                <div className={cn('h-full transition-all', fillClass)} style={{ width: `${pct}%` }} />
-            </div>
+            <Progress value={pct} variant={variant} className="w-16" />
             <span className="tabular-nums">{pct.toFixed(1)}%</span>
         </div>
     )
