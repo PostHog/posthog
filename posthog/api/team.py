@@ -16,10 +16,11 @@ from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
+from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode, HogQLQueryModifiers
+from posthog.schema import AttributionMode, HogQLQueryModifiers, TestAccountFilters
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
@@ -221,6 +222,15 @@ TEAM_CONFIG_FIELDS = (
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
+
+
+def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    try:
+        TestAccountFilters.model_validate(value)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError("Must provide an array of valid property filters.") from error
+
+    return cast(list[dict[str, object]], value)
 
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -470,6 +480,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    test_account_filters = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Property filters that identify internal/test traffic to exclude from insights.",
+    )
 
     class Meta:
         model = Team
@@ -613,6 +628,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:

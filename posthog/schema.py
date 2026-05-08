@@ -8593,6 +8593,32 @@ class TeamTaxonomyItem(BaseModel):
     event: str
 
 
+class TestAccountFilters(
+    RootModel[
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | FeaturePropertyFilter
+            | GroupPropertyFilter
+            | ElementPropertyFilter
+            | HogQLPropertyFilter
+        ]
+    ]
+):
+    root: list[
+        EventPropertyFilter
+        | PersonPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | FeaturePropertyFilter
+        | GroupPropertyFilter
+        | ElementPropertyFilter
+        | HogQLPropertyFilter
+    ]
+
+
 class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

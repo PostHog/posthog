@@ -22,6 +22,7 @@ from posthog.api.team import (
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     validate_team_attrs,
+    validate_test_account_filters,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -90,6 +91,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    test_account_filters = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Property filters that identify internal/test traffic to exclude from insights.",
+    )
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -108,6 +114,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
         return value
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     class Meta:
         model = Project

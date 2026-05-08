@@ -36839,6 +36839,40 @@
             },
             "type": "array"
         },
+        "TestAccountFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/FeaturePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/ElementPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                }
+            ]
+        },
+        "TestAccountFilters": {
+            "items": {
+                "$ref": "#/definitions/TestAccountFilter"
+            },
+            "type": "array"
+        },
         "TestBasicQueryResponse": {
             "additionalProperties": false,
             "deprecated": "Only exported for use in test_query_runner.py! Don't use anywhere else.",

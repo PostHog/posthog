@@ -17,6 +17,7 @@ import {
     CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseViewLink,
+    ElementPropertyFilter,
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
@@ -24,13 +25,16 @@ import {
     ExperimentMetricGoal,
     ExperimentMetricMathType,
     ExperimentStatsMethod,
+    FeaturePropertyFilter,
     FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelsFilterType,
+    GroupPropertyFilter,
     GroupMathType,
+    HogQLPropertyFilter,
     HogQLMathType,
     InsightShortId,
     InsightType,
@@ -2203,6 +2207,16 @@ export type WebAnalyticsPropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
+export type TestAccountFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
+    | FeaturePropertyFilter
+    | GroupPropertyFilter
+    | ElementPropertyFilter
+    | HogQLPropertyFilter
+export type TestAccountFilters = TestAccountFilter[]
 export type ActionConversionGoal = {
     actionId: integer
 }
