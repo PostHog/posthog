@@ -144,8 +144,9 @@ For each, suggest one of: **investigate** (`investigating-error-issue`), **assig
 ## Tips
 
 - A single deploy often surfaces several related new issues. If multiple new issues
-  share a release tag (`properties.$release` or `properties.$lib_version`), present
-  them grouped — a rollback decision rests on the cluster, not any one issue.
+  share a `properties.$lib_version` (or `properties.$exception_releases` when the
+  SDK is configured to populate it), present them grouped — a rollback decision
+  rests on the cluster, not any one issue.
 - "Users" is the right severity proxy for user-facing apps. For backend services
   without a real distinct_id concept, fall back to `sessions` or `occurrences`.
 - Don't auto-assign or auto-resolve as part of triage. Present the list and let the
