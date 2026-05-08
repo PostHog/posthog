@@ -16,6 +16,13 @@ import {
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
+// Surfaced on every truncated/summarized `schema` response to push the model
+// to keep drilling instead of guessing the shape from sibling fields or
+// pre-training. Phrased as an instruction, not a description, because models
+// observably treat declarative notes as advisory.
+const SCHEMA_DRILLDOWN_DIRECTIVE =
+    'SUMMARIZED — DO NOT GUESS. Each property below with a `hint` is a complex sub-schema whose real shape is one level deeper. Run the exact `schema` command in each `hint` for every field you intend to populate, and keep drilling until neither this `note` nor any remaining `hint` covers the path you need. Inferring shape from sibling tools, field names, or pre-training is forbidden.'
+
 export interface ExecInnerCallProperties {
     duration_ms: number
     success: boolean
@@ -29,6 +36,10 @@ function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodS
     return z.object({
         command: z.string().describe(commandReference),
     })
+}
+
+function summaryHasHints(summary: ReturnType<typeof summarizeSchema>): boolean {
+    return Object.values(summary.properties).some((p) => p.hint !== undefined)
 }
 
 function parseCommand(input: string): { verb: string; rest: string } {
@@ -215,7 +226,18 @@ export function createExecTool(
                     const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
 
                     if (!fieldPath) {
-                        return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
+                        const summary = summarizeSchema(fullJsonSchema, schemaToolName)
+                        // The bare `schema <tool>` view is always a summary. Attach the
+                        // drill-down directive whenever any property still carries a
+                        // `hint` — that's the only case where the model has more work
+                        // to do than what it sees.
+                        if (summaryHasHints(summary)) {
+                            return JSON.stringify({
+                                note: SCHEMA_DRILLDOWN_DIRECTIVE,
+                                schema: summary,
+                            })
+                        }
+                        return JSON.stringify(summary)
                     }
 
                     const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
@@ -232,10 +254,13 @@ export function createExecTool(
                         return serialized
                     }
 
-                    // Field schema too large — return summary with sub-path hints
+                    // Field schema too large — return summary with sub-path hints.
+                    // Lead with the size so the model knows why this is summarized,
+                    // then the directive so it knows what to do about it.
+                    const sizeK = Math.ceil(serialized.length / 6000)
                     return JSON.stringify({
                         field: fieldPath,
-                        note: `Full schema is ${Math.ceil(serialized.length / 6000)}k+ tokens. Showing summary. Drill into sub-fields for details.`,
+                        note: `Full schema for this field is ~${sizeK}k tokens — too large to inline. ${SCHEMA_DRILLDOWN_DIRECTIVE}`,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
                 }
