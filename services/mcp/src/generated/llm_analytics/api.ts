@@ -28,7 +28,7 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     evaluation_id: zod.string().describe('UUID of the evaluation to run.'),
     target_event_id: zod.string().describe('UUID of the $ai_generation event to evaluate.'),
     timestamp: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe('ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup).'),
     event: zod
         .string()
@@ -414,7 +414,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -525,7 +525,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -625,7 +625,7 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 })
 
 /**
- * 
+ *
 Generate an AI-powered summary of evaluation results.
 
 This endpoint analyzes evaluation runs and identifies patterns in passing
@@ -638,7 +638,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 - Identify systematic issues in LLM responses
 - Get recommendations for improving response quality
 - Review patterns across many evaluation runs at once
-        
+
  */
 export const LlmAnalyticsEvaluationSummaryCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1080,7 +1080,7 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * 
+ *
 Generate an AI-powered summary of an LLM trace or event.
 
 This endpoint analyzes the provided trace/event, generates a line-numbered text
@@ -1101,7 +1101,7 @@ representation, and uses an LLM to create a concise summary with line references
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
 The response includes the structured summary, the text representation, and metadata.
-        
+
  */
 export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1215,8 +1215,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish()
                     .describe('Categorical option keys selected for this score.'),
                 numeric_value: zod
-                    .string()
-                    .regex(llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp)
+                    .stringFormat('decimal', llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp)
                     .nullish()
                     .describe('Numeric value selected for this score.'),
                 boolean_value: zod.boolean().nullish().describe('Boolean value selected for this score.'),
@@ -1281,8 +1280,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
                     .nullish()
                     .describe('Categorical option keys selected for this score.'),
                 numeric_value: zod
-                    .string()
-                    .regex(llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegExp)
+                    .stringFormat('decimal', llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegExp)
                     .nullish()
                     .describe('Numeric value selected for this score.'),
                 boolean_value: zod.boolean().nullish().describe('Boolean value selected for this score.'),
