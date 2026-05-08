@@ -6,8 +6,9 @@ from products.data_warehouse.backend.types import IncrementalField, IncrementalF
 
 NOTION_API_URL = "https://api.notion.com/v1"
 # Pinned per Notion's API versioning model — the same version must be sent on every
-# request. Bumping this is a deliberate API-level migration, so we keep it as a constant
-# rather than reading it from env. https://developers.notion.com/reference/versioning
+# request (OAuth handshake and subsequent API calls). Bumping this is a deliberate
+# API-level migration, so we keep it as a constant rather than reading it from env.
+# https://developers.notion.com/reference/versioning
 NOTION_API_VERSION = "2026-03-11"
 # Notion's documented maximum for `page_size` across endpoints that accept it.
 NOTION_DEFAULT_PAGE_SIZE = 100

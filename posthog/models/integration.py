@@ -48,6 +48,7 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.sources.notion.settings import NOTION_API_VERSION
 from posthog.utils import get_instance_region
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
@@ -742,7 +743,7 @@ class OauthIntegration:
                 },
                 headers={
                     "Content-Type": "application/json",
-                    "Notion-Version": "2026-03-11",
+                    "Notion-Version": NOTION_API_VERSION,
                 },
             )
         elif kind == "stripe":
