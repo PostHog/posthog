@@ -51,6 +51,10 @@ export default defineConfig({
                 find: /^@posthog\/quill$/,
                 replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
             },
+            // lucide-react isn't a workspace dep at the products/ level, so files
+            // resolved via the `products` alias can't find it. Pin to this
+            // package's installed copy (matches the version Quill expects).
+            { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
             { find: '@common', replacement: resolve(__dirname, '../../common') },
         ],
     },
