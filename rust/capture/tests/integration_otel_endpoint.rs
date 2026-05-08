@@ -296,9 +296,12 @@ fn make_two_span_request() -> ExportTraceServiceRequest {
 }
 
 async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestrictionService {
-    let service = EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+    // OTel runs in the AI capture deployment, so restrictions must be indexed
+    // under Pipeline::Ai — that's the pipeline `otel/filtering.rs` looks up
+    // with for every span.
+    let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300));
     let mut manager = RestrictionManager::new();
-    manager.insert_restrictions(Pipeline::Analytics, TOKEN, restrictions);
+    manager.insert_restrictions(Pipeline::Ai, TOKEN, restrictions);
     service.update(manager).await;
     service
 }
