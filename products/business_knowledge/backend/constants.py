@@ -58,5 +58,6 @@ PER_HOST_CONCURRENCY = 2
 # rejects immediately — the file never hits the parser.
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 # Decompressed size cap for ZIP-based formats (DOCX, XLSX, ODT). A 1 MB
-# docx can decompress to 10 GB — we cap at 500 MB and reject as a zip bomb.
-MAX_FILE_DECOMPRESSED_BYTES = 500 * 1024 * 1024
+# docx can decompress to 10 GB — 100 MB is generous for any legitimate
+# knowledge document while keeping per-request memory bounded.
+MAX_FILE_DECOMPRESSED_BYTES = 100 * 1024 * 1024

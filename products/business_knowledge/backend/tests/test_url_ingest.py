@@ -78,7 +78,7 @@ class TestNormalizeUrl(BaseTest):
 
 
 class TestFetchUrl(BaseTest):
-    @patch("products.business_knowledge.backend.url_fetch.is_url_allowed", return_value=(True, None))
+    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips", return_value=(True, None, set()))
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_happy_path_returns_body(self, mock_session_cls: MagicMock, _ssrf: MagicMock) -> None:
         session = mock_session_cls.return_value
@@ -88,7 +88,7 @@ class TestFetchUrl(BaseTest):
         assert result.body == b"<html>hi</html>"
         assert result.etag == '"abc"'
 
-    @patch("products.business_knowledge.backend.url_fetch.is_url_allowed", return_value=(True, None))
+    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips", return_value=(True, None, set()))
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_conditional_get_returns_304(self, mock_session_cls: MagicMock, _ssrf: MagicMock) -> None:
         session = mock_session_cls.return_value
@@ -97,7 +97,7 @@ class TestFetchUrl(BaseTest):
         assert result.status == 304
         assert result.body is None
 
-    @patch("products.business_knowledge.backend.url_fetch.is_url_allowed", return_value=(True, None))
+    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips", return_value=(True, None, set()))
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_size_cap_aborts(self, mock_session_cls: MagicMock, _ssrf: MagicMock) -> None:
         session = mock_session_cls.return_value
@@ -109,12 +109,12 @@ class TestFetchUrl(BaseTest):
         with self.assertRaises(url_fetch.UrlFetchError):
             url_fetch.fetch_url("https://example.com/x")
 
-    @patch("products.business_knowledge.backend.url_fetch.is_url_allowed")
+    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips")
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_redirect_revalidates_ssrf(self, mock_session_cls: MagicMock, mock_ssrf: MagicMock) -> None:
         # First hop allowed (public), second hop blocked (internal). If the
         # client blindly followed, the second Location would be fetched.
-        mock_ssrf.side_effect = [(True, None), (False, "Loopback")]
+        mock_ssrf.side_effect = [(True, None, set()), (False, "Loopback", set())]
         session = mock_session_cls.return_value
         session.get.return_value = _mock_response(status_code=302, body=b"", location="http://127.0.0.1/admin")
         with self.assertRaises(url_fetch.UrlFetchError):
@@ -122,7 +122,10 @@ class TestFetchUrl(BaseTest):
         # SSRF check was re-run on the redirect target.
         assert mock_ssrf.call_count == 2
 
-    @patch("products.business_knowledge.backend.url_fetch.is_url_allowed", return_value=(False, "Loopback"))
+    @patch(
+        "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
+        return_value=(False, "Loopback", set()),
+    )
     def test_ssrf_blocked_upfront(self, _ssrf: MagicMock) -> None:
         with self.assertRaises(url_fetch.UrlFetchError):
             url_fetch.fetch_url("http://localhost/admin")

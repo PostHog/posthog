@@ -107,6 +107,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 name=serializer.validated_data["name"],
                 url=serializer.validated_data["url"],
             )
+        except logic.SourceBusyError:
+            raise _ConflictError("Another source is already being processed. Please wait and try again.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except (logic.UrlFetchFailedError, logic.EmptyContentError):
@@ -128,6 +130,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 crawl_mode=serializer.validated_data["crawl_mode"],
                 crawl_config=serializer.validated_data["crawl_config"],
             )
+        except logic.SourceBusyError:
+            raise _ConflictError("Another source is already being processed. Please wait and try again.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except (logic.UrlFetchFailedError, logic.EmptyContentError):
@@ -186,7 +190,30 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if source.source_type == SourceType.URL.value:
             return self._update_url_source(source, request)
+        if source.source_type == SourceType.FILE.value:
+            return self._update_file_source(source, request)
         return self._update_text_or_file_source(source, request)
+
+    def _update_file_source(self, source: KnowledgeSource, request: Request) -> Response:
+        """FILE sources only allow name changes — content comes from the original upload."""
+        serializer = UpdateTextSourceSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        if "text" in serializer.validated_data:
+            raise exceptions.ValidationError(
+                {"text": "File sources cannot have their text replaced. Re-upload instead."}
+            )
+        try:
+            updated = logic.update_text_source(
+                source_id=source.id,
+                team_id=self.team_id,
+                name=serializer.validated_data.get("name"),
+                text=None,
+            )
+        except logic.QuotaExceededError:
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        if updated is None:
+            raise exceptions.NotFound()
+        return Response(KnowledgeSourceSerializer(instance=updated).data)
 
     def _update_text_or_file_source(self, source: KnowledgeSource, request: Request) -> Response:
         serializer = UpdateTextSourceSerializer(data=request.data, context=self.get_serializer_context())

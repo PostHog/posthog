@@ -6,12 +6,16 @@ All ORM access, chunking, quota enforcement, and search queries.
 
 import re
 import uuid
+import datetime
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from uuid import UUID
 
-from django.db import transaction
+from django.db import (
+    connection as db_connection,
+    transaction,
+)
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -165,6 +169,35 @@ def _count_sources(team_id: int) -> int:
     return KnowledgeSource.objects.filter(team_id=team_id).count()
 
 
+# Advisory-lock namespace so we don't collide with other lock users.
+# pg_advisory_xact_lock takes a bigint; we combine a fixed namespace
+# with team_id to get a unique key per team.
+_ADVISORY_LOCK_NAMESPACE = 0x424B  # "BK" for business_knowledge
+
+
+def _acquire_source_quota_lock(team_id: int) -> None:
+    """
+    Acquire a transaction-scoped Postgres advisory lock keyed on team_id.
+
+    Must be called inside ``transaction.atomic()``. The lock is released
+    automatically when the transaction commits or rolls back.
+
+    This serializes concurrent source-create transactions for the same
+    team, closing the READ COMMITTED phantom-read window that lets two
+    concurrent creates both see ``count=499`` and both insert.
+    """
+    lock_id = (_ADVISORY_LOCK_NAMESPACE << 32) | (team_id & 0xFFFFFFFF)
+    with db_connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
+
+
+def _check_source_quota_locked(team_id: int) -> None:
+    """Acquire the advisory lock, then check the source count. Must be inside a transaction."""
+    _acquire_source_quota_lock(team_id)
+    if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
+        raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
+
+
 def _count_chunks(team_id: int) -> int:
     return KnowledgeChunk.objects.filter(team_id=team_id).count()
 
@@ -246,6 +279,7 @@ def create_text_source(
 
     check_text_source_quota(team_id, text)
 
+    _check_source_quota_locked(team_id)
     source = KnowledgeSource.objects.create(
         team_id=team_id,
         created_by_id=created_by_id,
@@ -450,6 +484,7 @@ def create_file_source(
     content_hash = sha256_of(text)
 
     with transaction.atomic():
+        _check_source_quota_locked(team_id)
         source = KnowledgeSource.objects.create(
             team_id=team_id,
             created_by_id=created_by_id,
@@ -505,27 +540,78 @@ def check_url_source_quota(team_id: int) -> None:
     """
     Byte/chunk caps are enforced post-fetch (we don't know the body size until
     we've fetched). Here we only short-circuit the per-team source count.
+
+    IMPORTANT: this is a non-atomic pre-check for fast rejection. The
+    authoritative check runs inside the ``transaction.atomic()`` block in the
+    create functions to close the TOCTOU window between concurrent requests.
     """
 
     if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
         raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
 
 
+_PROCESSING_STALENESS_MINUTES = 10
+
+
+def _check_no_concurrent_crawl(team_id: int) -> None:
+    """
+    Reject if the team already has a source in PROCESSING state. Crawl
+    and URL-fetch operations run inline on the request thread, so allowing
+    concurrent crawls from the same team amplifies resource exhaustion.
+
+    Sources stuck in PROCESSING for longer than ``_PROCESSING_STALENESS_MINUTES``
+    are treated as stale (crashed mid-crawl) and auto-recovered to ERROR so
+    they don't permanently block new creates.
+    """
+    stale_cutoff = timezone.now() - datetime.timedelta(minutes=_PROCESSING_STALENESS_MINUTES)
+    stale_qs = KnowledgeSource.objects.filter(
+        team_id=team_id,
+        status=SourceStatus.PROCESSING,
+        updated_at__lt=stale_cutoff,
+    )
+    stale_qs.update(
+        status=SourceStatus.ERROR,
+        error_message="Processing timed out. You can retry via refresh.",
+    )
+
+    if KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.PROCESSING).exists():
+        raise SourceBusyError("Another knowledge source is already being processed for this project.")
+
+
 def _resolve_crawl_config(raw: dict | None) -> discover.CrawlConfig:
     """
-    Turn a stored/user-supplied dict into a validated `CrawlConfig`. Applies
+    Turn a stored/user-supplied dict into a validated ``CrawlConfig``. Applies
     hard caps defensively — we don't trust stored values not to drift past
     caps when the caps get lowered.
+
+    All conversions are wrapped in try/except so corrupt JSON (e.g. from
+    a manual admin edit) falls back to safe defaults instead of 500-ing.
     """
 
-    raw = raw or {}
-    max_pages = int(raw.get("max_pages", DEFAULT_MAX_PAGES))
+    if not isinstance(raw, dict):
+        raw = {}
+    else:
+        raw = raw or {}
+    try:
+        max_pages = int(raw.get("max_pages", DEFAULT_MAX_PAGES))
+    except (TypeError, ValueError):
+        max_pages = DEFAULT_MAX_PAGES
     max_pages = max(1, min(max_pages, MAX_URLS_PER_SOURCE))
-    max_depth = int(raw.get("max_depth", DEFAULT_CRAWL_MAX_DEPTH))
+
+    try:
+        max_depth = int(raw.get("max_depth", DEFAULT_CRAWL_MAX_DEPTH))
+    except (TypeError, ValueError):
+        max_depth = DEFAULT_CRAWL_MAX_DEPTH
     max_depth = max(0, min(max_depth, CRAWL_HARD_MAX_DEPTH))
+
+    include_raw = raw.get("include_globs") or []
+    exclude_raw = raw.get("exclude_globs") or []
+    include_globs = tuple(str(g) for g in include_raw if isinstance(g, str))
+    exclude_globs = tuple(str(g) for g in exclude_raw if isinstance(g, str))
+
     return discover.CrawlConfig(
-        include_globs=tuple(raw.get("include_globs", []) or []),
-        exclude_globs=tuple(raw.get("exclude_globs", []) or []),
+        include_globs=include_globs,
+        exclude_globs=exclude_globs,
         max_depth=max_depth,
         max_pages=max_pages,
     )
@@ -625,6 +711,7 @@ def create_url_source(
     """
 
     check_url_source_quota(team_id)
+    _check_no_concurrent_crawl(team_id)
     normalized = _validate_url(url)
 
     try:
@@ -634,6 +721,7 @@ def create_url_source(
         # refresh, or delete it. Returning 201 with an error-state source is
         # better UX than a 400 that orphans a row the client has no ID for.
         with transaction.atomic():
+            _check_source_quota_locked(team_id)
             now = timezone.now()
             source = KnowledgeSource.objects.create(
                 team_id=team_id,
@@ -651,6 +739,7 @@ def create_url_source(
 
     content_hash = sha256_of(text)
     with transaction.atomic():
+        _check_source_quota_locked(team_id)
         source = KnowledgeSource.objects.create(
             team_id=team_id,
             created_by_id=created_by_id,
@@ -927,6 +1016,7 @@ def create_crawl_source(
         return create_url_source(team_id=team_id, created_by_id=created_by_id, name=name, url=url)
 
     check_url_source_quota(team_id)
+    _check_no_concurrent_crawl(team_id)
     normalized = _validate_url(url)
     config = _resolve_crawl_config(crawl_config)
 
@@ -960,6 +1050,7 @@ def create_crawl_source(
         now = timezone.now()
         first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
         with transaction.atomic():
+            _check_source_quota_locked(team_id)
             source = KnowledgeSource.objects.create(
                 team_id=team_id,
                 created_by_id=created_by_id,
@@ -984,6 +1075,7 @@ def create_crawl_source(
 
     # Step 3: atomic create.
     with transaction.atomic():
+        _check_source_quota_locked(team_id)
         source = KnowledgeSource.objects.create(
             team_id=team_id,
             created_by_id=created_by_id,

@@ -3,6 +3,8 @@ SSRF-hardened HTTP fetch for URL-backed knowledge sources.
 
 Responsibilities:
 - Validate URL (reuses `posthog.security.url_validation`) before each hop.
+- Pin validated IPs so ``requests`` connects to the exact IPs we checked,
+  eliminating the DNS-rebinding TOCTOU window.
 - Manual redirect handling — we refuse the default `requests` redirect chain
   because it does *not* re-validate the target IP, which is the classic
   DNS-rebinding / open-redirect bypass for SSRF.
@@ -14,13 +16,15 @@ Responsibilities:
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import urllib.parse as urlparse
 from dataclasses import dataclass
 
 import requests
 import structlog
+from requests.adapters import HTTPAdapter
 
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.url_validation import validate_url_and_pin_ips
 
 from .constants import URL_CONNECT_TIMEOUT, URL_MAX_BYTES, URL_MAX_REDIRECTS, URL_READ_TIMEOUT, URL_USER_AGENT
 
@@ -83,6 +87,77 @@ def sha256_of(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+# --- DNS-pinning adapter — eliminates TOCTOU rebinding window ----------------
+
+
+class _PinnedIPAdapter(HTTPAdapter):
+    """
+    Requests adapter that rewrites URLs to connect to pre-validated IPs,
+    preventing DNS rebinding between validation and connection.
+
+    For HTTPS, sets ``assert_hostname`` and ``server_hostname`` on the
+    connection pool so TLS SNI and certificate verification use the
+    original hostname (not the IP).
+
+    NOT thread-safe — designed for single-use sessions in ``_ssrf_safe_get``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pin_map: dict[str, str] = {}
+
+    def pin(self, hostname: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+        self._pin_map[hostname.lower()] = str(ip)
+
+    def send(  # type: ignore[override]
+        self,
+        request: requests.PreparedRequest,
+        stream: bool = False,
+        timeout: None | float | tuple[float, float] = None,
+        verify: bool | str = True,
+        cert: None | str | tuple[str, str] = None,
+        proxies: dict[str, str] | None = None,
+    ) -> requests.Response:
+        parsed = urlparse.urlparse(request.url or "")
+        host = (parsed.hostname or "").lower()
+        ip_str = self._pin_map.get(host)
+
+        if ip_str is not None:
+            self._current_original_host = host
+
+            ip_netloc = f"[{ip_str}]" if ":" in ip_str else ip_str
+            if parsed.port:
+                ip_netloc = f"{ip_netloc}:{parsed.port}"
+
+            request.url = urlparse.urlunparse((parsed.scheme, ip_netloc, parsed.path, parsed.params, parsed.query, ""))
+
+            original_netloc = host
+            if parsed.port:
+                original_netloc = f"{host}:{parsed.port}"
+            if request.headers is not None:
+                request.headers["Host"] = original_netloc
+        else:
+            self._current_original_host = None
+
+        return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+
+    def cert_verify(self, conn: object, url: str, verify: bool | str, cert: None | str | tuple[str, str]) -> None:
+        super().cert_verify(conn, url, verify, cert)  # type: ignore[arg-type]
+        original = getattr(self, "_current_original_host", None)
+        if original:
+            # We mutate urllib3 pool internals intentionally — these attributes
+            # exist at runtime (verified against urllib3 2.6.3) but aren't
+            # visible to static type checkers.
+            if hasattr(conn, "assert_hostname"):
+                conn.assert_hostname = original  # type: ignore[union-attr,invalid-assignment]  # ty: ignore[invalid-assignment]
+            # Inject server_hostname into conn_kw so newly created connections
+            # use the original hostname for TLS SNI (not the rewritten IP).
+            # urllib3 passes **conn_kw to ConnectionCls.__init__, and
+            # HTTPSConnection.connect() reads self.server_hostname for SNI.
+            if hasattr(conn, "conn_kw") and isinstance(getattr(conn, "conn_kw", None), dict):
+                conn.conn_kw["server_hostname"] = original  # type: ignore[union-attr,invalid-assignment]  # ty: ignore[invalid-assignment]
+
+
 # --- Shared SSRF-safe fetch core ---------------------------------------------
 
 
@@ -109,20 +184,24 @@ def _ssrf_safe_get(
     etag: str | None = None,
 ) -> FetchResult:
     """
-    Core SSRF-hardened GET with manual redirect handling.
+    Core SSRF-hardened GET with manual redirect handling and DNS pinning.
 
-    Re-validates `is_url_allowed` on every redirect hop. Stream-reads the
-    body with a hard byte cap. Used by both `fetch_url` (content GET with
-    conditional ETag) and `fetch_text` (metadata GET for discover).
+    Re-validates ``validate_url_and_pin_ips`` on every redirect hop and
+    pins the validated IPs so ``requests`` connects to the exact addresses
+    we checked (no DNS rebinding window). Stream-reads the body with a
+    hard byte cap.
 
-    Raises `UrlFetchError` with a user-safe message on any failure.
+    Raises ``UrlFetchError`` with a user-safe message on any failure.
     """
 
     current = strip_userinfo(normalize_url(url))
+    adapter = _PinnedIPAdapter()
     session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
     try:
         for _hop in range(URL_MAX_REDIRECTS + 1):
-            allowed, reason = is_url_allowed(current)
+            allowed, reason, pinned_ips = validate_url_and_pin_ips(current)
             if not allowed:
                 logger.warning(
                     "business_knowledge.url_fetch.ssrf_blocked",
@@ -130,6 +209,12 @@ def _ssrf_safe_get(
                     reason=reason,
                 )
                 raise UrlFetchError("URL is not reachable from this environment.")
+
+            # Pin the first validated IP so requests connects to it directly
+            parsed = urlparse.urlparse(current)
+            hostname = (parsed.hostname or "").lower()
+            if pinned_ips:
+                adapter.pin(hostname, next(iter(pinned_ips)))
 
             merged_headers = dict(headers)
             if etag:
