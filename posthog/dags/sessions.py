@@ -553,7 +553,7 @@ def _is_too_many_simultaneous_queries_error(exc: Exception) -> bool:
     error_str = str(exc)
     return (
         f"error code {ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES}" in error_str
-        or "Code: 202" in error_str
+        or "Code: 202." in error_str
         or "TOO_MANY_SIMULTANEOUS_QUERIES" in error_str
     )
 
