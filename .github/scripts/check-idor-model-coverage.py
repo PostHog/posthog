@@ -28,13 +28,13 @@ from pathlib import Path
 
 import yaml
 
-BASELINE_FILE = Path(__file__).resolve().parent.parent.parent / "posthog/models/scoping/baseline_unmigrated.txt"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+BASELINE_FILE = REPO_ROOT / "posthog/models/scoping/baseline_unmigrated.txt"
 
 
 def setup_django() -> None:
     """Initialize Django settings for model introspection."""
-    repo_root = str(Path(__file__).resolve().parent.parent.parent)
-    sys.path.insert(0, repo_root)
+    sys.path.insert(0, str(REPO_ROOT))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
     import django
 
@@ -555,7 +555,7 @@ def check_fail_closed_baseline(
 
     if regenerate:
         write_baseline(current)
-        print(f"\n  Regenerated {BASELINE_FILE.relative_to(BASELINE_FILE.parent.parent.parent.parent)}")
+        print(f"\n  Regenerated {BASELINE_FILE.relative_to(REPO_ROOT)}")
         print(f"  {len(current)} models still on a non-fail-closed manager.")
         return False, False
 
@@ -603,7 +603,7 @@ def main() -> int:
     code_models, excluded_models, legitimately_unscoped, needs_team_id = get_scoped_models()
 
     # Get models from semgrep rules
-    semgrep_path = Path(__file__).parent.parent.parent / ".semgrep/rules/idor-team-scoped-models.yaml"
+    semgrep_path = REPO_ROOT / ".semgrep/rules/idor-team-scoped-models.yaml"
     semgrep_models = parse_semgrep_models(semgrep_path)
 
     # Compare and report
