@@ -241,11 +241,16 @@ export function MenuFilterDwhConfig({
     const canSubmit = useMemo(
         () =>
             dataWarehousePopoverFields.every((f) => {
-                if (f.optional) {
-                    return true
-                }
                 const v = values[f.key]
-                return typeof v === 'string' && v.length > 0
+                const hasValue = typeof v === 'string' && v.length > 0
+                // Optional fields pass when untouched (`undefined`), but
+                // an empty-string value means the user picked "SQL
+                // expression" without writing one — reject that to avoid
+                // committing `{ [f.key]: '' }` and breaking downstream.
+                if (f.optional) {
+                    return v === undefined || hasValue
+                }
+                return hasValue
             }),
         [dataWarehousePopoverFields, values]
     )

@@ -221,13 +221,14 @@ export function MenuFilterCombobox({
         return merged
     }, [drillItems, suggestedItems, targetGroups, itemsByType, selectedEntry, showChips, activeChip, drillTo])
 
+    // Memoise the Fuse index on `indexed` alone — rebuilding on every
+    // keystroke turned out to be the dominant cost on large filters
+    // (hundreds of events/actions reindex per character typed).
+    const fuse = useMemo(() => createFuse(indexed, FUSE_OPTIONS), [indexed])
+
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q
-            ? createFuse(indexed, FUSE_OPTIONS)
-                  .search(q)
-                  .map((r) => r.item)
-            : indexed
+        const base = q ? fuse.search(q).map((r) => r.item) : indexed
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the
@@ -244,7 +245,7 @@ export function MenuFilterCombobox({
             }
         }
         return base
-    }, [indexed, searchQuery, selectedRowId])
+    }, [indexed, searchQuery, selectedRowId, fuse])
 
     // Active-chip-aware placeholder. When the user has narrowed to a
     // specific category, use that group's `searchPlaceholder` so the
