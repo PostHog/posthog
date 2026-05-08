@@ -142,25 +142,25 @@ export function useTaxonomicResource<T>(
             return () => {
                 entry.subscribers.delete(notifyChange)
                 if (entry.subscribers.size === 0) {
-                    // Tear the entry down unconditionally on last unsub:
-                    //   1. Abort any in-flight request — no one is
-                    //      listening, so completing it is wasted work.
-                    //   2. Mark `abort` / `inflight` cleared synchronously
-                    //      so when the in-flight promise eventually
-                    //      rejects, `execute()`'s catch handler sees a
-                    //      stale controller (`entry.abort !== abort`) and
-                    //      skips its side-effects — keeps the dead entry
-                    //      from re-poisoning a fresh subscribe.
-                    //   3. Delete the cache entry. Long-lived sessions
-                    //      with many distinct search queries (each its
-                    //      own hash) used to leak `data` for the page
-                    //      lifetime; re-mount with the same key just
-                    //      re-fetches. Cost is bounded by `staleTime` UX
-                    //      rather than permanent memory growth.
-                    entry.abort?.abort()
-                    entry.abort = undefined
-                    entry.inflight = undefined
-                    cache.delete(hash)
+                    // Defer eviction one task — React's strict-mode
+                    // double-invoke + concurrent rendering tears the
+                    // subscriber down and re-attaches it within the same
+                    // tick, and Jest's `cleanup()` between tests can do
+                    // the same. Evicting synchronously kills the entry +
+                    // any in-flight fetch that the *next* mount of the
+                    // same hook is about to need, leaving the consumer
+                    // hung on `isLoading`. Re-check after the current
+                    // task drains; if no fresh subscriber attached,
+                    // the entry is genuinely orphaned and safe to drop.
+                    setTimeout(() => {
+                        if (entry.subscribers.size > 0) {
+                            return
+                        }
+                        entry.abort?.abort()
+                        entry.abort = undefined
+                        entry.inflight = undefined
+                        cache.delete(hash)
+                    }, 0)
                 }
             }
         },
