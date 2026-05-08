@@ -11,11 +11,12 @@
  * commit. Esc → onBack.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import FuseClass from 'fuse.js'
 import { Check, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
+
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -222,7 +223,11 @@ export function MenuFilterCombobox({
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q ? new FuseClass(indexed, FUSE_OPTIONS as any).search(q).map((r) => r.item) : indexed
+        const base = q
+            ? createFuse(indexed, FUSE_OPTIONS)
+                  .search(q)
+                  .map((r) => r.item)
+            : indexed
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the

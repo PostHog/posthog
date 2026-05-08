@@ -31,6 +31,7 @@ export async function fetchTaxonomicListPage({
     isExpanded,
     showNumericalPropsOnly,
     hideBehavioralCohorts,
+    signal,
 }: FetchTaxonomicPageParams): Promise<ListStorage> {
     const remoteEndpoint = group.endpoint
     if (!remoteEndpoint) {

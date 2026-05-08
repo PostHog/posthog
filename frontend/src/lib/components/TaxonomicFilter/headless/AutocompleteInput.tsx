@@ -31,7 +31,6 @@
  * the popover is open so 'All' search has data ready.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import FuseClass from 'fuse.js'
 import { useActions, useValues } from 'kea'
 import { ChevronLeftIcon } from 'lucide-react'
 import {
@@ -69,6 +68,8 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
+
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -510,7 +511,7 @@ export function Root({
         if (!trimmed) {
             return indexed
         }
-        const fuse = new FuseClass(indexed, FUSE_OPTIONS as any)
+        const fuse = createFuse(indexed, FUSE_OPTIONS)
         return fuse.search(trimmed).map((r) => r.item)
     }, [indexed, searchQuery])
 

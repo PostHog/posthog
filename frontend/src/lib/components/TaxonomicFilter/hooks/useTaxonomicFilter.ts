@@ -341,10 +341,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         if (idx <= 0) {
             return
         }
-        for (let i = idx - 1; i >= 0; i--) {
-            setActiveGroupTypeInternal(groupTypes[i])
-            return
-        }
+        setActiveGroupTypeInternal(groupTypes[idx - 1])
     }, [groupTypes, activeGroupType])
 
     const tabRight = useCallback(() => {

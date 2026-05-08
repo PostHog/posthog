@@ -20,7 +20,7 @@
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import {
     isQuickFilterItem,
@@ -118,9 +118,19 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     } = input
 
     const [isExpanded, setIsExpanded] = useState(false)
-    const [index, setIndex] = useState<number>(
-        selectFirstItem === false || autoSelectItem === false ? NO_ITEM_SELECTED : 0
-    )
+    const initialIndex = selectFirstItem === false || autoSelectItem === false ? NO_ITEM_SELECTED : 0
+    const [index, setIndex] = useState<number>(initialIndex)
+
+    // Reset the keyboard highlight whenever the search query changes so the cursor
+    // never points past the end of a freshly-narrowed results list — otherwise
+    // itemAtIndex(staleIndex) returns undefined and selectSelected() falls through
+    // to onEnter(searchQuery), creating a new event/expression instead of selecting
+    // the highlighted row.
+    const prevSearchRef = useRef(searchQuery)
+    if (prevSearchRef.current !== searchQuery) {
+        prevSearchRef.current = searchQuery
+        setIndex(initialIndex)
+    }
 
     // ---- Local data source --------------------------------------------------
     const rawLocalItems = useMemo<TaxonomicDefinitionTypes[] | null>(() => {
