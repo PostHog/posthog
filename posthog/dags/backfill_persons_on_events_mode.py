@@ -211,7 +211,7 @@ def aggregate_persons_on_events_mode_results_op(
         "evaluation. Eliminates query-cache_key fragmentation. "
         "Set ops.persist_persons_on_events_mode_op.config.dry_run=True to preview."
     ),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value},
 )
 def backfill_persons_on_events_mode_job():
     team_ids = get_all_team_ids_op()
