@@ -86,18 +86,16 @@ function TestAccountFiltersConfig(): JSX.Element {
                     <p>
                         When filtering out internal users, inline person property filters (e.g., "email does not contain
                         your-domain.com") are evaluated against the person properties stored on each event{' '}
-                        <strong>at the time it was ingested</strong>. That means events captured before a user was
-                        identified (and therefore before the matching property was set on the person) are{' '}
-                        <strong>not</strong> excluded — only events captured after the property was set will be
-                        filtered out. These filters do work everywhere, including real-time CDP destinations.
+                        <strong>at the time it was ingested</strong>. These filters work everywhere, including
+                        real-time CDP destinations.
                     </p>
                     <p className="mb-0">
                         Alternatively, you can create a cohort and add it with a "not in" operator. Cohorts are
                         evaluated against a person's <strong>current</strong> properties, so all of a matching user's
-                        events are excluded — including any captured before they were identified. This is usually the
-                        better fit for analytics queries (insights, dashboards), and also works in CDP destinations if
-                        the cohort contains <strong>exclusively person property filters</strong>. Cohorts with
-                        behavioral filters or no properties defined will cause CDP destinations to error.
+                        events are excluded. This is usually the better fit for analytics queries (insights,
+                        dashboards), and also works in CDP destinations if the cohort contains{' '}
+                        <strong>exclusively person property filters</strong>. Cohorts with behavioral filters or no
+                        properties defined will cause CDP destinations to error.
                     </p>
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
