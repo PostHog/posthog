@@ -17,6 +17,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.scoping import with_team_scope
 from posthog.security.url_validation import is_url_allowed
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
@@ -168,6 +169,7 @@ def _count_chunks(team_id: int) -> int:
     return KnowledgeChunk.objects.filter(team_id=team_id).count()
 
 
+@with_team_scope(canonical=True)
 def check_text_source_quota(team_id: int, text: str) -> None:
     if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
         raise TextTooLargeError(f"Text exceeds {MAX_TEXT_SIZE_BYTES} bytes. Split it into multiple sources.")
@@ -184,6 +186,7 @@ def check_text_source_quota(team_id: int, text: str) -> None:
 # --- Queries -----------------------------------------------------------------
 
 
+@with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
     return list(
@@ -196,6 +199,7 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
     )
 
 
+@with_team_scope(canonical=True)
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
         return KnowledgeSource.objects.annotate(
@@ -206,6 +210,7 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return None
 
 
+@with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     """
     Returns the raw text of a text-type source. Stage 1 has exactly one
@@ -223,6 +228,7 @@ def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
 # --- Mutations ---------------------------------------------------------------
 
 
+@with_team_scope(canonical=True)
 @transaction.atomic
 def create_text_source(
     *,
@@ -276,6 +282,7 @@ def create_text_source(
     return get_for_team(source.id, team_id) or source
 
 
+@with_team_scope(canonical=True)
 @transaction.atomic
 def update_text_source(
     *,
@@ -342,6 +349,7 @@ def update_text_source(
     return get_for_team(source.id, team_id) or source
 
 
+@with_team_scope(canonical=True)
 def update_url_source(
     *,
     source_id: UUID,
@@ -399,6 +407,7 @@ def update_url_source(
     return get_for_team(source.id, team_id) or source
 
 
+@with_team_scope(canonical=True)
 @transaction.atomic
 def delete_source(source_id: UUID, team_id: int) -> bool:
     deleted, _ = KnowledgeSource.objects.filter(id=source_id, team_id=team_id).delete()
@@ -408,6 +417,7 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
 # --- Stage 3: file sources ----------------------------------------------------
 
 
+@with_team_scope(canonical=True)
 def create_file_source(
     *,
     team_id: int,
@@ -490,6 +500,7 @@ def _validate_url(url: str) -> str:
     return normalized
 
 
+@with_team_scope(canonical=True)
 def check_url_source_quota(team_id: int) -> None:
     """
     Byte/chunk caps are enforced post-fetch (we don't know the body size until
@@ -597,6 +608,7 @@ def _replace_source_content(
     _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
 
 
+@with_team_scope(canonical=True)
 def create_url_source(
     *,
     team_id: int,
@@ -675,6 +687,7 @@ def create_url_source(
     return get_for_team(source.id, team_id) or source
 
 
+@with_team_scope(canonical=True)
 def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
     """
     Re-fetch a URL source and rebuild its content if it changed.
@@ -883,6 +896,7 @@ def _insert_document_and_chunks(
     return len(chunks)
 
 
+@with_team_scope(canonical=True)
 def create_crawl_source(
     *,
     team_id: int,
@@ -1172,6 +1186,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 # ---------------------------------------------------------------------------
 
 
+@with_team_scope(canonical=True)
 def has_ready_sources(team_id: int) -> bool:
     """True when the team has at least one READY source (READY implies chunks exist)."""
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
@@ -1196,6 +1211,7 @@ class KnowledgeSearchResult:
     content: str
 
 
+@with_team_scope(canonical=True)
 def search_knowledge(
     team_id: int,
     query: str,

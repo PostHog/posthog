@@ -241,9 +241,9 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         assert body["file_content_type"] == "text/plain"
         assert body["chunk_count"] >= 1
 
-        source = KnowledgeSource.objects.get(id=body["id"])
-        assert KnowledgeDocument.objects.filter(source=source, team=self.team).count() == 1
-        assert KnowledgeChunk.objects.filter(source=source, team=self.team).count() >= 1
+        source = KnowledgeSource.objects.unscoped().get(id=body["id"])
+        assert KnowledgeDocument.objects.unscoped().filter(source=source, team=self.team).count() == 1
+        assert KnowledgeChunk.objects.unscoped().filter(source=source, team=self.team).count() >= 1
 
     def test_upload_csv_file(self, _ff: MagicMock) -> None:
         content = b"name,role\nAlice,Engineer\nBob,Designer"
@@ -352,7 +352,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
             {"name": "Secret", "file": uploaded, "source_type": "file"},
             format="multipart",
         )
-        source = KnowledgeSource.objects.filter(team=self.team).first()
+        source = KnowledgeSource.objects.unscoped().filter(team=self.team).first()
         assert source is not None
 
         other_team = Team.objects.create_with_data(

@@ -45,9 +45,9 @@ class TestCrossTeamIsolation(BaseTest):
         assert logic.has_ready_sources(self.team.id) is True
         assert logic.has_ready_sources(self.other_team.id) is True
 
-        KnowledgeChunk.objects.filter(team=self.other_team).delete()
-        KnowledgeDocument.objects.filter(team=self.other_team).delete()
-        KnowledgeSource.objects.filter(team=self.other_team).delete()
+        KnowledgeChunk.objects.unscoped().filter(team=self.other_team).delete()
+        KnowledgeDocument.objects.unscoped().filter(team=self.other_team).delete()
+        KnowledgeSource.objects.unscoped().filter(team=self.other_team).delete()
 
         assert logic.has_ready_sources(self.team.id) is True
         assert logic.has_ready_sources(self.other_team.id) is False

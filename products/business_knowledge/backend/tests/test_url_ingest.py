@@ -161,8 +161,8 @@ class TestCreateUrlSource(BaseTest):
         assert source.source_url == "https://docs.example.com/billing"
         assert source.last_refresh_status == RefreshStatus.SUCCESS
         assert source.last_etag == '"v1"'
-        assert KnowledgeDocument.objects.filter(source=source).count() == 1
-        assert KnowledgeChunk.objects.filter(source=source, team=self.team).count() >= 1
+        assert KnowledgeDocument.objects.unscoped().filter(source=source).count() == 1
+        assert KnowledgeChunk.objects.unscoped().filter(source=source, team=self.team).count() >= 1
 
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(False, "Loopback"))
     def test_ssrf_rejection_does_not_create_source(self, _ssrf: MagicMock) -> None:
@@ -173,7 +173,7 @@ class TestCreateUrlSource(BaseTest):
                 name="Bad",
                 url="http://127.0.0.1/admin",
             )
-        assert KnowledgeSource.objects.filter(team=self.team).count() == 0
+        assert KnowledgeSource.objects.unscoped().filter(team=self.team).count() == 0
 
     @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
@@ -217,7 +217,7 @@ class TestRefreshSource(BaseTest):
     def test_304_keeps_chunks_marks_not_modified(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
         source = self._seed(etag='"v1"')
         original_chunks = list(
-            KnowledgeChunk.objects.filter(source=source).order_by("ordinal").values_list("id", flat=True)
+            KnowledgeChunk.objects.unscoped().filter(source=source).order_by("ordinal").values_list("id", flat=True)
         )
         mock_fetch.return_value = url_fetch.FetchResult(
             status=304,
@@ -230,14 +230,16 @@ class TestRefreshSource(BaseTest):
         assert refreshed is not None
         assert refreshed.last_refresh_status == RefreshStatus.NOT_MODIFIED
         # Chunks preserved identity — agents with cached chunk ids are still valid.
-        new_chunks = list(KnowledgeChunk.objects.filter(source=source).order_by("ordinal").values_list("id", flat=True))
+        new_chunks = list(
+            KnowledgeChunk.objects.unscoped().filter(source=source).order_by("ordinal").values_list("id", flat=True)
+        )
         assert new_chunks == original_chunks
 
     @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
     def test_200_with_changed_content_rebuilds_chunks(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
         source = self._seed(etag='"v1"')
-        old_contents = set(KnowledgeChunk.objects.filter(source=source).values_list("content", flat=True))
+        old_contents = set(KnowledgeChunk.objects.unscoped().filter(source=source).values_list("content", flat=True))
         new_html = b"""<!doctype html><html><body><article>
 <h1>Refund policy</h1>
 <p>BRAND NEW: 60-day refunds are now available.</p>
@@ -253,7 +255,7 @@ class TestRefreshSource(BaseTest):
         assert refreshed is not None
         assert refreshed.last_refresh_status == RefreshStatus.SUCCESS
         assert refreshed.last_etag == '"v2"'
-        new_contents = set(KnowledgeChunk.objects.filter(source=source).values_list("content", flat=True))
+        new_contents = set(KnowledgeChunk.objects.unscoped().filter(source=source).values_list("content", flat=True))
         # Chunk *content* must change. Chunk ids are deterministic in the url +
         # ordinal space, so they stay stable across refreshes — that's by design
         # so agents' cached citations keep resolving.
@@ -264,7 +266,7 @@ class TestRefreshSource(BaseTest):
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
     def test_busy_source_rejects(self, _ssrf: MagicMock, _fetch: MagicMock) -> None:
         source = self._seed()
-        KnowledgeSource.objects.filter(id=source.id).update(status=SourceStatus.PROCESSING)
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=SourceStatus.PROCESSING)
         with self.assertRaises(SourceBusyError):
             refresh_source(source_id=source.id, team_id=self.team.id)
 
@@ -329,7 +331,7 @@ class TestUrlApi(APIBaseTest):
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        theirs = KnowledgeSource.objects.create(
+        theirs = KnowledgeSource.objects.unscoped().create(
             team=other_team,
             name="Theirs",
             source_type=SourceType.URL,

@@ -206,11 +206,11 @@ class TestCreateCrawlSource(APIBaseTest):
                 crawl_config={"max_pages": 10},
             )
         assert source.status == SourceStatus.READY
-        assert KnowledgeDocument.objects.filter(source=source).count() == 3
+        assert KnowledgeDocument.objects.unscoped().filter(source=source).count() == 3
         # Every doc has chunks and a content_hash.
-        docs = KnowledgeDocument.objects.filter(source=source)
+        docs = KnowledgeDocument.objects.unscoped().filter(source=source)
         assert all(d.content_hash for d in docs)
-        assert KnowledgeChunk.objects.filter(source=source).count() >= 3
+        assert KnowledgeChunk.objects.unscoped().filter(source=source).count() >= 3
 
     def test_zero_safe_urls_raises_empty_content(self) -> None:
         sitemap = _sitemap_xml(["http://127.0.0.1/secret"])
@@ -251,8 +251,8 @@ class TestRefreshCrawlSource(APIBaseTest):
 
     def test_changed_page_rebuilds_only_that_doc(self) -> None:
         source = self._seed(["https://example.com/a", "https://example.com/b"])
-        doc_a = KnowledgeDocument.objects.get(source=source, stable_id="https://example.com/a")
-        doc_b = KnowledgeDocument.objects.get(source=source, stable_id="https://example.com/b")
+        doc_a = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
+        doc_b = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/b")
         b_hash_before = doc_b.content_hash
 
         # Re-discover same sitemap; change content of /a only.
@@ -274,16 +274,16 @@ class TestRefreshCrawlSource(APIBaseTest):
         doc_a.refresh_from_db()
         doc_b.refresh_from_db()
         # doc id preserved for both — critical for citation stability.
-        assert KnowledgeDocument.objects.filter(source=source, id=doc_a.id).exists()
-        assert KnowledgeDocument.objects.filter(source=source, id=doc_b.id).exists()
+        assert KnowledgeDocument.objects.unscoped().filter(source=source, id=doc_a.id).exists()
+        assert KnowledgeDocument.objects.unscoped().filter(source=source, id=doc_b.id).exists()
         # /a rebuilt; /b unchanged.
         assert "updated" in doc_a.content
         assert doc_b.content_hash == b_hash_before
 
     def test_vanished_url_is_tombstoned(self) -> None:
         source = self._seed(["https://example.com/a", "https://example.com/b"])
-        doc_b = KnowledgeDocument.objects.get(source=source, stable_id="https://example.com/b")
-        assert KnowledgeChunk.objects.filter(document_id=doc_b.id).exists()
+        doc_b = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/b")
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_b.id).exists()
 
         # Re-discover without /b.
         sitemap = _sitemap_xml(["https://example.com/a"])
@@ -301,12 +301,12 @@ class TestRefreshCrawlSource(APIBaseTest):
         doc_b.refresh_from_db()
         assert doc_b.tombstoned_at is not None
         # Chunks for the vanished doc are gone, but the doc row is preserved.
-        assert KnowledgeChunk.objects.filter(document_id=doc_b.id).count() == 0
-        assert KnowledgeDocument.objects.filter(id=doc_b.id).exists()
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_b.id).count() == 0
+        assert KnowledgeDocument.objects.unscoped().filter(id=doc_b.id).exists()
 
     def test_unchanged_source_reports_not_modified(self) -> None:
         source = self._seed(["https://example.com/a"])
-        doc_a = KnowledgeDocument.objects.get(source=source, stable_id="https://example.com/a")
+        doc_a = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
 
         sitemap = _sitemap_xml(["https://example.com/a"])
 
@@ -338,8 +338,8 @@ class TestRefreshCrawlSource(APIBaseTest):
         """
 
         source = self._seed(["https://example.com/a", "https://example.com/b"])
-        doc_b = KnowledgeDocument.objects.get(source=source, stable_id="https://example.com/b")
-        b_chunks_before = KnowledgeChunk.objects.filter(document_id=doc_b.id).count()
+        doc_b = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/b")
+        b_chunks_before = KnowledgeChunk.objects.unscoped().filter(document_id=doc_b.id).count()
         assert b_chunks_before > 0
 
         # Sitemap still lists both URLs. But `is_url_allowed` flips to False
@@ -373,7 +373,7 @@ class TestRefreshCrawlSource(APIBaseTest):
         assert doc_b.tombstoned_at is None
         # Chunks are left intact — the whole point of preserving /b is that
         # the user still has citations for the previously-indexed content.
-        assert KnowledgeChunk.objects.filter(document_id=doc_b.id).count() == b_chunks_before
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_b.id).count() == b_chunks_before
 
 
 class TestChunkIdIsolation(APIBaseTest):
@@ -417,8 +417,8 @@ class TestChunkIdIsolation(APIBaseTest):
                 crawl_config={"max_pages": 10},
             )
 
-        a_chunks = set(KnowledgeChunk.objects.filter(source=source_a).values_list("id", flat=True))
-        b_chunks = set(KnowledgeChunk.objects.filter(source=source_b).values_list("id", flat=True))
+        a_chunks = set(KnowledgeChunk.objects.unscoped().filter(source=source_a).values_list("id", flat=True))
+        b_chunks = set(KnowledgeChunk.objects.unscoped().filter(source=source_b).values_list("id", flat=True))
         assert a_chunks and b_chunks
         assert a_chunks.isdisjoint(b_chunks), "chunk UUIDs must not collide across sources"
 

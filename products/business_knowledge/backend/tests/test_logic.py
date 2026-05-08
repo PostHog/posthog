@@ -70,7 +70,7 @@ class TestChunker(BaseTest):
 
 class TestCreateTextSource(BaseTest):
     def _count_for(self, model, team):
-        return model.objects.filter(team=team).count()
+        return model.objects.unscoped().filter(team=team).count()
 
     def test_create_text_source_happy_path(self) -> None:
         source = create_text_source(
@@ -83,8 +83,14 @@ class TestCreateTextSource(BaseTest):
         assert self._count_for(KnowledgeDocument, self.team) == 1
         assert self._count_for(KnowledgeChunk, self.team) >= 1
         # team_id must land on child rows too.
-        assert KnowledgeChunk.objects.filter(team=self.team).count() == KnowledgeChunk.objects.count()
-        assert KnowledgeDocument.objects.filter(team=self.team).count() == KnowledgeDocument.objects.count()
+        assert (
+            KnowledgeChunk.objects.unscoped().filter(team=self.team).count()
+            == KnowledgeChunk.objects.unscoped().count()
+        )
+        assert (
+            KnowledgeDocument.objects.unscoped().filter(team=self.team).count()
+            == KnowledgeDocument.objects.unscoped().count()
+        )
 
     def test_chunks_carry_source_and_document_fks(self) -> None:
         source = create_text_source(
@@ -93,7 +99,7 @@ class TestCreateTextSource(BaseTest):
             name="Docs",
             text="a" * 300 + "\n\n" + "b" * 300,
         )
-        chunks = KnowledgeChunk.objects.filter(source=source)
+        chunks = KnowledgeChunk.objects.unscoped().filter(source=source)
         assert chunks.count() >= 1
         for c in chunks:
             assert c.source_id == source.id
