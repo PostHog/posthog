@@ -89,6 +89,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalytics: () => import('../../products/llm_analytics/frontend/LLMAnalyticsScene'),
     LLMAnalyticsTrace: () => import('../../products/llm_analytics/frontend/LLMAnalyticsTraceScene'),
     LLMAnalyticsSession: () => import('../../products/llm_analytics/frontend/LLMAnalyticsSessionScene'),
+    LLMAnalyticsConversation: () => import('../../products/llm_analytics/frontend/LLMAnalyticsConversationScene'),
     LLMAnalyticsUsers: () => import('../../products/llm_analytics/frontend/LLMAnalyticsUsers'),
     LLMAnalyticsPlayground: () =>
         import('../../products/llm_analytics/frontend/playground/LLMAnalyticsPlaygroundScene'),
@@ -195,6 +196,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
     '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
     '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
+    '/llm-analytics/conversations': ['LLMAnalytics', 'llmAnalyticsConversations'],
+    '/llm-analytics/conversations/:kind/:id': ['LLMAnalyticsConversation', 'llmAnalytics'],
     '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
     '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
     '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
@@ -413,6 +416,7 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsTrace: { projectBased: true, name: 'LLM analytics trace', layout: 'app-container' },
     LLMAnalyticsSession: { projectBased: true, name: 'LLM analytics session', layout: 'app-container' },
+    LLMAnalyticsConversation: { projectBased: true, name: 'LLM analytics conversation', layout: 'app-container' },
     LLMAnalyticsUsers: { projectBased: true, name: 'LLM analytics users', layout: 'app-container' },
     LLMAnalyticsPlayground: {
         projectBased: true,
@@ -832,6 +836,18 @@ export const productUrls = {
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
         return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+    },
+    llmAnalyticsConversations: (): string => '/llm-analytics/conversations',
+    llmAnalyticsConversation: (
+        kind: 'session' | 'trace',
+        id: string,
+        params?: {
+            timestamp?: string
+        }
+    ): string => {
+        const queryParams = new URLSearchParams(params)
+        const stringifiedParams = queryParams.toString()
+        return `/llm-analytics/conversations/${kind}/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
     llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
@@ -1312,6 +1328,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1387,6 +1404,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1458,6 +1476,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1526,6 +1545,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1623,6 +1643,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1678,6 +1699,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1743,6 +1765,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',
@@ -1798,6 +1821,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalytics',
             'LLMAnalyticsTrace',
             'LLMAnalyticsSession',
+            'LLMAnalyticsConversation',
             'LLMAnalyticsUsers',
             'LLMAnalyticsPlayground',
             'LLMAnalyticsDatasets',

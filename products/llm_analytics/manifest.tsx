@@ -31,6 +31,12 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics session',
             layout: 'app-container',
         },
+        LLMAnalyticsConversation: {
+            import: () => import('./frontend/LLMAnalyticsConversationScene'),
+            projectBased: true,
+            name: 'LLM analytics conversation',
+            layout: 'app-container',
+        },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
             projectBased: true,
@@ -160,6 +166,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
         '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
         '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
+        '/llm-analytics/conversations': ['LLMAnalytics', 'llmAnalyticsConversations'],
+        '/llm-analytics/conversations/:kind/:id': ['LLMAnalyticsConversation', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
         '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
@@ -239,6 +247,18 @@ export const manifest: ProductManifest = {
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
             return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        },
+        llmAnalyticsConversations: (): string => '/llm-analytics/conversations',
+        llmAnalyticsConversation: (
+            kind: 'session' | 'trace',
+            id: string,
+            params?: {
+                timestamp?: string
+            }
+        ): string => {
+            const queryParams = new URLSearchParams(params)
+            const stringifiedParams = queryParams.toString()
+            return `/llm-analytics/conversations/${kind}/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',

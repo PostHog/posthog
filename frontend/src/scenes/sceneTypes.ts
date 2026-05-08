@@ -180,6 +180,7 @@ export enum Scene {
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
     LLMAnalytics = 'LLMAnalytics',
+    LLMAnalyticsConversation = 'LLMAnalyticsConversation',
     LLMAnalyticsDataset = 'LLMAnalyticsDataset',
     LLMAnalyticsDatasets = 'LLMAnalyticsDatasets',
     LLMAnalyticsEvaluation = 'LLMAnalyticsEvaluation',
@@ -353,6 +354,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // LLM Analytics
     [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsConversation]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsEvaluation]: AccessControlResourceType.LlmAnalytics,
