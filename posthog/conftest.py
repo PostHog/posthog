@@ -13,6 +13,7 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.settings.utils import build_postgres_test_db_name
 
 
 def create_clickhouse_tables():
@@ -162,7 +163,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
     # Build database URL for test_posthog_persons (separate from main test_posthog)
     db_config = settings.DATABASES["default"]
     # Use separate persons database name to mirror production
-    persons_db_name = db_config["NAME"] + "_persons"
+    persons_db_name = build_postgres_test_db_name(db_config["NAME"], suffix="_persons")
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -229,7 +230,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     # Get the actual test database name (with test_ prefix added by pytest-django)
     test_db_name = connection.settings_dict["NAME"]
-    test_persons_db_name = test_db_name + "_persons"
+    test_persons_db_name = build_postgres_test_db_name(test_db_name, suffix="_persons")
 
     # Update the persons database NAME to use the correct test database name
     # The database configuration already exists from settings, we just need to update the NAME
@@ -240,7 +241,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     from posthog.product_db_config import load_product_db_routes
 
     for route in load_product_db_routes(settings.BASE_DIR):
-        test_product_db_name = test_db_name + f"_{route.database}"
+        test_product_db_name = build_postgres_test_db_name(test_db_name, suffix=f"_{route.database}")
         for suffix in ("_db_writer", "_db_reader", "_db_direct"):
             alias = f"{route.database}{suffix}"
             if alias in settings.DATABASES:

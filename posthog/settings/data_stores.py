@@ -12,7 +12,7 @@ import dj_database_url
 
 from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import build_postgres_test_db_name, get_from_env, get_list, str_to_bool
 from posthog.utils import str_to_int_set
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -117,6 +117,10 @@ else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
+
+if TEST:
+    DATABASES["default"].setdefault("TEST", {})
+    DATABASES["default"]["TEST"]["NAME"] = build_postgres_test_db_name(DATABASES["default"]["NAME"])
 
 DATABASE_ROUTERS: list[str] = []
 
