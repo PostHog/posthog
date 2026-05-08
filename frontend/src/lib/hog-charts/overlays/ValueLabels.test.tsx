@@ -169,6 +169,40 @@ describe('ValueLabels', () => {
         expect(bgColors).toEqual(['rgb(17, 34, 51)', 'rgb(68, 85, 102)'])
     })
 
+    it('per-segment: passes seriesKey to scales.x so grouped bars anchor on their own bar', () => {
+        // Mirrors BarChart's grouped-layout x-scale: returns a per-series offset when seriesKey
+        // is supplied, otherwise the band center. With the seriesKey wired through, each label
+        // lands on its own bar instead of the shared band center.
+        const series: ResolvedSeries[] = [
+            { key: 'a', label: 'A', color: '#112233', data: [10] },
+            { key: 'b', label: 'B', color: '#445566', data: [20] },
+        ]
+        const xScaleGrouped = (label: string, seriesKey?: string): number | undefined => {
+            const bandStart = X_POSITIONS[label]
+            if (bandStart == null) {
+                return undefined
+            }
+            if (seriesKey === 'a') {
+                return bandStart - 10
+            }
+            if (seriesKey === 'b') {
+                return bandStart + 10
+            }
+            return bandStart
+        }
+        const ctx = makeContext(series, {
+            labels: ['Mon'],
+            scales: { x: xScaleGrouped, y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        const { container } = renderInChart(ctx, <ValueLabels />)
+        const divs = labelDivs(container)
+        expect(divs).toHaveLength(2)
+        // Each label should land on its own bar's x — not the shared band center (60).
+        const byColor = new Map(divs.map((d) => [d.style.backgroundColor, d.style.left]))
+        expect(byColor.get('rgb(17, 34, 51)')).toBe('50px')
+        expect(byColor.get('rgb(68, 85, 102)')).toBe('70px')
+    })
+
     it('renders null when nothing survives filtering', () => {
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [NaN, NaN, NaN] }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
