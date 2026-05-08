@@ -2,6 +2,7 @@ from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.session_recordings.sql.session_replay_feature_sql import (
+    DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL,
     DROP_SESSION_REPLAY_FEATURES_TABLE_MV_SQL,
@@ -12,10 +13,13 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
     SESSION_REPLAY_FEATURES_TABLE_MV_SQL,
     SESSION_REPLAY_FEATURES_WS_MV_SQL,
     UNIQ_COMBINED_PRECISION,
+    WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL,
 )
 
-# Drop old uniqExact columns and add all set-based aggregations as uniqCombined(UNIQ_COMBINED_PRECISION).
-ALTER_SQL = """
+# ALTER for the underlying sharded data table only — DROP+ADD lets us swap the
+# uniqExact unique_* columns for uniqCombined, which has a bounded HLL-backed state.
+# The ADD COLUMN IF NOT EXISTS clauses also bring in all the new ML feature columns.
+SHARDED_ALTER_SQL = """
 ALTER TABLE {table_name}
     DROP COLUMN IF EXISTS unique_url_count,
     DROP COLUMN IF EXISTS unique_click_target_count,
@@ -49,46 +53,54 @@ ALTER TABLE {table_name}
 """
 
 
-def _alter_aggregating(table_name: str) -> str:
-    return ALTER_SQL.format(
-        table_name=table_name,
+def _alter_sharded() -> str:
+    return SHARDED_ALTER_SQL.format(
+        table_name=SESSION_REPLAY_FEATURES_DATA_TABLE(),
         sum_int="SimpleAggregateFunction(sum, Int64)",
         uniq_int=f"AggregateFunction(uniqCombined({UNIQ_COMBINED_PRECISION}), Int64)",
         uniq_string=f"AggregateFunction(uniqCombined({UNIQ_COMBINED_PRECISION}), String)",
     )
 
 
-# Cloud deployments (US/EU/DEV) run only the WarpStream Kafka + MV after migration 0248
-# dropped the MSK pair. Non-cloud envs (CI, dev, hobby) run only the MSK pair (the WS
-# pair was never created off-cloud — see migration 0246). The DROPs below run on every
-# env because they all use IF EXISTS and no-op when the target doesn't exist.
 _is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
+    # 1. Drop all materialized views and Kafka tables (MSK + WarpStream) before
     run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
+    # 2. ALTER the sharded source-of-truth table in place (it holds the actual data).
     run_sql_with_exceptions(
-        _alter_aggregating(SESSION_REPLAY_FEATURES_DATA_TABLE()),
+        _alter_sharded(),
         node_roles=[NodeRole.DATA],
         sharded=True,
         is_alter_on_replicated_table=True,
     ),
+    # 3. Drop and recreate the Distributed read/write tables. They have no data
     run_sql_with_exceptions(
-        _alter_aggregating("session_replay_features"),
+        "DROP TABLE IF EXISTS session_replay_features",
         node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
-        _alter_aggregating("writable_session_replay_features"),
+        DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
+        node_roles=[NodeRole.DATA],
+    ),
+    run_sql_with_exceptions(
+        "DROP TABLE IF EXISTS writable_session_replay_features",
         node_roles=[NodeRole.INGESTION_MEDIUM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
+    run_sql_with_exceptions(
+        WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
+        node_roles=[NodeRole.INGESTION_MEDIUM],
+    ),
+    # 4. Recreate the Kafka tables and materialized views with the new column set.
     *(
-        # WS only for cloud
+        # Cloud: WarpStream pair only.
         [
             run_sql_with_exceptions(
                 KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]
@@ -96,6 +108,7 @@ operations = [
             run_sql_with_exceptions(SESSION_REPLAY_FEATURES_WS_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
         ]
         if _is_cloud
+        # Non-cloud: MSK pair only.
         else [
             run_sql_with_exceptions(
                 KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
