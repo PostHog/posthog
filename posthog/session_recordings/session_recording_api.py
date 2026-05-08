@@ -68,7 +68,7 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -81,7 +81,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
-from posthog.session_recordings.ai_summary_cap import check_only
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -1538,29 +1537,11 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
 
-        # Per-team monthly hard cap as a cost backstop. Check-only here so the
-        # no-op short-circuits inside `execute_summarize_session_video_stream`
-        # (existing-summary cache hit, `WorkflowAlreadyStartedError`) don't burn
-        # quota on requests that issue zero LLM calls. The actual `consume`
-        # fires there, only when a new workflow is committed.
-        cap_decision = check_only(self.team.id)
-        if not cap_decision.allowed:
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id,
-                event="replay summary quota blocked",
-                properties={
-                    "team_id": self.team.id,
-                    "used": cap_decision.used,
-                    "cap": cap_decision.cap,
-                    "source": "dock",
-                },
-                groups=groups(None, self.team),
-            )
-            return Response(
-                {"status": "quota_exceeded", "used": cap_decision.used, "cap": cap_decision.cap},
-                status=status.HTTP_402_PAYMENT_REQUIRED,
-            )
-
+        # Per-team monthly hard cap as a cost backstop is enforced inside
+        # `execute_summarize_session_video_stream`, just before a *fresh*
+        # workflow start — gating it here would 402 cached-summary fast-path
+        # hits and silent-attach (`id_conflict_policy=USE_EXISTING`) cases that
+        # don't issue any LLM work.
         tracking_id = generate_tracking_id()
         force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
         product_context, custom_tags = self._load_team_summary_config()

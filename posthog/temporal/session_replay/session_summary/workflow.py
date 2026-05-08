@@ -19,14 +19,16 @@ from temporalio.common import (
     WorkflowIDReusePolicy,
 )
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
-from posthog.session_recordings.ai_summary_cap import consume_summary_quota
+from posthog.session_recordings.ai_summary_cap import check_only, consume_summary_quota
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -618,6 +620,28 @@ async def _check_handle_data(
     return desc.status, final_result
 
 
+async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
+    """Best-effort: True iff a workflow with this id is currently RUNNING.
+
+    Used to distinguish a brand-new LLM run from a silent attach to one already
+    in flight: ``_start_video_summary_workflow`` uses ``USE_EXISTING``, so when
+    a workflow with the same id is already running, ``start_workflow`` returns
+    a handle to it without ever raising ``WorkflowAlreadyStartedError``.
+
+    Failures here surface as "not running" so a flaky describe call falls back
+    to the safer side (treat as fresh start, charge the cap) rather than
+    silently bypassing the backstop.
+    """
+    handle = client.get_workflow_handle(workflow_id)
+    try:
+        desc = await handle.describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.status == WorkflowExecutionStatus.RUNNING
+
+
 def _prepare_execution(
     session_id: str,
     user: User,
@@ -831,16 +855,53 @@ async def execute_summarize_session_video_stream(
     )
 
     client = await async_connect()
+
+    # Detect whether `_start_video_summary_workflow` will silently attach to an
+    # in-flight run (USE_EXISTING) vs. start a brand-new LLM run. The cap is a
+    # cost backstop, so it MUST only fire on the fresh-run path — gating on
+    # attach would 402 a user reading work a teammate already paid for.
+    # `force_restart` always restarts (TERMINATE_EXISTING), so it counts as fresh.
+    will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
+
+    if will_start_fresh_run:
+        cap_decision = await database_sync_to_async(check_only, thread_sensitive=False)(team.id)
+        if not cap_decision.allowed:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="replay summary quota blocked",
+                properties={
+                    "team_id": team.id,
+                    "used": cap_decision.used,
+                    "cap": cap_decision.cap,
+                    "source": "dock",
+                },
+                groups=groups(None, team),
+            )
+            yield serialize_to_sse_event(
+                event_label="session-summary-error",
+                event_data=(
+                    "You've reached this team's monthly limit for AI session summaries "
+                    f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
+                ),
+            )
+            return
+
     try:
         handle = await _start_video_summary_workflow(
             inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
         )
-        # We've committed to a new workflow run (or `force_restart` swapped in
-        # one over a terminated/completed run) — charge the per-team monthly
-        # cost backstop. Skipped here in the `WorkflowAlreadyStartedError`
-        # branch because that path attaches to an in-flight run someone else
-        # already paid for. Wrapped in try/except so a Redis blip can't fail
-        # a user request that's already going to LLM.
+    except WorkflowAlreadyStartedError:
+        # Defensive only: USE_EXISTING + ALLOW_DUPLICATE shouldn't raise this in
+        # practice (the `will_start_fresh_run` describe just above resolved the
+        # attach case to False). If Temporal config drifts, fall back to attach
+        # without burning quota.
+        handle = client.get_workflow_handle(workflow_id)
+        will_start_fresh_run = False
+
+    if will_start_fresh_run:
+        # Workflow has been committed to (fresh start, or force_restart preempted
+        # the previous run) — charge the per-team monthly cost backstop. Wrapped
+        # so a Redis blip can't fail a user request already going to the LLM.
         try:
             await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.id, 1)
         except Exception as e:
@@ -851,8 +912,6 @@ async def execute_summarize_session_video_stream(
                 error=str(e),
                 signals_type="session-summaries",
             )
-    except WorkflowAlreadyStartedError:
-        handle = client.get_workflow_handle(workflow_id)
 
     logger.info(
         "video summary polling loop starting",
