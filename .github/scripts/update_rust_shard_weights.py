@@ -195,12 +195,12 @@ def update_workflow_file(weights: dict[str, int], dry_run: bool = False) -> bool
     packages_start = content.find("packages = {")
     if packages_start == -1:
         print("ERROR: Could not find 'packages = {' in ci-rust.yml", file=sys.stderr)
-        return False
+        sys.exit(1)
 
     packages_end = content.find("}", packages_start)
     if packages_end == -1:
         print("ERROR: Could not find closing '}' for packages dict", file=sys.stderr)
-        return False
+        sys.exit(1)
     packages_end += 1  # include the }
 
     # Find the actual indentation used for the packages block
