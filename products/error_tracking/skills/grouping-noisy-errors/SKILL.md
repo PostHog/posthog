@@ -15,8 +15,8 @@ description: >
 A single root cause can show up as dozens of separate issues when stack frames or
 messages contain volatile data — random IDs, dynamic file paths, build hashes,
 anonymous function names. The fix is two-step: merge the existing issues into one
-target, then create a grouping rule so future events with the same cause attach to
-that issue instead of spawning new fingerprints.
+target, then create a grouping rule so future events with the same cause share a
+single canonical fingerprint instead of spawning new ones.
 
 ## Available tools
 
@@ -29,6 +29,7 @@ that issue instead of spawning new fingerprints.
 | `posthog:error-tracking-issues-split-create`   | Surgically split fingerprints back out if a merge errs |
 | `posthog:error-tracking-grouping-rules-create` | Auto-group future events into one issue                |
 | `posthog:error-tracking-grouping-rules-list`   | Check existing grouping rules before adding new ones   |
+| `posthog:error-tracking-issues-partial-update` | Rename or re-describe the target after a merge         |
 
 ## Merge vs grouping rule
 
@@ -37,14 +38,19 @@ The two tools solve different halves of the problem:
 - **Merge** is one-shot. It collapses existing issues into a target and re-attaches
   their events. Future events still group by their original fingerprints — if the
   same noisy pattern keeps producing new fingerprints, merging is a treadmill.
-- **Grouping rule** is durable. It defines a filter that pulls matching exception
-  events into a designated issue at ingestion time. New events with the same
-  pattern attach to that issue rather than spawning new fingerprints.
+- **Grouping rule** is durable. It rewrites the fingerprint of any matching
+  event to `custom-rule:<rule_id>` at ingestion time, so all future matches
+  share one canonical fingerprint rather than spawning new ones. The first
+  match either creates a new issue keyed off that fingerprint, or routes to
+  whatever issue is already bound to it.
 
-Use both together when the issue is recurring: merge what already exists, then
-create a grouping rule so the cleanup sticks. Use merge alone for historical
-sprawl that you don't expect to recur. Use a grouping rule alone for a
-brand-new pattern you're getting ahead of.
+Use both together when the issue is recurring: merge historical duplicates
+into a target issue, then create the rule. The rule API does **not** accept a
+target issue ID — once the rule starts firing, the resulting `custom-rule:...`
+issue can be merged into the same target so the consolidation sticks. Use
+merge alone for historical sprawl that you don't expect to recur. Use a
+grouping rule alone for a brand-new pattern you're getting ahead of, when
+you don't need to consolidate with an existing issue.
 
 ## Workflow
 
@@ -130,20 +136,16 @@ A grouping rule is worth creating when both are true:
 
 The canonical exception properties (`$exception_types`, `$exception_values`
 for messages, `$exception_sources` for file paths, `$exception_functions` for
-function names) are arrays at capture time but are materialized as
-JSON-encoded strings in ClickHouse — the stored column literal for a
-TypeError is `["TypeError"]`, not `TypeError`. That changes which operators
-work:
+function names) are arrays at capture time. The property filter compiler
+[special-cases them](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py#L904) — it parses the JSON-materialized column
+and wraps the filter in `arrayExists(v -> ..., JSONExtract(...))`, so all
+the standard operators (`exact`, `is_not`, `icontains`, `not_icontains`,
+`regex`, `not_regex`) work against individual elements with the bare value:
+`exact "TypeError"`, not `exact '["TypeError"]'` or `regex '"TypeError"'`.
 
-- `icontains` and `regex` work — they substring/match against the JSON literal
-  (`icontains "TypeError"` becomes `ILIKE '%TypeError%'`).
-- `exact` and `is_not` do **not** work for matching individual elements:
-  `exact "TypeError"` compiles to `column = 'TypeError'` and never matches
-  `["TypeError"]`. Use `regex '"TypeError"'` (with quotes inside the pattern)
-  when you need exact-element precision — it scopes to the JSON-quoted token.
-- The singular forms (`$exception_type`, `$exception_message`) and
-  `$exception_stack_trace_raw` are not emitted by the modern ingestion path —
-  filtering on them produces a rule that silently never matches.
+The singular forms (`$exception_type`, `$exception_message`) and
+`$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
+filtering on them produces a rule that silently never matches.
 
 If the volatility is in the message (e.g.,
 `TypeError at /static/main.<hash>.js`), a regex filter on `$exception_values`
@@ -169,8 +171,8 @@ posthog:error-tracking-grouping-rules-create
       {
         "type": "event",
         "key": "$exception_types",
-        "operator": "regex",
-        "value": "\"TypeError\""
+        "operator": "exact",
+        "value": "TypeError"
       },
       {
         "type": "event",
@@ -191,11 +193,17 @@ covers the pattern, prefer adjusting its filter over stacking a near-duplicate.
 The optional `assignee` field auto-assigns issues created by the rule. Skip it
 unless the user explicitly wants ownership baked into the rule.
 
-### Step 6 — Verify
+### Step 6 — Verify and consolidate
 
-Sample the merged issue's recent events to confirm the merge succeeded and
-watch for new fingerprints over the next 24h. If new duplicates still appear,
-the grouping rule's filter is too narrow — widen it.
+Sample the merged issue's recent events to confirm the merge succeeded.
+Watch for the rule's `custom-rule:<rule_id>` fingerprint to start matching
+events — the first match creates a new issue (or routes to whatever was
+already bound to that fingerprint). To keep events under your historical
+target rather than scattered across the new custom-rule issue, run a second
+merge folding the custom-rule issue into the target.
+
+If new (non-rule) fingerprints continue appearing despite the rule, its
+filter is too narrow — widen it.
 
 ## Tips
 
