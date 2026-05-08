@@ -36,6 +36,14 @@ def _normalize_stream_id(stream_id: str | bytes) -> str:
     return stream_id
 
 
+def _normalize_redis_int(value: bytes | str | int | None) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bytes):
+        return int(value.decode("utf-8"))
+    return int(value)
+
+
 class TaskRunStreamError(Exception):
     pass
 
@@ -73,6 +81,14 @@ def get_task_run_stream_sequence_key(stream_key: str) -> str:
 
 def get_task_run_stream_completed_key(stream_key: str) -> str:
     return f"{stream_key}:completed"
+
+
+def get_task_run_stream_agent_active_key(stream_key: str) -> str:
+    return f"{stream_key}:ingest-agent-active"
+
+
+def get_task_run_stream_heartbeat_key(stream_key: str) -> str:
+    return f"{stream_key}:ingest-heartbeat"
 
 
 class TaskRunRedisStream:
@@ -240,7 +256,27 @@ class TaskRunRedisStream:
         last_sequence_raw = await self._redis_client.get(sequence_key)
         if last_sequence_raw is not None:
             await self._redis_client.expire(sequence_key, self._sequence_timeout)
-        return int(last_sequence_raw or 0)
+        return _normalize_redis_int(last_sequence_raw)
+
+    async def set_agent_active(self, active: bool) -> None:
+        await self._redis_client.set(
+            get_task_run_stream_agent_active_key(self._stream_key),
+            "1" if active else "0",
+            ex=self._timeout,
+        )
+
+    async def get_agent_active(self) -> bool:
+        active_raw = await self._redis_client.get(get_task_run_stream_agent_active_key(self._stream_key))
+        return active_raw in (b"1", "1")
+
+    async def claim_agent_active_heartbeat(self, throttle_seconds: int) -> bool:
+        claimed = await self._redis_client.set(
+            get_task_run_stream_heartbeat_key(self._stream_key),
+            "1",
+            ex=throttle_seconds,
+            nx=True,
+        )
+        return bool(claimed)
 
     async def write_event_with_sequence(self, event: dict, sequence: int) -> str | None:
         """Write an event if it is the next unseen sequence number.
@@ -258,9 +294,9 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(sequence_key, completed_key)
-                    last_sequence_raw = await pipe.get(sequence_key)
-                    last_sequence = int(last_sequence_raw or 0)
-                    if await pipe.exists(completed_key):
+                    last_sequence_raw = await self._redis_client.get(sequence_key)
+                    last_sequence = _normalize_redis_int(last_sequence_raw)
+                    if await self._redis_client.exists(completed_key):
                         raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
 
                     if sequence <= last_sequence:
@@ -296,7 +332,7 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(completed_key)
-                    if await pipe.exists(completed_key):
+                    if await self._redis_client.exists(completed_key):
                         return
 
                     pipe.multi()
@@ -323,9 +359,9 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(sequence_key, completed_key)
-                    last_sequence_raw = await pipe.get(sequence_key)
-                    last_sequence = int(last_sequence_raw or 0)
-                    if await pipe.exists(completed_key):
+                    last_sequence_raw = await self._redis_client.get(sequence_key)
+                    last_sequence = _normalize_redis_int(last_sequence_raw)
+                    if await self._redis_client.exists(completed_key):
                         return
 
                     if last_sequence != final_sequence:
@@ -359,7 +395,12 @@ class TaskRunRedisStream:
         try:
             sequence_key = get_task_run_stream_sequence_key(self._stream_key)
             completed_key = get_task_run_stream_completed_key(self._stream_key)
-            return await self._redis_client.delete(self._stream_key, sequence_key, completed_key) > 0
+            agent_active_key = get_task_run_stream_agent_active_key(self._stream_key)
+            heartbeat_key = get_task_run_stream_heartbeat_key(self._stream_key)
+            deleted = await self._redis_client.delete(
+                self._stream_key, sequence_key, completed_key, agent_active_key, heartbeat_key
+            )
+            return _normalize_redis_int(deleted) > 0
         except Exception:
             logger.exception("task_run_stream_delete_failed", stream_key=self._stream_key)
             return False
