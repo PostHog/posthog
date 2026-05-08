@@ -82,7 +82,7 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
 
                             if (groups.length > 0) {
                                 const rollout = groups[0]!.rollout_percentage
-                                return <RolloutBar percentage={rollout ?? 0} className="min-w-[100px]" />
+                                return <RolloutBar percentage={rollout ?? 0} className="min-w-25" />
                             }
 
                             return <span className="text-muted-foreground">&mdash;</span>

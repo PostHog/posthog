@@ -56,7 +56,7 @@ function FrameContextLines({ context }: { context: NonNullable<StackFrame['conte
     ]
 
     return (
-        <pre className="text-xs overflow-x-auto bg-muted rounded p-2 font-mono leading-relaxed">
+        <pre className="text-xs overflow-x-auto bg-muted rounded-md p-2 font-mono leading-relaxed">
             {allLines.map((l, i) => (
                 <div key={i} className={l.type === 'error' ? 'bg-destructive/10 -mx-2 px-2' : ''}>
                     <span className="inline-block w-10 text-right text-muted-foreground select-none pr-3 tabular-nums">
@@ -144,7 +144,7 @@ function ExceptionSection({ exception, index }: { exception: ExceptionData; inde
                                     <span className="text-xs text-muted-foreground">({inAppCount} in-app)</span>
                                 )}
                             </div>
-                            <div className="rounded border overflow-hidden">
+                            <div className="rounded-lg border overflow-hidden">
                                 <Accordion multiple defaultValue={getDefaultExpanded(displayFrames)}>
                                     {displayFrames.map((frame, i) => (
                                         <FrameRow key={frame.raw_id ?? i} frame={frame} index={i} />
