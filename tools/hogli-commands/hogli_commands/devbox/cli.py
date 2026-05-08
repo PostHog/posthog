@@ -369,7 +369,7 @@ def _resolve_local_signing_key() -> str | None:
     if not value:
         return None
     if value.startswith("key::"):
-        value = value[len("key::") :].strip()
+        value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
     try:
