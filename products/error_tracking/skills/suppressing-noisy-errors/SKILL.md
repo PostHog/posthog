@@ -116,13 +116,19 @@ The `error-tracking-suppression-rules-create` tool description warns explicitly:
 do **not** create match-all rules and do **not** create overly broad rules.
 Match on the most specific property combination you can:
 
-| Noise pattern                       | Recommended filter                                                              |
-| ----------------------------------- | ------------------------------------------------------------------------------- |
-| Browser extension errors            | `$exception_stack_trace_raw icontains "chrome-extension://"`                    |
-| ResizeObserver loop                 | `$exception_message icontains "ResizeObserver loop"` AND exact type             |
-| Cross-origin "Script error."        | `$exception_message exact "Script error."` AND `$exception_type exact "Error"`  |
-| Bot user agents                     | `$user_agent regex "(HeadlessChrome\|bot\|crawler\|spider)"` (case-insensitive) |
-| Third-party network beacon failures | `$exception_stack_trace_raw icontains "<vendor-domain>"` AND specific type      |
+| Noise pattern                       | Recommended filter                                                                                                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Browser extension errors            | `$exception_sources icontains "chrome-extension://"`                                                                                                                                                         |
+| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` AND `$exception_types exact "Error"`                                                                                                                     |
+| Cross-origin "Script error."        | `$exception_values exact "Script error."` AND `$exception_types exact "Error"`                                                                                                                               |
+| Bot user agents                     | `$raw_user_agent regex "(HeadlessChrome\|bot\|crawler\|spider)"` (case-insensitive — `$user_agent` works too, but the raw header is more reliable for crawler markers since parsers can normalize them away) |
+| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND specific type                                                                                                                                           |
+
+The canonical exception properties are plural arrays (`$exception_types`,
+`$exception_values`, `$exception_sources`) — set on ~100% of events. The
+singular forms (`$exception_type`, `$exception_message`) and
+`$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
+filtering on them produces a rule that silently never matches.
 
 Whenever possible, AND together two or more conditions — type plus message, or
 message plus URL pattern — so the rule is specific to the real noise.
@@ -161,13 +167,13 @@ posthog:error-tracking-suppression-rules-create
     "values": [
       {
         "type": "event",
-        "key": "$exception_type",
+        "key": "$exception_types",
         "operator": "exact",
         "value": "Error"
       },
       {
         "type": "event",
-        "key": "$exception_message",
+        "key": "$exception_values",
         "operator": "icontains",
         "value": "ResizeObserver loop"
       }
