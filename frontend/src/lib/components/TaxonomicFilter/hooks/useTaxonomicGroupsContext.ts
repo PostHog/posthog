@@ -105,15 +105,14 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
                 currentTeam?.id ?? 0,
                 aggregationLabel
             ),
-            eventNames: input.eventNames ?? (EMPTY_ARRAY as readonly never[] as string[]),
-            schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as readonly never[] as DatabaseSchemaField[]),
+            eventNames: input.eventNames ?? (EMPTY_ARRAY as unknown as string[]),
+            schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as unknown as DatabaseSchemaField[]),
             schemaColumnsLoading: input.schemaColumnsLoading,
             metadataSource: input.metadataSource ?? DEFAULT_METADATA_SOURCE,
             suggestedFiltersLabel: input.suggestedFiltersLabel,
             propertyFilters,
             eventMetadataPropertyDefinitions,
-            maxContextOptions:
-                input.maxContextOptions ?? (EMPTY_ARRAY as readonly never[] as MaxContextTaxonomicFilterOption[]),
+            maxContextOptions: input.maxContextOptions ?? (EMPTY_ARRAY as unknown as MaxContextTaxonomicFilterOption[]),
             hideBehavioralCohorts: input.hideBehavioralCohorts ?? false,
             endpointFilters: input.endpointFilters,
             hogQLExpressionComponentProps,
