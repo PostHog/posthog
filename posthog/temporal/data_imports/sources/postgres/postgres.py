@@ -1570,9 +1570,7 @@ def postgres_source(
                             retained_set.add(pk)
                         if incremental_field:
                             retained_set.add(incremental_field)
-                        retained_columns = [
-                            column.name for column in full_table.columns if column.name in retained_set
-                        ]
+                        retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
 
                     table = _project_table_columns(full_table, retained_columns)
                     logger.debug(f"Source schema: {table.to_arrow_schema()}")
