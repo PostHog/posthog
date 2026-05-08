@@ -380,27 +380,43 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": "existing@example.com"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
         existing.refresh_from_db()
         self.assertEqual(existing.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID), PreferenceStatus.OPTED_OUT)
         # existing category preference is preserved
         self.assertEqual(existing.get_preference(str(self.category.id)), PreferenceStatus.OPTED_IN)
 
-    def test_add_opt_out_missing_identifier(self):
+    @parameterized.expand(
+        [
+            ("missing_identifier", {}, 400),
+            ("blank_identifier", {"identifier": "   "}, 400),
+            ("empty_string", {"identifier": ""}, 400),
+        ]
+    )
+    def test_add_opt_out_invalid_identifier(self, _name, payload, expected_status):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
-            {},
+            payload,
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, expected_status)
 
-    def test_add_opt_out_blank_identifier(self):
+    @parameterized.expand(
+        [
+            ("leading_trailing", "  trimmed@example.com  ", "trimmed@example.com"),
+            ("leading_only", "  leading@example.com", "leading@example.com"),
+            ("trailing_only", "trailing@example.com  ", "trailing@example.com"),
+            ("no_whitespace", "clean@example.com", "clean@example.com"),
+        ]
+    )
+    def test_add_opt_out_identifier_normalization(self, _name, raw_identifier, expected_identifier):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
-            {"identifier": "   "},
+            {"identifier": raw_identifier},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["identifier"], expected_identifier)
 
     def test_add_opt_out_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
@@ -415,12 +431,3 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertFalse(
             MessageRecipientPreference.objects.filter(team=other_team, identifier="isolated@example.com").exists()
         )
-
-    def test_add_opt_out_whitespace_trimmed(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
-            {"identifier": "  trimmed@example.com  "},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["identifier"], "trimmed@example.com")

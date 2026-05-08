@@ -104,11 +104,8 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = AddOptOutRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        identifier = serializer.validated_data["identifier"].strip()
+        identifier = serializer.validated_data["identifier"]
         category_key = serializer.validated_data.get("category_key")
-
-        if not identifier:
-            return Response({"error": "Identifier cannot be blank"}, status=status.HTTP_400_BAD_REQUEST)
 
         if category_key:
             try:
@@ -119,14 +116,15 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         else:
             category_id = ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 
-        preference, _created = MessageRecipientPreference.objects.get_or_create(
+        preference, created = MessageRecipientPreference.objects.get_or_create(
             team_id=self.team_id,
             identifier=identifier,
             defaults={"created_by": request.user},
         )
         preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
 
-        return Response(MessagePreferencesSerializer(preference).data, status=status.HTTP_201_CREATED)
+        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(MessagePreferencesSerializer(preference).data, status=response_status)
 
     @action(detail=False, methods=["get"])
     def webhook_url(self, request, **kwargs):

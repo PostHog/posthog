@@ -87,15 +87,15 @@ export const optOutListLogic = kea<optOutListLogicType>([
     loaders(({ props, values, actions }) => ({
         addOptOut: {
             __default: null as OptOutEntry | null,
-            addOptOut: async (identifier: string): Promise<OptOutEntry | null> => {
+            addOptOut: async (identifier: string): Promise<OptOutEntry> => {
                 try {
                     const result = await api.messaging.addOptOut(identifier, props.category?.key)
                     lemonToast.success(`${identifier} added to opt-out list`)
                     actions.loadOptOutPersons()
                     return result
-                } catch {
+                } catch (e) {
                     lemonToast.error('Failed to add opt-out')
-                    return null
+                    throw e
                 }
             },
         },
