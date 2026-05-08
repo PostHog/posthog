@@ -60,6 +60,8 @@ import type {
     LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
+    OfflineExperimentItemsRequestApi,
+    OfflineExperimentItemsResponseApi,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
@@ -757,6 +759,26 @@ export const llmAnalyticsModelsRetrieve = async (
     })
 }
 
+export const getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/offline_evaluations/experiment_items/`
+}
+
+export const llmAnalyticsOfflineEvaluationsExperimentItemsCreate = async (
+    projectId: string,
+    offlineExperimentItemsRequestApi: OfflineExperimentItemsRequestApi,
+    options?: RequestInit
+): Promise<OfflineExperimentItemsResponseApi> => {
+    return apiMutator<OfflineExperimentItemsResponseApi>(
+        getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(offlineExperimentItemsRequestApi),
+        }
+    )
+}
+
 /**
  * Validate LLM provider API keys without persisting them
  */
@@ -1263,15 +1285,6 @@ export const llmAnalyticsSentimentCreate = async (
     })
 }
 
-/**
- * Fetch the recent $ai_generation events for the sentiment tab.
-
-Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
-`execute_with_ai_events_fallback`, so heavy `input` values survive the
-post-cutover strip on `events.properties.$ai_input`. Frontend callers
-pass the same `HogQLFilters` payload they previously passed to
-`api.query({kind: HogQLQuery, filters: ...})`.
- */
 export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/sentiment/generations/`
 }

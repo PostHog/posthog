@@ -22,12 +22,18 @@ import type {
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
+    ErrorTrackingIssueDetailApi,
+    ErrorTrackingIssueEventsQueryRequestApi,
+    ErrorTrackingIssueEventsResponseApi,
     ErrorTrackingIssueFullApi,
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
+    ErrorTrackingIssueQueryRequestApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
+    ErrorTrackingIssuesListQueryRequestApi,
+    ErrorTrackingIssuesListResponseApi,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
@@ -801,6 +807,69 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
     return apiMutator<void>(getErrorTrackingIssuesValuesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * @summary Get compact error tracking issue details
+ */
+export const getErrorTrackingQueryIssueCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/query/issue/`
+}
+
+export const errorTrackingQueryIssueCreate = async (
+    projectId: string,
+    errorTrackingIssueQueryRequestApi: ErrorTrackingIssueQueryRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueDetailApi> => {
+    return apiMutator<ErrorTrackingIssueDetailApi>(getErrorTrackingQueryIssueCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingIssueQueryRequestApi),
+    })
+}
+
+/**
+ * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.
+ * @summary List sampled exception events for an error tracking issue
+ */
+export const getErrorTrackingQueryIssueEventsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/query/issue_events/`
+}
+
+export const errorTrackingQueryIssueEventsCreate = async (
+    projectId: string,
+    errorTrackingIssueEventsQueryRequestApi: ErrorTrackingIssueEventsQueryRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueEventsResponseApi> => {
+    return apiMutator<ErrorTrackingIssueEventsResponseApi>(getErrorTrackingQueryIssueEventsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingIssueEventsQueryRequestApi),
+    })
+}
+
+/**
+ * List error tracking issues with typed filters and compact aggregate counts.
+ * @summary List compact error tracking issues
+ */
+export const getErrorTrackingQueryIssuesListCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/query/issues/`
+}
+
+export const errorTrackingQueryIssuesListCreate = async (
+    projectId: string,
+    errorTrackingIssuesListQueryRequestApi: ErrorTrackingIssuesListQueryRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingIssuesListResponseApi> => {
+    return apiMutator<ErrorTrackingIssuesListResponseApi>(getErrorTrackingQueryIssuesListCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingIssuesListQueryRequestApi),
     })
 }
 

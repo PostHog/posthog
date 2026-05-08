@@ -148,7 +148,7 @@ export function Chart<Meta = unknown>({
 
     const { left: resolvedYFormatter, right: resolvedYRightFormatter } = useResolvedYFormatters(scales, yTickFormatter)
 
-    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction<Meta>({
+    const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -184,6 +184,7 @@ export function Chart<Meta = unknown>({
         series: coloredSeries,
         labels,
         hoverIndex,
+        hoverPosition,
         theme,
         drawStatic,
         drawHover: composedDrawHover,
