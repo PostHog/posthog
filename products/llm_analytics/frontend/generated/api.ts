@@ -133,16 +133,16 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getEvaluationRunsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluation_runs/`
+}
+
 /**
  * Create a new evaluation run.
 
 This endpoint validates the request and enqueues a Temporal workflow
 to asynchronously execute the evaluation.
  */
-export const getEvaluationRunsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/evaluation_runs/`
-}
-
 export const evaluationRunsCreate = async (
     projectId: string,
     evaluationRunRequestApi: EvaluationRunRequestApi,
@@ -240,7 +240,7 @@ export const getEvaluationsPartialUpdateUrl = (projectId: string, id: string) =>
 export const evaluationsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEvaluationApi: NonReadonly<PatchedEvaluationApi>,
+    patchedEvaluationApi?: NonReadonly<PatchedEvaluationApi>,
     options?: RequestInit
 ): Promise<EvaluationApi> => {
     return apiMutator<EvaluationApi>(getEvaluationsPartialUpdateUrl(projectId, id), {
@@ -251,13 +251,13 @@ export const evaluationsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getEvaluationsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/evaluations/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const evaluationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getEvaluationsDestroyUrl(projectId, id), {
         ...options,
@@ -265,13 +265,13 @@ export const evaluationsDestroy = async (projectId: string, id: string, options?
     })
 }
 
-/**
- * Test Hog evaluation code against sample events without saving.
- */
 export const getEvaluationsTestHogCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/evaluations/test_hog/`
 }
 
+/**
+ * Test Hog evaluation code against sample events without saving.
+ */
 export const evaluationsTestHogCreate = async (
     projectId: string,
     testHogRequestApi: TestHogRequestApi,
@@ -285,13 +285,13 @@ export const evaluationsTestHogCreate = async (
     })
 }
 
-/**
- * Team-level clustering configuration (event filters for automated pipelines).
- */
 export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_config/`
 }
 
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
 export const llmAnalyticsClusteringConfigRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -302,13 +302,13 @@ export const llmAnalyticsClusteringConfigRetrieve = async (
     })
 }
 
-/**
- * Team-level clustering configuration (event filters for automated pipelines).
- */
 export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_config/set_event_filters/`
 }
 
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
 export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     projectId: string,
     options?: RequestInit
@@ -322,9 +322,6 @@ export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     )
 }
 
-/**
- * CRUD for clustering job configurations (max 5 per team).
- */
 export const getLlmAnalyticsClusteringJobsListUrl = (
     projectId: string,
     params?: LlmAnalyticsClusteringJobsListParams
@@ -344,6 +341,9 @@ export const getLlmAnalyticsClusteringJobsListUrl = (
         : `/api/environments/${projectId}/llm_analytics/clustering_jobs/`
 }
 
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
 export const llmAnalyticsClusteringJobsList = async (
     projectId: string,
     params?: LlmAnalyticsClusteringJobsListParams,
@@ -355,13 +355,13 @@ export const llmAnalyticsClusteringJobsList = async (
     })
 }
 
-/**
- * CRUD for clustering job configurations (max 5 per team).
- */
 export const getLlmAnalyticsClusteringJobsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_jobs/`
 }
 
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
 export const llmAnalyticsClusteringJobsCreate = async (
     projectId: string,
     clusteringJobApi: NonReadonly<ClusteringJobApi>,
@@ -375,13 +375,13 @@ export const llmAnalyticsClusteringJobsCreate = async (
     })
 }
 
-/**
- * CRUD for clustering job configurations (max 5 per team).
- */
 export const getLlmAnalyticsClusteringJobsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
 }
 
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
 export const llmAnalyticsClusteringJobsRetrieve = async (
     projectId: string,
     id: string,
@@ -393,13 +393,13 @@ export const llmAnalyticsClusteringJobsRetrieve = async (
     })
 }
 
-/**
- * CRUD for clustering job configurations (max 5 per team).
- */
 export const getLlmAnalyticsClusteringJobsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
 }
 
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
 export const llmAnalyticsClusteringJobsUpdate = async (
     projectId: string,
     id: string,
@@ -414,17 +414,17 @@ export const llmAnalyticsClusteringJobsUpdate = async (
     })
 }
 
-/**
- * CRUD for clustering job configurations (max 5 per team).
- */
 export const getLlmAnalyticsClusteringJobsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
 }
 
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
 export const llmAnalyticsClusteringJobsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedClusteringJobApi: NonReadonly<PatchedClusteringJobApi>,
+    patchedClusteringJobApi?: NonReadonly<PatchedClusteringJobApi>,
     options?: RequestInit
 ): Promise<ClusteringJobApi> => {
     return apiMutator<ClusteringJobApi>(getLlmAnalyticsClusteringJobsPartialUpdateUrl(projectId, id), {
@@ -435,13 +435,13 @@ export const llmAnalyticsClusteringJobsPartialUpdate = async (
     })
 }
 
-/**
- * CRUD for clustering job configurations (max 5 per team).
- */
 export const getLlmAnalyticsClusteringJobsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
 }
 
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
 export const llmAnalyticsClusteringJobsDestroy = async (
     projectId: string,
     id: string,
@@ -453,19 +453,19 @@ export const llmAnalyticsClusteringJobsDestroy = async (
     })
 }
 
+export const getLlmAnalyticsClusteringRunsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_runs/`
+}
+
 /**
  * Trigger a new clustering workflow run.
 
 This endpoint validates the request parameters and starts a Temporal workflow
 to perform trace clustering with the specified configuration.
  */
-export const getLlmAnalyticsClusteringRunsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/clustering_runs/`
-}
-
 export const llmAnalyticsClusteringRunsCreate = async (
     projectId: string,
-    clusteringRunRequestApi: ClusteringRunRequestApi,
+    clusteringRunRequestApi?: ClusteringRunRequestApi,
     options?: RequestInit
 ): Promise<ClusteringRunRequestApi> => {
     return apiMutator<ClusteringRunRequestApi>(getLlmAnalyticsClusteringRunsCreateUrl(projectId), {
@@ -538,13 +538,13 @@ export const llmAnalyticsConversationsRetrieve = async (
     })
 }
 
-/**
- * Get the evaluation config for this team
- */
 export const getLlmAnalyticsEvaluationConfigRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_config/`
 }
 
+/**
+ * Get the evaluation config for this team
+ */
 export const llmAnalyticsEvaluationConfigRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -555,13 +555,13 @@ export const llmAnalyticsEvaluationConfigRetrieve = async (
     })
 }
 
-/**
- * Set the active provider key for evaluations
- */
 export const getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_config/set_active_key/`
 }
 
+/**
+ * Set the active provider key for evaluations
+ */
 export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     projectId: string,
     evaluationConfigSetActiveKeyRequestApi: EvaluationConfigSetActiveKeyRequestApi,
@@ -575,9 +575,6 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     })
 }
 
-/**
- * CRUD for evaluation report configurations + report run history.
- */
 export const getLlmAnalyticsEvaluationReportsListUrl = (
     projectId: string,
     params?: LlmAnalyticsEvaluationReportsListParams
@@ -597,6 +594,9 @@ export const getLlmAnalyticsEvaluationReportsListUrl = (
         : `/api/environments/${projectId}/llm_analytics/evaluation_reports/`
 }
 
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
 export const llmAnalyticsEvaluationReportsList = async (
     projectId: string,
     params?: LlmAnalyticsEvaluationReportsListParams,
@@ -608,13 +608,13 @@ export const llmAnalyticsEvaluationReportsList = async (
     })
 }
 
-/**
- * CRUD for evaluation report configurations + report run history.
- */
 export const getLlmAnalyticsEvaluationReportsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_reports/`
 }
 
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
 export const llmAnalyticsEvaluationReportsCreate = async (
     projectId: string,
     evaluationReportApi: NonReadonly<EvaluationReportApi>,
@@ -628,13 +628,13 @@ export const llmAnalyticsEvaluationReportsCreate = async (
     })
 }
 
-/**
- * CRUD for evaluation report configurations + report run history.
- */
 export const getLlmAnalyticsEvaluationReportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
 }
 
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
 export const llmAnalyticsEvaluationReportsRetrieve = async (
     projectId: string,
     id: string,
@@ -646,13 +646,13 @@ export const llmAnalyticsEvaluationReportsRetrieve = async (
     })
 }
 
-/**
- * CRUD for evaluation report configurations + report run history.
- */
 export const getLlmAnalyticsEvaluationReportsUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
 }
 
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
 export const llmAnalyticsEvaluationReportsUpdate = async (
     projectId: string,
     id: string,
@@ -667,17 +667,17 @@ export const llmAnalyticsEvaluationReportsUpdate = async (
     })
 }
 
-/**
- * CRUD for evaluation report configurations + report run history.
- */
 export const getLlmAnalyticsEvaluationReportsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
 }
 
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
 export const llmAnalyticsEvaluationReportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEvaluationReportApi: NonReadonly<PatchedEvaluationReportApi>,
+    patchedEvaluationReportApi?: NonReadonly<PatchedEvaluationReportApi>,
     options?: RequestInit
 ): Promise<EvaluationReportApi> => {
     return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsPartialUpdateUrl(projectId, id), {
@@ -688,13 +688,13 @@ export const llmAnalyticsEvaluationReportsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getLlmAnalyticsEvaluationReportsDestroyUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const llmAnalyticsEvaluationReportsDestroy = async (
     projectId: string,
     id: string,
@@ -706,13 +706,13 @@ export const llmAnalyticsEvaluationReportsDestroy = async (
     })
 }
 
-/**
- * Trigger immediate report generation.
- */
 export const getLlmAnalyticsEvaluationReportsGenerateCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/generate/`
 }
 
+/**
+ * Trigger immediate report generation.
+ */
 export const llmAnalyticsEvaluationReportsGenerateCreate = async (
     projectId: string,
     id: string,
@@ -724,9 +724,6 @@ export const llmAnalyticsEvaluationReportsGenerateCreate = async (
     })
 }
 
-/**
- * List report runs (history) for this report.
- */
 export const getLlmAnalyticsEvaluationReportsRunsListUrl = (
     projectId: string,
     id: string,
@@ -747,6 +744,9 @@ export const getLlmAnalyticsEvaluationReportsRunsListUrl = (
         : `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/runs/`
 }
 
+/**
+ * List report runs (history) for this report.
+ */
 export const llmAnalyticsEvaluationReportsRunsList = async (
     projectId: string,
     id: string,
@@ -762,8 +762,12 @@ export const llmAnalyticsEvaluationReportsRunsList = async (
     )
 }
 
+export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_summary/`
+}
+
 /**
- * 
+ *
 Generate an AI-powered summary of evaluation results.
 
 This endpoint analyzes evaluation runs and identifies patterns in passing
@@ -776,12 +780,8 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 - Identify systematic issues in LLM responses
 - Get recommendations for improving response quality
 - Review patterns across many evaluation runs at once
-        
- */
-export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/evaluation_summary/`
-}
 
+ */
 export const llmAnalyticsEvaluationSummaryCreate = async (
     projectId: string,
     evaluationSummaryRequestApi: EvaluationSummaryRequestApi,
@@ -795,9 +795,6 @@ export const llmAnalyticsEvaluationSummaryCreate = async (
     })
 }
 
-/**
- * List available models for a provider.
- */
 export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmAnalyticsModelsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -814,6 +811,9 @@ export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmA
         : `/api/environments/${projectId}/llm_analytics/models/`
 }
 
+/**
+ * List available models for a provider.
+ */
 export const llmAnalyticsModelsRetrieve = async (
     projectId: string,
     params: LlmAnalyticsModelsRetrieveParams,
@@ -845,13 +845,13 @@ export const llmAnalyticsOfflineEvaluationsExperimentItemsCreate = async (
     )
 }
 
-/**
- * Validate LLM provider API keys without persisting them
- */
 export const getLlmAnalyticsProviderKeyValidationsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/provider_key_validations/`
 }
 
+/**
+ * Validate LLM provider API keys without persisting them
+ */
 export const llmAnalyticsProviderKeyValidationsCreate = async (
     projectId: string,
     options?: RequestInit
@@ -949,7 +949,7 @@ export const getLlmAnalyticsProviderKeysPartialUpdateUrl = (projectId: string, i
 export const llmAnalyticsProviderKeysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedLLMProviderKeyApi: NonReadonly<PatchedLLMProviderKeyApi>,
+    patchedLLMProviderKeyApi?: NonReadonly<PatchedLLMProviderKeyApi>,
     options?: RequestInit
 ): Promise<LLMProviderKeyApi> => {
     return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysPartialUpdateUrl(projectId, id), {
@@ -975,13 +975,13 @@ export const llmAnalyticsProviderKeysDestroy = async (
     })
 }
 
-/**
- * Assign this key to evaluations and optionally re-enable them.
- */
 export const getLlmAnalyticsProviderKeysAssignCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/assign/`
 }
 
+/**
+ * Assign this key to evaluations and optionally re-enable them.
+ */
 export const llmAnalyticsProviderKeysAssignCreate = async (
     projectId: string,
     id: string,
@@ -996,13 +996,13 @@ export const llmAnalyticsProviderKeysAssignCreate = async (
     })
 }
 
-/**
- * Get evaluations using this key and alternative keys for replacement.
- */
 export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/dependent_configs/`
 }
 
+/**
+ * Get evaluations using this key and alternative keys for replacement.
+ */
 export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
     projectId: string,
     id: string,
@@ -1032,13 +1032,13 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
     })
 }
 
-/**
- * List enabled evaluations currently using trial credits for a given provider.
- */
 export const getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/provider_keys/trial_evaluations/`
 }
 
+/**
+ * List enabled evaluations currently using trial credits for a given provider.
+ */
 export const llmAnalyticsProviderKeysTrialEvaluationsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -1118,7 +1118,7 @@ export const getLlmAnalyticsReviewQueueItemsPartialUpdateUrl = (projectId: strin
 export const llmAnalyticsReviewQueueItemsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedReviewQueueItemUpdateApi: PatchedReviewQueueItemUpdateApi,
+    patchedReviewQueueItemUpdateApi?: PatchedReviewQueueItemUpdateApi,
     options?: RequestInit
 ): Promise<ReviewQueueItemApi> => {
     return apiMutator<ReviewQueueItemApi>(getLlmAnalyticsReviewQueueItemsPartialUpdateUrl(projectId, id), {
@@ -1210,7 +1210,7 @@ export const getLlmAnalyticsReviewQueuesPartialUpdateUrl = (projectId: string, i
 export const llmAnalyticsReviewQueuesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedReviewQueueUpdateApi: PatchedReviewQueueUpdateApi,
+    patchedReviewQueueUpdateApi?: PatchedReviewQueueUpdateApi,
     options?: RequestInit
 ): Promise<ReviewQueueApi> => {
     return apiMutator<ReviewQueueApi>(getLlmAnalyticsReviewQueuesPartialUpdateUrl(projectId, id), {
@@ -1305,7 +1305,7 @@ export const getLlmAnalyticsScoreDefinitionsPartialUpdateUrl = (projectId: strin
 export const llmAnalyticsScoreDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedScoreDefinitionMetadataApi: PatchedScoreDefinitionMetadataApi,
+    patchedScoreDefinitionMetadataApi?: PatchedScoreDefinitionMetadataApi,
     options?: RequestInit
 ): Promise<ScoreDefinitionApi> => {
     return apiMutator<ScoreDefinitionApi>(getLlmAnalyticsScoreDefinitionsPartialUpdateUrl(projectId, id), {
@@ -1357,7 +1357,7 @@ export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) 
 
 export const llmAnalyticsSentimentGenerationsCreate = async (
     projectId: string,
-    sentimentGenerationsRequestApi: SentimentGenerationsRequestApi,
+    sentimentGenerationsRequestApi?: SentimentGenerationsRequestApi,
     options?: RequestInit
 ): Promise<SentimentGenerationsResponseApi> => {
     return apiMutator<SentimentGenerationsResponseApi>(getLlmAnalyticsSentimentGenerationsCreateUrl(projectId), {
@@ -1368,8 +1368,12 @@ export const llmAnalyticsSentimentGenerationsCreate = async (
     })
 }
 
+export const getLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/summarization/`
+}
+
 /**
- * 
+ *
 Generate an AI-powered summary of an LLM trace or event.
 
 This endpoint analyzes the provided trace/event, generates a line-numbered text
@@ -1390,15 +1394,11 @@ representation, and uses an LLM to create a concise summary with line references
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
 The response includes the structured summary, the text representation, and metadata.
-        
- */
-export const getLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/summarization/`
-}
 
+ */
 export const llmAnalyticsSummarizationCreate = async (
     projectId: string,
-    summarizeRequestApi: SummarizeRequestApi,
+    summarizeRequestApi?: SummarizeRequestApi,
     options?: RequestInit
 ): Promise<SummarizeResponseApi> => {
     return apiMutator<SummarizeResponseApi>(getLlmAnalyticsSummarizationCreateUrl(projectId), {
@@ -1409,8 +1409,12 @@ export const llmAnalyticsSummarizationCreate = async (
     })
 }
 
+export const getLlmAnalyticsSummarizationBatchCheckCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/summarization/batch_check/`
+}
+
 /**
- * 
+ *
 Check which traces have cached summaries available.
 
 This endpoint allows batch checking of multiple trace IDs to see which ones
@@ -1421,12 +1425,8 @@ with their titles.
 - Load cached summaries on session view load
 - Avoid unnecessary LLM calls for already-summarized traces
 - Display summary previews without generating new summaries
-        
- */
-export const getLlmAnalyticsSummarizationBatchCheckCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/summarization/batch_check/`
-}
 
+ */
 export const llmAnalyticsSummarizationBatchCheckCreate = async (
     projectId: string,
     batchCheckRequestApi: BatchCheckRequestApi,
@@ -1440,8 +1440,12 @@ export const llmAnalyticsSummarizationBatchCheckCreate = async (
     })
 }
 
+export const getLlmAnalyticsTextReprCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/text_repr/`
+}
+
 /**
- * 
+ *
 Generate a human-readable text representation of an LLM trace event.
 
 This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
@@ -1474,12 +1478,8 @@ into formatted text representations suitable for display, logging, or analysis.
 - Backend LLM context (full): `truncated: false`
 
 The response includes the formatted text and metadata about the rendering.
-        
- */
-export const getLlmAnalyticsTextReprCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/text_repr/`
-}
 
+ */
 export const llmAnalyticsTextReprCreate = async (
     projectId: string,
     textReprRequestApi: TextReprRequestApi,
@@ -1559,7 +1559,7 @@ export const getLlmAnalyticsTraceReviewsPartialUpdateUrl = (projectId: string, i
 export const llmAnalyticsTraceReviewsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTraceReviewUpdateApi: PatchedTraceReviewUpdateApi,
+    patchedTraceReviewUpdateApi?: PatchedTraceReviewUpdateApi,
     options?: RequestInit
 ): Promise<TraceReviewApi> => {
     return apiMutator<TraceReviewApi>(getLlmAnalyticsTraceReviewsPartialUpdateUrl(projectId, id), {
@@ -1585,13 +1585,13 @@ export const llmAnalyticsTraceReviewsDestroy = async (
     })
 }
 
-/**
- * Translate text to target language.
- */
 export const getLlmAnalyticsTranslateCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/translate/`
 }
 
+/**
+ * Translate text to target language.
+ */
 export const llmAnalyticsTranslateCreate = async (
     projectId: string,
     translateRequestApi: TranslateRequestApi,
@@ -1688,7 +1688,7 @@ export const getLlmPromptsNamePartialUpdateUrl = (projectId: string, promptName:
 export const llmPromptsNamePartialUpdate = async (
     projectId: string,
     promptName: string,
-    patchedLLMPromptPublishApi: PatchedLLMPromptPublishApi,
+    patchedLLMPromptPublishApi?: PatchedLLMPromptPublishApi,
     options?: RequestInit
 ): Promise<LLMPromptApi> => {
     return apiMutator<LLMPromptApi>(getLlmPromptsNamePartialUpdateUrl(projectId, promptName), {
@@ -1850,7 +1850,7 @@ export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillName: s
 export const llmSkillsNamePartialUpdate = async (
     projectId: string,
     skillName: string,
-    patchedLLMSkillPublishApi: PatchedLLMSkillPublishApi,
+    patchedLLMSkillPublishApi?: PatchedLLMSkillPublishApi,
     options?: RequestInit
 ): Promise<LLMSkillApi> => {
     return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillName), {
@@ -2074,13 +2074,13 @@ export const taggersCreate = async (
     })
 }
 
-/**
- * Test Hog tagger code against sample events without saving.
- */
 export const getTaggersTestHogCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/taggers/test_hog/`
 }
 
+/**
+ * Test Hog tagger code against sample events without saving.
+ */
 export const taggersTestHogCreate = async (
     projectId: string,
     taggerApi: NonReadonly<TaggerApi>,
@@ -2178,7 +2178,7 @@ export const getDatasetItemsPartialUpdateUrl = (projectId: string, id: string) =
 export const datasetItemsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDatasetItemApi: NonReadonly<PatchedDatasetItemApi>,
+    patchedDatasetItemApi?: NonReadonly<PatchedDatasetItemApi>,
     options?: RequestInit
 ): Promise<DatasetItemApi> => {
     return apiMutator<DatasetItemApi>(getDatasetItemsPartialUpdateUrl(projectId, id), {
@@ -2189,13 +2189,13 @@ export const datasetItemsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getDatasetItemsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dataset_items/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const datasetItemsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getDatasetItemsDestroyUrl(projectId, id), {
         ...options,
@@ -2283,7 +2283,7 @@ export const getDatasetsPartialUpdateUrl = (projectId: string, id: string) => {
 export const datasetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDatasetApi: NonReadonly<PatchedDatasetApi>,
+    patchedDatasetApi?: NonReadonly<PatchedDatasetApi>,
     options?: RequestInit
 ): Promise<DatasetApi> => {
     return apiMutator<DatasetApi>(getDatasetsPartialUpdateUrl(projectId, id), {
@@ -2294,13 +2294,13 @@ export const datasetsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getDatasetsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const datasetsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getDatasetsDestroyUrl(projectId, id), {
         ...options,

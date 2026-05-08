@@ -54,7 +54,7 @@ How would you rate the alignment of the generated query with the expected query?
 Details matter greatly here — including math types, property types, and filter direction — so be harsh.
 """.strip()
 
-_JUDGE_MODEL = "gpt-5.4"
+JUDGE_MODEL = "gpt-5.4"
 
 # PostHog MCP tools that persist saved-insight state. The sandbox is disposable
 # but these tools still hit real rows, so any successful call is a bug in the
@@ -69,8 +69,8 @@ INSIGHT_WRITE_TOOLS = frozenset(
 )
 
 
-class _JudgedScorer(LLMClassifier):
-    """Shared wiring for product-analytics LLM judges.
+class JudgedScorer(LLMClassifier):
+    """Shared wiring for sandboxed LLM judges.
 
     Subclasses implement ``_prepare(output, expected)`` returning either a
     ``Score`` to short-circuit, or a dict with ``output``/``expected`` to
@@ -105,7 +105,7 @@ class _JudgedScorer(LLMClassifier):
         raise NotImplementedError
 
 
-def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
+def parser_for(output: dict[str, Any] | None) -> LogParser | None:
     if not output:
         return None
     raw_log = output.get("raw_log")
@@ -114,7 +114,7 @@ def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
     return LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
 
 
-def _extract_last_successful_input(
+def extract_last_successful_input(
     parser: LogParser | None,
     tool_name: str,
     schema: type[BaseModel] | None = None,
@@ -145,9 +145,9 @@ def _extract_last_successful_input(
         return raw
 
 
-def _user_prompt(output: dict[str, Any] | None) -> str:
+def user_prompt(output: dict[str, Any] | None) -> str:
     """Return the original user prompt from the eval output dict."""
-    parser = _parser_for(output)
+    parser = parser_for(output)
     if parser is not None:
         return parser.get_user_prompt()
     if output:
@@ -164,10 +164,10 @@ def extract_last_query_retention_input(output: dict[str, Any] | None) -> dict[st
     that depend on this should short-circuit with ``score=None`` in that case
     rather than counting it as an incorrect retention query.
     """
-    return _extract_last_successful_input(_parser_for(output), QUERY_RETENTION_TOOL_NAME, AssistantRetentionQuery)
+    return extract_last_successful_input(parser_for(output), QUERY_RETENTION_TOOL_NAME, AssistantRetentionQuery)
 
 
-class RetentionSchemaAlignment(_JudgedScorer):
+class RetentionSchemaAlignment(JudgedScorer):
     """Graded score: how well does the actual retention query match the expected one?
 
     Semantic comparison rather than strict field-by-field equality — multiple
@@ -192,7 +192,7 @@ class RetentionSchemaAlignment(_JudgedScorer):
                 metadata={"reason": "No expected.retention_query provided"},
             )
         return {
-            "output": {"retention_query": actual, "prompt": _user_prompt(output)},
+            "output": {"retention_query": actual, "prompt": user_prompt(output)},
             "expected": {"retention_query": expected_query},
         }
 
@@ -237,13 +237,13 @@ Penalize:
             + "\n\n"
             + GRADED_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
 
 
-class RetentionTimeRangeRelevancy(_JudgedScorer):
+class RetentionTimeRangeRelevancy(JudgedScorer):
     """Binary yes/no: is the retention query's time range / period consistent with the user prompt?"""
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
@@ -254,7 +254,7 @@ class RetentionTimeRangeRelevancy(_JudgedScorer):
                 score=0.0,
                 metadata={"reason": "Agent never ran query-retention successfully"},
             )
-        prompt = _user_prompt(output)
+        prompt = user_prompt(output)
         return {
             "output": {
                 "retention_query": actual,
@@ -287,7 +287,7 @@ Evaluation rules:
 Is the time range / period in the actual query consistent with the user's prompt? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -300,10 +300,10 @@ def extract_last_query_trends_input(output: dict[str, Any] | None) -> dict[str, 
     that depend on this should short-circuit with ``score=None`` in that case
     rather than counting it as an incorrect trends query.
     """
-    return _extract_last_successful_input(_parser_for(output), QUERY_TRENDS_TOOL_NAME, AssistantTrendsQuery)
+    return extract_last_successful_input(parser_for(output), QUERY_TRENDS_TOOL_NAME, AssistantTrendsQuery)
 
 
-class TrendsSchemaAlignment(_JudgedScorer):
+class TrendsSchemaAlignment(JudgedScorer):
     """Graded score: how well does the actual trends query match the expected one?
 
     Semantic comparison rather than strict field-by-field equality — multiple
@@ -330,7 +330,7 @@ class TrendsSchemaAlignment(_JudgedScorer):
                 metadata={"reason": "No expected.trends_query provided"},
             )
         return {
-            "output": {"trends_query": actual, "prompt": _user_prompt(output)},
+            "output": {"trends_query": actual, "prompt": user_prompt(output)},
             "expected": {"trends_query": expected_query},
         }
 
@@ -381,13 +381,13 @@ Penalize:
             + "\n\n"
             + GRADED_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
 
 
-class TrendsTimeRangeRelevancy(_JudgedScorer):
+class TrendsTimeRangeRelevancy(JudgedScorer):
     """Binary yes/no: is the trends query's time range / interval consistent with the user prompt?"""
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
@@ -398,7 +398,7 @@ class TrendsTimeRangeRelevancy(_JudgedScorer):
                 score=0.0,
                 metadata={"reason": "Agent never ran query-trends successfully"},
             )
-        prompt = _user_prompt(output)
+        prompt = user_prompt(output)
         return {
             "output": {
                 "trends_query": actual,
@@ -430,7 +430,7 @@ Evaluation rules:
 Is the time range / interval in the actual query consistent with the user's prompt? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -445,10 +445,10 @@ def extract_last_query_funnel_input(output: dict[str, Any] | None) -> dict[str, 
     legitimately answered via HogQL (``execute-sql``); that's covered by the
     exit-code scorer, not by these LLM judges.
     """
-    return _extract_last_successful_input(_parser_for(output), QUERY_FUNNEL_TOOL_NAME, AssistantFunnelsQuery)
+    return extract_last_successful_input(parser_for(output), QUERY_FUNNEL_TOOL_NAME, AssistantFunnelsQuery)
 
 
-class FunnelSchemaAlignment(_JudgedScorer):
+class FunnelSchemaAlignment(JudgedScorer):
     """Graded score: how well does the actual funnel query match the expected one?
 
     Semantic comparison rather than strict field-by-field equality — multiple
@@ -473,7 +473,7 @@ class FunnelSchemaAlignment(_JudgedScorer):
                 metadata={"reason": "No expected.funnel_query provided"},
             )
         return {
-            "output": {"funnel_query": actual, "prompt": _user_prompt(output)},
+            "output": {"funnel_query": actual, "prompt": user_prompt(output)},
             "expected": {"funnel_query": expected_query},
         }
 
@@ -520,13 +520,13 @@ Penalize:
             + "\n\n"
             + GRADED_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
 
 
-class FunnelTimeRangeRelevancy(_JudgedScorer):
+class FunnelTimeRangeRelevancy(JudgedScorer):
     """Binary yes/no: is the funnel query's time range + conversion window consistent with the user prompt?"""
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
@@ -537,7 +537,7 @@ class FunnelTimeRangeRelevancy(_JudgedScorer):
                 score=0.0,
                 metadata={"reason": "Agent never ran query-funnel successfully"},
             )
-        prompt = _user_prompt(output)
+        prompt = user_prompt(output)
         return {
             "output": {
                 "funnel_query": actual,
@@ -573,7 +573,7 @@ Other rules:
 Are the time range AND the conversion window in the actual query consistent with the user's prompt? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -618,7 +618,7 @@ class SchemaDiscoveryOrder(Scorer):
     def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
-        parser = _parser_for(output)
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 

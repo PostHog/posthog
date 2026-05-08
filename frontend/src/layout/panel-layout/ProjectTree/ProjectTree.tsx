@@ -8,10 +8,8 @@ import {
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
-    IconGear,
     IconPencil,
     IconPlusSmall,
-    IconShortcut,
     IconStar,
 } from '@posthog/icons'
 
@@ -199,11 +197,9 @@ export function ProjectTree({
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
-    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const isAIFirst = useFeatureFlag('AI_FIRST')
     const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
@@ -223,35 +219,18 @@ export function ProjectTree({
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
-                name: isAIFirst ? 'Starred items' : 'Example shortcuts',
+                name: 'Starred items',
                 type: 'category',
                 displayName: (
-                    <div
-                        className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1', {
-                            'mt-2': fullFileSystemFiltered.length === 0 && !isAIFirst,
-                            'mb-2': !isAIFirst,
-                        })}
-                    >
-                        {isAIFirst ? (
-                            <>
-                                Add a starred item by clicking{' '}
-                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />{' '}
-                                next to an item in the Files sidebar, then selecting "
-                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add
-                                to starred". You can also add a starred item by opening a resource, clicking its project
-                                name in the side panel, and selecting "
-                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add
-                                to starred".
-                            </>
-                        ) : (
-                            <>
-                                Add a shortcut by clicking{' '}
-                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />{' '}
-                                next to an item in the Files sidebar, then selecting "
-                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />{' '}
-                                Add to shortcuts panel".
-                            </>
-                        )}{' '}
+                    <div className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1')}>
+                        Add a starred item by clicking{' '}
+                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> next to
+                        an item in the Files sidebar, then selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
+                        starred". You can also add a starred item by opening a resource, clicking its project name in
+                        the side panel, and selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
+                        starred".{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.
@@ -274,20 +253,15 @@ export function ProjectTree({
                 !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
 
             if (showOriginalBanner) {
-                const CustomIcon = !isAIFirst && isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
                     name: 'Example custom products',
                     type: 'category',
                     displayName: (
-                        <div
-                            className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                                'mt-6': fullFileSystemFiltered.length === 0 && !isAIFirst,
-                            })}
-                        >
+                        <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
                             You can display your preferred apps here. You can configure what items show up in here by
                             clicking on the{' '}
-                            <CustomIcon className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
                             above. We'll automatically suggest new apps to this list as you use them.{' '}
                             {fullFileSystemFiltered.length > 0 && (
                                 <span
@@ -410,8 +384,7 @@ export function ProjectTree({
                 if (item?.id.startsWith('shortcuts')) {
                     eventUsageLogic.actions.reportNavbarStarredItemClicked(
                         item?.record?.type || 'unknown',
-                        item?.name || 'unknown',
-                        !!isAIFirst
+                        item?.name || 'unknown'
                     )
                 }
 
@@ -834,7 +807,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    {isAIFirst ? 'Add to starred' : 'Add shortcut'}
+                                    Add to starred
                                 </>
                             ),
                         }),
