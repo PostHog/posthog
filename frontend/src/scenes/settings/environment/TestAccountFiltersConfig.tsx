@@ -85,7 +85,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 <LemonBanner type="info">
                     <p>
                         When filtering out internal users, inline person property filters (e.g., "email does not contain
-                        your-domain.com") are evaluated against each event's person properties{' '}
+                        your-domain.com") are evaluated against person properties{' '}
                         <strong>at ingestion time</strong>. These filters work everywhere, including real-time CDP
                         destinations.
                     </p>
