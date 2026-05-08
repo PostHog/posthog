@@ -13,6 +13,23 @@ from braintrust_core.score import Scorer
 from ee.hogai.eval.sandboxed.log_parser import LogParser, ToolCall
 
 SURVEY_CREATE_TOOL_NAME = "survey-create"
+SURVEY_FORBIDDEN_WRITE_TOOLS = frozenset(
+    {
+        "survey-update",
+        "survey-delete",
+        "create-feature-flag",
+        "update-feature-flag",
+        "delete-feature-flag",
+        "feature-flags-bulk-delete-create",
+        "feature-flags-bulk-keys-create",
+        "feature-flags-bulk-update-tags-create",
+        "feature-flags-copy-flags-create",
+        "scheduled-changes-create",
+        "scheduled-changes-delete",
+        "scheduled-changes-update",
+        "scheduled-changes-update-full",
+    }
+)
 
 GRADED_ALIGNMENT_CHOICE_SCORES = {
     "perfect": 1.0,
@@ -107,6 +124,27 @@ def _decode_json(value: str) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return None
+
+
+def _survey_create_experienced_error(call: ToolCall) -> bool:
+    if call.is_error:
+        return True
+
+    decoded = _decode_json(call.output)
+    if isinstance(decoded, dict):
+        for key in ("is_error", "isError"):
+            value = decoded.get(key)
+            if isinstance(value, bool) and value:
+                return True
+
+        for key in ("error", "errors"):
+            value = decoded.get(key)
+            if value:
+                return True
+
+    output_lower = call.output.lower()
+    has_error_word = any(word in output_lower for word in ("error", "invalid", "required", "validation"))
+    return has_error_word and "question" in output_lower
 
 
 def _strip_analytics(payload: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +277,119 @@ class SurveyCreationSuccess(Scorer):
         )
 
 
+class SurveyCreateOutcome(Scorer):
+    """Binary: did the eval take the expected survey-create path?
+
+    Creation cases should produce exactly one successful ``survey-create`` call.
+    Rejection cases should experience a ``survey-create`` error and never create
+    a survey successfully.
+    """
+
+    def _name(self) -> str:
+        return "survey_create_outcome"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+        spec = _expected_spec(expected, "survey_created") or {}
+        should_create = spec.get("should_create", True)
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        calls = parser.get_tool_calls(SURVEY_CREATE_TOOL_NAME)
+        if not calls:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "survey-create was never attempted"})
+
+        successful_calls = [call for call in calls if not _survey_create_experienced_error(call)]
+        error_calls = [call for call in calls if _survey_create_experienced_error(call)]
+
+        if should_create:
+            if not successful_calls:
+                return Score(
+                    name=self._name(),
+                    score=0.0,
+                    metadata={
+                        "reason": "survey-create never succeeded",
+                        "error_call_count": len(error_calls),
+                    },
+                )
+            if len(successful_calls) > 1:
+                return Score(
+                    name=self._name(),
+                    score=0.0,
+                    metadata={
+                        "reason": "survey-create succeeded multiple times",
+                        "successful_call_count": len(successful_calls),
+                        "inputs": [call.input for call in successful_calls],
+                    },
+                )
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={
+                    "survey_id": _extract_survey_id(successful_calls[-1]),
+                    "error_call_count": len(error_calls),
+                },
+            )
+
+        if successful_calls:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "survey-create succeeded but this case expected an error",
+                    "input": successful_calls[-1].input,
+                },
+            )
+        if not error_calls:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "Expected a survey-create error but no errored call was observed"},
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"error_call_count": len(error_calls), "input": error_calls[-1].input},
+        )
+
+
+class SurveyCreateReturnedId(Scorer):
+    """Binary: did a successful survey-create result include an extractable survey ID?"""
+
+    def _name(self) -> str:
+        return "survey_create_returned_id"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+        spec = _expected_spec(expected, "survey_created") or {}
+        if spec.get("should_create", True) is not True:
+            return Score(name=self._name(), score=None, metadata={"reason": "Survey ID not expected"})
+
+        call = _last_survey_create_call(output, successful=True)
+        if call is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No successful survey-create call"})
+
+        survey_id = _extract_survey_id(call)
+        if not survey_id:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "Could not extract survey ID from tool output"},
+            )
+        return Score(name=self._name(), score=1.0, metadata={"survey_id": survey_id})
+
+
 class SurveyIdInFinalMessage(Scorer):
     """Binary: does the final assistant message include the created survey ID?"""
 
@@ -307,7 +458,7 @@ class SurveyCreateRejected(Scorer):
         if not calls:
             return Score(name=self._name(), score=0.0, metadata={"reason": "survey-create was never attempted"})
 
-        successful = [call for call in calls if not call.is_error]
+        successful = [call for call in calls if not _survey_create_experienced_error(call)]
         if successful:
             return Score(
                 name=self._name(),
@@ -315,7 +466,8 @@ class SurveyCreateRejected(Scorer):
                 metadata={"reason": "survey-create succeeded for an invalid survey", "input": successful[-1].input},
             )
 
-        last_call = calls[-1]
+        error_calls = [call for call in calls if _survey_create_experienced_error(call)]
+        last_call = error_calls[-1] if error_calls else calls[-1]
         expected_questions = spec.get("questions")
         if expected_questions is not None and last_call.input.get("questions") != expected_questions:
             return Score(
@@ -328,10 +480,7 @@ class SurveyCreateRejected(Scorer):
                 },
             )
 
-        output_lower = last_call.output.lower()
-        if last_call.is_error or (
-            "question" in output_lower and ("required" in output_lower or "validation" in output_lower)
-        ):
+        if _survey_create_experienced_error(last_call):
             return Score(name=self._name(), score=1.0, metadata={"input": last_call.input})
 
         return Score(

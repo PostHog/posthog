@@ -20,12 +20,15 @@ from products.tasks.backend.services.custom_prompt_internals import CustomPrompt
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
+from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 from ee.hogai.eval.sandboxed.seeders.survey import seed_survey_feature_flags
 from ee.hogai.eval.sandboxed.surveys.scorers import (
+    SURVEY_FORBIDDEN_WRITE_TOOLS,
+    SurveyCreateOutcome,
     SurveyCreateRejected,
+    SurveyCreateReturnedId,
     SurveyCreateSchemaAlignment,
-    SurveyCreationSuccess,
     SurveyIdInFinalMessage,
 )
 
@@ -290,7 +293,12 @@ async def eval_surveys(
         cases=cases,
         scorers=[
             ExitCodeZero(),
-            SurveyCreationSuccess(),
+            NoToolCall(
+                forbidden=SURVEY_FORBIDDEN_WRITE_TOOLS | INSIGHT_WRITE_TOOLS,
+                name="no_forbidden_survey_side_effects",
+            ),
+            SurveyCreateOutcome(),
+            SurveyCreateReturnedId(),
             SurveyCreateSchemaAlignment(),
             SurveyIdInFinalMessage(),
             SurveyCreateRejected(),
