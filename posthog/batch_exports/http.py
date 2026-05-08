@@ -1,12 +1,9 @@
-import json
-import time
 import uuid
 import socket
 import typing
 import builtins
 import datetime as dt
 import ipaddress
-import posixpath
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
@@ -15,14 +12,10 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import transaction
-from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
-import boto3
 import structlog
 import posthoganalytics
-from botocore.exceptions import ClientError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
@@ -44,15 +37,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.event_usage import groups
-from posthog.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportFileDownload,
-    BatchExportRun,
-    Team,
-    User,
-)
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import (
     AzureBlobIntegration,
@@ -62,7 +47,6 @@ from posthog.models.integration import (
     Integration,
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.models.utils import uuid7
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -79,7 +63,6 @@ from products.batch_exports.backend.service import (
     cancel_running_batch_export_run,
     delete_batch_export,
     pause_batch_export,
-    start_file_download_batch_export,
     sync_batch_export,
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
@@ -172,89 +155,6 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
-SESSION = boto3.Session()
-
-
-def _generate_s3_pre_signed_url(
-    bucket: str,
-    key: str,
-    role_arn: str,
-    session_name: str,
-    expiration: int = 3600,
-    max_attempts: int = 1,
-    delay: int = 1,
-):
-    """Generate a pre-signed URL for given bucket and key.
-
-    The URL will be signed with temporary credentials after assuming the given role.
-    The credentials will be scoped to only support a s3:GetObject action on the given
-    bucket, key.
-
-    Temporary credentials and the download URL have individual expiration times,
-    meaning that the lower of the two is the one that counts as users need both valid
-    credentials and a valid URL to use the download URL. So, we set the same
-    `expiration` to both. Keep in mind that temporary credentials may only be assumed
-    for up to a limit configured in the role itself.
-    """
-    if max_attempts <= 0:
-        raise ValueError("`max_attempts` must be positive")
-
-    filename = posixpath.basename(key)
-
-    if not filename:
-        # Should never happen, our keys always end with a filename
-        raise ValueError(f"Cannot derive filename from S3 key: {key!r}")
-
-    sts = SESSION.client("sts")
-
-    for attempt in range(1, max_attempts + 1):
-        # It may take a few moments for access to be granted, so we retry in a loop
-        # This is only relevant for test environments in which roles are created in the
-        # moment. Long-lived roles in production should succeed on the first attempt.
-        try:
-            response = sts.assume_role(
-                RoleArn=role_arn,
-                RoleSessionName=session_name,
-                DurationSeconds=expiration,
-                Policy=json.dumps(
-                    {
-                        "Version": "2012-10-17",
-                        "Statement": [
-                            {
-                                "Effect": "Allow",
-                                "Action": ["s3:GetObject"],
-                                "Resource": f"arn:aws:s3:::{bucket}/{key}",
-                            },
-                        ],
-                    }
-                ),
-            )
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code != "AccessDenied" or attempt == max_attempts:
-                raise
-            time.sleep(delay * (2 ** (attempt - 1)))  # With default delay: 1s, 2s, 4s, 8s, ...
-        else:
-            break
-
-    assumed_session = boto3.Session(
-        aws_access_key_id=response["Credentials"]["AccessKeyId"],
-        aws_secret_access_key=response["Credentials"]["SecretAccessKey"],
-        aws_session_token=response["Credentials"]["SessionToken"],
-    )
-    s3 = assumed_session.client("s3")
-
-    return s3.generate_presigned_url(
-        "get_object",
-        Params={
-            "Bucket": bucket,
-            "Key": key,
-            "ResponseContentDisposition": f'attachment; filename="{filename}"',
-        },
-        ExpiresIn=expiration,
-    )
-
-
 @extend_schema(tags=["batch_exports"])
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
@@ -332,116 +232,6 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
 
         return response.Response({"cancelled": True})
-
-    @action(methods=["GET"], detail=True, required_scopes=["batch_export:read"])
-    def status(self, *args, **kwargs) -> response.Response:
-        """Get the status of a batch export run.
-
-        If the batch export run has completed, and it has any associated file downloads
-        to it, we return keys to those file downloads so that users may request them.
-        """
-        batch_export_run: BatchExportRun = self.get_object()
-
-        error = {}
-        if batch_export_run.latest_error is not None:
-            error["message"] = batch_export_run.latest_error
-
-        status = batch_export_run.status
-
-        parts = {}
-        if (
-            batch_export_run.batch_export.destination.type == BatchExportDestination.Destination.FILE_DOWNLOAD
-            and status == BatchExportRun.Status.COMPLETED
-        ):
-            try:
-                ids = (
-                    BatchExportFileDownload.objects.filter(
-                        batch_export_run=batch_export_run, team=batch_export_run.batch_export.team
-                    )
-                    .order_by("key")
-                    .values("id")
-                )
-            except BatchExportFileDownload.DoesNotExist:
-                # There is currently a small delay between the run being set to completed
-                # and the file downloads being generated, so we account for that and keep
-                # showing running status.
-                status = BatchExportRun.Status.RUNNING
-            else:
-                parts["parts"] = [str(id) for id in ids]
-
-        return response.Response({"status": status, **parts, **error})
-
-    @action(
-        methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]
-    )
-    def download(self, request, part=None, *args, **kwargs) -> HttpResponseRedirect:
-        """Download a file download batch export run.
-
-        Users can provide a part component with an id or index, or no part component at
-        all:
-        * If part id is included: The file download matching the id is downloaded.
-        * If part index is included: The file download matching the index (as ordered
-            by key) is downloaded.
-        * If no part component is present: If there is only one file downloaded, that
-            is downloaded. Otherwise the first one as sorted by key is downloaded.
-        """
-        batch_export_run: BatchExportRun = self.get_object()
-
-        if batch_export_run.batch_export.destination.type != BatchExportDestination.Destination.FILE_DOWNLOAD:
-            raise ValidationError("Only file download batch exports can download files")
-
-        if batch_export_run.status != BatchExportRun.Status.COMPLETED:
-            raise ValidationError("Batch export run has not completed or has failed")
-
-        try:
-            file_download_id = uuid.UUID(part)
-        except ValueError:
-            file_downloads_query = BatchExportFileDownload.objects.filter(
-                batch_export_run=batch_export_run, team=batch_export_run.batch_export.team
-            ).order_by("key")
-
-            file_downloads: list[BatchExportFileDownload] = list(file_downloads_query)
-            try:
-                index = int(part) if part is not None else 0
-            except (ValueError, TypeError):
-                raise ValidationError(f"Invalid part id or index: '{part}'")
-
-            if index < 0 or index >= len(file_downloads):
-                raise NotFound(f"No part with index {index}")
-
-            file_download = file_downloads[index]
-        else:
-            file_download = get_object_or_404(
-                BatchExportFileDownload.objects.filter(
-                    batch_export_run=batch_export_run, id=file_download_id, team=batch_export_run.batch_export.team
-                ).order_by("key")
-            )
-
-        default_expiration = dt.timedelta(seconds=settings.BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS)
-
-        if file_download.expires_at is not None:
-            now = dt.datetime.now(dt.UTC)
-            remaining = file_download.expires_at - now
-
-            if remaining < dt.timedelta(seconds=0):
-                raise ValidationError("This file download has expired")
-
-            expiration = min(remaining, default_expiration)
-        else:
-            expiration = default_expiration
-
-        pre_signed_url = _generate_s3_pre_signed_url(
-            settings.BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET,
-            file_download.key,
-            role_arn=settings.BATCH_EXPORTS_FILE_DOWNLOAD_ROLE_ARN,
-            session_name=f"batch-exports-file-download-{file_download.id}",
-            expiration=int(expiration.total_seconds()),
-        )
-
-        response = HttpResponseRedirect(redirect_to=pre_signed_url)
-        response["Cache-Control"] = "no-store"
-
-        return response
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
@@ -1615,52 +1405,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
-
-    @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
-    def file_download(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Create and start a batch export to download a file."""
-        serializer = self.get_serializer(
-            data=request.data, context={**self.get_serializer_context(), "temporal_schedule": False}
-        )
-        serializer.is_valid(raise_exception=True)
-        instance = serializer.save()
-
-        if instance.destination.type != "FileDownload":
-            raise ValidationError("Batch export must be of type 'FileDownload'")
-
-        data_interval_start = request.data.get("data_interval_start")
-        data_interval_end = request.data.get("data_interval_end")
-
-        if data_interval_start is None:
-            raise ValidationError("Missing required 'data_interval_start'")
-
-        if data_interval_end is None:
-            raise ValidationError("Missing required 'data_interval_end'")
-
-        start_at = validate_date_input(data_interval_start, instance)
-        end_at = validate_date_input(data_interval_end, instance)
-
-        if start_at >= end_at:
-            raise ValidationError(
-                "The initial backfill datetime 'data_interval_start' must be before 'data_interval_end'"
-            )
-        if end_at > dt.datetime.now(dt.UTC):
-            raise ValidationError(f"The provided 'data_interval_end' ({end_at.isoformat()}) is in the future")
-
-        workflow_id = f"{instance.id}-{data_interval_start:%Y-%m-%dT%H:%M:%S}-{data_interval_end:%Y-%m-%dT%H:%M:%S}"
-        run_id = uuid7()
-        start_file_download_batch_export(
-            instance,
-            workflow_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            batch_export_run_id=run_id,
-            compression=instance.destination.config.get("compression", None),
-            file_format=instance.destination.config.get("file_format", "Parquet"),
-            max_file_size_mb=instance.destination.config.get("max_file_size_mb", 0),
-        )
-
-        return response.Response({"id": run_id}, status=status.HTTP_202_ACCEPTED)
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
