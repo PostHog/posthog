@@ -1,9 +1,13 @@
 import type { ReactElement } from 'react'
 
-import { TimeSeriesBarChart } from 'lib/hog-charts/charts/TimeSeriesBarChart/TimeSeriesBarChart'
+import {
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+} from 'lib/hog-charts/charts/TimeSeriesBarChart/TimeSeriesBarChart'
 import type { Series } from 'lib/hog-charts/core/types'
 import type { XAxisConfig } from 'lib/hog-charts/utils/use-axis-formatters'
 
+import type { BarLayout } from './ChartSettings'
 import { MCP_CHART_THEME } from './McpChartTheme'
 import type { TrendsInterval, TrendsResultItem } from './types'
 import { formatDate, formatNumber, getSeriesLabel } from './utils'
@@ -12,9 +16,17 @@ export interface McpTrendsBarChartProps {
     results: TrendsResultItem[]
     interval?: TrendsInterval
     timezone?: string
+    barLayout?: BarLayout
+    showValueLabels?: boolean
 }
 
-export function McpTrendsBarChart({ results, interval, timezone }: McpTrendsBarChartProps): ReactElement | null {
+export function McpTrendsBarChart({
+    results,
+    interval,
+    timezone,
+    barLayout = 'grouped',
+    showValueLabels = false,
+}: McpTrendsBarChartProps): ReactElement | null {
     if (results.length === 0) {
         return null
     }
@@ -32,16 +44,12 @@ export function McpTrendsBarChart({ results, interval, timezone }: McpTrendsBarC
     const xAxis: XAxisConfig =
         interval && timezone ? { interval, timezone } : { tickFormatter: (label) => formatDate(label) }
 
-    return (
-        <TimeSeriesBarChart
-            series={series}
-            labels={labels}
-            theme={MCP_CHART_THEME}
-            config={{
-                barLayout: 'grouped',
-                xAxis,
-                yAxis: { tickFormatter: (value) => formatNumber(value), showGrid: true },
-            }}
-        />
-    )
+    const config: TimeSeriesBarChartConfig = {
+        barLayout,
+        xAxis,
+        yAxis: { tickFormatter: (value) => formatNumber(value), showGrid: true },
+        ...(showValueLabels ? { valueLabels: true } : {}),
+    }
+
+    return <TimeSeriesBarChart series={series} labels={labels} theme={MCP_CHART_THEME} config={config} />
 }
