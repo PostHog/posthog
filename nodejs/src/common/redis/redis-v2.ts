@@ -7,15 +7,21 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { defineLuaTokenBucket } from './redis-token-bucket.lua'
 
-type WithCheckRateLimit<T, TV2> = {
+type WithCheckRateLimit<T, TV2, TV3> = {
     checkRateLimit: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => T
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
+    /**
+     * V3 returns balances as strings (`[tokensBefore, tokensAfter]`) so fractional
+     * tokens survive — Redis truncates Lua numbers to integers on the wire. Callers
+     * must `parseFloat` the values.
+     */
+    checkRateLimitV3: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV3
 }
 
-export type RedisClientPipeline = Pipeline & WithCheckRateLimit<number, [number, number]>
+export type RedisClientPipeline = Pipeline & WithCheckRateLimit<number, [number, number], [string, string]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<number>, Promise<[number, number]>> & {
+    WithCheckRateLimit<Promise<number>, Promise<[number, number]>, Promise<[string, string]>> & {
         pipeline: () => RedisClientPipeline
     }
 

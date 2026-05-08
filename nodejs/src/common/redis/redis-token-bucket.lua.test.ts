@@ -1,0 +1,99 @@
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { Hub } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+
+import { deleteKeysWithPrefix } from '../../cdp/_tests/redis'
+
+const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
+
+// All three commands share the same arg shape; the only thing that varies is
+// the Lua body. We test each by name so a regression in any version is loud.
+type CommandName = 'checkRateLimit' | 'checkRateLimitV2' | 'checkRateLimitV3'
+
+describe('redis-token-bucket lua', () => {
+    jest.retryTimes(3)
+
+    let now: number
+    let hub: Hub
+    let redis: RedisV2
+
+    const advanceTime = (ms: number) => {
+        now += ms
+        mockNow.mockReturnValue(now)
+    }
+
+    const nowSeconds = () => Math.round(Date.now() / 1000)
+
+    beforeEach(async () => {
+        hub = await createHub()
+        now = 1720000000000
+        mockNow.mockReturnValue(now)
+
+        redis = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+        jest.clearAllMocks()
+    })
+
+    const callRateLimit = async (
+        command: CommandName,
+        key: string,
+        cost: number,
+        poolMax: number,
+        fillRate: number
+    ): Promise<[number, number]> => {
+        const result = await redis.useClient({ name: 'lua-test' }, async (client) => {
+            // V1's typing claims `Promise<number>` but the underlying Lua is identical
+            // to V2 and returns [tokensBefore, tokensAfter]. V3 returns strings to
+            // preserve fractional balances. Normalise both to numbers.
+            return (await (client[command] as any)(key, nowSeconds(), cost, poolMax, fillRate, 60)) as
+                | [number, number]
+                | [string, string]
+        })
+        if (!result) {
+            throw new Error(`expected ${command} result`)
+        }
+        return [Number(result[0]), Number(result[1])]
+    }
+
+    describe.each<{ command: CommandName; expectsRecovery: boolean }>([
+        { command: 'checkRateLimit', expectsRecovery: false },
+        { command: 'checkRateLimitV2', expectsRecovery: false },
+        { command: 'checkRateLimitV3', expectsRecovery: true },
+    ])('$command', ({ command, expectsRecovery }) => {
+        it('refill=1.5/s cost=1 1req/s starting in overdraft — recovers (V3) or stays denied (V1/V2)', async () => {
+            // Each tick we earn 1.5 tokens and spend 1 → net +0.5/tick.
+            // V3 banks the 0.5 across ticks and crosses zero after a few seconds.
+            // V1/V2 clamp every overdraft to -1 and throw the +0.5 away each tick.
+            const key = `@posthog-test/lua-bucket/${command}/team-1`
+            await deleteKeysWithPrefix(redis, key)
+
+            const [, drained] = await callRateLimit(command, key, 101, 100, 1.5)
+            expect(drained).toBe(-1)
+
+            let lastTokens = drained
+            for (let i = 0; i < 10; i++) {
+                advanceTime(1000)
+                const [, tokens] = await callRateLimit(command, key, 1, 100, 1.5)
+                lastTokens = tokens
+            }
+
+            if (expectsRecovery) {
+                expect(lastTokens).toBeGreaterThan(0)
+            } else {
+                expect(lastTokens).toBe(-1)
+            }
+        })
+    })
+})
