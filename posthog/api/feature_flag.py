@@ -1051,6 +1051,12 @@ class FeatureFlagSerializer(
             if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
                 raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
 
+        def _validate_regex_pattern(value: Any, path: str, existing_patterns: set[str]) -> None:
+            if not isinstance(value, str):
+                return
+            if value not in existing_patterns and not is_valid_regex(value):
+                raise serializers.ValidationError(f"{path}: invalid regex pattern")
+
         _validate_integer(flag_level_aggregation, "aggregation_group_type_index")
 
         # Collect existing regex patterns so we don't reject unchanged patterns on
@@ -1061,12 +1067,6 @@ class FeatureFlagSerializer(
                 for p in g.get("properties", []) or []:
                     if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
                         existing_patterns.add(p["value"])
-
-        def _validate_regex_pattern(value: Any, path: str) -> None:
-            if not isinstance(value, str):
-                raise serializers.ValidationError(f"{path} must be a string, got {type(value).__name__}")
-            if value not in existing_patterns and not is_valid_regex(value):
-                raise serializers.ValidationError(f"{path}: invalid regex pattern")
 
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
@@ -1091,6 +1091,7 @@ class FeatureFlagSerializer(
                     _validate_regex_pattern(
                         prop.get("value"),
                         f"groups[{group_index}].properties[{prop_index}].value",
+                        existing_patterns,
                     )
 
         for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
