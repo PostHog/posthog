@@ -401,14 +401,14 @@ For a complete one-time setup, run:
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc && \
 source ~/.zshrc && \
-flox activate && \
+flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 
 # For bash users
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook bash)"' >> ~/.bashrc && \
 source ~/.bashrc && \
-flox activate && \
+flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 ```
 
