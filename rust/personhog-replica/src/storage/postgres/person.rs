@@ -11,6 +11,7 @@ use crate::storage::traits::PersonLookup;
 use crate::storage::types::Person;
 
 const POOL_LABEL: &str = "replica";
+const BULK_POOL_LABEL: &str = "bulk_replica";
 
 #[async_trait]
 impl PersonLookup for PostgresStorage {
@@ -92,12 +93,12 @@ impl PersonLookup for PostgresStorage {
         let client = current_client_name();
         let labels = [
             ("operation".to_string(), "get_persons_by_ids".to_string()),
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
+        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
 
         let rows = sqlx::query_as!(
             Person,
@@ -140,12 +141,12 @@ impl PersonLookup for PostgresStorage {
         let client = current_client_name();
         let labels = [
             ("operation".to_string(), "get_persons_by_uuids".to_string()),
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
+        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
 
         let rows = sqlx::query_as!(
             Person,
@@ -231,14 +232,12 @@ impl PersonLookup for PostgresStorage {
                 "operation".to_string(),
                 "get_persons_by_distinct_ids_in_team".to_string(),
             ),
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
-
-        // Use query!() since we need distinct_id alongside Person fields
+        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
         let rows = sqlx::query!(
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
@@ -304,12 +303,12 @@ impl PersonLookup for PostgresStorage {
         let client = current_client_name();
         let labels = [
             ("operation".to_string(), "delete_persons".to_string()),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut tx = self.primary_pool.begin().await?;
+        let mut tx = self.bulk_primary_pool.begin().await?;
 
         // Delete distinct_id rows first — the FK on posthog_persondistinctid.person_id
         // is NO ACTION, so the person delete would fail if these still exist.
@@ -332,7 +331,7 @@ impl PersonLookup for PostgresStorage {
                     "operation".to_string(),
                     "delete_distinct_ids_for_persons".to_string(),
                 ),
-                ("pool".to_string(), "primary".to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             did_result.rows_affected() as f64,
@@ -355,7 +354,7 @@ impl PersonLookup for PostgresStorage {
             DB_ROWS_RETURNED,
             &[
                 ("operation".to_string(), "delete_persons".to_string()),
-                ("pool".to_string(), "primary".to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             result.rows_affected() as f64,
@@ -381,12 +380,12 @@ impl PersonLookup for PostgresStorage {
                 "operation".to_string(),
                 "delete_persons_batch_for_team".to_string(),
             ),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut tx = self.primary_pool.begin().await?;
+        let mut tx = self.bulk_primary_pool.begin().await?;
 
         // Step 1: Select up to batch_size person IDs for the team
         let person_ids: Vec<i64> = sqlx::query_scalar!(
@@ -426,7 +425,7 @@ impl PersonLookup for PostgresStorage {
                     "operation".to_string(),
                     "delete_distinct_ids_batch_for_team".to_string(),
                 ),
-                ("pool".to_string(), "primary".to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             did_result.rows_affected() as f64,
@@ -451,7 +450,7 @@ impl PersonLookup for PostgresStorage {
                     "operation".to_string(),
                     "delete_persons_batch_for_team".to_string(),
                 ),
-                ("pool".to_string(), "primary".to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             result.rows_affected() as f64,
@@ -476,12 +475,12 @@ impl PersonLookup for PostgresStorage {
                 "operation".to_string(),
                 "get_persons_by_distinct_ids_cross_team".to_string(),
             ),
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
+        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
 
         let team_ids: Vec<i32> = team_distinct_ids.iter().map(|(t, _)| *t as i32).collect();
         let distinct_ids: Vec<String> = team_distinct_ids.iter().map(|(_, d)| d.clone()).collect();

@@ -41,6 +41,19 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 ..primary_pool_config.clone()
             };
 
+            let bulk_primary_pool_config = PoolConfig {
+                max_connections: config.bulk_max_pg_connections,
+                acquire_timeout: config.bulk_acquire_timeout(),
+                statement_timeout_ms: config.bulk_statement_timeout(),
+                pool_name: Some("bulk_primary".to_string()),
+                ..primary_pool_config.clone()
+            };
+
+            let bulk_replica_pool_config = PoolConfig {
+                pool_name: Some("bulk_replica".to_string()),
+                ..bulk_primary_pool_config.clone()
+            };
+
             // Create primary pool
             let primary_pool =
                 get_pool_with_config(&config.primary_database_url, primary_pool_config)
@@ -59,7 +72,29 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 pool
             };
 
-            Arc::new(PostgresStorage::new(primary_pool, replica_pool))
+            // Create bulk pools (same URLs, smaller pool with longer timeouts)
+            let bulk_primary_pool =
+                get_pool_with_config(&config.primary_database_url, bulk_primary_pool_config)
+                    .expect("Failed to create bulk primary database pool");
+
+            let bulk_replica_pool = if replica_url == config.primary_database_url {
+                bulk_primary_pool.clone()
+            } else {
+                get_pool_with_config(replica_url, bulk_replica_pool_config)
+                    .expect("Failed to create bulk replica database pool")
+            };
+            tracing::info!(
+                max_connections = config.bulk_max_pg_connections,
+                statement_timeout_ms = config.bulk_statement_timeout_ms,
+                "Created bulk database pools"
+            );
+
+            Arc::new(PostgresStorage::new(
+                primary_pool,
+                replica_pool,
+                bulk_primary_pool,
+                bulk_replica_pool,
+            ))
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
@@ -228,6 +263,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool: storage.replica_pool.clone(),
         label: "replica".to_string(),
         max_connections: config.max_pg_connections,
+    });
+    pools.push(MonitoredPool {
+        pool: storage.bulk_primary_pool.clone(),
+        label: "bulk_primary".to_string(),
+        max_connections: config.bulk_max_pg_connections,
+    });
+    pools.push(MonitoredPool {
+        pool: storage.bulk_replica_pool.clone(),
+        label: "bulk_replica".to_string(),
+        max_connections: config.bulk_max_pg_connections,
     });
     spawn_pool_monitor(
         pools,
