@@ -61,9 +61,9 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
         ),
@@ -75,9 +75,9 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
         ),
@@ -100,9 +100,9 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
         ),
@@ -113,9 +113,9 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
                 .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
@@ -139,9 +139,9 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
         ),
@@ -153,9 +153,9 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
         ),
@@ -178,9 +178,9 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
         ),
@@ -191,9 +191,9 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
                 .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
@@ -226,9 +226,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
                 .describe(
                     '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
         ),
@@ -240,9 +240,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
                 .describe(
                     '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
         ),
@@ -265,9 +265,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
                 .describe(
                     '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
         ),
@@ -278,9 +278,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
                 .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
@@ -304,9 +304,9 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
         ),
@@ -318,9 +318,9 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
         ),
@@ -343,9 +343,9 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
         ),
@@ -356,9 +356,9 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
                 .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
@@ -382,9 +382,9 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
         ),
@@ -396,9 +396,9 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
         ),
@@ -421,9 +421,9 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
         ),
@@ -434,9 +434,9 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
                 .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
@@ -689,7 +689,7 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
         account_id: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesPartialUpdateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesPartialUpdateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
+        job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -734,7 +734,7 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesCreateWebhookCreateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
+        job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -767,7 +767,7 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
+        job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -848,7 +848,7 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
+        job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -907,8 +907,8 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
         ),
-    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
-    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+    default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
 })
 
 export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -935,8 +935,8 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
         ),
-    default_value: zod.unknown().nullish().describe('Default value used when a query references this variable.'),
-    values: zod.unknown().nullish().describe('Allowed values for List variables. Null for other variable types.'),
+    default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
 })
 
 export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({
@@ -987,15 +987,15 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
-            .string()
+            .uuid()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
-        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -1039,19 +1039,19 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
-            .string()
+            .uuid()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
             .string()
             .nullish()
             .describe('Activity log ID from the last known edit. Used for conflict detection.'),
-        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -1095,12 +1095,12 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
-            .string()
+            .uuid()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
@@ -1111,7 +1111,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -1144,12 +1144,12 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
-            .string()
+            .uuid()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
@@ -1160,7 +1160,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -1192,12 +1192,12 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         folder_id: zod
-            .string()
+            .uuid()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
@@ -1208,7 +1208,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(

@@ -12,7 +12,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -68,7 +67,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const isAiFirst = useFeatureFlag('AI_FIRST')
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -113,9 +111,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
                             )}
                             {!isLayoutNavCollapsed && (
-                                <span
-                                    className={cn('truncate', isAiFirst && 'text-secondary group-hover:text-primary')}
-                                >
+                                <span className="truncate text-secondary group-hover:text-primary">
                                     {isAuthenticatedTeam(currentTeam)
                                         ? (projectNameWithoutFirstEmoji ?? 'Project')
                                         : 'Account menu'}
@@ -126,7 +122,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
                                 />
                             )}
-                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
                         </ButtonPrimitive>
                     )}
                 />

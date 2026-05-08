@@ -1,9 +1,44 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 import { useEffect, useState } from 'react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-
 import type { ChartTheme } from './core/types'
+
+const DATA_COLOR_VARS = [
+    'data-color-1',
+    'data-color-2',
+    'data-color-3',
+    'data-color-4',
+    'data-color-5',
+    'data-color-6',
+    'data-color-7',
+    'data-color-8',
+    'data-color-9',
+    'data-color-10',
+    'data-color-11',
+    'data-color-12',
+    'data-color-13',
+    'data-color-14',
+    'data-color-15',
+]
+
+function readCssVar(name: string): string | undefined {
+    const value = getComputedStyle(document.body)
+        .getPropertyValue('--' + name)
+        .trim()
+    return value || undefined
+}
+
+function buildTheme(): ChartTheme {
+    return {
+        colors: DATA_COLOR_VARS.map((v) => readCssVar(v) ?? '#000'),
+        backgroundColor: readCssVar('color-bg-surface-primary') ?? '#ffffff',
+        axisColor: readCssVar('color-graph-axis-label'),
+        gridColor: readCssVar('color-graph-axis-line'),
+        crosshairColor: readCssVar('color-graph-crosshair'),
+        tooltipBackground: readCssVar('color-bg-surface-tooltip'),
+        tooltipColor: readCssVar('color-text-primary'),
+    }
+}
 
 /**
  * `buildTheme()` reads CSS variables from `document.body` once. The Storybook

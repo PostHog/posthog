@@ -79,6 +79,49 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertEqual(result.query.chartSettings.yAxis[0].column, "events")
         self.assertEqual(result.query.chartSettings.yAxis[0].settings.formatting.style, "short")
 
+    def test_parse_output_with_none_axis_format_omits_empty_formatting(self):
+        mixin = self._node
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT toStartOfDay(timestamp) AS day, count() AS events FROM events GROUP BY day",
+                "display": "ActionsLineGraph",
+                "x_axis": "day",
+                "y_axis": ["events"],
+                "series_breakdown_column": None,
+                "y_axis_format": "none",
+                "y_axis_decimal_places": None,
+                "y_axis_prefix": None,
+                "y_axis_suffix": None,
+                "show_legend": False,
+            }
+        )
+
+        self.assertIsNone(result.query.chartSettings.yAxis[0].settings)
+
+    def test_parse_output_with_none_axis_format_preserves_other_formatting(self):
+        mixin = self._node
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT toStartOfDay(timestamp) AS day, count() AS latency FROM events GROUP BY day",
+                "display": "ActionsLineGraph",
+                "x_axis": "day",
+                "y_axis": ["latency"],
+                "series_breakdown_column": None,
+                "y_axis_format": "none",
+                "y_axis_decimal_places": 2,
+                "y_axis_prefix": None,
+                "y_axis_suffix": "ms",
+                "show_legend": False,
+            }
+        )
+
+        formatting = result.query.chartSettings.yAxis[0].settings.formatting
+        self.assertEqual(formatting.style, "none")
+        self.assertEqual(formatting.decimalPlaces, 2)
+        self.assertEqual(formatting.suffix, "ms")
+
     def test_parse_output_with_empty_query(self):
         """Test parsing with empty query string."""
         mixin = self._node

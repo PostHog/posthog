@@ -56,6 +56,8 @@ pub enum Error {
     InvalidDistinctId(String),
     #[error("event submitted without a uuid")]
     MissingEventUuid,
+    #[error("event uuid is not valid: {0}")]
+    InvalidEventUuid(String),
     #[error("duplicate event uuid: {0}")]
     DuplicateEventUuid(String),
     #[error("event submitted with invalid timestamp")]
@@ -66,6 +68,8 @@ pub enum Error {
     DroppedPerformanceEvent,
 
     // 401 - authentication_error
+    #[error("missing Authorization header")]
+    MissingAuthorization,
     #[error("API token is not valid: {0}")]
     InvalidApiToken(String),
 
@@ -85,13 +89,9 @@ pub enum Error {
     #[error("body read stalled after receiving {0} bytes")]
     BodyReadTimeout(usize),
 
-    // 402 - billing_error (non-retryable, unlike 429)
+    // 402 - billing_error (non-retryable)
     #[error("billing limit exceeded")]
     BillingLimitExceeded,
-
-    // 429 - rate_limit_error
-    #[error("rate limited: {0}")]
-    RateLimited(String),
 
     // 500 - server_error
     #[error("internal server error: {0}")]
@@ -122,18 +122,19 @@ impl Error {
             Self::DistinctIdTooLarge => "distinct_id_too_large",
             Self::InvalidDistinctId(_) => "invalid_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
+            Self::InvalidEventUuid(_) => "invalid_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::MalformedEventProperties => "malformed_event_properties",
             Self::DroppedPerformanceEvent => "dropped_performance_event",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
+            Self::MissingAuthorization => "missing_authorization",
             Self::InvalidApiToken(_) => "invalid_api_token",
             Self::PayloadTooLarge(_) => "payload_too_large",
             Self::UnsupportedContentType(_) => "unsupported_content_type",
             Self::UnsupportedEncoding(_) => "unsupported_encoding",
             Self::BillingLimitExceeded => "billing_limit_exceeded",
-            Self::RateLimited(_) => "rate_limited",
             Self::InternalError(_) => "internal_error",
             Self::ServiceUnavailable(_) => "service_unavailable",
             Self::GatewayTimeout => "gateway_timeout",
@@ -146,7 +147,6 @@ impl Error {
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
             Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
-            Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
                 .canonical_reason()
@@ -180,17 +180,18 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
+            | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
             | Self::DroppedPerformanceEvent
             | Self::RequestTimeout
+            | Self::MissingAuthorization
             | Self::InvalidApiToken(_)
             | Self::PayloadTooLarge(_)
             | Self::UnsupportedContentType(_)
             | Self::UnsupportedEncoding(_)
-            | Self::BillingLimitExceeded
-            | Self::RateLimited(_) => Level::WARN,
+            | Self::BillingLimitExceeded => Level::WARN,
 
             // body read timeout: error-level despite being 4xx
             Self::BodyReadTimeout(_) => Level::ERROR,
@@ -239,6 +240,7 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
+            | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
@@ -246,7 +248,7 @@ impl Error {
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
-            Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
+            Self::MissingAuthorization | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
 
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
 
@@ -255,8 +257,6 @@ impl Error {
             }
 
             Self::BillingLimitExceeded => StatusCode::PAYMENT_REQUIRED,
-
-            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
 
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
@@ -271,7 +271,15 @@ impl Error {
         headers.insert(header::ACCEPT, ACCEPT_JSON);
         headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
-        if let Self::RateLimited(_) = self {
+        // 402 (BillingLimitExceeded) is intentionally non-retryable per RFC, so no Retry-After.
+        if matches!(
+            self,
+            Self::RequestTimeout
+                | Self::BodyReadTimeout(_)
+                | Self::InternalError(_)
+                | Self::ServiceUnavailable(_)
+                | Self::GatewayTimeout
+        ) {
             headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
         }
 
@@ -366,6 +374,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::header::RETRY_AFTER;
+    use rstest::rstest;
 
     async fn response_body(resp: Response) -> serde_json::Value {
         let bytes = to_bytes(resp.into_body(), 65_536).await.unwrap();
@@ -383,14 +392,6 @@ mod tests {
         assert_eq!(body["error"], expected_tag);
         assert!(body["error_description"].is_string());
         assert!(body["error_uri"].is_string());
-    }
-
-    #[tokio::test]
-    async fn rate_limited_includes_retry_after() {
-        let err = Error::RateLimited("too many requests".into());
-        let resp = err.into_response();
-        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(resp.headers().contains_key(RETRY_AFTER));
     }
 
     #[tokio::test]
@@ -423,5 +424,41 @@ mod tests {
         let err = Error::GatewayTimeout;
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[rstest]
+    #[case::request_timeout(Error::RequestTimeout, StatusCode::REQUEST_TIMEOUT)]
+    #[case::body_read_timeout(Error::BodyReadTimeout(1024), StatusCode::REQUEST_TIMEOUT)]
+    #[case::internal_error(Error::InternalError("boom".into()), StatusCode::INTERNAL_SERVER_ERROR)]
+    #[case::service_unavailable(Error::ServiceUnavailable("nope".into()), StatusCode::SERVICE_UNAVAILABLE)]
+    #[case::gateway_timeout(Error::GatewayTimeout, StatusCode::GATEWAY_TIMEOUT)]
+    #[tokio::test]
+    async fn retryable_errors_emit_retry_after_one_second(
+        #[case] err: Error,
+        #[case] expected_status: StatusCode,
+    ) {
+        let resp = err.into_response();
+        assert_eq!(resp.status(), expected_status);
+        let value = resp
+            .headers()
+            .get(RETRY_AFTER)
+            .expect("Retry-After header must be present on retryable errors");
+        assert_eq!(value.to_str().unwrap(), "1");
+    }
+
+    #[rstest]
+    #[case::billing_limit(Error::BillingLimitExceeded)]
+    #[case::invalid_api_token(Error::InvalidApiToken("bad".into()))]
+    #[case::empty_batch(Error::EmptyBatch)]
+    #[case::payload_too_large(Error::PayloadTooLarge("big".into()))]
+    #[case::unsupported_content_type(Error::UnsupportedContentType("text/plain".into()))]
+    #[tokio::test]
+    async fn non_retryable_errors_omit_retry_after(#[case] err: Error) {
+        let resp = err.into_response();
+        assert!(
+            !resp.headers().contains_key(RETRY_AFTER),
+            "Retry-After must NOT be present on non-retryable errors (status {})",
+            resp.status()
+        );
     }
 }

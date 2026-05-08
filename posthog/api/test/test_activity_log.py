@@ -1,15 +1,18 @@
 from datetime import timedelta
 from typing import Any, Optional
+from uuid import uuid4
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -225,3 +228,196 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
             res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
 
         assert res.status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_allowed_for_impersonator_without_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True), patch("posthog.permissions.is_impersonated_session", return_value=True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+
+
+class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
+    """Tests for the org-scoped activity logs viewset at /api/organizations/<id>/advanced_activity_logs/."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = False
+        self.user.save()
+        # Promote the seeded user to admin for the happy-path tests; downgrade per-test as needed.
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        # Audit logs feature must be unlocked for the org so the cloud paywall doesn't pre-empt the
+        # access-control checks under test.
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Activity logs"}]
+        self.organization.save()
+
+        self.other_team_in_org = Team.objects.create(organization=self.organization, name="Other team in org")
+
+        self.outside_organization = Organization.objects.create(name="Outside org")
+        self.outside_team = Team.objects.create(organization=self.outside_organization, name="Outside team")
+
+        self._seed_activity_rows()
+
+    def _seed_activity_rows(self) -> None:
+        # Project-scoped row in primary team (both team_id and organization_id populated)
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="flag-1",
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        # Project-scoped row in the second team of the same org
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.other_team_in_org.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="insight-1",
+            scope="Insight",
+            activity="created",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        # Org-scoped row (team_id is null)
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=None,
+            user=self.user,
+            was_impersonated=False,
+            item_id=str(uuid4()),
+            scope="Organization",
+            activity="updated",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        # Row in a completely different organization — must NOT be visible
+        log_activity(
+            organization_id=self.outside_organization.id,
+            team_id=self.outside_team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="flag-outside",
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+
+    def _list(self, **query) -> Any:
+        url = f"/api/organizations/{self.organization.id}/advanced_activity_logs/"
+        return self.client.get(url, data=query)
+
+    def test_admin_sees_all_org_rows(self) -> None:
+        # Spot-check that the endpoint returns org-wide content (not just an empty 200)
+        # when the requester is allowed in. Permission gating itself is covered below.
+        res = self._list()
+
+        assert res.status_code == status.HTTP_200_OK
+        results = res.json()["results"]
+        item_ids = {row["item_id"] for row in results}
+        assert "flag-1" in item_ids
+        assert "insight-1" in item_ids
+        # Org-scoped row appears
+        assert any(row["scope"] == "Organization" for row in results)
+        # Cross-org row does NOT appear
+        assert "flag-outside" not in item_ids
+
+    @parameterized.expand(
+        [
+            ("owner", OrganizationMembership.Level.OWNER, status.HTTP_200_OK),
+            ("admin", OrganizationMembership.Level.ADMIN, status.HTTP_200_OK),
+            ("member", OrganizationMembership.Level.MEMBER, status.HTTP_403_FORBIDDEN),
+            ("non_member", None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_access_control_by_membership_level(self, _name: str, level: Optional[int], expected_status: int) -> None:
+        if level is None:
+            outsider = User.objects.create_and_join(
+                organization=self.outside_organization, email="outsider@example.com", password=""
+            )
+            self.client.force_login(outsider)
+        else:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(level=level)
+
+        res = self._list()
+
+        assert res.status_code == expected_status
+
+    def test_team_ids_filter_narrows_to_selected_projects(self) -> None:
+        res = self._list(team_ids=self.team.id)
+
+        assert res.status_code == status.HTTP_200_OK
+        item_ids = {row["item_id"] for row in res.json()["results"]}
+        assert item_ids == {"flag-1"}
+
+    def test_audit_logs_feature_required_on_cloud(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            res = self._list()
+
+        assert res.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    def test_export_endpoint_is_disabled_on_organization_route(self) -> None:
+        url = f"/api/organizations/{self.organization.id}/advanced_activity_logs/export/"
+        res = self.client.post(url, data={"format": "csv"}, format="json")
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Activity logs"}]
+        self.organization.save()
+
+        self.other_team = Team.objects.create(organization=self.organization, name="Other team")
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="flag-1",
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.other_team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="insight-1",
+            scope="Insight",
+            activity="updated",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+
+    def test_available_filters_returns_org_wide_static_filters(self) -> None:
+        # Small-org branch (live computation path) — covered by default in tests.
+        url = f"/api/organizations/{self.organization.id}/advanced_activity_logs/available_filters/"
+        res = self.client.get(url)
+
+        assert res.status_code == status.HTTP_200_OK
+        body = res.json()
+        scopes = {entry["value"] for entry in body["static_filters"]["scopes"]}
+        # Both project-level scopes appear because the queryset is org-wide
+        assert {"FeatureFlag", "Insight"}.issubset(scopes)
+        activities = {entry["value"] for entry in body["static_filters"]["activities"]}
+        assert {"created", "updated"}.issubset(activities)

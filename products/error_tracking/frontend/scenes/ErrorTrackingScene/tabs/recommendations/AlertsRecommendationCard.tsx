@@ -35,6 +35,18 @@ export function AlertsRecommendationCard({
     const alerts = recommendation.meta.alerts ?? []
 
     if (alerts.length === 0) {
+        if (recommendation.computed_at === null) {
+            return (
+                <ListRecommendationCard
+                    recommendationId={recommendation.id}
+                    title="Alert coverage"
+                    description="Stay ahead of new and resurfacing issues."
+                    dismissed={dismissed}
+                    items={[]}
+                    progressLabel="configured"
+                />
+            )
+        }
         return null
     }
 
