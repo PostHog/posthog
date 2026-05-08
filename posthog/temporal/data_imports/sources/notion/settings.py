@@ -8,11 +8,6 @@ NOTION_API_URL = "https://api.notion.com/v1"
 # Pinned per Notion's API versioning model — the same version must be sent on every
 # request. Bumping this is a deliberate API-level migration, so we keep it as a constant
 # rather than reading it from env. https://developers.notion.com/reference/versioning
-#
-# `2025-09-03` introduced data sources: each Notion database now contains 1+ data
-# sources (the queryable row collections). `/v1/databases/{id}/query` was replaced by
-# `/v1/data_sources/{id}/query` and `/v1/search` filter `"database"` was replaced by
-# `"data_source"`. Pages and users endpoints are unaffected.
 NOTION_API_VERSION = "2026-03-11"
 # Notion's documented maximum for `page_size` across endpoints that accept it.
 NOTION_DEFAULT_PAGE_SIZE = 100
