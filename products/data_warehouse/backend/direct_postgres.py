@@ -281,13 +281,41 @@ def reconcile_postgres_schemas(
 
     is_direct = source.is_direct_query
     source_schema_names = [schema.name for schema in source_schemas]
+    default_schema = (source.job_inputs or {}).get("schema")
     schema_models = {
         schema.name: schema
         for schema in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
     }
 
+    # Build a (source_catalog, source_schema, source_table_name) -> schema_model index so legacy
+    # rows whose `name` is unqualified (e.g. "auth_group") still resolve to a discovered qualified
+    # schema (e.g. "public.auth_group"). Without this, `available_columns` and `schema_metadata`
+    # would only update on the very first refresh and then go stale forever.
+    schema_models_by_location: dict[DirectPostgresLocation, ExternalDataSchema] = {}
+    for schema_model in schema_models.values():
+        location = get_direct_postgres_location_for_schema_model(
+            schema_name=schema_model.name,
+            sync_type_config=schema_model.sync_type_config,
+            table_options=schema_model.table.options if schema_model.table is not None else None,
+            default_schema=default_schema,
+        )
+        # First-write-wins keeps the matching deterministic when a discovered table happens to
+        # collide with two existing rows; the rename helper handled the conflict resolution.
+        schema_models_by_location.setdefault(location, schema_model)
+
     for source_schema in source_schemas:
         schema_model = schema_models.get(source_schema.name)
+        if schema_model is None:
+            location = get_direct_postgres_location(
+                schema_name=source_schema.name,
+                schema_metadata={
+                    "source_catalog": source_schema.source_catalog,
+                    "source_schema": source_schema.source_schema,
+                    "source_table_name": source_schema.source_table_name,
+                },
+                default_schema=default_schema,
+            )
+            schema_model = schema_models_by_location.get(location)
         if schema_model is None:
             continue
 
@@ -298,7 +326,7 @@ def reconcile_postgres_schemas(
                 "source_schema": source_schema.source_schema,
                 "source_table_name": source_schema.source_table_name,
             },
-            default_schema=(source.job_inputs or {}).get("schema"),
+            default_schema=default_schema,
         )
         # `schema_metadata` carries the FULL column list so the column-picker UI can re-add
         # excluded columns later. Per-row column projection lives on `enabled_columns` separately.

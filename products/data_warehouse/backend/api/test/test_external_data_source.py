@@ -2400,6 +2400,67 @@ class TestExternalDataSource(APIBaseTest):
         assert metadata.get("source_table_name") == "auth_group"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_refreshes_legacy_warehouse_metadata_when_columns_change(self, mock_get_source):
+        # available_columns must keep up with upstream changes for legacy unqualified rows.
+        # Without resolving the row by source location, reconcile_postgres_schemas would only
+        # write metadata on the very first refresh and then leave the column-picker UI stale.
+        mock_get_source.return_value.parse_config.return_value = None
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="legacy",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="auth_group",
+            should_sync=True,
+        )
+
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("new_column", "text", True)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="auth_group")
+        metadata_columns = (schema.sync_type_config.get("schema_metadata") or {}).get("columns") or []
+        column_names = [c["name"] for c in metadata_columns]
+        assert column_names == ["id", "new_column"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
         # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
         # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans

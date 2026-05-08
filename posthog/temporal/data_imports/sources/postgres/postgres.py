@@ -1571,6 +1571,10 @@ def postgres_source(
                         if incremental_field:
                             retained_set.add(incremental_field)
                         retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
+                        # Mirror build_select_clause's fallback: when nothing remains after projection
+                        # the SQL emits `SELECT *`, so the Arrow schema must stay full-table to match.
+                        if not retained_columns:
+                            retained_columns = None
 
                     table = _project_table_columns(full_table, retained_columns)
                     logger.debug(f"Source schema: {table.to_arrow_schema()}")
