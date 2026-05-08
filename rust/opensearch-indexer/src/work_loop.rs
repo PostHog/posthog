@@ -237,7 +237,15 @@ pub async fn run_sink(
                 info!("Sink loop shutting down");
                 return;
             }
-            recv = rx.recv() => {
+            // The `if gate.ready()` precondition pauses receives while the
+            // gate is closed (sustained retryable failures). The mpsc channel
+            // fills, the consumer's tx.send blocks, and back-pressure flows
+            // back to Kafka via consumer-group lag. Without this guard, the
+            // batch grows unboundedly during a degraded-cluster window
+            // because retained retryables stack on top of new arrivals every
+            // backoff cycle. The timer arm stays active so age-based flushes
+            // can drain retained items once the gate reopens.
+            recv = rx.recv(), if gate.ready() => {
                 let Some((msg, offset)) = recv else {
                     flush_remaining(&writer, &mut batch, "channel closed").await;
                     info!("Channel closed, sink loop exiting");
@@ -247,7 +255,7 @@ pub async fn run_sink(
                     SinkMsg::Index(doc) => batch.push_index(*doc, offset),
                     SinkMsg::Skip => batch.push_skip(offset),
                 }
-                if gate.ready() && batch.should_flush_size(config.max_batch_bytes) {
+                if batch.should_flush_size(config.max_batch_bytes) {
                     if let Err(e) = flush_and_track(&writer, &mut batch, "size", &mut gate).await {
                         handle.signal_failure(format!("Bulk flush failed (size): {e}"));
                         return;

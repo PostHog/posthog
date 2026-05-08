@@ -571,7 +571,18 @@ impl FlushError {
     fn is_retryable(&self) -> bool {
         match self {
             FlushError::Transport(_) => true,
-            FlushError::HttpStatus(s) => s.is_server_error(),
+            // 5xx is the obvious case. 429 (TooManyRequests) and 408
+            // (RequestTimeout) are top-level rate-limit / timeout signals from
+            // OpenSearch under cluster-wide pressure; treating them as
+            // non-retryable would fail the sink and restart the service when
+            // backing off is the correct behavior. Per-item 429 is handled
+            // separately in `classify`; this arm covers the case where the
+            // whole bulk request is rejected before any item is processed.
+            FlushError::HttpStatus(s) => {
+                s.is_server_error()
+                    || *s == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || *s == reqwest::StatusCode::REQUEST_TIMEOUT
+            }
             FlushError::Parse(_)
             | FlushError::ItemCountMismatch { .. }
             | FlushError::ShutdownAborted => false,
@@ -1295,8 +1306,15 @@ mod tests {
 
     #[test]
     fn flush_error_classifies_retryable() {
+        // 5xx: retryable.
         assert!(FlushError::HttpStatus(reqwest::StatusCode::INTERNAL_SERVER_ERROR).is_retryable());
         assert!(FlushError::HttpStatus(reqwest::StatusCode::SERVICE_UNAVAILABLE).is_retryable());
+        // 429 and 408: top-level cluster-pressure / timeout signals.
+        // Regression guard: treating these as non-retryable would fail the
+        // sink and restart the service when backing off is the right move.
+        assert!(FlushError::HttpStatus(reqwest::StatusCode::TOO_MANY_REQUESTS).is_retryable());
+        assert!(FlushError::HttpStatus(reqwest::StatusCode::REQUEST_TIMEOUT).is_retryable());
+        // Other 4xx: not retryable; same payload will fail the same way.
         assert!(!FlushError::HttpStatus(reqwest::StatusCode::BAD_REQUEST).is_retryable());
         assert!(!FlushError::HttpStatus(reqwest::StatusCode::NOT_FOUND).is_retryable());
         assert!(!FlushError::Parse(serde_json::from_str::<u8>("xx").unwrap_err()).is_retryable());
