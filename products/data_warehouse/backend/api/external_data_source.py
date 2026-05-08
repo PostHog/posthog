@@ -688,12 +688,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     allow_rename=updated_source.is_direct_query,
                 )
                 if name_substitutions:
-                    schema_names = {
-                        name_substitutions.get(name, name): label for name, label in schema_names.items()
-                    }
+                    schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                     descriptions = {
-                        name_substitutions.get(name, name): description
-                        for name, description in descriptions.items()
+                        name_substitutions.get(name, name): description for name, description in descriptions.items()
                     }
                 sync_old_schemas_with_new_schemas(
                     schema_names,
@@ -1484,9 +1481,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # treats existing legacy rows (e.g. "auth_group") as already covering the discovered qualified
             # name (e.g. "public.auth_group"). Without this, the legacy row gets soft-deleted.
             if name_substitutions:
-                schema_names = {
-                    name_substitutions.get(name, name): label for name, label in schema_names.items()
-                }
+                schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                 descriptions = {
                     name_substitutions.get(name, name): description for name, description in descriptions.items()
                 }

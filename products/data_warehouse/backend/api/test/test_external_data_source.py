@@ -2389,9 +2389,9 @@ class TestExternalDataSource(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
 
         names = list(
-            ExternalDataSchema.objects.filter(
-                team_id=self.team.pk, source_id=source.pk, deleted=False
-            ).values_list("name", flat=True)
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
+                "name", flat=True
+            )
         )
         assert names == ["auth_group"]
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="auth_group")
