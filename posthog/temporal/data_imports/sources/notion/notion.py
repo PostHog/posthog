@@ -1,3 +1,5 @@
+# TODO(warehouse): migrate to RESTAPIConfig once `JSONBodyCursorPaginator` lands in the shared rest_source paginators.
+
 import dataclasses
 from collections.abc import Generator
 from typing import Any
