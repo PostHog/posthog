@@ -548,7 +548,22 @@ def _is_too_many_parts_error(exc: Exception) -> bool:
     return f"error code {ErrorCodes.TOO_MANY_PARTS}" in error_str or "TOO_MANY_PARTS" in error_str
 
 
-def _execute_with_too_many_parts_retry(
+def _is_too_many_simultaneous_queries_error(exc: Exception) -> bool:
+    """Check if an exception is a ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES error."""
+    error_str = str(exc)
+    return (
+        f"error code {ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES}" in error_str
+        or "Code: 202" in error_str
+        or "TOO_MANY_SIMULTANEOUS_QUERIES" in error_str
+    )
+
+
+# Backoff before retrying after a TOO_MANY_SIMULTANEOUS_QUERIES error — gives the cluster
+# time to drain in-flight queries from other tenants before we resubmit.
+TOO_MANY_QUERIES_BACKOFF_SECONDS = 60
+
+
+def _execute_with_retries(
     context: AssetExecutionContext,
     config: ExperimentalSessionsBackfillConfig,
     client: Client,
@@ -558,28 +573,45 @@ def _execute_with_too_many_parts_retry(
     retry_state: dict[str, int],
     retry_description: str,
 ) -> None:
-    """Run the INSERT, retrying via the preflight wait on TOO_MANY_PARTS until the shared budget is spent."""
+    """Run the INSERT, retrying on transient ClickHouse overload errors until the shared budget is spent.
+
+    Handles two error classes that share a single retry budget:
+    - TOO_MANY_PARTS: returns to the preflight wait so we don't resubmit until parts have merged.
+    - TOO_MANY_SIMULTANEOUS_QUERIES: sleeps a fixed backoff so cluster query slots can free up.
+    """
     while True:
         try:
             sync_execute(sql, settings=settings_, sync_client=client)
             return
         except Exception as e:
-            if not _is_too_many_parts_error(e):
+            is_parts = _is_too_many_parts_error(e)
+            is_queries = _is_too_many_simultaneous_queries_error(e)
+            if not is_parts and not is_queries:
                 raise
+
+            error_label = "TOO_MANY_PARTS" if is_parts else "TOO_MANY_SIMULTANEOUS_QUERIES"
 
             retry_state["count"] += 1
             if retry_state["count"] > retry_state["max"]:
                 context.log.exception(
-                    f"TOO_MANY_PARTS retry budget exhausted ({retry_state['max']}) on {retry_description}; giving up"
+                    f"Retry budget exhausted ({retry_state['max']}) on {retry_description} after {error_label}; giving up"
                 )
                 raise
 
-            context.log.warning(
-                f"TOO_MANY_PARTS on {retry_description} "
-                f"(retry {retry_state['count']}/{retry_state['max']}), "
-                f"returning to preflight check and waiting for parts to merge: {e}"
-            )
-            wait_for_parts_to_merge(context, config, sync_client=client, table=table, use_cluster=False)
+            if is_parts:
+                context.log.warning(
+                    f"TOO_MANY_PARTS on {retry_description} "
+                    f"(retry {retry_state['count']}/{retry_state['max']}), "
+                    f"returning to preflight check and waiting for parts to merge: {e}"
+                )
+                wait_for_parts_to_merge(context, config, sync_client=client, table=table, use_cluster=False)
+            else:
+                context.log.warning(
+                    f"TOO_MANY_SIMULTANEOUS_QUERIES on {retry_description} "
+                    f"(retry {retry_state['count']}/{retry_state['max']}), "
+                    f"sleeping {TOO_MANY_QUERIES_BACKOFF_SECONDS}s before retrying: {e}"
+                )
+                time.sleep(TOO_MANY_QUERIES_BACKOFF_SECONDS)
 
 
 BACKFILL_PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -718,7 +750,7 @@ def _do_experimental_backfill(
                 context.log.info(backfill_sql)
 
                 try:
-                    _execute_with_too_many_parts_retry(
+                    _execute_with_retries(
                         context,
                         config,
                         client,
@@ -765,7 +797,7 @@ def _do_experimental_backfill(
                         )
                         context.log.info(sub_sql)
                         try:
-                            _execute_with_too_many_parts_retry(
+                            _execute_with_retries(
                                 context,
                                 config,
                                 client,
