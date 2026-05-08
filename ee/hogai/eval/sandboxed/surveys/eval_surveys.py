@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase

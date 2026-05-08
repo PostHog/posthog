@@ -7,7 +7,7 @@ from typing import Any
 
 from posthog.models import FeatureFlag
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = logging.getLogger(__name__)
 
