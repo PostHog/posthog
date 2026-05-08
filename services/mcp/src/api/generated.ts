@@ -26613,6 +26613,8 @@ export namespace Schemas {
 
     export type PatchedProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
 
+    export type PatchedProjectBackwardCompatTestAccountFiltersItem = { [key: string]: unknown };
+
     export type PatchedProjectBackwardCompatDefaultModifiers = { [key: string]: unknown };
 
     export type PatchedProjectBackwardCompatProductIntentsItem = {
@@ -26686,8 +26688,8 @@ export namespace Schemas {
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event?: boolean;
-      /** Filter groups that identify internal/test traffic to be excluded from insights. */
-      test_account_filters?: unknown;
+      /** Property filters that identify internal/test traffic to exclude from insights. */
+      test_account_filters?: PatchedProjectBackwardCompatTestAccountFiltersItem[];
       /**
          * When true, new insights default to excluding internal/test users.
          * @nullable
@@ -28710,6 +28712,8 @@ export namespace Schemas {
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
 
+    export type PatchedTeamTestAccountFiltersItem = { [key: string]: unknown };
+
     export type PatchedTeamGroupTypesItem = { [key: string]: unknown };
 
     export type PatchedTeamProductIntentsItem = { [key: string]: unknown };
@@ -28778,7 +28782,8 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
-      test_account_filters?: unknown;
+      /** Property filters that identify internal/test traffic to exclude from insights. */
+      test_account_filters?: PatchedTeamTestAccountFiltersItem[];
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
       path_cleaning_filters?: unknown;
@@ -29380,6 +29385,8 @@ export namespace Schemas {
 
     export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
 
+    export type ProjectBackwardCompatTestAccountFiltersItem = { [key: string]: unknown };
+
     export type ProjectBackwardCompatDefaultModifiers = { [key: string]: unknown };
 
     export type ProjectBackwardCompatProductIntentsItem = {
@@ -29425,8 +29432,8 @@ export namespace Schemas {
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event: boolean;
-      /** Filter groups that identify internal/test traffic to be excluded from insights. */
-      test_account_filters?: unknown;
+      /** Property filters that identify internal/test traffic to exclude from insights. */
+      test_account_filters?: ProjectBackwardCompatTestAccountFiltersItem[];
       /**
          * When true, new insights default to excluding internal/test users.
          * @nullable
@@ -33687,6 +33694,8 @@ export namespace Schemas {
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
+    export type TeamTestAccountFiltersItem = { [key: string]: unknown };
+
     export type TeamGroupTypesItem = { [key: string]: unknown };
 
     export type TeamProductIntentsItem = { [key: string]: unknown };
@@ -33726,7 +33735,8 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
-      test_account_filters?: unknown;
+      /** Property filters that identify internal/test traffic to exclude from insights. */
+      test_account_filters?: TeamTestAccountFiltersItem[];
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
       path_cleaning_filters?: unknown;

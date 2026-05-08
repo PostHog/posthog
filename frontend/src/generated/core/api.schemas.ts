@@ -372,6 +372,8 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export type ProjectBackwardCompatApiTestAccountFiltersItem = { [key: string]: unknown }
+
 export type ProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type ProjectBackwardCompatApiProductIntentsItem = {
@@ -604,8 +606,8 @@ export interface ProjectBackwardCompatApi {
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event: boolean
-    /** Filter groups that identify internal/test traffic to be excluded from insights. */
-    test_account_filters?: unknown
+    /** Property filters that identify internal/test traffic to exclude from insights. */
+    test_account_filters?: ProjectBackwardCompatApiTestAccountFiltersItem[]
     /**
      * When true, new insights default to excluding internal/test users.
      * @nullable
@@ -1355,6 +1357,8 @@ export interface ProjectBackwardCompatApi {
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export type PatchedProjectBackwardCompatApiTestAccountFiltersItem = { [key: string]: unknown }
+
 export type PatchedProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type PatchedProjectBackwardCompatApiProductIntentsItem = {
@@ -1400,8 +1404,8 @@ export interface PatchedProjectBackwardCompatApi {
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event?: boolean
-    /** Filter groups that identify internal/test traffic to be excluded from insights. */
-    test_account_filters?: unknown
+    /** Property filters that identify internal/test traffic to exclude from insights. */
+    test_account_filters?: PatchedProjectBackwardCompatApiTestAccountFiltersItem[]
     /**
      * When true, new insights default to excluding internal/test users.
      * @nullable

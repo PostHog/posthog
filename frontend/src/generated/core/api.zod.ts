@@ -233,9 +233,9 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -425,9 +425,9 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -619,9 +619,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -813,9 +813,9 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -1019,9 +1019,9 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -1221,9 +1221,9 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -1437,9 +1437,9 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -1653,9 +1653,9 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -1867,9 +1867,9 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
@@ -2061,9 +2061,9 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(zod.record(zod.string(), zod.unknown()))
             .optional()
-            .describe('Filter groups that identify internal\/test traffic to be excluded from insights.'),
+            .describe('Property filters that identify internal\/test traffic to exclude from insights.'),
         test_account_filters_default_checked: zod
             .boolean()
             .nullish()
