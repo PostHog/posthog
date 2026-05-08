@@ -186,8 +186,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     movingAverageIntervals?: number
     showTrendLines?: boolean
 
-    showValuesOnSeries?: boolean
-    valueLabelFormatter?: (value: number) => string
+    valueLabels?: TimeSeriesLineChartConfig['valueLabels']
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
@@ -218,7 +217,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
             allDays: opts.allDays ?? [],
         },
         yAxis,
-        valueLabels: opts.showValuesOnSeries ? { formatter: opts.valueLabelFormatter } : false,
+        valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         ...derivedConfigs,
         percentStackView: opts.isPercentStackView,

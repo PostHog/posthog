@@ -330,6 +330,7 @@ describe('trendsChartTransforms', () => {
                 goalLines: [{ label: 'goal', value: 10 }] satisfies SchemaGoalLine[],
                 showConfidenceIntervals: true,
                 confidenceLevel: 95,
+                valueLabels: false,
                 showCrosshair: true,
                 tooltip: TOOLTIP,
             })
@@ -363,21 +364,19 @@ describe('trendsChartTransforms', () => {
         )
 
         describe('valueLabels', () => {
-            it('is false when showValuesOnSeries is false', () => {
+            it('passes through valueLabels: false unchanged', () => {
                 const config = buildTrendsLineTimeSeriesConfig({
                     ...baseOpts,
-                    showValuesOnSeries: false,
-                    valueLabelFormatter: () => 'x',
+                    valueLabels: false,
                 })
                 expect(config.valueLabels).toBe(false)
             })
 
-            it('passes through the formatter when showValuesOnSeries is true', () => {
+            it('passes through an assembled valueLabels object unchanged', () => {
                 const formatter = (value: number): string => `${value}!`
                 const config = buildTrendsLineTimeSeriesConfig({
                     ...baseOpts,
-                    showValuesOnSeries: true,
-                    valueLabelFormatter: formatter,
+                    valueLabels: { formatter },
                 })
                 expect(config.valueLabels).toEqual({ formatter })
             })
