@@ -155,7 +155,9 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             ],
             (timezone, dates, previousDates, intervalUnit): Array<[Dayjs, Dayjs] | null> => {
                 const ranges: Array<[Dayjs, Dayjs] | null> = []
-                const trackInputs = previousDates ? [dates, previousDates] : [dates]
+                // An empty `previousDates` array carries no track — keep this in sync with
+                // `annotationBadgeDataIndices` so both selectors agree on "is there a second track".
+                const trackInputs = previousDates && previousDates.length > 0 ? [dates, previousDates] : [dates]
                 for (const trackDates of trackInputs) {
                     if (trackDates.length === 0) {
                         ranges.push(null)
@@ -298,7 +300,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (dates.length === 0) {
                     return []
                 }
-                const trackInputs = previousDates ? [dates, previousDates] : [dates]
+                const trackInputs = previousDates && previousDates.length > 0 ? [dates, previousDates] : [dates]
                 // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
                 // drift Monday-aligned dates backward and bias every fractional index by 1/7.
                 const trackFirstDates = trackInputs.map((d) => parseDateInTimezone(d[0], timezone))
