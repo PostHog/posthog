@@ -58,6 +58,8 @@ pub enum FlagError {
     Internal(String),
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
+    #[error("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)")]
+    PayloadTooLarge { decompressed: usize, limit: usize },
     #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
     #[error("No distinct_id in request")]
@@ -160,6 +162,7 @@ impl FlagError {
             FlagError::RequestDecodingError(_) => ("request_decoding_error", 400),
             FlagError::RequestParsingError(_) => ("request_parsing_error", 400),
             FlagError::MissingDistinctId => ("missing_distinct_id", 400),
+            FlagError::PayloadTooLarge { .. } => ("payload_too_large", 413),
 
             // Authentication errors (401)
             FlagError::NoTokenError => ("missing_token", 401),
@@ -391,6 +394,16 @@ impl IntoResponse for FlagError {
             FlagError::RequestDecodingError(msg) => {
                 (StatusCode::BAD_REQUEST, format!("Failed to decode request: {msg}. Please check your request format and try again."))
             }
+            FlagError::PayloadTooLarge { decompressed, limit } => {
+                tracing::warn!(decompressed, limit, "Decompressed request body exceeded cap");
+                (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "Decompressed request body exceeded {limit} bytes (got {decompressed}). \
+                         If this is a legitimate workload, contact PostHog support."
+                    ),
+                )
+            }
             FlagError::RequestParsingError(err) => {
                 (StatusCode::BAD_REQUEST, format!("Failed to parse request: {err}. Please ensure your request is properly formatted and all required fields are present."))
             }
@@ -583,6 +596,21 @@ impl IntoResponse for FlagError {
     }
 }
 
+impl From<common_compression::CompressionError> for FlagError {
+    fn from(e: common_compression::CompressionError) -> Self {
+        match e {
+            common_compression::CompressionError::OutputTooLarge {
+                decompressed,
+                limit,
+            } => FlagError::PayloadTooLarge {
+                decompressed,
+                limit,
+            },
+            other => FlagError::RequestDecodingError(other.to_string()),
+        }
+    }
+}
+
 impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
@@ -761,6 +789,10 @@ mod tests {
                 .unwrap_err()
                 .into(), // RequestParsingError
             FlagError::MissingDistinctId,
+            FlagError::PayloadTooLarge {
+                decompressed: 5_000_000,
+                limit: 4 * 1024 * 1024,
+            },
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
             FlagError::PersonalApiKeyInvalid,
@@ -824,6 +856,14 @@ mod tests {
         assert_eq!(FlagError::MissingDistinctId.status_code(), 400);
         assert_eq!(FlagError::NoTokenError.status_code(), 401);
         assert_eq!(FlagError::TokenValidationError.status_code(), 401);
+        assert_eq!(
+            FlagError::PayloadTooLarge {
+                decompressed: 5_000_000,
+                limit: 4 * 1024 * 1024
+            }
+            .status_code(),
+            413
+        );
 
         // 5xx errors (server errors)
         assert_eq!(FlagError::Internal("".into()).status_code(), 500);
@@ -983,6 +1023,10 @@ mod tests {
                 .unwrap_err()
                 .into(), // RequestParsingError
             FlagError::MissingDistinctId,
+            FlagError::PayloadTooLarge {
+                decompressed: 5_000_000,
+                limit: 4 * 1024 * 1024,
+            },
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
             FlagError::PersonalApiKeyInvalid,
