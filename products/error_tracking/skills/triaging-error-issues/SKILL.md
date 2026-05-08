@@ -92,7 +92,7 @@ the `library` filter — values match the SDK's `$lib`, not the npm package name
 The list will include known noise. Before presenting, drop or call out:
 
 - Issues already assigned to a user actively working on them (check `assignee`
-  on the list result, or call `query-error-tracking-issue` for the full record).
+  on the list result, or call `posthog:query-error-tracking-issue` for the full record).
 - Issues whose volume is flat over the window — they're not new, the user already
   lives with them. Surface them only if they're in the top by users.
 - Bot-only issues — if all events come from headless browsers or crawler user agents,
@@ -108,7 +108,7 @@ of the window:
 ### Step 4 — Add context for the top items
 
 For the top 3-5 candidates, pull a sample exception so the summary includes a stack
-frame and URL, not just a title. Use `query-error-tracking-issue-events` rather than
+frame and URL, not just a title. Use `posthog:query-error-tracking-issue-events` rather than
 raw SQL — it returns normalized fields (`$exception_types`, `$exception_values`,
 `$current_url`, browser/OS, `$session_id`) and defaults to `onlyAppFrames: true` to
 strip vendor noise from the stack:
