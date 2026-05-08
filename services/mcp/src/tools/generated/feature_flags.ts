@@ -23,6 +23,7 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -61,7 +62,9 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
     },
 })
 
-const DeleteFeatureFlagSchema = FeatureFlagsDestroyParams.omit({ project_id: true })
+const DeleteFeatureFlagSchema = FeatureFlagsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsDestroyParams.shape['id']),
+})
 
 const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.FeatureFlag> => ({
     name: 'delete-feature-flag',
@@ -81,6 +84,8 @@ const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
     search: FeatureFlagsListQueryParams.shape['search'].describe(
         'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
     ),
+    limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
 })
 
 const featureFlagGetAll = (): ToolBase<
@@ -126,7 +131,9 @@ const featureFlagGetAll = (): ToolBase<
     },
 })
 
-const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieveParams.omit({ project_id: true })
+const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsRetrieveParams.shape['id']),
+})
 
 const featureFlagGetDefinition = (): ToolBase<
     typeof FeatureFlagGetDefinitionSchema,
@@ -144,9 +151,9 @@ const featureFlagGetDefinition = (): ToolBase<
     },
 })
 
-const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieveParams.omit({ project_id: true }).extend(
-    FeatureFlagsActivityRetrieveQueryParams.shape
-)
+const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieveParams.omit({ project_id: true })
+    .extend(FeatureFlagsActivityRetrieveQueryParams.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsActivityRetrieveParams.shape['id']) })
 
 const featureFlagsActivityRetrieve = (): ToolBase<
     typeof FeatureFlagsActivityRetrieveSchema,
@@ -203,7 +210,9 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsDependentFlagsRetrieveSchema = FeatureFlagsDependentFlagsListParams.omit({ project_id: true })
+const FeatureFlagsDependentFlagsRetrieveSchema = FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend(
+    { id: z.preprocess(castStringToInt, FeatureFlagsDependentFlagsListParams.shape['id']) }
+)
 
 const featureFlagsDependentFlagsRetrieve = (): ToolBase<
     typeof FeatureFlagsDependentFlagsRetrieveSchema,
@@ -243,7 +252,9 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsStatusRetrieveSchema = FeatureFlagsStatusRetrieveParams.omit({ project_id: true })
+const FeatureFlagsStatusRetrieveSchema = FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
+})
 
 const featureFlagsStatusRetrieve = (): ToolBase<
     typeof FeatureFlagsStatusRetrieveSchema,
@@ -432,9 +443,9 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
     },
 })
 
-const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true }).extend(
-    FeatureFlagsPartialUpdateBody.shape
-)
+const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true })
+    .extend(FeatureFlagsPartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']) })
 
 const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
     name: 'update-feature-flag',

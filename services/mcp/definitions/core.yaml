@@ -449,6 +449,7 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to fetch the caller's active project.
+                cast: string-int
         response:
             exclude:
                 - secret_api_token
@@ -510,6 +511,7 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
+                cast: string-int
     projects-create:
         operation: organizations_projects_create
         enabled: false
