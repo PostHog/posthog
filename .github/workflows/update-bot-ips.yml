@@ -54,15 +54,25 @@ jobs:
                     echo "Closed stale PR #$existing_pr and deleted branch"
                   fi
 
-            - name: Ensure branch exists
+            - name: Reset branch to checked-out SHA
+              # Force-reset the branch to the SHA this job was pinned to so each run is
+              # independent of any unmerged commits from prior runs. Using `github.sha`
+              # (instead of looking up master's current tip) guarantees the branch tip
+              # matches workspace HEAD — otherwise a merge to master during the run could
+              # leave ghcommit-action with a parent mismatch and the same
+              # "Expected branch to point to X but it did not" failure mode.
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  TARGET_SHA: ${{ github.sha }}
               run: |
-                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/update-bot-ips 2>/dev/null; then
-                    master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
-                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/update-bot-ips -f sha="$master_sha"
-                    echo "Created branch from master at $master_sha"
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/update-bot-ips >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/update-bot-ips \
+                      -f sha="$TARGET_SHA" -F force=true
+                    echo "Force-reset branch to $TARGET_SHA (superseding any prior unmerged commits)"
+                  else
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/update-bot-ips -f sha="$TARGET_SHA"
+                    echo "Created branch at $TARGET_SHA"
                   fi
 
             - name: Commit via GitHub API (signed)

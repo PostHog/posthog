@@ -8,12 +8,12 @@ class TaskAdmin(admin.ModelAdmin):
     list_filter = ("origin_product", "deleted", "created_at")
     search_fields = ("title", "description", "repository")
     readonly_fields = ("id", "slug", "task_number", "created_at", "updated_at", "deleted_at")
-    autocomplete_fields = ("team", "created_by", "github_integration")
+    autocomplete_fields = ("team", "created_by", "github_integration", "github_user_integration")
 
     fieldsets = (
         (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product")}),
         ("Team & User", {"fields": ("team", "created_by")}),
-        ("Repository", {"fields": ("github_integration", "repository")}),
+        ("Repository", {"fields": ("github_integration", "github_user_integration", "repository")}),
         ("Schema", {"fields": ("json_schema",)}),
         ("Status", {"fields": ("deleted", "deleted_at")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
@@ -72,22 +72,16 @@ class CodeInviteAdmin(admin.ModelAdmin):
     autocomplete_fields = ("created_by",)
     inlines = []
 
-    def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return ("id", "code", "redemption_count", "created_at")
-        return ("id", "redemption_count", "created_at")
-
     def get_fieldsets(self, request, obj=None):
         if obj:
-            # Show auto-generated code as readonly on existing records
             return (
                 (None, {"fields": ("id", "code", "description")}),
                 ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
                 ("Metadata", {"fields": ("created_by", "created_at")}),
             )
-        # On add, omit code — it will be auto-generated on save
+        # On add, code may be set manually or left blank to auto-generate on save
         return (
-            (None, {"fields": ("id", "description")}),
+            (None, {"fields": ("id", "code", "description")}),
             ("Limits", {"fields": ("is_active", "max_redemptions", "expires_at")}),
             ("Metadata", {"fields": ("created_by",)}),
         )

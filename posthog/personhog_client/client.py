@@ -14,6 +14,20 @@ from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsI
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
+    CountCohortMembersRequest,
+    CountCohortMembersResponse,
+    CreateGroupRequest,
+    CreateGroupResponse,
+    DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest,
+    DeleteCohortMembersBulkResponse,
+    DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse,
+    DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -27,6 +41,8 @@ from posthog.personhog_client.proto import (
     GetGroupsBatchRequest,
     GetGroupsBatchResponse,
     GetGroupsRequest,
+    GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest,
@@ -41,9 +57,19 @@ from posthog.personhog_client.proto import (
     GroupsResponse,
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
+    InsertCohortMembersRequest,
+    InsertCohortMembersResponse,
+    ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse,
+    ListGroupsRequest,
+    ListGroupsResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    UpdateGroupRequest,
+    UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -201,6 +227,27 @@ class PersonHogClient:
     def check_cohort_membership(self, request: CheckCohortMembershipRequest) -> CohortMembershipResponse:
         return self._stub.CheckCohortMembership(request, timeout=self._timeout)
 
+    def count_cohort_members(self, request: CountCohortMembersRequest) -> CountCohortMembersResponse:
+        return self._stub.CountCohortMembers(request, timeout=self._timeout)
+
+    def delete_cohort_member(
+        self, request: DeleteCohortMemberRequest, timeout: float | None = None
+    ) -> DeleteCohortMemberResponse:
+        return self._stub.DeleteCohortMember(request, timeout=timeout or self._timeout)
+
+    def delete_cohort_members_bulk(
+        self, request: DeleteCohortMembersBulkRequest, timeout: float | None = None
+    ) -> DeleteCohortMembersBulkResponse:
+        return self._stub.DeleteCohortMembersBulk(request, timeout=timeout or self._timeout)
+
+    def insert_cohort_members(
+        self, request: InsertCohortMembersRequest, timeout: float | None = None
+    ) -> InsertCohortMembersResponse:
+        return self._stub.InsertCohortMembers(request, timeout=timeout or self._timeout)
+
+    def list_cohort_member_ids(self, request: ListCohortMemberIdsRequest) -> ListCohortMemberIdsResponse:
+        return self._stub.ListCohortMemberIds(request, timeout=self._timeout)
+
     # -- Groups --
 
     def get_group(self, request: GetGroupRequest) -> GetGroupResponse:
@@ -211,6 +258,20 @@ class PersonHogClient:
 
     def get_groups_batch(self, request: GetGroupsBatchRequest) -> GetGroupsBatchResponse:
         return self._stub.GetGroupsBatch(request, timeout=self._timeout)
+
+    def list_groups(self, request: ListGroupsRequest) -> ListGroupsResponse:
+        return self._stub.ListGroups(request, timeout=self._timeout)
+
+    def create_group(self, request: CreateGroupRequest) -> CreateGroupResponse:
+        return self._stub.CreateGroup(request, timeout=self._timeout)
+
+    def update_group(self, request: UpdateGroupRequest) -> UpdateGroupResponse:
+        return self._stub.UpdateGroup(request, timeout=self._timeout)
+
+    def delete_groups_batch_for_team(
+        self, request: DeleteGroupsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeleteGroupsBatchForTeamResponse:
+        return self._stub.DeleteGroupsBatchForTeam(request, timeout=timeout or self._timeout)
 
     # -- Group type mappings --
 
@@ -233,6 +294,22 @@ class PersonHogClient:
         self, request: GetGroupTypeMappingsByProjectIdsRequest
     ) -> GroupTypeMappingsBatchResponse:
         return self._stub.GetGroupTypeMappingsByProjectIds(request, timeout=self._timeout)
+
+    def get_group_type_mapping_by_dashboard_id(
+        self, request: GetGroupTypeMappingByDashboardIdRequest
+    ) -> GetGroupTypeMappingByDashboardIdResponse:
+        return self._stub.GetGroupTypeMappingByDashboardId(request, timeout=self._timeout)
+
+    def update_group_type_mapping(self, request: UpdateGroupTypeMappingRequest) -> UpdateGroupTypeMappingResponse:
+        return self._stub.UpdateGroupTypeMapping(request, timeout=self._timeout)
+
+    def delete_group_type_mapping(self, request: DeleteGroupTypeMappingRequest) -> DeleteGroupTypeMappingResponse:
+        return self._stub.DeleteGroupTypeMapping(request, timeout=self._timeout)
+
+    def delete_group_type_mappings_batch_for_team(
+        self, request: DeleteGroupTypeMappingsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeleteGroupTypeMappingsBatchForTeamResponse:
+        return self._stub.DeleteGroupTypeMappingsBatchForTeam(request, timeout=timeout or self._timeout)
 
 
 _client: Optional[PersonHogClient] = None

@@ -37,7 +37,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install langgraph langchain-core langchain-openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-langchain
+                                    pip install langgraph langchain-core langchain-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-langchain
                                 `,
                             },
                             {

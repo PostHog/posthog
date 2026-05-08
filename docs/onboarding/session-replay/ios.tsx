@@ -19,7 +19,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 language: 'ruby',
                                 file: 'Podfile',
                                 code: dedent`
-                                    pod "PostHog", "~> 3.0"
+                                    pod "PostHog", "~> 3.56"
                                 `,
                             },
                         ]}
@@ -32,7 +32,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Package.swift',
                                 code: dedent`
                                     dependencies: [
-                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0")
+                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.56.0")
                                     ]
                                 `,
                             },
@@ -79,10 +79,10 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {
                                         func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-                                            let POSTHOG_TOKEN = "<ph_project_token>"
+                                            let POSTHOG_PROJECT_TOKEN = "<ph_project_token>"
                                             let POSTHOG_HOST = "<ph_client_api_host>"
 
-                                            let config = PostHogConfig(apiKey: POSTHOG_TOKEN, host: POSTHOG_HOST)
+                                            let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
 
                                             // Enable session recording. Requires enabling in your project settings as well.
                                             // Default is false.

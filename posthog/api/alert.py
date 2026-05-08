@@ -32,6 +32,7 @@ from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
@@ -95,6 +96,9 @@ class ThresholdSerializer(serializers.ModelSerializer):
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
+    investigation_notebook_short_id = serializers.SerializerMethodField(
+        help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
+    )
 
     class Meta:
         model = AlertCheck
@@ -109,11 +113,21 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "triggered_dates",
             "interval",
             "triggered_metadata",
+            "investigation_status",
+            "investigation_verdict",
+            "investigation_summary",
+            "investigation_notebook_short_id",
+            "notification_sent_at",
+            "notification_suppressed_by_agent",
         ]
         read_only_fields = fields
 
     def get_targets_notified(self, instance: AlertCheck) -> bool:
         return instance.targets_notified != {}
+
+    def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
+        notebook = instance.investigation_notebook
+        return notebook.short_id if notebook is not None else None
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -152,7 +166,11 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(
         many=True,
         read_only=True,
-        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve.",
+        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve.",
+    )
+    checks_total = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.",
     )
     threshold = ThresholdSerializer(
         help_text="Threshold configuration with bounds and type for evaluating the alert.",
@@ -210,6 +228,19 @@ class AlertSerializer(serializers.ModelSerializer):
         help_text="Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): "
         "start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.",
     )
+    investigation_agent_enabled = serializers.BooleanField(
+        required=False,
+        help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+    )
+    investigation_gates_notifications = serializers.BooleanField(
+        required=False,
+        help_text="When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.",
+    )
+    investigation_inconclusive_action = serializers.ChoiceField(
+        choices=[("notify", "Notify"), ("suppress", "Suppress")],
+        required=False,
+        help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
+    )
     state = serializers.CharField(
         read_only=True,
         help_text="Current alert state: Firing, Not firing, Errored, or Snoozed.",
@@ -219,6 +250,9 @@ class AlertSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="The last calculated value from the most recent alert check.",
     )
+
+    def get_checks_total(self, obj: AlertConfiguration) -> int | None:
+        return getattr(obj, "checks_total", None)
 
     class Meta:
         model = AlertConfiguration
@@ -237,6 +271,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "next_check_at",
             "checks",
+            "checks_total",
             "config",
             "detector_config",
             "calculation_interval",
@@ -244,6 +279,9 @@ class AlertSerializer(serializers.ModelSerializer):
             "skip_weekend",
             "schedule_restriction",
             "last_value",
+            "investigation_agent_enabled",
+            "investigation_gates_notifications",
+            "investigation_inconclusive_action",
         ]
         read_only_fields = [
             "id",
@@ -258,6 +296,8 @@ class AlertSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data
+        if data.get("checks_total") is None:
+            data.pop("checks_total", None)
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -272,6 +312,14 @@ class AlertSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+        team = self.context["get_team"]()
+        current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_ALERTS_PER_TEAM,
+            current_count=current_count,
+            user=self.context["request"].user,
+        )
         subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
 
@@ -476,6 +524,41 @@ class AlertSerializer(serializers.ModelSerializer):
         except ValueError as e:
             raise ValidationError(str(e))
 
+        # Investigation agent is only supported for detector-based alerts.
+        investigation_enabled = attrs.get(
+            "investigation_agent_enabled",
+            self.instance.investigation_agent_enabled if self.instance else False,
+        )
+        if investigation_enabled:
+            detector_config = attrs.get(
+                "detector_config",
+                self.instance.detector_config if self.instance else None,
+            )
+            if not detector_config:
+                raise ValidationError(
+                    {
+                        "investigation_agent_enabled": [
+                            "Investigation agent is only supported for anomaly detection alerts."
+                        ]
+                    }
+                )
+
+        # Notification gating only makes sense when the investigation agent is on —
+        # otherwise there's no verdict to wait for and the safety-net task would
+        # end up being the only notifier, which defeats the feature.
+        gates_notifications = attrs.get(
+            "investigation_gates_notifications",
+            self.instance.investigation_gates_notifications if self.instance else False,
+        )
+        if gates_notifications and not investigation_enabled:
+            raise ValidationError(
+                {
+                    "investigation_gates_notifications": [
+                        "Notification gating requires investigation_agent_enabled=true."
+                    ]
+                }
+            )
+
         # only validate alert count when creating a new alert
         if self.context["request"].method != "POST":
             return attrs
@@ -621,12 +704,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 required=False,
                 description="Maximum number of check results to return (default 5, max 500). Applied after date filtering.",
             ),
+            OpenApiParameter(
+                name="checks_offset",
+                type=int,
+                required=False,
+                description="Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.",
+            ),
         ],
     )
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
 
-        checks_qs = instance.alertcheck_set.all().order_by("-created_at")
+        checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
         checks_date_from = request.query_params.get("checks_date_from")
         if checks_date_from:
@@ -648,7 +737,19 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             limit = self.CHECKS_MAX_LIMIT if has_date_filter else self.CHECKS_DEFAULT_LIMIT
 
-        instance.checks = checks_qs[:limit]
+        raw_offset = request.query_params.get("checks_offset")
+        if raw_offset is not None:
+            try:
+                offset = max(0, int(raw_offset))
+            except (ValueError, TypeError):
+                offset = 0
+        else:
+            offset = 0
+
+        checks_total = checks_qs.count()
+        instance.checks_total = checks_total
+        offset = min(offset, checks_total)
+        instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -672,6 +773,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     triggered_points__isnull=False,
                 )
                 .exclude(triggered_points=[])
+                .select_related("investigation_notebook")
                 .order_by("-created_at")
             )
             checks_by_alert: dict[str, list] = {str(a.id): [] for a in alerts}

@@ -30,7 +30,8 @@ export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogic
                     const response = await api.get(
                         `api/environments/${values.currentTeamIdStrict}/event_ingestion_restrictions/`
                     )
-                    return response
+                    // api.get resolves to null on non-JSON responses (204, CDN error pages, etc.) — coerce to []
+                    return Array.isArray(response) ? response : []
                 } catch (error) {
                     console.error('Failed to load event ingestion restrictions:', error)
                     return []

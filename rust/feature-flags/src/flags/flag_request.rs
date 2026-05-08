@@ -30,10 +30,19 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlagRequestType {
     Decide,
     FlagDefinitions,
+}
+
+impl FlagRequestType {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            FlagRequestType::Decide => "decide",
+            FlagRequestType::FlagDefinitions => "flag_definitions",
+        }
+    }
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -216,8 +225,11 @@ impl FlagRequest {
 mod tests {
     use std::collections::HashMap;
 
+    use std::sync::Arc;
+
     use crate::api::errors::FlagError;
 
+    use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
     use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
@@ -602,6 +614,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -633,6 +646,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );

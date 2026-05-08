@@ -36,6 +36,22 @@ export class FunnelsInsight {
         await expect(this.chart.first()).toBeVisible({ timeout: 30000 })
     }
 
+    private async expandFunnelSettings(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-funnel-settings')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
+    }
+
+    private async expandBreakdownPanel(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-breakdown')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
+    }
+
     async waitForHistogram(): Promise<void> {
         await expect(this.histogram).toBeVisible()
     }
@@ -60,11 +76,13 @@ export class FunnelsInsight {
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.expandBreakdownPanel()
         await this.page.getByTestId('add-breakdown-button').click()
         await this.taxonomicFilter.selectItem(property)
     }
 
     async addExclusion(eventName: string): Promise<void> {
+        await this.expandFunnelSettings()
         const addButton = this.page.getByRole('button', { name: 'Add exclusion' })
         await addButton.scrollIntoViewIfNeeded()
         await addButton.click()
@@ -79,22 +97,26 @@ export class FunnelsInsight {
     }
 
     async selectStepOrder(label: string): Promise<void> {
+        await this.expandFunnelSettings()
         await this.stepOrderFilter.click()
         await this.page.getByRole('menuitem', { name: label }).click()
     }
 
     async setConversionWindowInterval(value: string): Promise<void> {
+        await this.expandFunnelSettings()
         const input = this.conversionWindowSection.getByRole('spinbutton')
         await input.fill(value)
         await input.press('Enter')
     }
 
     async selectConversionWindowUnit(unit: string): Promise<void> {
+        await this.expandFunnelSettings()
         await this.conversionWindowSection.getByTestId('funnel-conversion-window-unit').click()
         await this.page.getByRole('menuitem', { name: unit }).click()
     }
 
     async selectAggregation(label: string): Promise<void> {
+        await this.expandFunnelSettings()
         await this.page.getByTestId('funnel-aggregation-filter').getByTestId('retention-aggregation-selector').click()
         await this.page.getByRole('menuitem', { name: label }).click()
     }

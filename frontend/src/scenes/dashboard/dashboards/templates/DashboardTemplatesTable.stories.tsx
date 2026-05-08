@@ -1,4 +1,12 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_ORGANIZATION_ID,
+    MOCK_TEAM_ID,
+} from 'lib/api.mock'
 
 import { Meta, StoryObj, type Decorator } from '@storybook/react'
 import { useEffect } from 'react'
@@ -11,7 +19,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { InsightColor, type DashboardTemplateType } from '~/types'
+import {
+    InsightColor,
+    type DashboardTemplateType,
+    type OrganizationType,
+    type ProjectType,
+    type TeamType,
+    type UserType,
+} from '~/types'
 
 import { DashboardTemplateModal } from './DashboardTemplateModal'
 import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
@@ -166,25 +181,86 @@ const tableListMocks = {
     },
 }
 
-const nonStaffUserMocks = {
-    get: {
-        '/api/users/@me/': (): [number, typeof MOCK_DEFAULT_USER] => [200, { ...MOCK_DEFAULT_USER, is_staff: false }],
-    },
+/** Second project in the org so `eligibleDestinationTeamsCount` is non-zero and Copy appears in the row menu. */
+const storySecondTeam: TeamType = {
+    ...MOCK_DEFAULT_TEAM,
+    id: 1002,
+    name: 'Marketing site',
+    uuid: '0178a3ab-story-0000-4b55-bceadebb0abc',
+    project_id: 1002,
 }
 
-/** MSW follows `viewerMode` (Controls → Viewer mode). */
+const storySecondProject: ProjectType = {
+    id: storySecondTeam.id,
+    name: storySecondTeam.name,
+    organization_id: MOCK_ORGANIZATION_ID,
+    created_at: MOCK_DEFAULT_PROJECT.created_at,
+}
+
+const organizationWithMultipleProjects: OrganizationType = {
+    ...MOCK_DEFAULT_ORGANIZATION,
+    teams: [MOCK_DEFAULT_TEAM, storySecondTeam],
+    projects: [MOCK_DEFAULT_PROJECT, storySecondProject],
+}
+
+function organizationToUserOrganizationsList(
+    organization: OrganizationType
+): (typeof MOCK_DEFAULT_USER)['organizations'] {
+    return [organization].map(
+        ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
+            is_active,
+            is_not_active_reason,
+            is_pending_deletion,
+        }) => ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
+            logo_media_id: null,
+            is_active,
+            is_not_active_reason,
+            is_pending_deletion,
+        })
+    )
+}
+
+function storyUserForViewerMode(viewerMode: ViewerMode): UserType {
+    return {
+        ...MOCK_DEFAULT_USER,
+        is_staff: viewerMode === 'staff',
+        team: MOCK_DEFAULT_TEAM,
+        organization: organizationWithMultipleProjects,
+        organizations: organizationToUserOrganizationsList(organizationWithMultipleProjects),
+    }
+}
+
+/** MSW follows `viewerMode` (Controls → Viewer mode). Always mock `@me` so `userLogic` loadUser does not overwrite the story org with a single-team user (staff mode previously had no handler). */
 const withViewerModeMsw: Decorator = (Story, context) => {
     const viewerMode = ((context.args as { viewerMode?: ViewerMode }).viewerMode ?? 'staff') as ViewerMode
     const mocks = {
         get: {
             ...tableListMocks.get,
-            ...(viewerMode === 'nonStaff' ? nonStaffUserMocks.get : {}),
+            '/api/users/@me/': (): [number, UserType] => [200, storyUserForViewerMode(viewerMode)],
         },
     }
     return mswDecorator(mocks)(Story, context)
 }
 
-function DashboardTemplatesTableStory({ perspective }: { perspective: 'staff' | 'nonstaff' }): JSX.Element {
+function DashboardTemplatesTableStory({
+    perspective,
+    organization = organizationWithMultipleProjects,
+}: {
+    perspective: 'staff' | 'nonstaff'
+    organization?: OrganizationType
+}): JSX.Element {
     useEffect(() => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING], {
@@ -196,9 +272,12 @@ function DashboardTemplatesTableStory({ perspective }: { perspective: 'staff' | 
         userLogic.actions.loadUserSuccess({
             ...MOCK_DEFAULT_USER,
             is_staff: perspective === 'staff',
+            team: MOCK_DEFAULT_TEAM,
+            organization,
+            organizations: organizationToUserOrganizationsList(organization),
         })
         templatesTabListLogic.actions.getAllTemplates()
-    }, [perspective])
+    }, [perspective, organization])
     return <DashboardTemplatesTable />
 }
 
@@ -211,7 +290,7 @@ export const Default: Story = {
             control: 'inline-radio',
             options: ['staff', 'nonStaff'] satisfies ViewerMode[],
             description:
-                'Staff: Monaco + scope + delete rules on rows. Non-staff: customer authoring + Edit/Delete on team templates only.',
+                'Org has two projects so team rows show Copy to another project. Staff: full staff menu. Non-staff: customer authoring + team-template actions.',
             name: 'Viewer mode',
         },
     },

@@ -76,35 +76,42 @@ describe('formatResponse', () => {
         expect(result).toBeTruthy()
     })
 
-    it('truncates responses exceeding max length', () => {
-        // Create a large data object that will exceed 80k chars
-        const largeArray = Array(10000)
-            .fill(null)
-            .map((_, i) => ({
-                id: i,
-                name: `Item ${i} with some extra text to make it longer`,
-                description: 'A'.repeat(50),
-            }))
-        const data = { items: largeArray }
+    it('returns string input verbatim (no TOON, no character expansion)', () => {
+        // Regression: previously a string handler result was object-rest-destructured
+        // in the MCP wrapper, turning 'foo' into {'0':'f','1':'o','2':'o'} before
+        // hitting formatResponse. formatResponse itself must pass strings through
+        // unchanged so the wrapper's pass-through is correct.
+        const jsonPayload = '{"name":"query-trends","title":"Run a trends query"}'
+        const result = formatResponse(jsonPayload)
 
-        const result = formatResponse(data)
-
-        // Should be truncated to ~80k chars + truncation message
-        expect(result.length).toBeLessThan(85000)
-        expect(result).toContain('[Response truncated')
-        expect(result).toContain('Use more specific filters or pagination')
+        expect(result).toBe(jsonPayload)
+        // The character-indexed regression signature must never appear.
+        expect(result).not.toMatch(/"0":\s*"\{"/)
+        expect(result).not.toMatch(/"1":\s*"\\"/)
     })
 
-    it('does not truncate responses under max length', () => {
-        const data = {
-            id: 123,
-            name: 'Test',
-            items: Array(10)
-                .fill(null)
-                .map((_, i) => ({ id: i })),
-        }
+    it('does NOT truncate even for very large responses (MCP must return full data)', () => {
+        // IMPORTANT: truncation was removed because the MCP must never silently
+        // drop data — downstream clients are responsible for any size handling.
+        // This test exists to catch anyone re-introducing truncation.
+        const hugeValue = 'X'.repeat(500_000)
+        const data = { payload: hugeValue }
+
         const result = formatResponse(data)
 
+        expect(result.length).toBeGreaterThan(500_000)
+        expect(result).toContain(hugeValue)
+        expect(result).not.toContain('[Response truncated')
+        expect(result).not.toContain('Response truncated')
+        expect(result).not.toContain('exceeded maximum length')
+    })
+
+    it('does NOT truncate large string inputs either', () => {
+        const hugeString = 'Y'.repeat(500_000)
+        const result = formatResponse(hugeString)
+
+        expect(result).toBe(hugeString)
+        expect(result.length).toBe(500_000)
         expect(result).not.toContain('[Response truncated')
     })
 })

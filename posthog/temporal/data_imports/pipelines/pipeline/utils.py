@@ -9,18 +9,17 @@ import datetime
 from collections.abc import Callable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 import numpy as np
 import orjson
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+from arro3.core.types import ArrowSchemaExportable
 from circular_dict import CircularDict
 from dateutil import parser
-from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
@@ -31,7 +30,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFo
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataSchema
 
-DLT_TO_PA_TYPE_MAP = {
+DLT_TO_PA_TYPE_MAP: dict[
+    Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"], pa.DataType
+] = {
     "text": pa.string(),
     "bigint": pa.int64(),
     "bool": pa.bool_(),
@@ -47,6 +48,9 @@ DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
 MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
+
+type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"]
+type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
 
 class BillingLimitsWillBeReachedException(Exception):
@@ -69,13 +73,18 @@ def normalize_column_name(column_name: str) -> str:
     return NamingConvention.normalize_identifier(column_name)
 
 
-def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:
+def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Schema:
+    # PyArrow's stubs don't model Arrow C Data Interface inputs here.
+    return pa.schema(cast(Any, schema))
+
+
+def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
     try:
         if date_str is None:
             return None
 
         if isinstance(date_str, pa.StringScalar):
-            scalar = date_str.as_py()
+            scalar = cast(str | None, date_str.as_py())
 
             if scalar is None:
                 return None
@@ -85,33 +94,12 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
         if isinstance(date_str, pa.TimestampScalar):
             return date_str
 
-        return parser.parse(date_str)
+        if isinstance(date_str, str | bytes):
+            return parser.parse(date_str)
+
+        return None
     except (ValueError, OverflowError, TypeError):
         return None
-
-
-def _get_primary_keys(resource: DltResource) -> list[str] | None:
-    primary_keys = resource._hints.get("primary_key")
-
-    if primary_keys is None:
-        return None
-
-    if isinstance(primary_keys, str):
-        return [normalize_column_name(primary_keys)]
-
-    if isinstance(primary_keys, list | Sequence):
-        return [normalize_column_name(pk) for pk in primary_keys]
-
-    raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
-
-
-def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
-    columns = resource._hints.get("columns")
-
-    if columns is None:
-        return None
-
-    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
@@ -127,7 +115,10 @@ def _handle_null_columns_with_definitions(table: pa.Table, source: SourceRespons
         normalized_field_name = normalize_column_name(field_name)
         # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
         if normalized_field_name not in table.schema.names:
-            new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
+            new_column = pa.array(
+                [None] * table.num_rows,
+                type=DLT_TO_PA_TYPE_MAP[cast(SupportedDltDataType, data_type)],
+            )
             table = table.append_column(normalized_field_name, new_column)
 
     return table
@@ -174,17 +165,17 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
 
         # Convert nested values to JSON strings for stable schema writes.
         if pa.types.is_struct(incoming_column.type) or pa.types.is_list(incoming_column.type):
-            json_column = pa.array(
-                [_json_dumps(row.as_py()) if row.as_py() is not None else None for row in incoming_column]
-            )
+            nested_values = cast(list[object | None], incoming_column.to_pylist())
+            json_column = pa.array([_json_dumps(value) if value is not None else None for value in nested_values])
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, json_column
             )
             incoming_column = incoming_table.column(column_name)
         # Convert duration to numeric seconds.
         elif pa.types.is_duration(incoming_column.type):
+            duration_values = cast(list[datetime.timedelta | None], incoming_column.to_pylist())
             seconds_column = pa.array(
-                [row.as_py().total_seconds() if row.as_py() is not None else None for row in incoming_column]
+                [value.total_seconds() if value is not None else None for value in duration_values]
             )
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, seconds_column
@@ -195,7 +186,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         if pa.types.is_timestamp(incoming_field.type) and (
             incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
         ):
-            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False)
+            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
             )
@@ -204,7 +195,8 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
 
     # Second pass: align with existing Delta table schema.
-    for delta_field in pa.schema(delta_schema):
+    delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
                 pa.array([None] * incoming_table.num_rows, type=delta_field.type)
@@ -279,7 +271,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
                     delta_field.name,
-                    incoming_column.cast(delta_field.type),
+                    incoming_column.cast(delta_field.type).combine_chunks(),
                 )
 
             incoming_column = incoming_table.column(delta_field.name)
@@ -349,8 +341,14 @@ async def setup_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_arrow()
-        if PARTITION_KEY not in delta_schema.names:
+        # Check the table's *partition columns* — not its schema columns. A delta
+        # table can contain `_ph_partition_key` in its schema without being
+        # partitioned by it (e.g. leftover from a prior write that included the
+        # column but was committed with `partition_by=None`). Writing with
+        # `partition_by=PARTITION_KEY` in that case raises
+        # `DeltaError: Specified table partitioning does not match table partitioning`.
+        partition_columns = getattr(existing_delta_table.metadata(), "partition_columns", None) or []
+        if PARTITION_KEY not in partition_columns:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
@@ -667,10 +665,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
     for col in column_names:
-        values = [
-            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
-            for row in table_data
-        ]
+        values: list[object | None] = []
+        for row in table_data:
+            value = row.get(col, None)
+            if isinstance(value, float) and np.isnan(value):
+                values.append(None)
+            else:
+                values.append(value)
 
         try:
             # We want to use pyarrow arrays where possible to optimise on memory usage
@@ -706,7 +707,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 columnar_table_data[field_name] = float_array.cast(field.type, safe=False)
                 unique_types_in_column = {decimal.Decimal}
                 py_type = decimal.Decimal
-                val = decimal.Decimal(val)
+                val = decimal.Decimal(cast(DecimalInput, val))
 
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
@@ -936,8 +937,8 @@ def conditional_lru_cache_async(
             key = _make_key(args, kwargs, typed)
             cache.pop(key, None)
 
-        wrapper.cache_remove = cache_remove
-        wrapper.cache_clear = lambda: cache.clear()
+        cast(Any, wrapper).cache_remove = cache_remove
+        cast(Any, wrapper).cache_clear = lambda: cache.clear()
 
         return wrapper
 

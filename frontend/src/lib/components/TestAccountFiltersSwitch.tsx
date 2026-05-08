@@ -5,7 +5,7 @@ import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 
 type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     checked: boolean

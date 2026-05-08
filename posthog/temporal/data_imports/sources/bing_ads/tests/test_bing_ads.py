@@ -2,15 +2,29 @@ import datetime as dt
 from collections.abc import Iterable
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.bing_ads.bing_ads import bing_ads_source
 from posthog.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
-from posthog.temporal.data_imports.sources.bing_ads.utils import fetch_data_in_yearly_chunks, parse_csv_to_dicts
+from posthog.temporal.data_imports.sources.bing_ads.utils import (
+    BingAdsResumeConfig,
+    fetch_data_in_yearly_chunks,
+    parse_csv_to_dicts,
+)
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+
+def _mock_resumable_manager(
+    can_resume: bool = False, load_state_return: BingAdsResumeConfig | None = None
+) -> MagicMock:
+    manager = MagicMock(spec=ResumableSourceManager)
+    manager.can_resume.return_value = can_resume
+    manager.load_state.return_value = load_state_return
+    return manager
 
 
 class TestBingAdsHelperFunctions:
@@ -52,6 +66,7 @@ class TestBingAdsHelperFunctions:
         start_date = dt.date(2024, 1, 1)
         end_date = dt.date(2024, 6, 30)
 
+        manager = _mock_resumable_manager()
         result = list(
             fetch_data_in_yearly_chunks(
                 client=mock_client,
@@ -59,12 +74,16 @@ class TestBingAdsHelperFunctions:
                 account_id=12345,
                 start_date=start_date,
                 end_date=end_date,
+                resumable_source_manager=manager,
             )
         )
 
         assert len(result) == 1
         assert result[0][0]["CampaignId"] == "123"
         mock_client.get_data_by_resource.assert_called_once()
+        manager.save_state.assert_called_once_with(
+            BingAdsResumeConfig(next_start_date="2024-07-01", end_date=end_date.isoformat())
+        )
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
     def test_fetch_data_in_yearly_chunks_multiple_chunks(self, mock_logger):
@@ -79,6 +98,7 @@ class TestBingAdsHelperFunctions:
         start_date = dt.date(2023, 1, 1)
         end_date = dt.date(2025, 6, 30)
 
+        manager = _mock_resumable_manager()
         result = list(
             fetch_data_in_yearly_chunks(
                 client=mock_client,
@@ -86,11 +106,16 @@ class TestBingAdsHelperFunctions:
                 account_id=12345,
                 start_date=start_date,
                 end_date=end_date,
+                resumable_source_manager=manager,
             )
         )
 
         assert len(result) == 3
         assert mock_client.get_data_by_resource.call_count == 3
+        # One checkpoint after each chunk
+        assert manager.save_state.call_count == 3
+        first_checkpoint = manager.save_state.call_args_list[0].args[0]
+        assert first_checkpoint == BingAdsResumeConfig(next_start_date="2024-01-02", end_date=end_date.isoformat())
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
     def test_fetch_data_in_yearly_chunks_same_day(self, mock_logger):
@@ -99,6 +124,7 @@ class TestBingAdsHelperFunctions:
 
         today = dt.date(2026, 4, 10)
 
+        manager = _mock_resumable_manager()
         result = list(
             fetch_data_in_yearly_chunks(
                 client=mock_client,
@@ -106,6 +132,7 @@ class TestBingAdsHelperFunctions:
                 account_id=12345,
                 start_date=today,
                 end_date=today,
+                resumable_source_manager=manager,
             )
         )
 
@@ -131,6 +158,7 @@ class TestBingAdsHelperFunctions:
         start_date = dt.date(2023, 1, 1)
         end_date = dt.date(2025, 6, 30)
 
+        manager = _mock_resumable_manager()
         result = list(
             fetch_data_in_yearly_chunks(
                 client=mock_client,
@@ -138,11 +166,45 @@ class TestBingAdsHelperFunctions:
                 account_id=12345,
                 start_date=start_date,
                 end_date=end_date,
+                resumable_source_manager=manager,
             )
         )
 
         assert len(result) == 2
         mock_logger.error.assert_called_once()
+        # Checkpoint advances even after the failed chunk so resume moves past it
+        assert manager.save_state.call_count == 3
+
+    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
+    def test_fetch_data_in_yearly_chunks_resumes_from_saved_state(self, mock_logger):
+        """When resume state exists, the loop starts at the saved chunk boundary and does not re-fetch earlier chunks."""
+        mock_client = Mock()
+        mock_client.get_data_by_resource.return_value = iter([[{"year": "2025"}]])
+
+        manager = _mock_resumable_manager(
+            can_resume=True,
+            load_state_return=BingAdsResumeConfig(next_start_date="2025-01-01", end_date="2025-06-30"),
+        )
+
+        result = list(
+            fetch_data_in_yearly_chunks(
+                client=mock_client,
+                resource=BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT,
+                account_id=12345,
+                # Initial start/end should be overridden by saved state
+                start_date=dt.date(2023, 1, 1),
+                end_date=dt.date(2030, 1, 1),
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert len(result) == 1
+        mock_client.get_data_by_resource.assert_called_once_with(
+            resource=BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT,
+            account_id=12345,
+            start_date=dt.datetime.combine(dt.date(2025, 1, 1), dt.time.min),
+            end_date=dt.datetime.combine(dt.date(2025, 6, 30), dt.time.max),
+        )
 
 
 class TestBingAdsSource:
@@ -169,6 +231,7 @@ class TestBingAdsSource:
             resource_name="campaigns",
             access_token=self.access_token,
             refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
             should_use_incremental_field=False,
         )
 
@@ -194,11 +257,13 @@ class TestBingAdsSource:
 
         mock_fetch_chunks.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
 
+        manager = _mock_resumable_manager()
         result = bing_ads_source(
             account_id=self.account_id,
             resource_name="campaign_performance_report",
             access_token=self.access_token,
             refresh_token=self.refresh_token,
+            resumable_source_manager=manager,
             should_use_incremental_field=False,
         )
 
@@ -210,6 +275,9 @@ class TestBingAdsSource:
         assert isinstance(items, Iterable)
         data = list(items)
         assert len(data) == 1
+
+        # Manager is threaded through to the chunk fetcher
+        assert mock_fetch_chunks.call_args.kwargs["resumable_source_manager"] is manager
 
     @parameterized.expand(
         [
@@ -232,11 +300,13 @@ class TestBingAdsSource:
 
         mock_fetch_chunks.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
 
+        manager = _mock_resumable_manager()
         result = bing_ads_source(
             account_id=self.account_id,
             resource_name="campaign_performance_report",
             access_token=self.access_token,
             refresh_token=self.refresh_token,
+            resumable_source_manager=manager,
             should_use_incremental_field=True,
             incremental_field="TimePeriod",
             incremental_field_type=IncrementalFieldType.Date,
@@ -252,6 +322,7 @@ class TestBingAdsSource:
         mock_fetch_chunks.assert_called_once()
         call_args = mock_fetch_chunks.call_args
         assert call_args.kwargs["start_date"] <= dt.date.today()
+        assert call_args.kwargs["resumable_source_manager"] is manager
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_missing_developer_token(self, mock_integrations):
@@ -263,6 +334,7 @@ class TestBingAdsSource:
             resource_name="campaigns",
             access_token=self.access_token,
             refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
         )
 
         with pytest.raises(ValueError, match="Bing Ads developer token not configured"):
@@ -281,6 +353,7 @@ class TestBingAdsSource:
             resource_name="campaign_performance_report",
             access_token=self.access_token,
             refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
             should_use_incremental_field=True,
             db_incremental_field_last_value=dt.date(2024, 1, 1),
         )

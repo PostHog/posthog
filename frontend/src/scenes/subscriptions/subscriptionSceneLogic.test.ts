@@ -5,7 +5,11 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { FrequencyEnumApi, SubscriptionsDeliveriesListStatus, TargetTypeEnumApi } from '~/generated/core/api.schemas'
+import {
+    SubscriptionFrequencyEnumApi,
+    SubscriptionsDeliveriesListStatus,
+    TargetTypeEnumApi,
+} from '~/generated/core/api.schemas'
 import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -31,7 +35,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: FrequencyEnumApi.Weekly,
+    frequency: SubscriptionFrequencyEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',

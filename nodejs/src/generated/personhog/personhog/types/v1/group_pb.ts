@@ -13,7 +13,7 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_group: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'Ch5wZXJzb25ob2cvdHlwZXMvdjEvZ3JvdXAucHJvdG8SEnBlcnNvbmhvZy50eXBlcy52MSLXAQoFR3JvdXASCgoCaWQYASABKAMSDwoHdGVhbV9pZBgCIAEoAxIYChBncm91cF90eXBlX2luZGV4GAMgASgFEhEKCWdyb3VwX2tleRgEIAEoCRIYChBncm91cF9wcm9wZXJ0aWVzGAUgASgMEhIKCmNyZWF0ZWRfYXQYBiABKAMSIgoacHJvcGVydGllc19sYXN0X3VwZGF0ZWRfYXQYByABKAwSIQoZcHJvcGVydGllc19sYXN0X29wZXJhdGlvbhgIIAEoDBIPCgd2ZXJzaW9uGAkgASgDIt0CChBHcm91cFR5cGVNYXBwaW5nEgoKAmlkGAEgASgDEg8KB3RlYW1faWQYAiABKAMSEgoKcHJvamVjdF9pZBgDIAEoAxISCgpncm91cF90eXBlGAQgASgJEhgKEGdyb3VwX3R5cGVfaW5kZXgYBSABKAUSGgoNbmFtZV9zaW5ndWxhchgGIAEoCUgAiAEBEhgKC25hbWVfcGx1cmFsGAcgASgJSAGIAQESHAoPZGVmYXVsdF9jb2x1bW5zGAggASgMSAKIAQESIAoTZGV0YWlsX2Rhc2hib2FyZF9pZBgJIAEoA0gDiAEBEhcKCmNyZWF0ZWRfYXQYCiABKANIBIgBAUIQCg5fbmFtZV9zaW5ndWxhckIOCgxfbmFtZV9wbHVyYWxCEgoQX2RlZmF1bHRfY29sdW1uc0IWChRfZGV0YWlsX2Rhc2hib2FyZF9pZEINCgtfY3JlYXRlZF9hdCJyCgxHcm91cFdpdGhLZXkSKQoDa2V5GAEgASgLMhwucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwS2V5Ei0KBWdyb3VwGAIgASgLMhkucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwSACIAQFCCAoGX2dyb3VwIl0KFkdyb3VwVHlwZU1hcHBpbmdzQnlLZXkSCwoDa2V5GAEgASgDEjYKCG1hcHBpbmdzGAIgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwVHlwZU1hcHBpbmcihgEKD0dldEdyb3VwUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhgKEGdyb3VwX3R5cGVfaW5kZXgYAiABKAUSEQoJZ3JvdXBfa2V5GAMgASgJEjUKDHJlYWRfb3B0aW9ucxgEIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJLChBHZXRHcm91cFJlc3BvbnNlEi0KBWdyb3VwGAEgASgLMhkucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwSACIAQFCCAoGX2dyb3VwIpoBChBHZXRHcm91cHNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSPgoRZ3JvdXBfaWRlbnRpZmllcnMYAiADKAsyIy5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBJZGVudGlmaWVyEjUKDHJlYWRfb3B0aW9ucxgDIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJ4Cg5Hcm91cHNSZXNwb25zZRIpCgZncm91cHMYASADKAsyGS5wZXJzb25ob2cudHlwZXMudjEuR3JvdXASOwoObWlzc2luZ19ncm91cHMYAiADKAsyIy5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBJZGVudGlmaWVyInoKFUdldEdyb3Vwc0JhdGNoUmVxdWVzdBIqCgRrZXlzGAEgAygLMhwucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwS2V5EjUKDHJlYWRfb3B0aW9ucxgCIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJLChZHZXRHcm91cHNCYXRjaFJlc3BvbnNlEjEKB3Jlc3VsdHMYASADKAsyIC5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBXaXRoS2V5Im0KI0dldEdyb3VwVHlwZU1hcHBpbmdzQnlUZWFtSWRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSNQoMcmVhZF9vcHRpb25zGAIgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIm8KJEdldEdyb3VwVHlwZU1hcHBpbmdzQnlUZWFtSWRzUmVxdWVzdBIQCgh0ZWFtX2lkcxgBIAMoAxI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMicwomR2V0R3JvdXBUeXBlTWFwcGluZ3NCeVByb2plY3RJZFJlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoAxI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMidQonR2V0R3JvdXBUeXBlTWFwcGluZ3NCeVByb2plY3RJZHNSZXF1ZXN0EhMKC3Byb2plY3RfaWRzGAEgAygDEjUKDHJlYWRfb3B0aW9ucxgCIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJTChlHcm91cFR5cGVNYXBwaW5nc1Jlc3BvbnNlEjYKCG1hcHBpbmdzGAEgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwVHlwZU1hcHBpbmciXQoeR3JvdXBUeXBlTWFwcGluZ3NCYXRjaFJlc3BvbnNlEjsKB3Jlc3VsdHMYASADKAsyKi5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBUeXBlTWFwcGluZ3NCeUtleWIGcHJvdG8z',
+        'Ch5wZXJzb25ob2cvdHlwZXMvdjEvZ3JvdXAucHJvdG8SEnBlcnNvbmhvZy50eXBlcy52MSLXAQoFR3JvdXASCgoCaWQYASABKAMSDwoHdGVhbV9pZBgCIAEoAxIYChBncm91cF90eXBlX2luZGV4GAMgASgFEhEKCWdyb3VwX2tleRgEIAEoCRIYChBncm91cF9wcm9wZXJ0aWVzGAUgASgMEhIKCmNyZWF0ZWRfYXQYBiABKAMSIgoacHJvcGVydGllc19sYXN0X3VwZGF0ZWRfYXQYByABKAwSIQoZcHJvcGVydGllc19sYXN0X29wZXJhdGlvbhgIIAEoDBIPCgd2ZXJzaW9uGAkgASgDIt0CChBHcm91cFR5cGVNYXBwaW5nEgoKAmlkGAEgASgDEg8KB3RlYW1faWQYAiABKAMSEgoKcHJvamVjdF9pZBgDIAEoAxISCgpncm91cF90eXBlGAQgASgJEhgKEGdyb3VwX3R5cGVfaW5kZXgYBSABKAUSGgoNbmFtZV9zaW5ndWxhchgGIAEoCUgAiAEBEhgKC25hbWVfcGx1cmFsGAcgASgJSAGIAQESHAoPZGVmYXVsdF9jb2x1bW5zGAggASgMSAKIAQESIAoTZGV0YWlsX2Rhc2hib2FyZF9pZBgJIAEoA0gDiAEBEhcKCmNyZWF0ZWRfYXQYCiABKANIBIgBAUIQCg5fbmFtZV9zaW5ndWxhckIOCgxfbmFtZV9wbHVyYWxCEgoQX2RlZmF1bHRfY29sdW1uc0IWChRfZGV0YWlsX2Rhc2hib2FyZF9pZEINCgtfY3JlYXRlZF9hdCJyCgxHcm91cFdpdGhLZXkSKQoDa2V5GAEgASgLMhwucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwS2V5Ei0KBWdyb3VwGAIgASgLMhkucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwSACIAQFCCAoGX2dyb3VwIl0KFkdyb3VwVHlwZU1hcHBpbmdzQnlLZXkSCwoDa2V5GAEgASgDEjYKCG1hcHBpbmdzGAIgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwVHlwZU1hcHBpbmci4QEKEUxpc3RHcm91cHNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSGAoQZ3JvdXBfdHlwZV9pbmRleBgCIAEoBRIaChJncm91cF9rZXlfY29udGFpbnMYAyABKAkSDgoGc2VhcmNoGAQgASgJEhwKFGN1cnNvcl9jcmVhdGVkX2F0X21zGAUgASgDEhEKCWN1cnNvcl9pZBgGIAEoAxINCgVsaW1pdBgHIAEoBRI1CgxyZWFkX29wdGlvbnMYCCABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiUQoSTGlzdEdyb3Vwc1Jlc3BvbnNlEikKBmdyb3VwcxgBIAMoCzIZLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cBIQCghoYXNfbW9yZRgCIAEoCCKGAQoPR2V0R3JvdXBSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSGAoQZ3JvdXBfdHlwZV9pbmRleBgCIAEoBRIRCglncm91cF9rZXkYAyABKAkSNQoMcmVhZF9vcHRpb25zGAQgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIksKEEdldEdyb3VwUmVzcG9uc2USLQoFZ3JvdXAYASABKAsyGS5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBIAIgBAUIICgZfZ3JvdXAimgEKEEdldEdyb3Vwc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxI+ChFncm91cF9pZGVudGlmaWVycxgCIAMoCzIjLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cElkZW50aWZpZXISNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIngKDkdyb3Vwc1Jlc3BvbnNlEikKBmdyb3VwcxgBIAMoCzIZLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cBI7Cg5taXNzaW5nX2dyb3VwcxgCIAMoCzIjLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cElkZW50aWZpZXIiegoVR2V0R3JvdXBzQmF0Y2hSZXF1ZXN0EioKBGtleXMYASADKAsyHC5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBLZXkSNQoMcmVhZF9vcHRpb25zGAIgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIksKFkdldEdyb3Vwc0JhdGNoUmVzcG9uc2USMQoHcmVzdWx0cxgBIAMoCzIgLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cFdpdGhLZXkibQojR2V0R3JvdXBUeXBlTWFwcGluZ3NCeVRlYW1JZFJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMibwokR2V0R3JvdXBUeXBlTWFwcGluZ3NCeVRlYW1JZHNSZXF1ZXN0EhAKCHRlYW1faWRzGAEgAygDEjUKDHJlYWRfb3B0aW9ucxgCIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJzCiZHZXRHcm91cFR5cGVNYXBwaW5nc0J5UHJvamVjdElkUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgDEjUKDHJlYWRfb3B0aW9ucxgCIAEoCzIfLnBlcnNvbmhvZy50eXBlcy52MS5SZWFkT3B0aW9ucyJ1CidHZXRHcm91cFR5cGVNYXBwaW5nc0J5UHJvamVjdElkc1JlcXVlc3QSEwoLcHJvamVjdF9pZHMYASADKAMSNQoMcmVhZF9vcHRpb25zGAIgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIlMKGUdyb3VwVHlwZU1hcHBpbmdzUmVzcG9uc2USNgoIbWFwcGluZ3MYASADKAsyJC5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBUeXBlTWFwcGluZyJdCh5Hcm91cFR5cGVNYXBwaW5nc0JhdGNoUmVzcG9uc2USOwoHcmVzdWx0cxgBIAMoCzIqLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cFR5cGVNYXBwaW5nc0J5S2V5IpQBChJDcmVhdGVHcm91cFJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIYChBncm91cF90eXBlX2luZGV4GAIgASgFEhEKCWdyb3VwX2tleRgDIAEoCRIYChBncm91cF9wcm9wZXJ0aWVzGAQgASgMEhcKCmNyZWF0ZWRfYXQYBSABKANIAIgBAUINCgtfY3JlYXRlZF9hdCI/ChNDcmVhdGVHcm91cFJlc3BvbnNlEigKBWdyb3VwGAEgASgLMhkucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwItECChJVcGRhdGVHcm91cFJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIYChBncm91cF90eXBlX2luZGV4GAIgASgFEhEKCWdyb3VwX2tleRgDIAEoCRITCgt1cGRhdGVfbWFzaxgEIAMoCRIdChBncm91cF9wcm9wZXJ0aWVzGAUgASgMSACIAQESJwoacHJvcGVydGllc19sYXN0X3VwZGF0ZWRfYXQYBiABKAxIAYgBARImChlwcm9wZXJ0aWVzX2xhc3Rfb3BlcmF0aW9uGAcgASgMSAKIAQESFwoKY3JlYXRlZF9hdBgIIAEoA0gDiAEBQhMKEV9ncm91cF9wcm9wZXJ0aWVzQh0KG19wcm9wZXJ0aWVzX2xhc3RfdXBkYXRlZF9hdEIcChpfcHJvcGVydGllc19sYXN0X29wZXJhdGlvbkINCgtfY3JlYXRlZF9hdCJQChNVcGRhdGVHcm91cFJlc3BvbnNlEigKBWdyb3VwGAEgASgLMhkucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwEg8KB3VwZGF0ZWQYAiABKAgiRgofRGVsZXRlR3JvdXBzQmF0Y2hGb3JUZWFtUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhIKCmJhdGNoX3NpemUYAiABKAMiOQogRGVsZXRlR3JvdXBzQmF0Y2hGb3JUZWFtUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoAyKmAgodVXBkYXRlR3JvdXBUeXBlTWFwcGluZ1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoAxIYChBncm91cF90eXBlX2luZGV4GAIgASgFEhMKC3VwZGF0ZV9tYXNrGAMgAygJEhoKDW5hbWVfc2luZ3VsYXIYBCABKAlIAIgBARIYCgtuYW1lX3BsdXJhbBgFIAEoCUgBiAEBEiAKE2RldGFpbF9kYXNoYm9hcmRfaWQYBiABKANIAogBARIcCg9kZWZhdWx0X2NvbHVtbnMYByABKAxIA4gBAUIQCg5fbmFtZV9zaW5ndWxhckIOCgxfbmFtZV9wbHVyYWxCFgoUX2RldGFpbF9kYXNoYm9hcmRfaWRCEgoQX2RlZmF1bHRfY29sdW1ucyJXCh5VcGRhdGVHcm91cFR5cGVNYXBwaW5nUmVzcG9uc2USNQoHbWFwcGluZxgBIAEoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cFR5cGVNYXBwaW5nIocBCidHZXRHcm91cFR5cGVNYXBwaW5nQnlEYXNoYm9hcmRJZFJlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkYXNoYm9hcmRfaWQYAiABKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zInIKKEdldEdyb3VwVHlwZU1hcHBpbmdCeURhc2hib2FyZElkUmVzcG9uc2USOgoHbWFwcGluZxgBIAEoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Hcm91cFR5cGVNYXBwaW5nSACIAQFCCgoIX21hcHBpbmciTQodRGVsZXRlR3JvdXBUeXBlTWFwcGluZ1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoAxIYChBncm91cF90eXBlX2luZGV4GAIgASgFIjEKHkRlbGV0ZUdyb3VwVHlwZU1hcHBpbmdSZXNwb25zZRIPCgdkZWxldGVkGAEgASgIIlEKKkRlbGV0ZUdyb3VwVHlwZU1hcHBpbmdzQmF0Y2hGb3JUZWFtUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhIKCmJhdGNoX3NpemUYAiABKAMiRAorRGVsZXRlR3JvdXBUeXBlTWFwcGluZ3NCYXRjaEZvclRlYW1SZXNwb25zZRIVCg1kZWxldGVkX2NvdW50GAEgASgDYgZwcm90bzM',
         [file_personhog_types_v1_common]
     )
 
@@ -189,6 +189,95 @@ export const GroupTypeMappingsByKeySchema: GenMessage<GroupTypeMappingsByKey> =
     messageDesc(file_personhog_types_v1_group, 3)
 
 /**
+ * ListGroupsRequest returns groups for a team with filtering and keyset pagination.
+ * Used by the groups list API endpoint.
+ *
+ * @generated from message personhog.types.v1.ListGroupsRequest
+ */
+export type ListGroupsRequest = Message<'personhog.types.v1.ListGroupsRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: int32 group_type_index = 2;
+     */
+    groupTypeIndex: number
+
+    /**
+     * Substring match on group_key (case-insensitive). Empty means no filter.
+     *
+     * @generated from field: string group_key_contains = 3;
+     */
+    groupKeyContains: string
+
+    /**
+     * Substring search across group_properties JSON and exact match on group_key.
+     * Empty means no search filter.
+     *
+     * @generated from field: string search = 4;
+     */
+    search: string
+
+    /**
+     * Keyset pagination cursor: pass the created_at millis + id from the last
+     * result of the previous page. First page: cursor_created_at_ms = 0, cursor_id = 0.
+     *
+     * @generated from field: int64 cursor_created_at_ms = 5;
+     */
+    cursorCreatedAtMs: bigint
+
+    /**
+     * @generated from field: int64 cursor_id = 6;
+     */
+    cursorId: bigint
+
+    /**
+     * @generated from field: int32 limit = 7;
+     */
+    limit: number
+
+    /**
+     * @generated from field: personhog.types.v1.ReadOptions read_options = 8;
+     */
+    readOptions?: ReadOptions
+}
+
+/**
+ * Describes the message personhog.types.v1.ListGroupsRequest.
+ * Use `create(ListGroupsRequestSchema)` to create a new message.
+ */
+export const ListGroupsRequestSchema: GenMessage<ListGroupsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 4)
+
+/**
+ * @generated from message personhog.types.v1.ListGroupsResponse
+ */
+export type ListGroupsResponse = Message<'personhog.types.v1.ListGroupsResponse'> & {
+    /**
+     * @generated from field: repeated personhog.types.v1.Group groups = 1;
+     */
+    groups: Group[]
+
+    /**
+     * True when more results exist beyond this page.
+     *
+     * @generated from field: bool has_more = 2;
+     */
+    hasMore: boolean
+}
+
+/**
+ * Describes the message personhog.types.v1.ListGroupsResponse.
+ * Use `create(ListGroupsResponseSchema)` to create a new message.
+ */
+export const ListGroupsResponseSchema: GenMessage<ListGroupsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 5)
+
+/**
  * @generated from message personhog.types.v1.GetGroupRequest
  */
 export type GetGroupRequest = Message<'personhog.types.v1.GetGroupRequest'> & {
@@ -219,7 +308,7 @@ export type GetGroupRequest = Message<'personhog.types.v1.GetGroupRequest'> & {
  */
 export const GetGroupRequestSchema: GenMessage<GetGroupRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 4)
+    messageDesc(file_personhog_types_v1_group, 6)
 
 /**
  * @generated from message personhog.types.v1.GetGroupResponse
@@ -237,7 +326,7 @@ export type GetGroupResponse = Message<'personhog.types.v1.GetGroupResponse'> & 
  */
 export const GetGroupResponseSchema: GenMessage<GetGroupResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 5)
+    messageDesc(file_personhog_types_v1_group, 7)
 
 /**
  * @generated from message personhog.types.v1.GetGroupsRequest
@@ -265,7 +354,7 @@ export type GetGroupsRequest = Message<'personhog.types.v1.GetGroupsRequest'> & 
  */
 export const GetGroupsRequestSchema: GenMessage<GetGroupsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 6)
+    messageDesc(file_personhog_types_v1_group, 8)
 
 /**
  * @generated from message personhog.types.v1.GroupsResponse
@@ -288,7 +377,7 @@ export type GroupsResponse = Message<'personhog.types.v1.GroupsResponse'> & {
  */
 export const GroupsResponseSchema: GenMessage<GroupsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 7)
+    messageDesc(file_personhog_types_v1_group, 9)
 
 /**
  * @generated from message personhog.types.v1.GetGroupsBatchRequest
@@ -311,7 +400,7 @@ export type GetGroupsBatchRequest = Message<'personhog.types.v1.GetGroupsBatchRe
  */
 export const GetGroupsBatchRequestSchema: GenMessage<GetGroupsBatchRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 8)
+    messageDesc(file_personhog_types_v1_group, 10)
 
 /**
  * @generated from message personhog.types.v1.GetGroupsBatchResponse
@@ -329,7 +418,7 @@ export type GetGroupsBatchResponse = Message<'personhog.types.v1.GetGroupsBatchR
  */
 export const GetGroupsBatchResponseSchema: GenMessage<GetGroupsBatchResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 9)
+    messageDesc(file_personhog_types_v1_group, 11)
 
 /**
  * @generated from message personhog.types.v1.GetGroupTypeMappingsByTeamIdRequest
@@ -352,7 +441,7 @@ export type GetGroupTypeMappingsByTeamIdRequest = Message<'personhog.types.v1.Ge
  */
 export const GetGroupTypeMappingsByTeamIdRequestSchema: GenMessage<GetGroupTypeMappingsByTeamIdRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 10)
+    messageDesc(file_personhog_types_v1_group, 12)
 
 /**
  * @generated from message personhog.types.v1.GetGroupTypeMappingsByTeamIdsRequest
@@ -376,7 +465,7 @@ export type GetGroupTypeMappingsByTeamIdsRequest =
  */
 export const GetGroupTypeMappingsByTeamIdsRequestSchema: GenMessage<GetGroupTypeMappingsByTeamIdsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 11)
+    messageDesc(file_personhog_types_v1_group, 13)
 
 /**
  * @generated from message personhog.types.v1.GetGroupTypeMappingsByProjectIdRequest
@@ -400,7 +489,7 @@ export type GetGroupTypeMappingsByProjectIdRequest =
  */
 export const GetGroupTypeMappingsByProjectIdRequestSchema: GenMessage<GetGroupTypeMappingsByProjectIdRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 12)
+    messageDesc(file_personhog_types_v1_group, 14)
 
 /**
  * @generated from message personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest
@@ -424,7 +513,7 @@ export type GetGroupTypeMappingsByProjectIdsRequest =
  */
 export const GetGroupTypeMappingsByProjectIdsRequestSchema: GenMessage<GetGroupTypeMappingsByProjectIdsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 13)
+    messageDesc(file_personhog_types_v1_group, 15)
 
 /**
  * @generated from message personhog.types.v1.GroupTypeMappingsResponse
@@ -442,7 +531,7 @@ export type GroupTypeMappingsResponse = Message<'personhog.types.v1.GroupTypeMap
  */
 export const GroupTypeMappingsResponseSchema: GenMessage<GroupTypeMappingsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 14)
+    messageDesc(file_personhog_types_v1_group, 16)
 
 /**
  * @generated from message personhog.types.v1.GroupTypeMappingsBatchResponse
@@ -460,4 +549,379 @@ export type GroupTypeMappingsBatchResponse = Message<'personhog.types.v1.GroupTy
  */
 export const GroupTypeMappingsBatchResponseSchema: GenMessage<GroupTypeMappingsBatchResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_group, 15)
+    messageDesc(file_personhog_types_v1_group, 17)
+
+/**
+ * @generated from message personhog.types.v1.CreateGroupRequest
+ */
+export type CreateGroupRequest = Message<'personhog.types.v1.CreateGroupRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: int32 group_type_index = 2;
+     */
+    groupTypeIndex: number
+
+    /**
+     * @generated from field: string group_key = 3;
+     */
+    groupKey: string
+
+    /**
+     * @generated from field: bytes group_properties = 4;
+     */
+    groupProperties: Uint8Array
+
+    /**
+     * @generated from field: optional int64 created_at = 5;
+     */
+    createdAt?: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.CreateGroupRequest.
+ * Use `create(CreateGroupRequestSchema)` to create a new message.
+ */
+export const CreateGroupRequestSchema: GenMessage<CreateGroupRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 18)
+
+/**
+ * @generated from message personhog.types.v1.CreateGroupResponse
+ */
+export type CreateGroupResponse = Message<'personhog.types.v1.CreateGroupResponse'> & {
+    /**
+     * @generated from field: personhog.types.v1.Group group = 1;
+     */
+    group?: Group
+}
+
+/**
+ * Describes the message personhog.types.v1.CreateGroupResponse.
+ * Use `create(CreateGroupResponseSchema)` to create a new message.
+ */
+export const CreateGroupResponseSchema: GenMessage<CreateGroupResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 19)
+
+/**
+ * @generated from message personhog.types.v1.UpdateGroupRequest
+ */
+export type UpdateGroupRequest = Message<'personhog.types.v1.UpdateGroupRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: int32 group_type_index = 2;
+     */
+    groupTypeIndex: number
+
+    /**
+     * @generated from field: string group_key = 3;
+     */
+    groupKey: string
+
+    /**
+     * Only fields listed in update_mask are written.
+     * Valid paths: "group_properties", "properties_last_updated_at", "properties_last_operation", "created_at"
+     * version is always auto-incremented on any update.
+     *
+     * @generated from field: repeated string update_mask = 4;
+     */
+    updateMask: string[]
+
+    /**
+     * @generated from field: optional bytes group_properties = 5;
+     */
+    groupProperties?: Uint8Array
+
+    /**
+     * @generated from field: optional bytes properties_last_updated_at = 6;
+     */
+    propertiesLastUpdatedAt?: Uint8Array
+
+    /**
+     * @generated from field: optional bytes properties_last_operation = 7;
+     */
+    propertiesLastOperation?: Uint8Array
+
+    /**
+     * @generated from field: optional int64 created_at = 8;
+     */
+    createdAt?: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.UpdateGroupRequest.
+ * Use `create(UpdateGroupRequestSchema)` to create a new message.
+ */
+export const UpdateGroupRequestSchema: GenMessage<UpdateGroupRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 20)
+
+/**
+ * @generated from message personhog.types.v1.UpdateGroupResponse
+ */
+export type UpdateGroupResponse = Message<'personhog.types.v1.UpdateGroupResponse'> & {
+    /**
+     * @generated from field: personhog.types.v1.Group group = 1;
+     */
+    group?: Group
+
+    /**
+     * @generated from field: bool updated = 2;
+     */
+    updated: boolean
+}
+
+/**
+ * Describes the message personhog.types.v1.UpdateGroupResponse.
+ * Use `create(UpdateGroupResponseSchema)` to create a new message.
+ */
+export const UpdateGroupResponseSchema: GenMessage<UpdateGroupResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 21)
+
+/**
+ * @generated from message personhog.types.v1.DeleteGroupsBatchForTeamRequest
+ */
+export type DeleteGroupsBatchForTeamRequest = Message<'personhog.types.v1.DeleteGroupsBatchForTeamRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: int64 batch_size = 2;
+     */
+    batchSize: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteGroupsBatchForTeamRequest.
+ * Use `create(DeleteGroupsBatchForTeamRequestSchema)` to create a new message.
+ */
+export const DeleteGroupsBatchForTeamRequestSchema: GenMessage<DeleteGroupsBatchForTeamRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 22)
+
+/**
+ * @generated from message personhog.types.v1.DeleteGroupsBatchForTeamResponse
+ */
+export type DeleteGroupsBatchForTeamResponse = Message<'personhog.types.v1.DeleteGroupsBatchForTeamResponse'> & {
+    /**
+     * @generated from field: int64 deleted_count = 1;
+     */
+    deletedCount: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteGroupsBatchForTeamResponse.
+ * Use `create(DeleteGroupsBatchForTeamResponseSchema)` to create a new message.
+ */
+export const DeleteGroupsBatchForTeamResponseSchema: GenMessage<DeleteGroupsBatchForTeamResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 23)
+
+/**
+ * @generated from message personhog.types.v1.UpdateGroupTypeMappingRequest
+ */
+export type UpdateGroupTypeMappingRequest = Message<'personhog.types.v1.UpdateGroupTypeMappingRequest'> & {
+    /**
+     * @generated from field: int64 project_id = 1;
+     */
+    projectId: bigint
+
+    /**
+     * @generated from field: int32 group_type_index = 2;
+     */
+    groupTypeIndex: number
+
+    /**
+     * @generated from field: repeated string update_mask = 3;
+     */
+    updateMask: string[]
+
+    /**
+     * @generated from field: optional string name_singular = 4;
+     */
+    nameSingular?: string
+
+    /**
+     * @generated from field: optional string name_plural = 5;
+     */
+    namePlural?: string
+
+    /**
+     * @generated from field: optional int64 detail_dashboard_id = 6;
+     */
+    detailDashboardId?: bigint
+
+    /**
+     * @generated from field: optional bytes default_columns = 7;
+     */
+    defaultColumns?: Uint8Array
+}
+
+/**
+ * Describes the message personhog.types.v1.UpdateGroupTypeMappingRequest.
+ * Use `create(UpdateGroupTypeMappingRequestSchema)` to create a new message.
+ */
+export const UpdateGroupTypeMappingRequestSchema: GenMessage<UpdateGroupTypeMappingRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 24)
+
+/**
+ * @generated from message personhog.types.v1.UpdateGroupTypeMappingResponse
+ */
+export type UpdateGroupTypeMappingResponse = Message<'personhog.types.v1.UpdateGroupTypeMappingResponse'> & {
+    /**
+     * @generated from field: personhog.types.v1.GroupTypeMapping mapping = 1;
+     */
+    mapping?: GroupTypeMapping
+}
+
+/**
+ * Describes the message personhog.types.v1.UpdateGroupTypeMappingResponse.
+ * Use `create(UpdateGroupTypeMappingResponseSchema)` to create a new message.
+ */
+export const UpdateGroupTypeMappingResponseSchema: GenMessage<UpdateGroupTypeMappingResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 25)
+
+/**
+ * @generated from message personhog.types.v1.GetGroupTypeMappingByDashboardIdRequest
+ */
+export type GetGroupTypeMappingByDashboardIdRequest =
+    Message<'personhog.types.v1.GetGroupTypeMappingByDashboardIdRequest'> & {
+        /**
+         * @generated from field: int64 team_id = 1;
+         */
+        teamId: bigint
+
+        /**
+         * @generated from field: int64 dashboard_id = 2;
+         */
+        dashboardId: bigint
+
+        /**
+         * @generated from field: personhog.types.v1.ReadOptions read_options = 3;
+         */
+        readOptions?: ReadOptions
+    }
+
+/**
+ * Describes the message personhog.types.v1.GetGroupTypeMappingByDashboardIdRequest.
+ * Use `create(GetGroupTypeMappingByDashboardIdRequestSchema)` to create a new message.
+ */
+export const GetGroupTypeMappingByDashboardIdRequestSchema: GenMessage<GetGroupTypeMappingByDashboardIdRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 26)
+
+/**
+ * @generated from message personhog.types.v1.GetGroupTypeMappingByDashboardIdResponse
+ */
+export type GetGroupTypeMappingByDashboardIdResponse =
+    Message<'personhog.types.v1.GetGroupTypeMappingByDashboardIdResponse'> & {
+        /**
+         * @generated from field: optional personhog.types.v1.GroupTypeMapping mapping = 1;
+         */
+        mapping?: GroupTypeMapping
+    }
+
+/**
+ * Describes the message personhog.types.v1.GetGroupTypeMappingByDashboardIdResponse.
+ * Use `create(GetGroupTypeMappingByDashboardIdResponseSchema)` to create a new message.
+ */
+export const GetGroupTypeMappingByDashboardIdResponseSchema: GenMessage<GetGroupTypeMappingByDashboardIdResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 27)
+
+/**
+ * @generated from message personhog.types.v1.DeleteGroupTypeMappingRequest
+ */
+export type DeleteGroupTypeMappingRequest = Message<'personhog.types.v1.DeleteGroupTypeMappingRequest'> & {
+    /**
+     * @generated from field: int64 project_id = 1;
+     */
+    projectId: bigint
+
+    /**
+     * @generated from field: int32 group_type_index = 2;
+     */
+    groupTypeIndex: number
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteGroupTypeMappingRequest.
+ * Use `create(DeleteGroupTypeMappingRequestSchema)` to create a new message.
+ */
+export const DeleteGroupTypeMappingRequestSchema: GenMessage<DeleteGroupTypeMappingRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 28)
+
+/**
+ * @generated from message personhog.types.v1.DeleteGroupTypeMappingResponse
+ */
+export type DeleteGroupTypeMappingResponse = Message<'personhog.types.v1.DeleteGroupTypeMappingResponse'> & {
+    /**
+     * @generated from field: bool deleted = 1;
+     */
+    deleted: boolean
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteGroupTypeMappingResponse.
+ * Use `create(DeleteGroupTypeMappingResponseSchema)` to create a new message.
+ */
+export const DeleteGroupTypeMappingResponseSchema: GenMessage<DeleteGroupTypeMappingResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 29)
+
+/**
+ * @generated from message personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamRequest
+ */
+export type DeleteGroupTypeMappingsBatchForTeamRequest =
+    Message<'personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamRequest'> & {
+        /**
+         * @generated from field: int64 team_id = 1;
+         */
+        teamId: bigint
+
+        /**
+         * @generated from field: int64 batch_size = 2;
+         */
+        batchSize: bigint
+    }
+
+/**
+ * Describes the message personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamRequest.
+ * Use `create(DeleteGroupTypeMappingsBatchForTeamRequestSchema)` to create a new message.
+ */
+export const DeleteGroupTypeMappingsBatchForTeamRequestSchema: GenMessage<DeleteGroupTypeMappingsBatchForTeamRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 30)
+
+/**
+ * @generated from message personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamResponse
+ */
+export type DeleteGroupTypeMappingsBatchForTeamResponse =
+    Message<'personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamResponse'> & {
+        /**
+         * @generated from field: int64 deleted_count = 1;
+         */
+        deletedCount: bigint
+    }
+
+/**
+ * Describes the message personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamResponse.
+ * Use `create(DeleteGroupTypeMappingsBatchForTeamResponseSchema)` to create a new message.
+ */
+export const DeleteGroupTypeMappingsBatchForTeamResponseSchema: GenMessage<DeleteGroupTypeMappingsBatchForTeamResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_group, 31)

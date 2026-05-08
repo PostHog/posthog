@@ -9,12 +9,17 @@
 import * as zod from 'zod'
 
 export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
+export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
@@ -27,6 +32,12 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)
         .describe('Whether to also copy scheduled changes for this flag'),
+    disable_copied_flag: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault)
+        .describe(
+            "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
+        ),
 })
 
 /**
@@ -183,9 +194,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -326,18 +337,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -373,7 +387,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsRetrieve2Params = /* @__PURE__ */ zod.object({
+export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -500,9 +514,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -643,18 +657,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -702,7 +719,7 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -711,17 +728,17 @@ export const FeatureFlagsActivityRetrieve2Params = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const featureFlagsActivityRetrieve2QueryLimitDefault = 10
+export const featureFlagsActivityRetrieveQueryLimitDefault = 10
 
-export const featureFlagsActivityRetrieve2QueryPageDefault = 1
+export const featureFlagsActivityRetrieveQueryPageDefault = 1
 
-export const FeatureFlagsActivityRetrieve2QueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
     limit: zod
         .number()
         .min(1)
-        .default(featureFlagsActivityRetrieve2QueryLimitDefault)
+        .default(featureFlagsActivityRetrieveQueryLimitDefault)
         .describe('Number of items per page'),
-    page: zod.number().min(1).default(featureFlagsActivityRetrieve2QueryPageDefault).describe('Page number'),
+    page: zod.number().min(1).default(featureFlagsActivityRetrieveQueryPageDefault).describe('Page number'),
 })
 
 /**
@@ -766,8 +783,6 @@ export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const featureFlagsTestEvaluationCreateBodyGroupsDefault = `{}`
-
 export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod
         .string()
@@ -775,15 +790,15 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .describe('User distinct ID to test against (mutually exclusive with person_id)'),
     person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
     timestamp: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
-            'Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)'
+            'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
         ),
     groups: zod
-        .string()
-        .default(featureFlagsTestEvaluationCreateBodyGroupsDefault)
-        .describe('Groups for feature flag evaluation (JSON object string)'),
+        .unknown()
+        .optional()
+        .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
 })
 
 /**
@@ -884,7 +899,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
@@ -895,15 +910,15 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })
@@ -934,7 +949,6 @@ export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const scheduledChangesPartialUpdateBodyRecordIdMax = 200
 
-export const scheduledChangesPartialUpdateBodyIsRecurringDefault = false
 export const scheduledChangesPartialUpdateBodyCronExpressionMax = 100
 
 export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -957,27 +971,27 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
-        .default(scheduledChangesPartialUpdateBodyIsRecurringDefault)
+        .optional()
         .describe("Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules."),
     recurrence_interval: zod
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })

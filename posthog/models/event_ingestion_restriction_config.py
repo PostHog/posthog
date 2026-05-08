@@ -15,6 +15,7 @@ DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 INGESTION_PIPELINES = [
     {"value": "analytics", "label": "Analytics Pipeline"},
     {"value": "session_recordings", "label": "Session Recordings Pipeline"},
+    {"value": "errortracking", "label": "Error Tracking Pipeline"},
 ]
 
 
@@ -33,6 +34,7 @@ class RestrictionType(models.TextChoices):
 class IngestionPipeline(models.TextChoices):
     ANALYTICS = "analytics"
     SESSION_RECORDINGS = "session_recordings"
+    ERRORTRACKING = "errortracking"
 
 
 class EventIngestionRestrictionConfig(UUIDTModel):
@@ -42,7 +44,7 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     """
 
     token = models.CharField(max_length=100)
-    restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
+    restriction_type = models.CharField(max_length=100, choices=RestrictionType)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     event_names = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)

@@ -17,7 +17,7 @@ class ExportedRecording(UUIDModel):
     session_id = models.CharField(max_length=200)
     reason = models.TextField()
     export_location = models.CharField(max_length=1000, null=True, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     error_message = models.TextField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

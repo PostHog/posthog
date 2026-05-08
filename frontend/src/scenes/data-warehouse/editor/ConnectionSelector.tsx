@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconGear } from '@posthog/icons'
+
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import {
@@ -9,6 +12,7 @@ import {
     CONFIGURE_SOURCES,
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
+    getConnectionSelectorValue,
 } from './connectionSelectorLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -16,21 +20,26 @@ const sourceIcon = (src: string): JSX.Element => (
     <img src={src} alt="" width={16} height={16} className="object-contain rounded" />
 )
 
-export function ConnectionSelector(): JSX.Element | null {
-    const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
-    const { connectionSelectOptions, connectionSelectorValue, isDirectQueryEnabled } = useValues(
-        connectionSelectorLogic({ selectedConnectionId })
+interface ConnectionSelectorProps {
+    tabId: string
+}
+
+export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
+    const logic = sqlEditorLogic({ tabId })
+    const { sourceQuery, selectedConnectionId } = useValues(logic)
+    const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
+        useValues(connectionSelectorLogic())
+    const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+    const connectionSelectorValue = getConnectionSelectorValue(
+        connectionOptions,
+        connectionOptionsLoading,
+        selectedConnectionId
     )
-    const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
         sourceQuery as typeof sourceQuery & {
             connectionId?: string
         }
-
-    if (!isDirectQueryEnabled) {
-        return null
-    }
 
     return (
         <LemonSelect
@@ -76,6 +85,15 @@ export function ConnectionSelector(): JSX.Element | null {
                 options: group.options.map((option) => ({
                     ...option,
                     icon: option.iconSrc ? sourceIcon(option.iconSrc) : undefined,
+                    sideAction: option.managementUrl
+                        ? {
+                              onClick: () => newInternalTab(option.managementUrl),
+                              icon: <IconGear />,
+                              tooltip: 'Open source settings',
+                              'aria-label': `Open settings for ${option.label}`,
+                              'data-attr': 'connection-selector-source-settings',
+                          }
+                        : undefined,
                 })),
             }))}
         />

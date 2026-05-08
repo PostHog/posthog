@@ -9,12 +9,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AppMetricsResponseApi,
+    AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     HogFlowApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
+    HogFlowTemplatesLogsRetrieveParams,
     HogFlowsListParams,
+    HogFlowsLogsRetrieveParams,
+    HogFlowsMetricsRetrieveParams,
+    HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsSchedulesCreateParams,
     HogFlowsSchedulesListParams,
     PaginatedHogFlowMinimalListApi,
@@ -41,9 +47,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Override list to include global templates from files alongside team templates from DB.
- */
 export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -60,6 +63,9 @@ export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTe
         : `/api/projects/${projectId}/hog_flow_templates/`
 }
 
+/**
+ * Override list to include global templates from files alongside team templates from DB.
+ */
 export const hogFlowTemplatesList = async (
     projectId: string,
     params?: HogFlowTemplatesListParams,
@@ -88,14 +94,14 @@ export const hogFlowTemplatesCreate = async (
     })
 }
 
-/**
- * Check file-based global templates first, then DB team templates.
-The queryset excludes all global templates from DB, so this only returns team templates from DB.
- */
 export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
+/**
+ * Check file-based global templates first, then DB team templates.
+The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
     id: string,
@@ -132,7 +138,7 @@ export const getHogFlowTemplatesPartialUpdateUrl = (projectId: string, id: strin
 export const hogFlowTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowTemplateApi: NonReadonly<PatchedHogFlowTemplateApi>,
+    patchedHogFlowTemplateApi?: NonReadonly<PatchedHogFlowTemplateApi>,
     options?: RequestInit
 ): Promise<HogFlowTemplateApi> => {
     return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesPartialUpdateUrl(projectId, id), {
@@ -154,16 +160,33 @@ export const hogFlowTemplatesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+export const getHogFlowTemplatesLogsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowTemplatesLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flow_templates/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
 }
 
 export const hogFlowTemplatesLogsRetrieve = async (
     projectId: string,
     id: string,
+    params?: HogFlowTemplatesLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -249,7 +272,7 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
@@ -304,6 +327,24 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsBlockedRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/blocked_runs/`
+}
+
+/**
+ * List workflow runs that were blocked by the dedup bug.
+ */
+export const hogFlowsBlockedRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsBlockedRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
 }
@@ -322,40 +363,137 @@ export const hogFlowsInvocationsCreate = async (
     })
 }
 
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string, params?: HogFlowsLogsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/logs/`
 }
 
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
+export const hogFlowsLogsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsMetricsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/metrics/`
+export const getHogFlowsMetricsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsMetricsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/`
 }
 
-export const hogFlowsMetricsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsMetricsRetrieveUrl(projectId, id), {
+export const hogFlowsMetricsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsMetricsRetrieveParams,
+    options?: RequestInit
+): Promise<AppMetricsResponseApi> => {
+    return apiMutator<AppMetricsResponseApi>(getHogFlowsMetricsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsMetricsTotalsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
+export const getHogFlowsMetricsTotalsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsMetricsTotalsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
 }
 
 export const hogFlowsMetricsTotalsRetrieve = async (
     projectId: string,
     id: string,
+    params?: HogFlowsMetricsTotalsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id), {
+): Promise<AppMetricsTotalsResponseApi> => {
+    return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsReplayAllBlockedRunsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/replay_all_blocked_runs/`
+}
+
+/**
+ * Replay all blocked runs in a single bulk call to Node.
+ */
+export const hogFlowsReplayAllBlockedRunsCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsReplayAllBlockedRunsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsReplayBlockedRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/replay_blocked_run/`
+}
+
+/**
+ * Replay a single blocked run. Django fetches the event, Node creates the invocation and writes the log.
+ */
+export const hogFlowsReplayBlockedRunCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsReplayBlockedRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
     })
 }
 
@@ -430,7 +568,7 @@ export const hogFlowsSchedulesPartialUpdate = async (
     projectId: string,
     id: string,
     scheduleId: string,
-    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {

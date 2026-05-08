@@ -100,7 +100,7 @@ export class Logger {
             if (this.transport) {
                 await this.transport.end()
             }
-        } catch (error) {
+        } catch {
             // Ignore errors during shutdown as the transport may already be closed
             // This prevents Jest from hanging on unhandled errors during teardown
         }

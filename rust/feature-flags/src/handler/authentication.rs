@@ -1,3 +1,5 @@
+use axum::http::HeaderMap;
+
 use crate::{
     api::errors::FlagError,
     flags::{flag_request::FlagRequest, flag_service::FlagService},
@@ -28,109 +30,79 @@ pub async fn parse_and_authenticate(
 /// Returns true if the Authorization header contains a Bearer token that matches
 /// the configured internal_request_token.
 pub fn is_internal_request(context: &RequestContext) -> bool {
-    let Some(internal_token) = &context.state.config.internal_request_token else {
+    is_internal_request_inner(
+        context.state.config.internal_request_token.as_deref(),
+        &context.headers,
+    )
+}
+
+fn is_internal_request_inner(internal_token: Option<&str>, headers: &HeaderMap) -> bool {
+    use subtle::ConstantTimeEq;
+
+    let Some(internal_token) = internal_token else {
         // No internal token configured, so no requests are internal
         return false;
     };
 
+    // Trim the configured token so stray whitespace (common in K8s secret mounts
+    // and CI-generated env files) doesn't silently break comparison.
+    let internal_token = internal_token.trim();
+
     // Empty token should never be considered valid
-    if internal_token.trim().is_empty() {
+    if internal_token.is_empty() {
         return false;
     }
 
-    use crate::api::auth::extract_bearer_token;
-
-    if let Some(auth_token) = extract_bearer_token(&context.headers) {
-        // Ensure auth token is not empty either
-        !auth_token.trim().is_empty() && auth_token == *internal_token
-    } else {
-        false
+    match crate::api::auth::extract_bearer_token(headers) {
+        // Trim the wire token symmetrically with the configured one, otherwise
+        // a stray newline on either side breaks comparison silently. Use a
+        // constant-time compare to avoid leaking the configured token via
+        // response-time differences.
+        Some(auth_token) => {
+            let auth_token = auth_token.trim();
+            !auth_token.is_empty()
+                && auth_token
+                    .as_bytes()
+                    .ct_eq(internal_token.as_bytes())
+                    .into()
+        }
+        None => false,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::is_internal_request_inner;
     use axum::http::{HeaderMap, HeaderValue};
-
-    // Test the is_internal_request function directly using a minimal mock approach
-    // We create a custom test struct that matches the expected interface
-
-    struct TestConfig {
-        internal_request_token: Option<String>,
-    }
-
-    struct TestState {
-        config: TestConfig,
-    }
-
-    struct TestRequestContext {
-        state: axum::extract::State<TestState>,
-        headers: HeaderMap,
-    }
-
-    // Mock the is_internal_request function for testing
-    fn test_is_internal_request(context: &TestRequestContext) -> bool {
-        let Some(internal_token) = &context.state.config.internal_request_token else {
-            return false;
-        };
-
-        if internal_token.trim().is_empty() {
-            return false;
-        }
-
-        use crate::api::auth::extract_bearer_token;
-
-        if let Some(auth_token) = extract_bearer_token(&context.headers) {
-            !auth_token.trim().is_empty() && auth_token == *internal_token
-        } else {
-            false
-        }
-    }
-
-    fn create_test_context(
-        internal_token: Option<String>,
-        headers: HeaderMap,
-    ) -> TestRequestContext {
-        TestRequestContext {
-            state: axum::extract::State(TestState {
-                config: TestConfig {
-                    internal_request_token: internal_token,
-                },
-            }),
-            headers,
-        }
-    }
 
     #[test]
     fn test_no_internal_token_configured() {
-        let context = create_test_context(None, HeaderMap::new());
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(None, &HeaderMap::new()));
     }
 
     #[test]
     fn test_blank_internal_token_configured() {
-        let context = create_test_context(Some("".to_string()), HeaderMap::new());
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some(""), &HeaderMap::new()));
     }
 
     #[test]
     fn test_whitespace_internal_token_configured() {
-        let context = create_test_context(Some("   ".to_string()), HeaderMap::new());
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some("   "), &HeaderMap::new()));
     }
 
     #[test]
     fn test_missing_authorization_header() {
-        let context = create_test_context(Some("valid_token".to_string()), HeaderMap::new());
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(
+            Some("valid_token"),
+            &HeaderMap::new()
+        ));
     }
 
     #[test]
     fn test_empty_bearer_value() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", HeaderValue::from_str("Bearer ").unwrap());
-        let context = create_test_context(Some("valid_token".to_string()), headers);
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some("valid_token"), &headers));
     }
 
     #[test]
@@ -140,8 +112,7 @@ mod tests {
             "authorization",
             HeaderValue::from_str("Bearer    ").unwrap(),
         );
-        let context = create_test_context(Some("valid_token".to_string()), headers);
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some("valid_token"), &headers));
     }
 
     #[test]
@@ -151,8 +122,7 @@ mod tests {
             "authorization",
             HeaderValue::from_str("Bearer wrong_token").unwrap(),
         );
-        let context = create_test_context(Some("correct_token".to_string()), headers);
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some("correct_token"), &headers));
     }
 
     #[test]
@@ -162,8 +132,7 @@ mod tests {
             "authorization",
             HeaderValue::from_str("Bearer secret_token").unwrap(),
         );
-        let context = create_test_context(Some("secret_token".to_string()), headers);
-        assert!(test_is_internal_request(&context));
+        assert!(is_internal_request_inner(Some("secret_token"), &headers));
     }
 
     #[test]
@@ -173,9 +142,8 @@ mod tests {
             "authorization",
             HeaderValue::from_str("Bearer secret_token").unwrap(),
         );
-        let context = create_test_context(Some("Secret_Token".to_string()), headers);
         // Should be case sensitive - different case means no match
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some("Secret_Token"), &headers));
     }
 
     #[test]
@@ -185,7 +153,27 @@ mod tests {
             "authorization",
             HeaderValue::from_str("NotBearer valid_token").unwrap(),
         );
-        let context = create_test_context(Some("valid_token".to_string()), headers);
-        assert!(!test_is_internal_request(&context));
+        assert!(!is_internal_request_inner(Some("valid_token"), &headers));
+    }
+
+    #[test]
+    fn test_configured_token_with_trailing_whitespace_matches() {
+        // Simulates K8s secret mount / env file leaving a trailing newline on the configured value.
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("Bearer secret_token").unwrap(),
+        );
+        assert!(is_internal_request_inner(Some("secret_token\n"), &headers));
+    }
+
+    #[test]
+    fn test_different_length_tokens_do_not_match() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("Bearer secret").unwrap(),
+        );
+        assert!(!is_internal_request_inner(Some("secret_token"), &headers));
     }
 }

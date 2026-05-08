@@ -1,18 +1,37 @@
+import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import uuid4
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
-from products.logs.backend.alert_check_query import BucketedCount
+from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+
+
+def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: str) -> dict:
+    return {
+        "uuid": uuid,
+        "team_id": team_id,
+        "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "body": body,
+        "severity_text": "info",
+        "severity_number": 9,
+        "service_name": service,
+        "resource_attributes": {},
+        "attributes_map_str": {},
+    }
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -48,6 +67,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["threshold_count"] == 10
         assert data["state"] == "not_firing"
         assert data["enabled"] is True
+        assert data["first_enabled_at"] is not None
         assert data["created_by"]["id"] == self.user.pk
         assert data["filters"] == {"severityLevels": ["error"]}
 
@@ -77,7 +97,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_last_error_message_null_when_no_errored_check(self):
         created = self._create_via_api()
         alert = LogsAlertConfiguration.objects.get(pk=created["id"])
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
         )
 
@@ -89,21 +109,21 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_last_error_message_returns_most_recent_errored_check(self):
         created = self._create_via_api()
         alert = LogsAlertConfiguration.objects.get(pk=created["id"])
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
             state_after="errored",
             error_message="Earlier timeout",
         )
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
             state_after="errored",
             error_message="Latest ClickHouse timeout",
         )
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
         )
 
@@ -111,6 +131,35 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["last_error_message"] == "Latest ClickHouse timeout"
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    def test_last_error_message_excludes_non_check_kinds(self, _name, non_check_kind):
+        # A control-plane row that happens to carry an error_message (e.g. a failed reset
+        # audit row in a hypothetical future shape) must not bleed into the user-facing
+        # last_error_message field — only worker CHECK rows should source it.
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Real CH timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="This should not surface",
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Real CH timeout"
 
     def test_update(self):
         created = self._create_via_api()
@@ -214,6 +263,93 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    # --- Draft creation (enabled=false stub) ---
+
+    def test_create_with_empty_payload_creates_draft(self):
+        response = self.client.post(self.base_url, {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["name"] == "Untitled alert"
+        assert data["enabled"] is False
+        assert data["first_enabled_at"] is None
+        assert data["threshold_count"] == 100
+        assert data["filters"] == {}
+
+    def test_create_disabled_with_empty_filters_succeeds(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Just naming", "enabled": False, "threshold_count": 5},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_enabled_without_filters_fails(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Bad", "enabled": True, "threshold_count": 5},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    # --- first_enabled_at stamping ---
+
+    def test_first_enabled_at_stamped_on_first_enable(self):
+        created = self._create_via_api(enabled=False)
+        alert_id = created["id"]
+        assert created["first_enabled_at"] is None
+
+        response = self.client.patch(
+            f"{self.base_url}{alert_id}/",
+            {"enabled": True, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["first_enabled_at"] is not None
+
+    def test_first_enabled_at_not_overwritten_on_subsequent_enable(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        first_stamp = self.client.get(f"{self.base_url}{alert_id}/").json()["first_enabled_at"]
+        assert first_stamp is not None
+
+        self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": False}, format="json")
+        response = self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["first_enabled_at"] == first_stamp
+
+    def test_enable_with_empty_filters_returns_400(self):
+        create_response = self.client.post(self.base_url, {"enabled": False}, format="json")
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        alert_id = create_response.json()["id"]
+        response = self.client.patch(
+            f"{self.base_url}{alert_id}/",
+            {"enabled": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    def test_patch_empty_name_falls_back_to_default(self):
+        created = self._create_via_api(name="My alert")
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": ""},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Untitled alert"
+
+    def test_patch_whitespace_name_falls_back_to_default(self):
+        created = self._create_via_api(name="My alert")
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "   "},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Untitled alert"
+
     @parameterized.expand(
         [
             ("list", []),
@@ -257,7 +393,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @parameterized.expand([(2,), (7,), (45,), (120,)])
+    @parameterized.expand([(1,), (2,), (7,), (45,), (120,)])
     def test_create_rejects_invalid_window(self, window):
         response = self.client.post(
             self.base_url,
@@ -288,7 +424,13 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- Per-team limit ---
 
-    def test_per_team_limit(self):
+    @parameterized.expand(
+        [
+            ("capped", False, status.HTTP_400_BAD_REQUEST, MAX_ALERTS_PER_TEAM),
+            ("uncapped", True, status.HTTP_201_CREATED, MAX_ALERTS_PER_TEAM + 1),
+        ]
+    )
+    def test_per_team_limit(self, _name, uncapped, expected_status, expected_count):
         for i in range(MAX_ALERTS_PER_TEAM):
             LogsAlertConfiguration.objects.create(
                 team=self.team,
@@ -298,13 +440,15 @@ class TestLogsAlertAPI(APIBaseTest):
                 filters={"severityLevels": ["error"]},
             )
 
-        response = self.client.post(
-            self.base_url,
-            self._valid_payload(name="One too many"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum" in str(response.json())
+        patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
+        with patch("products.logs.backend.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+            response = self.client.post(
+                self.base_url,
+                self._valid_payload(name="Boundary"),
+                format="json",
+            )
+        assert response.status_code == expected_status
+        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == expected_count
 
     # --- Read-only fields ---
 
@@ -329,7 +473,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["enabled"] is True
         assert data["threshold_operator"] == "above"
         assert data["window_minutes"] == 5
-        assert data["check_interval_minutes"] == 1
+        assert data["check_interval_minutes"] == 5
         assert data["evaluation_periods"] == 1
         assert data["datapoints_to_alarm"] == 1
         assert data["cooldown_minutes"] == 0
@@ -572,11 +716,16 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 3  # firing + resolved + broken
+        assert len(ids) == 4  # firing + resolved + broken + errored
 
         hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
         event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
-        assert event_ids == ["$logs_alert_auto_disabled", "$logs_alert_firing", "$logs_alert_resolved"]
+        assert event_ids == [
+            "$logs_alert_auto_disabled",
+            "$logs_alert_errored",
+            "$logs_alert_firing",
+            "$logs_alert_resolved",
+        ]
         for hf in hog_functions:
             assert hf.template_id == "template-slack"
             inputs = hf.inputs or {}
@@ -607,7 +756,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 3
+        assert len(ids) == 4  # firing + resolved + broken + errored
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
@@ -615,7 +764,12 @@ class TestLogsAlertAPI(APIBaseTest):
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
-            assert body["event"] in ("firing", "resolved", "broken")
+            assert body["type"] in (
+                "logs_alert.firing",
+                "logs_alert.resolved",
+                "logs_alert.auto_disabled",
+                "logs_alert.errored",
+            )
 
     @parameterized.expand(
         [
@@ -762,6 +916,391 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "state" in changed_fields
         assert "consecutive_failures" in changed_fields
 
+    # --- Control-plane event rows ---
+
+    def _assert_single_event_row(
+        self,
+        alert_id: str,
+        *,
+        kind: str,
+        state_before: str,
+        state_after: str,
+    ) -> None:
+        events = list(LogsAlertEvent.objects.filter(alert_id=alert_id).order_by("created_at"))
+        assert len(events) == 1, [(e.kind, e.state_before, e.state_after) for e in events]
+        event = events[0]
+        assert event.kind == kind
+        assert event.state_before == state_before
+        assert event.state_after == state_after
+        assert event.error_message is None
+        assert event.result_count is None
+
+    def test_reset_writes_reset_event_row(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=LogsAlertEvent.Kind.RESET,
+            state_before=LogsAlertConfiguration.State.BROKEN.value,
+            state_after=LogsAlertConfiguration.State.NOT_FIRING.value,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "enable",
+                {"enabled": False, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": True},
+                LogsAlertEvent.Kind.ENABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "disable",
+                {"enabled": True, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": False},
+                LogsAlertEvent.Kind.DISABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "snooze",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+                LogsAlertEvent.Kind.SNOOZE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.SNOOZED.value,
+            ),
+            (
+                "unsnooze",
+                # snooze_until goes through .update() (ORM) here, not the API; hence the raw datetime.
+                {
+                    "state": LogsAlertConfiguration.State.SNOOZED,
+                    "snooze_until": datetime.now(UTC) + timedelta(hours=1),
+                },
+                {"snooze_until": None},
+                LogsAlertEvent.Kind.UNSNOOZE,
+                LogsAlertConfiguration.State.SNOOZED.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "threshold_change",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING, "threshold_count": 10},
+                {"threshold_count": 50},
+                LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+        ]
+    )
+    def test_update_writes_control_plane_event_row(
+        self,
+        _name: str,
+        initial_db_state: dict,
+        patch_payload: dict,
+        expected_kind: str,
+        expected_state_before: str,
+        expected_state_after: str,
+    ) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(**initial_db_state)
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", patch_payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=expected_kind,
+            state_before=expected_state_before,
+            state_after=expected_state_after,
+        )
+
+    def test_update_without_control_plane_change_does_not_write_event_row(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+
+        assert not LogsAlertEvent.objects.filter(alert_id=created["id"]).exists()
+
+    # --- Event history ---
+
+    def _events_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/events/"
+
+    def test_events_returns_rows_newest_first(self):
+        created = self._create_via_api()
+        older_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+        newer_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        ids = [row["id"] for row in results]
+        assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
+
+    def test_events_filters_out_quiet_check_rows(self):
+        # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
+        # are kept inline at a cap of 10 per alert — surfacing them in the event history
+        # would bury the interesting transitions. Backend filter pins this contract.
+        created = self._create_via_api()
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="firing",
+            state_after="firing",
+        )
+        transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        errored = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="CH timeout",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(transition.id), str(errored.id)}
+
+    @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
+    def test_events_filter_by_kind(self, kind):
+        created = self._create_via_api()
+        # CHECK rows need a real transition to survive the quiet-row filter; control-plane
+        # kinds are never quiet-filtered so any state pair is fine.
+        kept_before, kept_after = (
+            ("not_firing", "firing") if kind == LogsAlertEvent.Kind.CHECK else ("not_firing", "not_firing")
+        )
+        kept = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=kind,
+            threshold_breached=False,
+            state_before=kept_before,
+            state_after=kept_after,
+        )
+        # Noise row of a different kind with a state transition so it survives the quiet
+        # filter and would show up absent the ?kind= narrowing.
+        other_kind = next(k for k in LogsAlertEvent.Kind.values if k != kind)
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=other_kind,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": kind})
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(kept.id)}
+
+    def test_events_rejects_unknown_kind(self):
+        created = self._create_via_api()
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": "not_a_real_kind"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "kind"
+
+    def test_events_scoped_to_alert_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.get(self._events_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- State timeline ---
+
+    def _make_event_at(self, alert_id: str, when: datetime, **fields) -> LogsAlertEvent:
+        """Create a LogsAlertEvent at a specific timestamp (works around auto_now_add)."""
+        defaults = {
+            "kind": LogsAlertEvent.Kind.CHECK,
+            "threshold_breached": False,
+            "state_before": "not_firing",
+            "state_after": "not_firing",
+        }
+        defaults.update(fields)
+        event = LogsAlertEvent.objects.create(alert_id=alert_id, **defaults)
+        LogsAlertEvent.objects.filter(pk=event.pk).update(created_at=when)
+        event.refresh_from_db()
+        return event
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_single_interval_for_empty_alert(self):
+        created = self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        timeline = response.json()["state_timeline"]
+        assert len(timeline) == 1
+        interval = timeline[0]
+        assert interval["state"] == "not_firing"
+        assert interval["enabled"] is True
+        start = datetime.fromisoformat(interval["start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(interval["end"].replace("Z", "+00:00"))
+        # 24h span, ending at "now".
+        assert (end - start) == timedelta(hours=24)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_splits_on_state_transitions(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 7, 15, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 8, 30, tzinfo=UTC),
+            state_before="firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        timeline = response.json()["state_timeline"]
+        assert [i["state"] for i in timeline] == ["not_firing", "firing", "not_firing"]
+        assert all(i["enabled"] for i in timeline)
+        assert datetime.fromisoformat(timeline[0]["end"].replace("Z", "+00:00")) == datetime(
+            2025, 12, 16, 7, 15, tzinfo=UTC
+        )
+        assert datetime.fromisoformat(timeline[1]["end"].replace("Z", "+00:00")) == datetime(
+            2025, 12, 16, 8, 30, tzinfo=UTC
+        )
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_collapses_same_state_checks(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # Three CHECK events, all not_firing → single collapsed interval.
+        for hour in (7, 8, 9):
+            self._make_event_at(alert_id, datetime(2025, 12, 16, hour, 0, tzinfo=UTC))
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        timeline = response.json()["state_timeline"]
+        assert len(timeline) == 1
+        assert timeline[0]["state"] == "not_firing"
+        assert timeline[0]["enabled"] is True
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_tracks_enable_disable_toggles(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 8, 0, tzinfo=UTC),
+            kind=LogsAlertEvent.Kind.DISABLE,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 30, tzinfo=UTC),
+            kind=LogsAlertEvent.Kind.ENABLE,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        timeline = response.json()["state_timeline"]
+        # Seed from first in-window toggle (DISABLE) → enabled was True before it fired.
+        assert [i["enabled"] for i in timeline] == [True, False, True]
+        assert all(i["state"] == "not_firing" for i in timeline)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_seeds_enabled_from_pre_window_toggle(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # Pre-window DISABLE at 30h ago — no in-window toggles.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 4, 0, tzinfo=UTC),
+            kind=LogsAlertEvent.Kind.DISABLE,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        timeline = response.json()["state_timeline"]
+        assert len(timeline) == 1
+        assert timeline[0]["enabled"] is False
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_state_timeline_excludes_events_older_than_24h(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # 30h before frozen time — outside the window.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 4, 0, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        timeline = response.json()["state_timeline"]
+        # Out-of-window events still seed state_after for the window — but since the pre-window
+        # event left state=firing, and the alert's current state may be stale, we use the first
+        # in-window event's state_before. No in-window events here → fall back to obj.state.
+        assert len(timeline) == 1
+        assert timeline[0]["state"] == "not_firing"
+
     # --- Simulate ---
 
     def _simulate_url(self) -> str:
@@ -778,15 +1317,16 @@ class TestLogsAlertAPI(APIBaseTest):
         defaults.update(overrides)
         return defaults
 
-    def _mock_minute_buckets(self, minute_counts: list[tuple[int, int]]) -> list[BucketedCount]:
-        """Create 1-minute buckets. minute_counts is [(offset_minutes, count), ...]."""
+    def _mock_cadence_buckets(self, offset_counts: list[tuple[int, int]]) -> list[BucketedCount]:
+        """Create cadence-aligned buckets. `offset_counts` is [(offset_minutes_from_base, count), ...].
+        Offsets should be multiples of the simulate cadence (5 min) to land on bucket boundaries."""
         base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
-        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in minute_counts]
+        return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in offset_counts]
 
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_returns_response_shape(self, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (1, 20)])
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (5, 20)])
 
         response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
@@ -804,8 +1344,8 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_fills_empty_minutes(self, mock_query_cls):
-        # Two data points 10 minutes apart — should fill 1-min gaps between them
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 50), (10, 200)])
+        # Two data points 10 minutes apart — should fill 5-min cadence gaps between them
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (10, 200)])
 
         response = self.client.post(
             self._simulate_url(),
@@ -819,14 +1359,16 @@ class TestLogsAlertAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
+                # Single cadence bucket above threshold → fires once.
                 "fires",
-                [(0, 40), (1, 40), (2, 40)],
+                [(0, 150)],
                 {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
                 {"min_fire_count": 1},
             ),
             (
+                # Bucket at cadence 0 fires; cadence 5 (5 min later) drops to 0 → resolves.
                 "fires_and_resolves",
-                [(0, 40), (1, 40), (2, 40)],
+                [(0, 150), (5, 0)],
                 {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5},
                 {"min_fire_count": 1, "min_resolve_count": 1},
             ),
@@ -835,7 +1377,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(buckets)
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(buckets)
 
         response = self.client.post(
             self._simulate_url(),
@@ -851,11 +1393,11 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
-        # window=1 (so rolling sum = per-minute count), 2-of-3 N-of-M
-        # Minutes: 150, 50, 150 — at minute 2, breach_count in window of 3 = 2 >= 2 -> fires
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
-            [(0, 150), (1, 50), (2, 150)]
-        )
+        # window=5, 2-of-3 N-of-M. Cadence-spaced buckets at minute 0 and 5 each have
+        # 150 logs (above threshold=100). At cadence 0 only 1-of-3 has breached, so
+        # alert stays not_firing. At cadence 5 there are 2 consecutive breaches,
+        # satisfying 2-of-3 -> fires. Demonstrates "N-of-M delays firing past first breach".
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 150), (5, 150)])
 
         response = self.client.post(
             self._simulate_url(),
@@ -864,43 +1406,43 @@ class TestLogsAlertAPI(APIBaseTest):
                 threshold_operator="above",
                 evaluation_periods=3,
                 datapoints_to_alarm=2,
-                window_minutes=1,
+                window_minutes=5,
             ),
             format="json",
         )
         data = response.json()
         data_buckets = [b for b in data["buckets"] if b["count"] > 0]
-        # Minute 0: 150 breached, but only 1-of-1 so far -> not_firing
+        # Cadence 0: 150 breached, 1-of-3 -> not_firing
         assert data_buckets[0]["state"] == "not_firing"
-        # Minute 2: 150 breached, now 2-of-3 -> firing
-        assert data_buckets[2]["state"] == "firing"
-        assert data_buckets[2]["notification"] == "fire"
+        # Cadence 5: 150 breached, 2-of-3 satisfied -> fires
+        assert data_buckets[1]["state"] == "firing"
+        assert data_buckets[1]["notification"] == "fire"
 
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
-        # window=1, cooldown=5 min. Fires at minute 1, should suppress re-fire at minute 3.
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
-            [(0, 50), (1, 150), (2, 50), (3, 150), (4, 50)]
-        )
+        # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
+        # rolling sum drops below threshold at minute 5 (spike falls out of window) -> resolves,
+        # second spike at minute 10 would re-fire but cooldown from minute 0 fire suppresses it.
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 200), (10, 200)])
 
         response = self.client.post(
             self._simulate_url(),
             self._simulate_payload(
                 threshold_count=100,
                 threshold_operator="above",
-                cooldown_minutes=5,
-                window_minutes=1,
+                cooldown_minutes=15,
+                window_minutes=5,
             ),
             format="json",
         )
         data = response.json()
         data_buckets = [b for b in data["buckets"] if b["count"] > 0]
-        # Minute 1: fires
-        assert data_buckets[1]["notification"] == "fire"
-        # Minute 3: would fire again, cooldown suppresses
-        assert data_buckets[3]["state"] == "firing"
-        assert data_buckets[3]["notification"] == "none"
+        # Minute 0: fires (index 0 in data_buckets since only 2 raw counts are non-zero)
+        assert data_buckets[0]["notification"] == "fire"
+        # Minute 10: firing again, cooldown suppresses the fire notification
+        assert data_buckets[1]["state"] == "firing"
+        assert data_buckets[1]["notification"] == "none"
         assert data["fire_count"] == 1
 
     @freeze_time("2025-12-16T10:30:00Z")
@@ -942,7 +1484,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_echoes_threshold_config(self, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 10)])
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 10)])
 
         response = self.client.post(
             self._simulate_url(),
@@ -952,3 +1494,396 @@ class TestLogsAlertAPI(APIBaseTest):
         data = response.json()
         assert data["threshold_count"] == 42
         assert data["threshold_operator"] == "below"
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_rolling_window_excludes_current_bucket(self, mock_query_cls):
+        # Regression test: the simulator's rolling sum at bucket time T must
+        # match the actual evaluator's `[T-window, T)` semantics — purely past,
+        # excluding the bucket starting at T (which represents the next 5 min).
+        #
+        # Setup: a single spike of 100 logs at offset 5 min, surrounded by
+        # zero-count buckets. Window = 10 min (buckets_per_window = 2).
+        #
+        # Correct rolling counts at each bucket time T:
+        #   T=0min:  past 10 min = nothing before t=0 → 0
+        #   T=5min:  past 10 min = bucket at t=0 → 0  (spike is FUTURE here)
+        #   T=10min: past 10 min = buckets at t=0,t=5 → 100  (spike enters window)
+        #   T=15min: past 10 min = buckets at t=5,t=10 → 100  (spike still in window)
+        #   T=20min: past 10 min = buckets at t=10,t=15 → 0  (spike aged out)
+        #
+        # The pre-fix code was off-by-one and would have reported 100 at T=5
+        # (including the spike's own bucket as "past" data).
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(
+            [(0, 0), (5, 100), (10, 0), (15, 0), (20, 0)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=10, threshold_count=50, date_from="-1h"),
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
+        rolling_by_offset = {}
+        for bucket in data["buckets"]:
+            ts = datetime.fromisoformat(bucket["timestamp"])
+            offset_min = int((ts - base).total_seconds() / 60)
+            rolling_by_offset[offset_min] = bucket["count"]
+
+        expected = {0: 0, 5: 0, 10: 100, 15: 100, 20: 0}
+        for offset_min, expected_count in expected.items():
+            assert rolling_by_offset.get(offset_min) == expected_count, (
+                f"offset={offset_min}min: expected {expected_count}, got {rolling_by_offset.get(offset_min)}"
+            )
+
+
+class TestSimulateEvaluatorParity(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+    SERVICE = "parity_test_service"
+    BASE_TIME = datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC)
+    BUCKET_COUNTS = (5, 0, 12, 3, 0, 8, 25, 0, 1, 0, 7, 4)
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        rows = []
+        for bucket_idx, count in enumerate(cls.BUCKET_COUNTS):
+            bucket_start = cls.BASE_TIME + timedelta(minutes=bucket_idx * 5)
+            for log_idx in range(count):
+                ts = bucket_start + timedelta(seconds=30 + log_idx * 5)
+                rows.append(
+                    _make_log_row(
+                        team_id=cls.team.id,
+                        service=cls.SERVICE,
+                        uuid=f"parity-{bucket_idx}-{log_idx}",
+                        ts=ts,
+                        body="parity test",
+                    )
+                )
+        if rows:
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
+    @parameterized.expand(
+        [
+            ("c1_w5_m3", 1, 5, 3),
+            ("c5_w15_m3", 5, 15, 3),
+            ("c10_w30_m3", 10, 30, 3),
+        ]
+    )
+    @freeze_time("2025-12-16T11:30:00Z")
+    def test_simulator_rolling_count_matches_evaluator_at_cadence_steps(
+        self, _name: str, cadence: int, window: int, m: int
+    ) -> None:
+        filters = {"serviceNames": [self.SERVICE]}
+
+        sim_response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": filters,
+                "threshold_count": 100,
+                "threshold_operator": "above",
+                "window_minutes": window,
+                "check_interval_minutes": cadence,
+                "evaluation_periods": m,
+                "datapoints_to_alarm": 1,
+                "date_from": "-2h",
+            },
+            format="json",
+        )
+        assert sim_response.status_code == status.HTTP_200_OK, sim_response.json()
+
+        sim_by_ts = {datetime.fromisoformat(b["timestamp"]): b["count"] for b in sim_response.json()["buckets"]}
+
+        fake_alert = LogsAlertConfiguration(
+            team=self.team,
+            filters=filters,
+            threshold_count=100,
+            threshold_operator="above",
+            window_minutes=window,
+            check_interval_minutes=cadence,
+            evaluation_periods=m,
+        )
+
+        last_bucket_end = self.BASE_TIME + timedelta(minutes=len(self.BUCKET_COUNTS) * 5)
+        end = last_bucket_end + timedelta(minutes=window)
+        lookback = window + (m - 1) * cadence
+        nca = self.BASE_TIME
+        while nca <= end:
+            sim_count = sim_by_ts.get(nca)
+            if sim_count is None:
+                nca += timedelta(minutes=cadence)
+                continue
+            eval_buckets = AlertCheckQuery(
+                team=self.team,
+                alert=fake_alert,
+                date_from=nca - timedelta(minutes=lookback),
+                date_to=nca,
+            ).execute_rolling_checks(nca=nca, window_minutes=window, cadence_minutes=cadence, period_count=m)
+            assert sim_count == eval_buckets[-1].count, (
+                f"cadence={cadence}, window={window}, NCA={nca.isoformat()}: "
+                f"sim={sim_count}, eval={eval_buckets[-1].count}"
+            )
+            nca += timedelta(minutes=cadence)
+
+
+class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
+    BASE_TIME = datetime(2026, 5, 3, 10, 0, 0, tzinfo=UTC)
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.service = f"lifecycle_parity_test_{self._testMethodName}"
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self._checkpoint_patcher = patch(
+            "products.logs.backend.alert_check_query.fetch_live_logs_checkpoint",
+            return_value=None,
+        )
+        self._checkpoint_patcher.start()
+        self.addCleanup(self._checkpoint_patcher.stop)
+        self._kafka_patcher = patch(
+            "products.logs.backend.temporal.activities.produce_internal_event",
+            return_value=None,
+        )
+        self._kafka_patcher.start()
+        self.addCleanup(self._kafka_patcher.stop)
+
+    def _insert_logs(self, counts_per_minute: list[int]) -> None:
+        rows = []
+        for minute_idx, count in enumerate(counts_per_minute):
+            minute_start = self.BASE_TIME + timedelta(minutes=minute_idx)
+            for log_idx in range(count):
+                ts = minute_start + timedelta(seconds=15, milliseconds=log_idx * 10)
+                rows.append(
+                    _make_log_row(
+                        team_id=self.team.id,
+                        service=self.service,
+                        uuid=f"lc-{minute_idx:04d}-{log_idx:05d}",
+                        ts=ts,
+                        body="lifecycle test",
+                    )
+                )
+        if rows:
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    def _make_alert(self, **overrides: object) -> LogsAlertConfiguration:
+        from products.logs.backend.alert_state_machine import AlertState
+
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "name": "Lifecycle test alert",
+            "filters": {"serviceNames": [self.service]},
+            "threshold_count": 100,
+            "threshold_operator": "above",
+            "window_minutes": 15,
+            "evaluation_periods": 3,
+            "datapoints_to_alarm": 2,
+            "cooldown_minutes": 0,
+            "check_interval_minutes": 5,
+            "enabled": True,
+            "state": AlertState.NOT_FIRING.value,
+        }
+        defaults.update(overrides)
+        # Pin the test alert to shard 0 so its evaluator NCAs align with the
+        # simulator's canonical-grid bucket boundaries. Without this, the
+        # evaluator advances NCAs onto the alert's shard offset (e.g. :02/:07
+        # instead of :00/:05) and the simulator's :00/:05 bucket evaluations
+        # disagree on event timing.
+        cadence = int(defaults["check_interval_minutes"])
+        while True:
+            candidate = uuid4()
+            if compute_shard_offset_seconds(candidate, cadence) == 0:
+                defaults["id"] = candidate
+                break
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    def _drive_evaluator(
+        self,
+        alert: LogsAlertConfiguration,
+        start_nca: datetime,
+        end_nca: datetime,
+    ) -> list[tuple[datetime, str]]:
+        # Run the sync helpers directly rather than the async activities. The
+        # async path uses `database_sync_to_async_pool`, whose thread-pool
+        # dispatch loses freezegun's clock-patching for this lifecycle test.
+        # The async orchestration is covered by `test_logs_alerting_workflow.py`.
+        from products.logs.backend.temporal.activities import (
+            _cohort_from_manifest,
+            _discover_cohorts_sync,
+            _dispatch_for_alert,
+            _evaluate_single_alert,
+            _finalize_alert,
+            _load_alerts_for_batch,
+            _run_cohort_query,
+            _save_cohort_outcomes,
+        )
+
+        alert.next_check_at = start_nca
+        alert.save(update_fields=["next_check_at"])
+
+        def _one_cycle() -> None:
+            discovery = _discover_cohorts_sync()
+            if not discovery.manifests:
+                return
+            all_ids = {aid for m in discovery.manifests for aid in m.alert_ids}
+            alerts_by_id = _load_alerts_for_batch(all_ids)
+            now = datetime.now(UTC)
+            stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+            for manifest in discovery.manifests:
+                cohort = _cohort_from_manifest(manifest, alerts_by_id)
+                query_result = _run_cohort_query(cohort)
+                for a in cohort.alerts:
+                    evaluation = _evaluate_single_alert(a, now, prefetched=query_result.for_alert(a))
+                    dispatched = _dispatch_for_alert(evaluation, now)
+                    saved, _failed = _save_cohort_outcomes([dispatched], now)
+                    for d in saved:
+                        _finalize_alert(d, 0, stats)
+
+        nca = start_nca
+        while nca <= end_nca:
+            with freeze_time(nca):
+                _one_cycle()
+            nca += timedelta(minutes=alert.check_interval_minutes)
+
+        events: list[tuple[datetime, str]] = []
+        for row in (
+            LogsAlertEvent.objects.filter(alert=alert)
+            .order_by("created_at")
+            .values("created_at", "state_before", "state_after")
+        ):
+            before = row["state_before"]
+            after = row["state_after"]
+            if before == "not_firing" and after == "firing":
+                kind = "fire"
+            elif before == "firing" and after == "not_firing":
+                kind = "resolve"
+            else:
+                continue
+            ts = row["created_at"].replace(second=0, microsecond=0)
+            events.append((ts, kind))
+        return events
+
+    def _run_simulator(
+        self,
+        *,
+        filters: dict,
+        threshold: int,
+        operator: str,
+        window_minutes: int,
+        evaluation_periods: int,
+        datapoints_to_alarm: int,
+        cooldown_minutes: int,
+        date_from: str,
+        check_interval_minutes: int = 5,
+    ) -> list[tuple[datetime, str]]:
+        response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": filters,
+                "threshold_count": threshold,
+                "threshold_operator": operator,
+                "window_minutes": window_minutes,
+                "check_interval_minutes": check_interval_minutes,
+                "evaluation_periods": evaluation_periods,
+                "datapoints_to_alarm": datapoints_to_alarm,
+                "cooldown_minutes": cooldown_minutes,
+                "date_from": date_from,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        events: list[tuple[datetime, str]] = []
+        for bucket in response.json()["buckets"]:
+            notif = bucket["notification"]
+            if notif in ("fire", "resolve"):
+                ts = datetime.fromisoformat(bucket["timestamp"])
+                events.append((ts, notif))
+        return events
+
+    def _filter_events_to_window(
+        self, events: list[tuple[datetime, str]], start: datetime, end: datetime
+    ) -> list[tuple[datetime, str]]:
+        return [(t, k) for t, k in events if start <= t <= end]
+
+    def test_old_burst_does_not_fire_at_later_nca(self):
+        counts = [50] * 30 + [0] * 50
+        self._insert_logs(counts)
+
+        alert = self._make_alert()
+
+        start = self.BASE_TIME + timedelta(minutes=60)
+        end = self.BASE_TIME + timedelta(minutes=80)
+
+        eval_events = self._drive_evaluator(alert, start_nca=start, end_nca=end)
+        eval_events = self._filter_events_to_window(eval_events, start, end)
+
+        assert eval_events == []
+
+    def test_only_one_rolling_window_breaches_does_not_fire(self):
+        counts = [0] * 20 + [8] * 15 + [0] * 40
+        self._insert_logs(counts)
+
+        alert = self._make_alert()
+
+        start = self.BASE_TIME
+        end = self.BASE_TIME + timedelta(minutes=70)
+
+        eval_events = self._drive_evaluator(alert, start_nca=start, end_nca=end)
+        eval_events = self._filter_events_to_window(eval_events, start, end)
+
+        assert eval_events == []
+
+    @parameterized.expand(
+        [
+            ("cadence_1min_window_5", 1, 5),
+            ("cadence_5min_window_15", 5, 15),
+            ("cadence_10min_window_30", 10, 30),
+        ]
+    )
+    def test_lifecycle_parity_at_cadence(self, _name: str, cadence: int, window: int) -> None:
+        # 30min quiet, 30min burst @ 30/min, 60min quiet — long enough that
+        # every cadence's rolling window (max 30min wide) slides off the burst.
+        counts = [0] * 30 + [30] * 30 + [0] * 60
+        self._insert_logs(counts)
+
+        alert = self._make_alert(
+            check_interval_minutes=cadence,
+            window_minutes=window,
+            evaluation_periods=3,
+            datapoints_to_alarm=2,
+        )
+
+        start = self.BASE_TIME
+        end = self.BASE_TIME + timedelta(minutes=110)
+
+        with freeze_time(end + timedelta(minutes=cadence)):
+            sim_events = self._run_simulator(
+                filters={"serviceNames": [self.service]},
+                threshold=100,
+                operator="above",
+                window_minutes=window,
+                evaluation_periods=3,
+                datapoints_to_alarm=2,
+                cooldown_minutes=0,
+                date_from="-3h",
+                check_interval_minutes=cadence,
+            )
+        sim_events = self._filter_events_to_window(sim_events, start, end)
+
+        eval_events = self._drive_evaluator(alert, start_nca=start, end_nca=end)
+        eval_events = self._filter_events_to_window(eval_events, start, end)
+
+        assert eval_events == sim_events, f"cadence={cadence}: eval={eval_events}\nsim={sim_events}"
+        assert any(k == "fire" for _, k in eval_events)
+        assert any(k == "resolve" for _, k in eval_events)

@@ -47,9 +47,10 @@ export interface PaginatedMessageCategoryListApi {
  * * `hog` - hog
  * `liquid` - liquid
  */
-export type Templating186EnumApi = (typeof Templating186EnumApi)[keyof typeof Templating186EnumApi]
+export type HogFunctionTemplatingEnumApi =
+    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
 
-export const Templating186EnumApi = {
+export const HogFunctionTemplatingEnumApi = {
     Hog: 'hog',
     Liquid: 'liquid',
 } as const
@@ -62,7 +63,7 @@ export interface EmailTemplateApi {
 }
 
 export interface MessageTemplateContentApi {
-    templating?: Templating186EnumApi
+    templating?: HogFunctionTemplatingEnumApi
     email?: EmailTemplateApi | null
 }
 
@@ -95,14 +96,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -122,7 +119,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface MessageTemplateApi {

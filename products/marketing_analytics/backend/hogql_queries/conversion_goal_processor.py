@@ -211,6 +211,33 @@ class ConversionGoalProcessor:
             return self._generate_array_based_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
+    def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
+        """Build the per-person array-collection subquery.
+
+        This is the upstream stage of the attribution pipeline: for each
+        person, it groups conversion events and UTM pageviews into parallel
+        arrays. The downstream ``build_attribution_pipeline`` consumes this.
+        """
+        conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
+        where_conditions = self.get_base_where_conditions()
+        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
+        where_conditions.extend(additional_conditions)
+        return self._build_array_collection_subquery(conversion_event, where_conditions)
+
+    def build_attribution_pipeline(self, array_source: ast.SelectQuery) -> ast.SelectQuery:
+        """Apply ARRAY JOIN, attribution and final aggregation on top of an
+        array-collection source."""
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
+
+        if self.config.is_multi_touch:
+            array_join = self._build_multi_touch_array_join_subquery(array_source, attribution_window_seconds)
+            attribution = self._build_multi_touch_attribution_subquery(array_join)
+        else:
+            array_join = self._build_single_touch_array_join_subquery(array_source, attribution_window_seconds)
+            attribution = self._build_single_touch_attribution_subquery(array_join)
+
+        return self._build_final_aggregation_query(attribution)
+
     def _generate_array_based_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
         if self.config.attribution_window_days > 0:
@@ -219,25 +246,8 @@ class ConversionGoalProcessor:
 
     def _generate_funnel_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window"""
-        conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
-
-        # Build complete WHERE conditions
-        where_conditions = self.get_base_where_conditions()
-        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
-        where_conditions.extend(additional_conditions)
-
-        # Build nested query structure for attribution
-        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
-        array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
-
-        if self.config.is_multi_touch:
-            array_join = self._build_multi_touch_array_join_subquery(array_collection, attribution_window_seconds)
-            attribution = self._build_multi_touch_attribution_subquery(array_join)
-        else:
-            array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
-            attribution = self._build_single_touch_attribution_subquery(array_join)
-
-        return self._build_final_aggregation_query(attribution)
+        array_collection = self.build_array_collection_query(additional_conditions)
+        return self.build_attribution_pipeline(array_collection)
 
     def _build_array_collection_subquery(
         self, conversion_event: Optional[str], where_conditions: list[ast.Expr]

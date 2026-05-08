@@ -7,6 +7,7 @@ import types
 import zipfile
 import textwrap
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -166,7 +167,7 @@ def test_render_j2_basic(tmp_path: Path) -> None:
     j2_file = tmp_path / "SKILL.md.j2"
     j2_file.write_text("Hello {{ name }}!\n")
     renderer = SkillRenderer()
-    renderer.env.globals["name"] = "World"
+    cast(dict[str, Any], renderer.env.globals)["name"] = "World"
     result = renderer.render(j2_file)
     assert result == "Hello World!\n"
 
@@ -175,7 +176,7 @@ def test_render_j2_with_conditionals(tmp_path: Path) -> None:
     j2_file = tmp_path / "SKILL.md.j2"
     j2_file.write_text("{% if show %}visible{% else %}hidden{% endif %}\n")
     renderer = SkillRenderer()
-    renderer.env.globals["show"] = True
+    cast(dict[str, Any], renderer.env.globals)["show"] = True
     result = renderer.render(j2_file)
     assert result == "visible"
 

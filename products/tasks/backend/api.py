@@ -1,22 +1,26 @@
 import os
 import json
 import uuid
+import asyncio
 import logging
-import traceback
+import builtins
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
-from django.db.models import F
+from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
 import jsonschema
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -29,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.models.integration import Integration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
@@ -36,6 +41,7 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
+from .access import has_tasks_access
 from .automation_service import (
     delete_automation_schedule,
     run_task_automation,
@@ -47,70 +53,171 @@ from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
-    ErrorResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
     TaskAutomationSerializer,
     TaskListQuerySerializer,
+    TaskRepositoriesResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsFinalizeUploadRequestSerializer,
+    TaskRunArtifactsFinalizeUploadResponseSerializer,
+    TaskRunArtifactsPrepareUploadRequestSerializer,
+    TaskRunArtifactsPrepareUploadResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunBootstrapCreateRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunErrorResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
+    TaskRunStartRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
+    TaskStagedArtifactsFinalizeUploadRequestSerializer,
+    TaskStagedArtifactsFinalizeUploadResponseSerializer,
+    TaskStagedArtifactsPrepareUploadRequestSerializer,
+    TaskStagedArtifactsPrepareUploadResponseSerializer,
+    TaskSummariesRequestSerializer,
+    TaskSummarySerializer,
+    build_task_run_artifact_size_error,
+    get_task_run_artifact_max_size_bytes,
 )
 from .services.connection_token import create_sandbox_connection_token
-from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
+from .services.staged_artifacts import (
+    RUN_ARTIFACT_TTL_DAYS,
+    STAGED_ARTIFACT_TTL_DAYS,
+    build_task_artifact_entry,
+    build_task_staged_artifact_cache_key,
+    build_task_staged_artifact_storage_path,
+    cache_task_staged_artifact,
+    get_safe_artifact_name,
+    get_task_run_artifacts_by_id,
+    get_task_staged_artifacts,
+    tag_task_artifact,
+)
+from .stream.redis_stream import (
+    TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+    TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
+    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+    TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
+    TaskRunRedisStream,
+    TaskRunStreamError,
+    get_task_run_stream_key,
+)
+from .temporal.client import (
+    execute_posthog_code_agent_relay_workflow,
+    execute_task_processing_workflow,
+    resume_task_in_cloud_workflow,
+    signal_task_followup_message,
+)
 from .temporal.process_task.utils import (
     PrAuthorshipMode,
+    RunSource,
     cache_github_user_token,
+    get_pr_authorship_mode,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
     parse_run_state,
+    resolve_user_github_integration_for_task,
+    user_github_integration_is_usable,
 )
 
 logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
+TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
+
+
+def _ensure_task_team_github_integration(task: Task) -> bool:
+    if task.github_integration_id is not None:
+        return True
+
+    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    if github_integration is None:
+        return False
+
+    task.github_integration = github_integration
+    task.save(update_fields=["github_integration", "updated_at"])
+    return True
+
+
+def _resolve_cloud_pr_authorship_mode(
+    task: Task,
+    *,
+    pr_authorship_mode: PrAuthorshipMode | str | None,
+    request_user_id: int | None,
+    github_user_token: str | None,
+) -> tuple[PrAuthorshipMode | str | None, Response | None]:
+    if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
+        return pr_authorship_mode, None
+
+    if task.created_by_id != request_user_id:
+        return None, Response(
+            {
+                "type": "validation_error",
+                "code": "github_authorization_required",
+                "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+                "attr": "pr_authorship_mode",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+    if user_github_integration is not None and user_github_integration_is_usable(user_github_integration):
+        if task.github_user_integration_id != user_github_integration.integration.id:
+            task.github_user_integration = user_github_integration.integration
+            task.save(update_fields=["github_user_integration", "updated_at"])
+        return PrAuthorshipMode.USER, None
+
+    if _ensure_task_team_github_integration(task):
+        return PrAuthorshipMode.BOT, None
+
+    return None, Response(
+        {
+            "type": "validation_error",
+            "code": "github_authorization_required",
+            "detail": ("Link a GitHub account with repo access before running user-authored cloud tasks."),
+            "attr": "pr_authorship_mode",
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
+
+
+def task_visibility_q(user_id: int | None) -> Q:
+    """Filter for tasks visible to the given user.
+
+    A task is visible if its creator matches `user_id`, or if it has no
+    creator at all (legacy unowned tasks remain visible to any team member —
+    they cannot be executed in any case because oauth.py requires
+    `task.created_by` to mint OAuth tokens).
+    """
+    return Q(created_by_id=user_id) | Q(created_by__isnull=True)
+
+
+def task_run_visibility_q(user_id: int | None) -> Q:
+    """`task_visibility_q` traversed via the `task` FK on TaskRun / TaskAutomation."""
+    return Q(task__created_by_id=user_id) | Q(task__created_by__isnull=True)
 
 
 class TasksAccessPermission(BasePermission):
     message = "You need a valid invite code to access this feature."
 
     def has_permission(self, request, view) -> bool:
-        user = request.user
-        if not user or not user.is_authenticated:
-            return False
-
-        # Check 1: feature flag (covers existing enrolled users, staff overrides)
-        org_id = str(view.organization.id)
-        flag_enabled = posthoganalytics.feature_enabled(
-            "tasks",
-            user.distinct_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if flag_enabled:
-            return True
-
-        # Check 2: invite code redemption (covers new invited users)
-        return CodeInviteRedemption.objects.filter(user=user).exists()
+        return has_tasks_access(request.user)
 
 
 @extend_schema(tags=["tasks"])
@@ -139,6 +246,94 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRepositoriesResponseSerializer,
+                description="Distinct repositories used by tasks in the current project.",
+            ),
+        },
+        summary="List distinct task repositories",
+        description="Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="repositories",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def repositories(self, request, **kwargs):
+        repositories = (
+            Task.objects.filter(team=self.team, deleted=False, internal=False)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .exclude(repository__isnull=True)
+            .exclude(repository__exact="")
+            .values_list("repository", flat=True)
+            .distinct()
+            .order_by("repository")
+        )
+        serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskSummariesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskSummarySerializer(many=True),
+                description="Summary fields for the requested tasks",
+            ),
+        },
+        summary="Fetch task summaries by ID",
+        description=(
+            "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
+            "`updated_at`, and the latest run's `status` and `environment`."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Page size for the paginated response.",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Offset into the result set for pagination.",
+            ),
+        ],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="summaries",
+        required_scopes=["task:read"],
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        ids = request.validated_data["ids"]
+        latest_run = (
+            TaskRun.objects.filter(task=OuterRef("pk"))
+            .order_by("-created_at", "-id")
+            .annotate(_data=JSONObject(status="status", environment="environment"))
+        )
+        tasks = (
+            Task.objects.filter(team=self.team, deleted=False, id__in=ids)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+            .order_by("-created_at", "id")
+        )
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            serializer = TaskSummarySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = TaskSummarySerializer(tasks, many=True)
+        return Response(serializer.data)
 
     @validated_request(
         query_serializer=RepositoryReadinessQuerySerializer,
@@ -171,7 +366,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
+        qs = (
+            queryset.filter(team=self.team, deleted=False)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .order_by("-created_at")
+        )
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -188,6 +387,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization = params.get("organization")
         repository = params.get("repository")
         created_by = params.get("created_by")
+        search = params.get("search")
+        status_filter = params.get("status")
 
         if repository:
             repo_str = repository.strip().lower()
@@ -203,16 +404,49 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_by:
             qs = qs.filter(created_by_id=created_by)
 
-        # Only filter by internal on list — retrieve should always work if you have the ID
+        # Only apply list-oriented filters on list — retrieve/update should always work if
+        # you have the ID. Without this guard, a client passing a query param while fetching
+        # a single task by ID would see an unexpected 404 when the task does not match.
         if self.action == "list":
+            if search:
+                search_term = search.strip()
+                if search_term:
+                    search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
+                    # Slugs look like "<team-prefix>-<task_number>". If the search term is a bare
+                    # number, or looks like "<prefix>-<number>", also match by task_number so users
+                    # can find tasks by slug.
+                    number_part = search_term.split("-")[-1].strip()
+                    if number_part.isdigit():
+                        search_q |= Q(task_number=int(number_part))
+                    qs = qs.filter(search_q)
+
+            if status_filter:
+                # `-id` is a deterministic tiebreaker when two runs share a `created_at`
+                # timestamp (e.g. both seeded with `timezone.now()` in the same tick).
+                latest_run_status = (
+                    TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
+                )
+                qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(
+                    _latest_run_status=status_filter
+                )
+
             internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
-            if internal_param is True:
+            if internal_param is True and (settings.DEBUG or self.request.user.is_staff):
                 qs = qs.filter(internal=True)
             else:
                 qs = qs.filter(internal=False)
 
-        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
-        qs = qs.select_related("created_by", "team").prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer), team (slug property),
+        # and GitHub integrations returned on task rows.
+        qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
+            "runs"
+        )
+
+        # `stage` joins through `runs` and can produce duplicate task rows. If any other
+        # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
+        # to run unconditionally).
+        if stage:
+            qs = qs.distinct()
 
         return qs
 
@@ -241,7 +475,155 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             logger.exception(f"Failed to trigger task processing workflow for task {task.id}, run {task_run.id}: {e}")
 
-            logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+    @validated_request(
+        request_serializer=TaskStagedArtifactsPrepareUploadRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskStagedArtifactsPrepareUploadResponseSerializer,
+                description="Prepared staged uploads for the requested artifacts",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+        summary="Prepare staged direct uploads for task attachments",
+        description="Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="staged_artifacts/prepare_upload",
+        required_scopes=["task:write"],
+    )
+    def staged_artifacts_prepare_upload(self, request, pk=None, **kwargs):
+        task = cast(Task, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+
+        prepared_artifacts: list[dict] = []
+        for artifact in artifacts:
+            artifact_id = uuid.uuid4().hex
+            safe_name = get_safe_artifact_name(artifact["name"])
+            storage_path = build_task_staged_artifact_storage_path(task, artifact_id, safe_name)
+            presigned_post = object_storage.get_presigned_post(
+                storage_path,
+                conditions=[
+                    ["content-length-range", 0, artifact["size"] + TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES]
+                ],
+                expiration=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            )
+            if not presigned_post:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            prepared_artifacts.append(
+                {
+                    "id": artifact_id,
+                    "name": safe_name,
+                    "type": artifact["type"],
+                    "source": artifact.get("source") or "",
+                    "size": artifact["size"],
+                    "content_type": artifact.get("content_type") or "",
+                    "storage_path": storage_path,
+                    "expires_in": TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+                    "presigned_post": presigned_post,
+                }
+            )
+
+        serializer = TaskStagedArtifactsPrepareUploadResponseSerializer(
+            {"artifacts": prepared_artifacts},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskStagedArtifactsFinalizeUploadRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskStagedArtifactsFinalizeUploadResponseSerializer,
+                description="Finalized staged artifacts available for the next task run",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+        summary="Finalize staged direct uploads for task attachments",
+        description="Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="staged_artifacts/finalize_upload",
+        required_scopes=["task:write"],
+    )
+    def staged_artifacts_finalize_upload(self, request, pk=None, **kwargs):
+        task = cast(Task, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+        artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
+        finalized_artifacts: list[dict] = []
+
+        for artifact in artifacts:
+            artifact_id = artifact["id"]
+            storage_path = artifact["storage_path"]
+            if not storage_path.startswith(artifact_prefix) or f"/{artifact_id}/" not in storage_path:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Artifact storage path is invalid for this task"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            s3_object = object_storage.head_object(storage_path)
+            if not s3_object:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            content_length = s3_object.get("ContentLength")
+            if not isinstance(content_length, int):
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            safe_name = get_safe_artifact_name(artifact["name"])
+            content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
+            max_size_bytes = get_task_run_artifact_max_size_bytes(
+                safe_name,
+                content_type,
+                artifact.get("type"),
+            )
+            if content_length > max_size_bytes:
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {"error": build_task_run_artifact_size_error(safe_name, max_size_bytes)}
+                    ).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            finalized_artifact = build_task_artifact_entry(
+                artifact_id=artifact_id,
+                name=safe_name,
+                artifact_type=artifact["type"],
+                source=artifact.get("source") or "",
+                size=content_length,
+                content_type=content_type,
+                storage_path=storage_path,
+            )
+            finalized_artifacts.append(finalized_artifact)
+
+        for finalized_artifact in finalized_artifacts:
+            cache_task_staged_artifact(task, finalized_artifact)
+            tag_task_artifact(
+                finalized_artifact["storage_path"],
+                ttl_days=STAGED_ARTIFACT_TTL_DAYS,
+                team_id=task.team_id,
+            )
+
+        serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer(
+            {"artifacts": finalized_artifacts},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
 
     def perform_update(self, serializer):
         task = cast(Task, serializer.instance)
@@ -256,6 +638,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Run task",
@@ -268,7 +651,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         branch = request.validated_data.get("branch")
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
         pending_user_message = request.validated_data.get("pending_user_message")
+        pending_user_artifact_ids = request.validated_data.get("pending_user_artifact_ids") or []
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+        sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
         pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
         run_source = request.validated_data.get("run_source")
         signal_report_id = request.validated_data.get("signal_report_id")
@@ -277,6 +662,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        if run_source == RunSource.SIGNAL_REPORT:
+            pr_authorship_mode = PrAuthorshipMode.BOT
 
         runtime_state_fields = {
             "pr_authorship_mode": pr_authorship_mode,
@@ -290,6 +677,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         extra_state = None
         if pending_user_message is not None:
             extra_state = {"pending_user_message": pending_user_message}
+        if pending_user_artifact_ids:
+            extra_state = extra_state or {}
+            extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
         if initial_permission_mode is not None:
             extra_state = extra_state or {}
             extra_state["initial_permission_mode"] = initial_permission_mode
@@ -355,31 +745,71 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
-        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
+        pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
+            task,
+            pr_authorship_mode=pr_authorship_mode,
+            request_user_id=getattr(request.user, "id", None),
+            github_user_token=github_user_token,
+        )
+        if validation_response is not None:
+            return validation_response
+        if pr_authorship_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["pr_authorship_mode"] = (
+                pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
+            )
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
-            if not sandbox_environment:
-                return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-
-            extra_state = extra_state or {}
-            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
-
-            logger.info(
-                "Applying sandbox environment to task run",
-                extra={
-                    "task_id": str(task.id),
-                    "sandbox_environment_id": str(sandbox_environment.id),
-                    "sandbox_environment_name": sandbox_environment.name,
-                    "network_access_level": sandbox_environment.network_access_level,
-                },
+            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=task.team_id,
+                task_created_by_id=task.created_by_id,
             )
+            if sandbox_environment is None:
+                if sandbox_environment_id_supplied_by_user:
+                    return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
+            else:
+                extra_state = extra_state or {}
+                extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+
+                logger.info(
+                    "Applying sandbox environment to task run",
+                    extra={
+                        "task_id": str(task.id),
+                        "sandbox_environment_id": str(sandbox_environment.id),
+                        "sandbox_environment_name": sandbox_environment.name,
+                        "network_access_level": sandbox_environment.network_access_level,
+                    },
+                )
+
+        staged_artifacts: list[dict[str, Any]] = []
+        if pending_user_artifact_ids:
+            staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
+            if missing_artifact_ids:
+                return Response(
+                    {
+                        "detail": "Some pending_user_artifact_ids are invalid or expired",
+                        "missing_artifact_ids": missing_artifact_ids,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
         task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+        if pending_user_artifact_ids:
+            run_artifacts: list[dict] = []
+            for staged_artifact in staged_artifacts:
+                storage_path = str(staged_artifact["storage_path"])
+                tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+                run_artifacts.append(dict(staged_artifact))
+
+            task_run.artifacts = run_artifacts
+            task_run.save(update_fields=["artifacts", "updated_at"])
+
+            for artifact_id in pending_user_artifact_ids:
+                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
@@ -403,7 +833,11 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_rewrite_rules = {"team_id": "task__team_id"}
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
+        return (
+            queryset.filter(task__team=self.team)
+            .filter(task_run_visibility_q(getattr(self.request.user, "id", None)))
+            .order_by("task__title", "-created_at")
+        )
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
@@ -443,22 +877,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
-    queryset = TaskRun.objects.select_related("task").all()
-    posthog_feature_flag = {
-        "tasks": [
-            "list",
-            "retrieve",
-            "create",
-            "update",
-            "partial_update",
-            "set_output",
-            "append_log",
-            "relay_message",
-            "session_logs",
-            "command",
-            "stream",
-        ]
-    }
+    queryset = TaskRun.objects.select_related(
+        "task", "task__created_by", "task__github_integration", "task__github_user_integration"
+    ).all()
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
@@ -473,20 +894,211 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     @validated_request(
+        request_serializer=TaskRunBootstrapCreateRequestSerializer,
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
         },
         summary="Create task run",
-        description="Create a new run for a specific task.",
+        description="Create a new run for a specific task without starting execution.",
     )
     def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+        task_id = self.kwargs.get("parent_lookup_task_id")
+        if not task_id:
+            raise NotFound("Task ID is required")
+
+        task = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(request.user, "id", None)))
+            .first()
+        )
+        if task is None:
+            raise NotFound("Task not found")
+        environment = request.validated_data.get("environment", TaskRun.Environment.LOCAL)
+        mode = request.validated_data.get("mode", "background")
+        branch = request.validated_data.get("branch")
+        sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+        pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
+        run_source = request.validated_data.get("run_source")
+        signal_report_id = request.validated_data.get("signal_report_id")
+        runtime_adapter = request.validated_data.get("runtime_adapter")
+        model = request.validated_data.get("model")
+        reasoning_effort = request.validated_data.get("reasoning_effort")
+        github_user_token = request.validated_data.get("github_user_token")
+        initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        if run_source == RunSource.SIGNAL_REPORT:
+            pr_authorship_mode = PrAuthorshipMode.BOT
+
+        extra_state: dict[str, Any] | None = None
+        if initial_permission_mode is not None:
+            extra_state = {"initial_permission_mode": initial_permission_mode}
+
+        provider = get_provider_for_runtime_adapter(runtime_adapter)
+        for key, value in {
+            "pr_base_branch": branch,
+            "pr_authorship_mode": pr_authorship_mode,
+            "run_source": run_source,
+            "signal_report_id": signal_report_id,
+            "runtime_adapter": runtime_adapter,
+            "provider": provider,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        }.items():
+            if value is not None:
+                extra_state = extra_state or {}
+                extra_state[key] = value.value if hasattr(value, "value") else value
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        if reasoning_effort_error is not None:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": reasoning_effort_error,
+                    "attr": "reasoning_effort",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
+            task,
+            pr_authorship_mode=pr_authorship_mode,
+            request_user_id=getattr(request.user, "id", None),
+            github_user_token=github_user_token,
+        )
+        if validation_response is not None:
+            return validation_response
+        if pr_authorship_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["pr_authorship_mode"] = (
+                pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
+            )
+
+        if sandbox_environment_id is not None:
+            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=task.team_id,
+                task_created_by_id=task.created_by_id,
+            )
+            if sandbox_environment is None:
+                return Response({"detail": "Invalid sandbox_environment_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+
+            logger.info(
+                "Applying sandbox environment to task run",
+                extra={
+                    "task_id": str(task.id),
+                    "sandbox_environment_id": str(sandbox_environment.id),
+                    "sandbox_environment_name": sandbox_environment.name,
+                    "network_access_level": sandbox_environment.network_access_level,
+                },
+            )
+
+        logger.info(
+            "Creating task run for task %s with mode=%s, branch=%s, environment=%s",
+            task.id,
+            mode,
+            branch,
+            environment,
+        )
+        task_run = task.create_run(
+            environment=environment,
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+        )
+
+        if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
+            cache_github_user_token(str(task_run.id), github_user_token)
+
+        serializer = TaskRunDetailSerializer(task_run, context=self.get_serializer_context())
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=TaskRunStartRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Start task run",
+        description="Start an existing cloud run after any initial run-scoped attachments have been uploaded.",
+    )
+    @action(detail=True, methods=["post"], url_path="start", required_scopes=["task:write"])
+    def start(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        task = task_run.task
+        pending_user_message = request.validated_data.get("pending_user_message")
+        pending_user_artifact_ids = request.validated_data.get("pending_user_artifact_ids") or []
+        startable_statuses = {TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED}
+
+        if task_run.environment != TaskRun.Environment.CLOUD:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if task_run.status not in startable_statuses:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "error": f"Only queued or not_started cloud runs can be started (current status: {task_run.status})"
+                    }
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pending_user_artifact_ids:
+            _, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, pending_user_artifact_ids)
+            if missing_artifact_ids:
+                return Response(
+                    {
+                        "detail": "Some pending_user_artifact_ids are invalid for this run",
+                        "missing_artifact_ids": missing_artifact_ids,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        state_updates: dict[str, Any] = {}
+        if pending_user_message is not None:
+            state_updates["pending_user_message"] = pending_user_message
+        if pending_user_artifact_ids:
+            state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
+
+        previous_state = dict(task_run.state or {})
+        try:
+            if state_updates:
+                TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+                task_run.refresh_from_db()
+
+            logger.info("Triggering workflow for task %s, existing run %s", task.id, task_run.id)
+            self._trigger_workflow(task, task_run, raise_on_error=True)
+        except Exception:
+            if state_updates:
+                rollback_updates = {
+                    key: previous_state[key] for key in state_updates.keys() if key in previous_state
+                } or None
+                rollback_remove_keys = [key for key in state_updates.keys() if key not in previous_state] or None
+                TaskRun.update_state_atomic(
+                    task_run.id,
+                    updates=rollback_updates,
+                    remove_keys=rollback_remove_keys,
+                )
+            raise
+
+        task.refresh_from_db()
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
     @validated_request(
         request_serializer=TaskRunUpdateSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid update data"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Update task run",
@@ -500,7 +1112,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunUpdateSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid update data"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Update task run",
@@ -509,14 +1121,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         has_output_merge = "output" in request.validated_data and isinstance(request.validated_data["output"], dict)
+        has_state_merge = "state" in request.validated_data and isinstance(request.validated_data["state"], dict)
+        state_remove_keys = request.validated_data.get("state_remove_keys") or []
+        has_state_mutation = has_state_merge or bool(state_remove_keys)
+        update_fields: set[str] = set()
 
         with transaction.atomic():
             # Re-fetch with row lock when merging output to prevent concurrent
             # PATCHes (e.g. branch sync + PR URL) from clobbering each other.
-            if has_output_merge:
+            if has_output_merge or has_state_mutation:
                 task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
 
             old_status = task_run.status
+            old_environment = task_run.environment
             old_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
 
             # Update fields from validated data
@@ -524,8 +1141,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if key == "output" and isinstance(value, dict):
                     existing_output = task_run.output if isinstance(task_run.output, dict) else {}
                     setattr(task_run, key, {**existing_output, **value})
+                    update_fields.add(key)
+                    continue
+                if key == "state_remove_keys":
+                    continue
+                if key == "state" and has_state_merge:
+                    existing_state = task_run.state if isinstance(task_run.state, dict) else {}
+                    next_state = dict(existing_state)
+                    for remove_key in state_remove_keys:
+                        next_state.pop(remove_key, None)
+                    next_state.update(value)
+                    setattr(task_run, key, next_state)
+                    update_fields.add(key)
                     continue
                 setattr(task_run, key, value)
+                update_fields.add(key)
+
+            if state_remove_keys and not has_state_merge:
+                existing_state = task_run.state if isinstance(task_run.state, dict) else {}
+                next_state = dict(existing_state)
+                for remove_key in state_remove_keys:
+                    next_state.pop(remove_key, None)
+                task_run.state = next_state
+                update_fields.add("state")
 
             new_status = request.validated_data.get("status")
             terminal_statuses = [
@@ -538,8 +1176,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if new_status in terminal_statuses:
                 if not task_run.completed_at:
                     task_run.completed_at = timezone.now()
+                    update_fields.add("completed_at")
 
-            task_run.save()
+            update_fields.add("updated_at")
+            task_run.save(update_fields=list(update_fields))
             task_run.publish_stream_state_event()
 
         update_automation_run_result(task_run)
@@ -552,6 +1192,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 new_status,
                 request.validated_data.get("error_message"),
             )
+        new_environment = request.validated_data.get("environment")
+        if new_environment == "local" and old_environment == TaskRun.Environment.CLOUD:
+            self._signal_workflow_completion(task_run, "cancelled", "handoff")
+
         new_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
         if new_pr_url and new_pr_url != old_pr_url:
             self._post_slack_update_for_pr(task_run)
@@ -622,8 +1266,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not task_id:
             raise NotFound("Task ID is required")
 
-        # Verify task belongs to team
-        if not Task.objects.filter(id=task_id, team=self.team).exists():
+        task_visible = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .exists()
+        )
+        if not task_visible:
             raise NotFound("Task not found")
 
         return queryset.filter(team=self.team, task_id=task_id)
@@ -635,8 +1283,97 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
-        task = Task.objects.get(id=task_id, team=self.team)
+        task = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .first()
+        )
+        if task is None:
+            raise NotFound("Task not found")
         serializer.save(team=self.team, task=task)
+
+    def _trigger_workflow(self, task: Task, task_run: TaskRun, *, raise_on_error: bool = False) -> None:
+        try:
+            logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, task_run.id)
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+                team_id=task.team.id,
+                user_id=getattr(self.request.user, "id", None),
+            )
+            logger.info("Workflow trigger completed for task %s, run %s", task.id, task_run.id)
+        except Exception as e:
+            logger.exception(
+                "Failed to trigger task processing workflow for task %s, run %s: %s", task.id, task_run.id, e
+            )
+            if raise_on_error:
+                raise
+
+    def _build_artifact_storage_path(self, task_run: TaskRun, artifact_id: str, name: str) -> tuple[str, str]:
+        safe_name = get_safe_artifact_name(name)
+        prefix = task_run.get_artifact_s3_prefix()
+        return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
+
+    @staticmethod
+    def _tag_artifact_object(task_run: TaskRun, storage_path: str) -> None:
+        try:
+            object_storage.tag(
+                storage_path,
+                {
+                    "ttl_days": "30",
+                    "team_id": str(task_run.team_id),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "task_run.artifact_tag_failed",
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "storage_path": storage_path,
+                    "error": str(exc),
+                },
+            )
+
+    @staticmethod
+    def _build_artifact_manifest_entry(
+        *,
+        artifact_id: str,
+        name: str,
+        artifact_type: str,
+        source: str,
+        size: int,
+        content_type: str,
+        storage_path: str,
+        uploaded_at: str,
+    ) -> dict[str, str | int]:
+        return {
+            "id": artifact_id,
+            "name": name,
+            "type": artifact_type,
+            "source": source,
+            "size": size,
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "uploaded_at": uploaded_at,
+        }
+
+    @staticmethod
+    def _find_artifact_manifest_entry(
+        manifest: builtins.list[dict[str, Any]], artifact_id: str, storage_path: str
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                entry
+                for entry in manifest
+                if entry.get("id") == artifact_id or entry.get("storage_path") == storage_path
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _save_artifact_manifest(task_run: TaskRun, manifest: builtins.list[dict[str, Any]]) -> None:
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
 
     @validated_request(
         request_serializer=TaskRunSetOutputRequestSerializer,
@@ -663,7 +1400,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 jsonschema.validate(instance=output_data, schema=task.json_schema)
             except jsonschema.ValidationError as e:
                 return Response(
-                    ErrorResponseSerializer({"error": f"Output validation error: {e.message}"}).data,
+                    TaskRunErrorResponseSerializer({"error": f"Output validation error: {e.message}"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         task_run.output = output_data
@@ -680,7 +1417,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunAppendLogRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Append log entries",
@@ -753,7 +1490,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 extra={"run_id": str(task_run.id)},
             )
             return Response(
-                ErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
+                TaskRunErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response({"status": "accepted", "relay_id": relay_id})
@@ -765,7 +1502,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskRunArtifactsUploadResponseSerializer,
                 description="Run with updated artifact manifest",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Upload artifacts for a task run",
@@ -781,51 +1518,33 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def artifacts(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         artifacts = request.validated_data["artifacts"]
-
-        prefix = task_run.get_artifact_s3_prefix()
-        manifest = list(task_run.artifacts or [])
+        uploaded: list[dict] = []
 
         for artifact in artifacts:
-            safe_name = os.path.basename(artifact["name"]).strip() or "artifact"
-            suffix = uuid.uuid4().hex[:8]
-            storage_path = f"{prefix}/{suffix}_{safe_name}"
+            artifact_id = uuid.uuid4().hex
+            safe_name, storage_path = self._build_artifact_storage_path(task_run, artifact_id, artifact["name"])
 
-            content_bytes = artifact["content"].encode("utf-8")
+            content_bytes = artifact["content_bytes"]
             extras: dict[str, str] = {}
             content_type = artifact.get("content_type")
             if content_type:
                 extras["ContentType"] = content_type
 
             object_storage.write(storage_path, content_bytes, extras or None)
-            try:
-                object_storage.tag(
-                    storage_path,
-                    {
-                        "ttl_days": "30",
-                        "team_id": str(task_run.team_id),
-                    },
-                )
-            except Exception as exc:
-                logger.warning(
-                    "task_run.artifact_tag_failed",
-                    extra={
-                        "task_run_id": str(task_run.id),
-                        "storage_path": storage_path,
-                        "error": str(exc),
-                    },
-                )
+            self._tag_artifact_object(task_run, storage_path)
 
             uploaded_at = timezone.now().isoformat()
-
-            manifest.append(
-                {
-                    "name": safe_name,
-                    "type": artifact["type"],
-                    "size": len(content_bytes),
-                    "content_type": content_type or "",
-                    "storage_path": storage_path,
-                    "uploaded_at": uploaded_at,
-                }
+            uploaded.append(
+                self._build_artifact_manifest_entry(
+                    artifact_id=artifact_id,
+                    name=safe_name,
+                    artifact_type=artifact["type"],
+                    source=artifact.get("source") or "",
+                    size=len(content_bytes),
+                    content_type=content_type or "",
+                    storage_path=storage_path,
+                    uploaded_at=uploaded_at,
+                )
             )
 
             logger.info(
@@ -838,11 +1557,181 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
             )
 
-        task_run.artifacts = manifest
-        task_run.save(update_fields=["artifacts", "updated_at"])
+        with transaction.atomic():
+            task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+            manifest = list(task_run.artifacts or [])
+            manifest.extend(uploaded)
+            self._save_artifact_manifest(task_run, manifest)
 
         serializer = TaskRunArtifactsUploadResponseSerializer(
             {"artifacts": manifest},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsPrepareUploadRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsPrepareUploadResponseSerializer,
+                description="Prepared uploads for the requested artifacts",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Prepare direct uploads for task run artifacts",
+        description="Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/prepare_upload",
+        required_scopes=["task:write"],
+    )
+    def artifacts_prepare_upload(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+
+        prepared_artifacts: list[dict] = []
+
+        for artifact in artifacts:
+            artifact_id = uuid.uuid4().hex
+            safe_name, storage_path = self._build_artifact_storage_path(task_run, artifact_id, artifact["name"])
+            content_type = artifact.get("content_type") or ""
+            conditions: list[list[str | int]] = [
+                ["content-length-range", 0, artifact["size"] + TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES]
+            ]
+
+            presigned_post = object_storage.get_presigned_post(
+                storage_path,
+                conditions=conditions,
+                expiration=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            )
+            if not presigned_post:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            prepared_artifacts.append(
+                {
+                    "id": artifact_id,
+                    "name": safe_name,
+                    "type": artifact["type"],
+                    "source": artifact.get("source") or "",
+                    "size": artifact["size"],
+                    "content_type": content_type,
+                    "storage_path": storage_path,
+                    "expires_in": TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+                    "presigned_post": presigned_post,
+                }
+            )
+
+        serializer = TaskRunArtifactsPrepareUploadResponseSerializer(
+            {"artifacts": prepared_artifacts},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsFinalizeUploadRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsFinalizeUploadResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Finalize direct uploads for task run artifacts",
+        description="Verify directly uploaded S3 objects and attach them to the run artifact manifest.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/finalize_upload",
+        required_scopes=["task:write"],
+    )
+    def artifacts_finalize_upload(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+        manifest = list(task_run.artifacts or [])
+        artifact_prefix = f"{task_run.get_artifact_s3_prefix()}/"
+        finalized_entries: list[dict] = []
+        new_storage_paths: list[str] = []
+
+        for artifact in artifacts:
+            artifact_id = artifact["id"]
+            storage_path = artifact["storage_path"]
+
+            if not storage_path.startswith(artifact_prefix) or f"/{artifact_id[:8]}_" not in storage_path:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Artifact storage path is invalid for this run"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            existing_entry = self._find_artifact_manifest_entry(manifest, artifact_id, storage_path)
+            if existing_entry is not None:
+                # Callers rely on the response to return artifacts uploaded in
+                # this request so they can pass those IDs back with subsequent
+                # user_message commands. Echo the already-finalized entry
+                # instead of the entire cumulative manifest — otherwise prior
+                # turns' artifacts would be re-sent alongside the current ones.
+                finalized_entries.append(existing_entry)
+                continue
+
+            s3_object = object_storage.head_object(storage_path)
+            if not s3_object:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            safe_name = get_safe_artifact_name(artifact["name"])
+            content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
+            content_length = s3_object.get("ContentLength")
+            if not isinstance(content_length, int):
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            max_size_bytes = get_task_run_artifact_max_size_bytes(
+                safe_name,
+                content_type,
+                artifact.get("type"),
+            )
+            if content_length > max_size_bytes:
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {"error": build_task_run_artifact_size_error(safe_name, max_size_bytes)}
+                    ).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            entry = self._build_artifact_manifest_entry(
+                artifact_id=artifact_id,
+                name=safe_name,
+                artifact_type=artifact["type"],
+                source=artifact.get("source") or "",
+                size=content_length,
+                content_type=content_type,
+                storage_path=storage_path,
+                uploaded_at=timezone.now().isoformat(),
+            )
+            manifest.append(entry)
+            finalized_entries.append(entry)
+            new_storage_paths.append(storage_path)
+
+        self._save_artifact_manifest(task_run, manifest)
+
+        for storage_path in new_storage_paths:
+            self._tag_artifact_object(task_run, storage_path)
+
+        serializer = TaskRunArtifactsFinalizeUploadResponseSerializer(
+            {"artifacts": finalized_entries},
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
@@ -854,7 +1743,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskRunArtifactPresignResponseSerializer,
                 description="Presigned URL for the requested artifact",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request"),
             404: OpenApiResponse(description="Artifact not found"),
         },
         summary="Generate presigned URL for an artifact",
@@ -874,14 +1763,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not any(artifact.get("storage_path") == storage_path for artifact in artifacts):
             return Response(
-                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         url = object_storage.get_presigned_url(storage_path)
         if not url:
             return Response(
-                ErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                TaskRunErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -889,21 +1778,100 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
+    @validated_request(
+        request_serializer=TaskRunArtifactPresignRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                description="Artifact content",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request"),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Download an artifact through the backend",
+        description="Streams artifact content for a task run artifact after validating that it belongs to the run.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/download",
+        required_scopes=["task:read"],
+    )
+    def artifacts_download(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        storage_path = request.validated_data["storage_path"]
+
+        # Walk the resume chain so cloud→cloud resume runs can fetch the
+        # git checkpoint pack/index that lives on the prior run they were
+        # forked from.
+        artifact = task_run.find_artifact_in_resume_chain(storage_path)
+
+        if artifact is None:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            content = object_storage.read_bytes(storage_path, missing_ok=True)
+        except Exception:
+            logger.exception(
+                "task_run.artifact_download_failed",
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "storage_path": storage_path,
+                },
+            )
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Unable to read artifact"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if content is None:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact content not found"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        response = HttpResponse(
+            content,
+            content_type=str(artifact.get("content_type") or "application/octet-stream"),
+        )
+        response["Cache-Control"] = "no-cache"
+        response["Content-Disposition"] = (
+            f'attachment; filename="{os.path.basename(str(artifact.get("name") or "artifact"))}"'
+        )
+        return response
+
     @extend_schema(
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run logs",
-        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
+        description=(
+            "Fetch the logs for a task run as JSONL. If the run resumes from "
+            "another (state.resume_from_run_id), each ancestor's log is "
+            "concatenated first (oldest ancestor → ... → this run) so resume "
+            "consumers see a single continuous history and can find the most "
+            "recent git_checkpoint event regardless of which run emitted it."
+        ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         timer = ServerTimingsGathered()
 
+        chain = task_run.get_resume_chain()
         with timer("s3_read"):
-            log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+            parts: list[str] = []
+            for run in chain:
+                chunk = object_storage.read(run.log_url, missing_ok=True) or ""
+                if chunk:
+                    if not chunk.endswith("\n"):
+                        chunk = chunk + "\n"
+                    parts.append(chunk)
+            log_content = "".join(parts)
 
         response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
@@ -925,7 +1893,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["get"],
         url_path="connection_token",
-        required_scopes=["task:read"],
+        required_scopes=["task:write"],
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
@@ -947,15 +1915,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="Agent server response",
             ),
             400: OpenApiResponse(
-                response=ErrorResponseSerializer,
+                response=TaskRunErrorResponseSerializer,
                 description="Invalid command or no active sandbox",
             ),
             404: OpenApiResponse(description="Task run not found"),
-            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+            502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
         },
-        summary="Send command to agent server",
-        description="Forward a JSON-RPC command to the agent server running in the sandbox. "
-        "Supports user_message, cancel, close, permission_response, and set_config_option commands.",
+        summary="Send command to task run",
+        description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
+        "commands to the agent server. Supports user_message, cancel, close, permission_response, "
+        "and set_config_option commands.",
         strict_request_validation=True,
     )
     @action(
@@ -966,18 +1935,57 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        method = request.validated_data["method"]
+        request_id = request.validated_data.get("id")
+        params = request.validated_data.get("params")
+
+        if method == "user_message":
+            command_params = dict(params or {})
+            artifact_ids = command_params.pop("artifact_ids", [])
+            if artifact_ids:
+                _, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
+                if missing_artifact_ids:
+                    return Response(
+                        {
+                            "error": "Some artifact_ids are invalid for this run",
+                            "missing_artifact_ids": missing_artifact_ids,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            try:
+                signal_task_followup_message(
+                    task_run.workflow_id,
+                    command_params.get("content"),
+                    artifact_ids,
+                )
+            except Exception:
+                logger.exception("Failed to signal follow-up message for task run %s", task_run.id)
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            response_payload: dict[str, Any] = {
+                "jsonrpc": request.validated_data["jsonrpc"],
+                "result": {"queued": True},
+            }
+            if request_id is not None:
+                response_payload["id"] = request_id
+            return Response(TaskRunCommandResponseSerializer(response_payload).data)
+
         run_state = parse_run_state(task_run.state)
 
         if not run_state.sandbox_url:
             return Response(
-                ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                TaskRunErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if not self._is_valid_sandbox_url(run_state.sandbox_url):
             logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                TaskRunErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -989,12 +1997,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         command_payload: dict = {
             "jsonrpc": request.validated_data["jsonrpc"],
-            "method": request.validated_data["method"],
+            "method": method,
         }
-        if request.validated_data.get("params"):
-            command_payload["params"] = request.validated_data["params"]
-        if "id" in request.validated_data and request.validated_data["id"] is not None:
-            command_payload["id"] = request.validated_data["id"]
+        if params:
+            command_params = dict(params)
+            if command_params:
+                command_payload["params"] = command_params
+        if request_id is not None:
+            command_payload["id"] = request_id
 
         try:
             agent_response = self._proxy_command_to_agent_server(
@@ -1022,26 +2032,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
 
             return Response(
-                ErrorResponseSerializer({"error": error_msg}).data,
+                TaskRunErrorResponseSerializer({"error": error_msg}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
+                TaskRunErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
             logger.warning(f"Agent server request timed out for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
+                TaskRunErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except Exception:
             logger.exception(f"Failed to proxy command to agent server for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
+                TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -1198,6 +2208,124 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response["Server-Timing"] = timer.to_header_string()
         return response
 
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
+            ),
+        },
+        summary="Resume task run in cloud",
+        description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="resume_in_cloud",
+        required_scopes=["task:write"],
+    )
+    def resume_in_cloud(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        logger.info(
+            "resume_in_cloud_called",
+            extra={
+                "task_run_id": str(task_run.id),
+                "task_id": str(task_run.task_id),
+                "prior_status": task_run.status,
+                "prior_environment": task_run.environment,
+                "prior_state_keys": sorted((task_run.state or {}).keys()),
+                "prior_snapshot_external_id": (task_run.state or {}).get("snapshot_external_id"),
+                "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            },
+        )
+
+        with transaction.atomic():
+            task_run = (
+                TaskRun.objects.select_for_update(of=("self",))
+                .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
+                .get(pk=task_run.pk)
+            )
+
+            is_cloud_active = task_run.environment == TaskRun.Environment.CLOUD and task_run.status in (
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            )
+            if is_cloud_active:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if get_pr_authorship_mode(task_run.task, task_run.state) == PrAuthorshipMode.USER:
+                pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
+                    task_run.task,
+                    pr_authorship_mode=PrAuthorshipMode.USER,
+                    request_user_id=getattr(request.user, "id", None),
+                    github_user_token=None,
+                )
+                if validation_response is not None:
+                    return validation_response
+                if pr_authorship_mode is not None:
+                    task_run.state = {
+                        **(task_run.state or {}),
+                        "pr_authorship_mode": (
+                            pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
+                        ),
+                    }
+
+            prior_status = task_run.status
+            prior_environment = task_run.environment
+            prior_completed_at = task_run.completed_at
+            prior_state = dict(task_run.state or {})
+            task_run.prepare_for_cloud_handoff()
+
+        # Any prior workflow under this ID gets terminated atomically by
+        # TERMINATE_IF_RUNNING inside resume_task_in_cloud_workflow. We
+        # intentionally don't send a separate cancel signal here: it races
+        # with start, and signals are routed by workflow_id so a late signal
+        # could land on the new execution.
+
+        logger.info(
+            "Resuming task run in cloud",
+            extra={
+                "task_run_id": str(task_run.id),
+                "task_id": str(task_run.task_id),
+            },
+        )
+
+        try:
+            resume_task_in_cloud_workflow(str(task_run.id), task_run.workflow_id)
+        except Exception as e:
+            logger.exception(
+                "Failed to trigger handoff workflow",
+                extra={"task_run_id": str(task_run.id), "error": str(e)},
+            )
+            with transaction.atomic():
+                task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+                task_run.status = prior_status
+                task_run.environment = prior_environment
+                task_run.completed_at = prior_completed_at
+                task_run.state = prior_state
+                task_run.error_message = "Failed to start cloud workflow"
+                task_run.save(
+                    update_fields=[
+                        "status",
+                        "environment",
+                        "completed_at",
+                        "state",
+                        "error_message",
+                        "updated_at",
+                    ]
+                )
+            task_run.publish_stream_state_event()
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
     @staticmethod
     def _format_sse_event(data: dict, *, event_id: str | None = None, event_name: str | None = None) -> bytes:
         parts: list[str] = []
@@ -1224,9 +2352,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
-            if not await redis_stream.wait_for_stream():
-                yield format_sse_event({"error": "Stream not available"}, event_name="error")
-                return
+            delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
+            wait_started_at = asyncio.get_running_loop().time()
+            last_keepalive_at = wait_started_at
+
+            while not await redis_stream.exists():
+                now = asyncio.get_running_loop().time()
+                if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
+                    yield format_sse_event({"error": "Stream not available"}, event_name="error")
+                    return
+
+                if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
+                    last_keepalive_at = now
+                    yield format_sse_event(
+                        TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                        event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                    )
+
+                await asyncio.sleep(delay)
+                delay = min(
+                    delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+                    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+                )
 
             start_id = last_event_id or "0"
             if not last_event_id and start_latest:
@@ -1310,7 +2457,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
         responses={
             200: OpenApiResponse(description="Invite code redeemed successfully"),
             400: OpenApiResponse(
-                response=ErrorResponseSerializer,
+                response=TaskRunErrorResponseSerializer,
                 description="Invalid or expired invite code",
             ),
         },
@@ -1325,7 +2472,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             invite_code = CodeInvite.objects.get(code__iexact=code_str)
         except CodeInvite.DoesNotExist:
             return Response(
-                ErrorResponseSerializer({"error": "Invalid invite code"}).data,
+                TaskRunErrorResponseSerializer({"error": "Invalid invite code"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1337,7 +2484,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
             if not invite_code.is_redeemable:
                 return Response(
-                    ErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
+                    TaskRunErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1364,26 +2511,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        user = request.user
-
-        # Check feature flag if we can resolve an org
-        org = getattr(user, "organization", None)
-        if org is not None:
-            org_id = str(org.id)
-            flag_enabled = posthoganalytics.feature_enabled(
-                "tasks",
-                user.distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-            if flag_enabled:
-                return Response({"has_access": True})
-
-        # Fallback: check invite code redemption
-        has_redeemed = CodeInviteRedemption.objects.filter(user=user).exists()
-        return Response({"has_access": has_redeemed})
+        return Response({"has_access": has_tasks_access(request.user)})
 
 
 @extend_schema(tags=["sandbox-environments"])

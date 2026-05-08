@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from langchain_core.messages import HumanMessage
 
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph import (
-    _fill_missing_labels,
+    _apply_fallbacks as _fill_missing_labels,
     run_labeling_agent,
 )
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import ClusterTraceData
@@ -370,11 +370,11 @@ class TestFillMissingLabels:
 
 
 class TestRunLabelingAgentIntegration:
-    @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph._get_llm")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph.create_react_agent")
-    def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_llm):
+    def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm):
         mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
+        mock_get_labeling_llm.return_value = mock_llm
 
         mock_agent = MagicMock()
         mock_create_agent.return_value = mock_agent
@@ -400,11 +400,11 @@ class TestRunLabelingAgentIntegration:
         assert result[1].title == "Cluster 1"
         mock_create_agent.assert_called_once()
 
-    @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph._get_llm")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph.create_react_agent")
-    def test_handles_agent_error_gracefully(self, mock_create_agent, mock_get_llm):
+    def test_handles_agent_error_gracefully(self, mock_create_agent, mock_get_labeling_llm):
         mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
+        mock_get_labeling_llm.return_value = mock_llm
 
         mock_agent = MagicMock()
         mock_create_agent.return_value = mock_agent
@@ -422,11 +422,11 @@ class TestRunLabelingAgentIntegration:
 
         assert result[0].title == "Cluster 0"
 
-    @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph._get_llm")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.llm_analytics.trace_clustering.labeling_agent.graph.create_react_agent")
-    def test_passes_correct_config_to_agent(self, mock_create_agent, mock_get_llm):
+    def test_passes_correct_config_to_agent(self, mock_create_agent, mock_get_labeling_llm):
         mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
+        mock_get_labeling_llm.return_value = mock_llm
 
         mock_agent = MagicMock()
         mock_create_agent.return_value = mock_agent

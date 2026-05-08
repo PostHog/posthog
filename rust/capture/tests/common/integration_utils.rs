@@ -1010,11 +1010,15 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             historical_rerouting_threshold_days,
             is_mirror_deploy,
             verbose_sample_percent,
-            26_214_400, // 25MB default for AI endpoint
-            None,       // ai_blob_storage
-            Some(10),   // request_timeout_seconds
-            None,       // body_chunk_read_timeout_ms
-            256,        // body_read_chunk_size_kb
+            26_214_400,       // 25MB default for AI endpoint
+            None,             // ai_blob_storage
+            Some(10),         // request_timeout_seconds
+            None,             // body_chunk_read_timeout_ms
+            256,              // body_read_chunk_size_kb
+            10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+            50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+            None,             // overflow_limiter
+            None,             // replay_overflow_limiter
         ),
         sink,
     )

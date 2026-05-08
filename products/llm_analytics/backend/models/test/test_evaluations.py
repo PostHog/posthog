@@ -141,17 +141,18 @@ class TestEvaluationModel(BaseTest):
         """
         Django signal should trigger reload on workers when evaluation is saved
         """
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Test Evaluation",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test prompt"},
-            output_type="boolean",
-            output_config={},
-            enabled=True,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            evaluation = Evaluation.objects.create(
+                team=self.team,
+                name="Test Evaluation",
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Test prompt"},
+                output_type="boolean",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
 
         mock_reload.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
 
@@ -160,22 +161,24 @@ class TestEvaluationModel(BaseTest):
         """
         Django signal should trigger reload on workers when evaluation is updated
         """
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Original Name",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test prompt"},
-            output_type="boolean",
-            output_config={},
-            enabled=True,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            evaluation = Evaluation.objects.create(
+                team=self.team,
+                name="Original Name",
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Test prompt"},
+                output_type="boolean",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
 
         mock_reload.reset_mock()
 
-        evaluation.name = "Updated Name"
-        evaluation.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            evaluation.name = "Updated Name"
+            evaluation.save()
 
         mock_reload.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
 

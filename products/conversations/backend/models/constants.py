@@ -5,6 +5,8 @@ class Channel(models.TextChoices):
     WIDGET = "widget", "Widget"
     EMAIL = "email", "Email"
     SLACK = "slack", "Slack"
+    TEAMS = "teams", "Microsoft Teams"
+    GITHUB = "github", "GitHub"
 
 
 class ChannelDetail(models.TextChoices):
@@ -12,9 +14,14 @@ class ChannelDetail(models.TextChoices):
     SLACK_CHANNEL_MESSAGE = "slack_channel_message", "Channel message"
     SLACK_BOT_MENTION = "slack_bot_mention", "Bot mention"
     SLACK_EMOJI_REACTION = "slack_emoji_reaction", "Emoji reaction"
+    # Teams sub-types
+    TEAMS_CHANNEL_MESSAGE = "teams_channel_message", "Teams channel message"
+    TEAMS_BOT_MENTION = "teams_bot_mention", "Teams bot mention"
     # Widget sub-types
     WIDGET_EMBEDDED = "widget_embedded", "Widget"
     WIDGET_API = "widget_api", "API"
+    # GitHub sub-types
+    GITHUB_ISSUE = "github_issue", "GitHub issue"
 
 
 class Status(models.TextChoices):

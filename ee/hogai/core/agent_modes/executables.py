@@ -255,6 +255,21 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "default_headers": headers,
         }
 
+    def _get_agent_mode_posthog_properties(self, state: AssistantState) -> dict[str, Any]:
+        """Telemetry props so $ai_generation events can be scoped to a specific agent mode."""
+        supermode = state.supermode
+        supermode_value: str | None
+        if isinstance(supermode, AgentMode):
+            supermode_value = supermode.value
+        elif isinstance(supermode, str):
+            supermode_value = supermode
+        else:
+            supermode_value = None
+        return {
+            "agent_mode": state.agent_mode_or_default.value,
+            "supermode": supermode_value,
+        }
+
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         model_name = "claude-sonnet-4-6"
         if self._has_legacy_summarize_sessions_messages(state.messages):
@@ -283,6 +298,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             conversation_start_dt=state.start_dt,
             billable=True,
             bypass_proxy=is_routing_through_llm_gateway,
+            posthog_properties=self._get_agent_mode_posthog_properties(state),
             **gateway_kwargs,
         )
 

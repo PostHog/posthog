@@ -1,25 +1,20 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "allow_unknown_events": {
+            "description": "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it).",
+            "type": "boolean"
+        },
         "archived": {
-            "default": false,
             "description": "Whether the experiment is archived.",
             "type": "boolean"
         },
         "conclusion": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
-                            "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -50,161 +45,16 @@
             ],
             "description": "Description of the experiment hypothesis and expected outcomes."
         },
-        "exposure_criteria": {
+        "holdout_id": {
             "anyOf": [
                 {
-                    "properties": {
-                        "exposure_config": {
-                            "anyOf": [
-                                {
-                                    "properties": {
-                                        "event": {
-                                            "description": "Custom exposure event name.",
-                                            "type": "string"
-                                        },
-                                        "kind": {
-                                            "default": "ExperimentEventExposureConfig",
-                                            "enum": ["ExperimentEventExposureConfig"],
-                                            "type": "string"
-                                        },
-                                        "properties": {
-                                            "description": "Event property filters. Pass an empty array if no filters needed.",
-                                            "items": {
-                                                "properties": {
-                                                    "key": {
-                                                        "type": "string"
-                                                    },
-                                                    "label": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "string"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ]
-                                                    },
-                                                    "operator": {
-                                                        "anyOf": [
-                                                            {
-                                                                "enum": [
-                                                                    "exact",
-                                                                    "is_not",
-                                                                    "icontains",
-                                                                    "not_icontains",
-                                                                    "regex",
-                                                                    "not_regex",
-                                                                    "gt",
-                                                                    "gte",
-                                                                    "lt",
-                                                                    "lte",
-                                                                    "is_set",
-                                                                    "is_not_set",
-                                                                    "is_date_exact",
-                                                                    "is_date_before",
-                                                                    "is_date_after",
-                                                                    "between",
-                                                                    "not_between",
-                                                                    "min",
-                                                                    "max",
-                                                                    "in",
-                                                                    "not_in",
-                                                                    "is_cleaned_path_exact",
-                                                                    "flag_evaluates_to",
-                                                                    "semver_eq",
-                                                                    "semver_neq",
-                                                                    "semver_gt",
-                                                                    "semver_gte",
-                                                                    "semver_lt",
-                                                                    "semver_lte",
-                                                                    "semver_tilde",
-                                                                    "semver_caret",
-                                                                    "semver_wildcard",
-                                                                    "icontains_multi",
-                                                                    "not_icontains_multi"
-                                                                ],
-                                                                "type": "string"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ]
-                                                    },
-                                                    "type": {
-                                                        "default": "event",
-                                                        "description": "Event properties",
-                                                        "enum": ["event"],
-                                                        "type": "string"
-                                                    },
-                                                    "value": {
-                                                        "anyOf": [
-                                                            {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
-                                                                        },
-                                                                        "type": "array"
-                                                                    },
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "boolean"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ]
-                                                    }
-                                                },
-                                                "required": ["key"],
-                                                "type": "object"
-                                            },
-                                            "type": "array"
-                                        }
-                                    },
-                                    "required": ["event", "properties"],
-                                    "type": "object"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "filterTestAccounts": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        }
-                    },
-                    "type": "object"
+                    "type": "number"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Exposure configuration including filter test accounts and custom exposure events."
+            "description": "ID of a holdout group to exclude from the experiment."
         },
         "id": {
             "description": "A unique integer value identifying this experiment.",
@@ -229,6 +79,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -240,6 +91,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -262,7 +114,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -308,49 +161,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -362,6 +213,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -371,7 +223,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For retention metrics: completion event."
                             },
                             "conversion_window": {
                                 "anyOf": [
@@ -382,6 +236,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "Conversion window duration."
                             },
                             "denominator": {
@@ -397,6 +252,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -408,6 +264,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -430,7 +287,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -476,49 +334,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -530,6 +386,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -539,7 +396,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: denominator source."
                             },
                             "goal": {
                                 "anyOf": [
@@ -550,11 +409,13 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "Whether higher or lower values indicate success."
                             },
                             "kind": {
+                                "const": "ExperimentMetric",
                                 "default": "ExperimentMetric",
-                                "enum": ["ExperimentMetric"],
                                 "type": "string"
                             },
                             "metric_type": {
@@ -570,6 +431,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "Human-readable metric name."
                             },
                             "numerator": {
@@ -585,6 +447,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -596,6 +459,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -618,7 +482,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -664,49 +529,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -718,6 +581,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -727,7 +591,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: numerator source."
                             },
                             "retention_window_end": {
                                 "anyOf": [
@@ -737,7 +603,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "retention_window_start": {
                                 "anyOf": [
@@ -747,7 +614,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "retention_window_unit": {
                                 "anyOf": [
@@ -758,7 +626,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "series": {
                                 "anyOf": [
@@ -774,6 +643,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
+                                                    "default": null,
                                                     "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                                 },
                                                 "id": {
@@ -785,6 +655,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
+                                                    "default": null,
                                                     "description": "Action ID. Required for ActionsNode."
                                                 },
                                                 "kind": {
@@ -807,7 +678,8 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ]
+                                                                        ],
+                                                                        "default": null
                                                                     },
                                                                     "operator": {
                                                                         "anyOf": [
@@ -853,49 +725,47 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ]
+                                                                        ],
+                                                                        "default": "exact"
                                                                     },
                                                                     "type": {
+                                                                        "const": "event",
                                                                         "default": "event",
                                                                         "description": "Event properties",
-                                                                        "enum": ["event"],
                                                                         "type": "string"
                                                                     },
                                                                     "value": {
                                                                         "anyOf": [
                                                                             {
-                                                                                "anyOf": [
-                                                                                    {
-                                                                                        "items": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "number"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "boolean"
-                                                                                                }
-                                                                                            ]
+                                                                                "items": {
+                                                                                    "anyOf": [
+                                                                                        {
+                                                                                            "type": "string"
                                                                                         },
-                                                                                        "type": "array"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "string"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "number"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "boolean"
-                                                                                    }
-                                                                                ]
+                                                                                        {
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "boolean"
+                                                                                        }
+                                                                                    ]
+                                                                                },
+                                                                                "type": "array"
+                                                                            },
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "number"
+                                                                            },
+                                                                            {
+                                                                                "type": "boolean"
                                                                             },
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ]
+                                                                        ],
+                                                                        "default": null
                                                                     }
                                                                 },
                                                                 "required": ["key"],
@@ -907,6 +777,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
+                                                    "default": null,
                                                     "description": "Event property filters to narrow which events are counted."
                                                 }
                                             },
@@ -919,6 +790,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "For funnel metrics: array of EventsNode/ActionsNode steps."
                             },
                             "source": {
@@ -934,6 +806,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -945,6 +818,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -967,7 +841,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1013,49 +888,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1067,6 +940,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1076,7 +950,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: event source."
                             },
                             "start_event": {
                                 "anyOf": [
@@ -1091,6 +967,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1102,6 +979,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -1124,7 +1002,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1170,49 +1049,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1224,6 +1101,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1233,7 +1111,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For retention metrics: start event."
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -1244,7 +1124,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "uuid": {
                                 "anyOf": [
@@ -1255,6 +1136,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "Unique identifier. Auto-generated if omitted."
                             }
                         },
@@ -1288,6 +1170,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1299,6 +1182,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -1321,7 +1205,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1367,49 +1252,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1421,6 +1304,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1430,7 +1314,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For retention metrics: completion event."
                             },
                             "conversion_window": {
                                 "anyOf": [
@@ -1441,6 +1327,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "Conversion window duration."
                             },
                             "denominator": {
@@ -1456,6 +1343,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1467,6 +1355,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -1489,7 +1378,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1535,49 +1425,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1589,6 +1477,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1598,7 +1487,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: denominator source."
                             },
                             "goal": {
                                 "anyOf": [
@@ -1609,11 +1500,13 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "Whether higher or lower values indicate success."
                             },
                             "kind": {
+                                "const": "ExperimentMetric",
                                 "default": "ExperimentMetric",
-                                "enum": ["ExperimentMetric"],
                                 "type": "string"
                             },
                             "metric_type": {
@@ -1629,6 +1522,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "Human-readable metric name."
                             },
                             "numerator": {
@@ -1644,6 +1538,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1655,6 +1550,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -1677,7 +1573,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1723,49 +1620,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1777,6 +1672,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1786,7 +1682,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For ratio metrics: numerator source."
                             },
                             "retention_window_end": {
                                 "anyOf": [
@@ -1796,7 +1694,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "retention_window_start": {
                                 "anyOf": [
@@ -1806,7 +1705,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "retention_window_unit": {
                                 "anyOf": [
@@ -1817,7 +1717,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "series": {
                                 "anyOf": [
@@ -1833,6 +1734,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
+                                                    "default": null,
                                                     "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                                 },
                                                 "id": {
@@ -1844,6 +1746,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
+                                                    "default": null,
                                                     "description": "Action ID. Required for ActionsNode."
                                                 },
                                                 "kind": {
@@ -1866,7 +1769,8 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ]
+                                                                        ],
+                                                                        "default": null
                                                                     },
                                                                     "operator": {
                                                                         "anyOf": [
@@ -1912,49 +1816,47 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ]
+                                                                        ],
+                                                                        "default": "exact"
                                                                     },
                                                                     "type": {
+                                                                        "const": "event",
                                                                         "default": "event",
                                                                         "description": "Event properties",
-                                                                        "enum": ["event"],
                                                                         "type": "string"
                                                                     },
                                                                     "value": {
                                                                         "anyOf": [
                                                                             {
-                                                                                "anyOf": [
-                                                                                    {
-                                                                                        "items": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "number"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "boolean"
-                                                                                                }
-                                                                                            ]
+                                                                                "items": {
+                                                                                    "anyOf": [
+                                                                                        {
+                                                                                            "type": "string"
                                                                                         },
-                                                                                        "type": "array"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "string"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "number"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "boolean"
-                                                                                    }
-                                                                                ]
+                                                                                        {
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "boolean"
+                                                                                        }
+                                                                                    ]
+                                                                                },
+                                                                                "type": "array"
+                                                                            },
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "number"
+                                                                            },
+                                                                            {
+                                                                                "type": "boolean"
                                                                             },
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ]
+                                                                        ],
+                                                                        "default": null
                                                                     }
                                                                 },
                                                                 "required": ["key"],
@@ -1966,6 +1868,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
+                                                    "default": null,
                                                     "description": "Event property filters to narrow which events are counted."
                                                 }
                                             },
@@ -1978,6 +1881,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "For funnel metrics: array of EventsNode/ActionsNode steps."
                             },
                             "source": {
@@ -1993,6 +1897,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -2004,6 +1909,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -2026,7 +1932,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -2072,49 +1979,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -2126,6 +2031,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -2135,7 +2041,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For mean metrics: event source."
                             },
                             "start_event": {
                                 "anyOf": [
@@ -2150,6 +2058,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -2161,6 +2070,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -2183,7 +2093,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -2229,49 +2140,47 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": "exact"
                                                                 },
                                                                 "type": {
+                                                                    "const": "event",
                                                                     "default": "event",
                                                                     "description": "Event properties",
-                                                                    "enum": ["event"],
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
                                                                     "anyOf": [
                                                                         {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "items": {
-                                                                                        "anyOf": [
-                                                                                            {
-                                                                                                "type": "string"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "number"
-                                                                                            },
-                                                                                            {
-                                                                                                "type": "boolean"
-                                                                                            }
-                                                                                        ]
+                                                                            "items": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "type": "string"
                                                                                     },
-                                                                                    "type": "array"
-                                                                                },
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                                    {
+                                                                                        "type": "number"
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "boolean"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
                                                                         },
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "default": null
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -2283,6 +2192,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -2292,7 +2202,9 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null,
+                                "description": "For retention metrics: start event."
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -2303,7 +2215,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "default": null
                             },
                             "uuid": {
                                 "anyOf": [
@@ -2314,6 +2227,7 @@
                                         "type": "null"
                                     }
                                 ],
+                                "default": null,
                                 "description": "Unique identifier. Auto-generated if omitted."
                             }
                         },
@@ -2343,7 +2257,7 @@
                                     "items": {
                                         "properties": {
                                             "key": {
-                                                "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                                                "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                                                 "type": "string"
                                             },
                                             "name": {
@@ -2355,14 +2269,34 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Human-readable variant name."
                                             },
                                             "rollout_percentage": {
-                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
-                                                "type": "number"
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null
+                                            },
+                                            "split_percent": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "default": null,
+                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
                                             }
                                         },
-                                        "required": ["key", "rollout_percentage"],
+                                        "required": ["key"],
                                         "type": "object"
                                     },
                                     "type": "array"
@@ -2371,7 +2305,8 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split."
+                            "default": null,
+                            "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
                         },
                         "minimum_detectable_effect": {
                             "anyOf": [
@@ -2382,7 +2317,20 @@
                                     "type": "null"
                                 }
                             ],
+                            "default": null,
                             "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
+                        },
+                        "rollout_percentage": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
                         }
                     },
                     "type": "object"
@@ -2391,7 +2339,12 @@
                     "type": "null"
                 }
             ],
-            "description": "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            "description": "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+        },
+        "stats_config": {},
+        "update_feature_flag_params": {
+            "description": "When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

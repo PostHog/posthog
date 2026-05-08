@@ -32,7 +32,7 @@ class TestProcessRunDiffs:
         )
 
         # Process (should complete immediately since no changed snapshots need diffing)
-        process_run_diffs(str(create_result.run_id))
+        process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is completed
         run = api.get_run(create_result.run_id)
@@ -55,7 +55,7 @@ class TestProcessRunDiffs:
             mock.side_effect = Exception("Something went wrong")
 
             with pytest.raises(Exception):
-                process_run_diffs(str(create_result.run_id))
+                process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is marked as failed
         run = api.get_run(create_result.run_id)
@@ -84,8 +84,8 @@ class TestProcessRunDiffs:
 
         # Classification happens at complete_run time
         with patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"Button": "same_hash"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "same_hash"}, 0),
         ):
             logic.complete_run(create_result.run_id)
 
@@ -146,8 +146,8 @@ class TestProcessRunDiffs:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines",
-                return_value={"Button": "old_hash"},
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):

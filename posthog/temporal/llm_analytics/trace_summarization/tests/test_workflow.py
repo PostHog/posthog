@@ -150,6 +150,74 @@ class TestSampleItemsInWindowActivity:
 
             assert len(result) == 0
 
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_skips_when_cohort_filter_references_missing_cohort(self, mock_team):
+        # Cohort referenced by a saved job was deleted between save and run.
+        # Activity should log + return [] rather than raise.
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "id", "value": 999_999, "type": "cohort"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            result = await sample_items_in_window_activity(inputs)
+
+            assert result == []
+            mock_execute.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_skips_when_cohort_filter_references_soft_deleted_cohort(self, mock_team):
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort import Cohort
+
+        cohort = await sync_to_async(Cohort.objects.create)(team=mock_team, name="Stale", deleted=True)
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "id", "value": cohort.id, "type": "cohort"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            result = await sample_items_in_window_activity(inputs)
+
+            assert result == []
+            mock_execute.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_runs_when_cohort_filter_resolves(self, mock_team):
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort import Cohort
+
+        cohort = await sync_to_async(Cohort.objects.create)(team=mock_team, name="VIPs")
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "id", "value": cohort.id, "type": "cohort"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+
+            result = await sample_items_in_window_activity(inputs)
+
+            assert result == []
+            mock_execute.assert_called_once()
+
 
 class TestBatchTraceSummarizationWorkflow:
     def test_parse_inputs_minimal(self):

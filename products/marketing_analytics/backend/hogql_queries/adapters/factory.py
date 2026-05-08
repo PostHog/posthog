@@ -9,7 +9,10 @@ if TYPE_CHECKING:
 
 from posthog.schema import NativeMarketingSource, SourceMap
 
+from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+
+from posthog.temporal.data_imports.sources.meta_ads.schemas import MetaAdsResource
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
@@ -21,10 +24,10 @@ from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads im
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 from ..constants import (
-    FALLBACK_EMPTY_QUERY,
     TABLE_PATTERNS,
     VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
+    build_fallback_empty_query_ast,
 )
 from ..utils import map_url_to_provider
 from .base import (
@@ -312,14 +315,22 @@ class MarketingSourceFactory:
     def _create_metaads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[MetaAdsConfig]:
-        """Create Meta Ads adapter config with campaign and stats tables"""
+        """Create Meta Ads adapter config with campaign, adset, ad and their stats tables.
+
+        The ad-group (adset) and ad tables are optional — picked up when the user has
+        those schemas enabled for sync. When absent, AD_GROUP / AD drill-down levels
+        simply show no data for this source.
+        """
         patterns = TABLE_PATTERNS[NativeMarketingSource.META_ADS]
         campaign_table = None
         campaign_stats_table = None
+        adset_table = None
+        adset_stats_table = None
+        ad_table = None
+        ad_stats_table = None
 
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
-
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
             # Check for campaign table (exclusions apply to schema name only, not user prefix)
@@ -327,21 +338,33 @@ class MarketingSourceFactory:
                 ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
-            # Check for stats table
+            # Check for campaign stats table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
+            # Ad-group / ad tables — match against MetaAdsResource enum values so the
+            # mapping survives schema renames (rather than hardcoded string literals).
+            elif schema_name == MetaAdsResource.Adsets.value:
+                adset_table = table
+            elif schema_name == MetaAdsResource.AdsetStats.value:
+                adset_stats_table = table
+            elif schema_name == MetaAdsResource.Ads.value:
+                ad_table = table
+            elif schema_name == MetaAdsResource.AdStats.value:
+                ad_stats_table = table
 
         if not (campaign_table and campaign_stats_table):
             return None
 
-        config = MetaAdsConfig(
+        return MetaAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,
+            adset_table=adset_table,
+            adset_stats_table=adset_stats_table,
+            ad_table=ad_table,
+            ad_stats_table=ad_stats_table,
             source_id=str(source.id),
         )
-
-        return config
 
     def _create_tiktokads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
@@ -585,24 +608,36 @@ class MarketingSourceFactory:
                 self.logger.exception("Error validating adapter", source_type=adapter.get_source_type(), error=str(e))
         return valid_adapters
 
-    def build_union_query(self, adapters: list[MarketingSourceAdapter]) -> str:
-        """Build union query from all valid adapters"""
+    def build_union_query_ast(self, adapters: list[MarketingSourceAdapter]) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Build union query AST from all valid adapters.
+
+        Returning an AST avoids the expensive parse_select roundtrip (~700 ms
+        for ~10 KB HogQL in cpp-json, ~9 s in the Python parser) that we used
+        to pay on every dashboard render.
+        """
         # Sort adapters by source_id to ensure deterministic UNION ALL ordering
         # This prevents flaky tests where query optimizer reorders UNION ALL clauses
         sorted_adapters = sorted(adapters, key=lambda adapter: adapter.config.source_id)
 
-        queries = []
+        queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
         for adapter in sorted_adapters:
+            # Skip adapters that don't support the current drill-down level (e.g. a
+            # source without ad-group tables synced when the user drills to AD_GROUP).
+            if not adapter.supports_level(self.context.drill_down_level):
+                continue
             try:
-                query = adapter.build_query_string()
-                if query:
+                query = adapter.build_query()
+                if query is not None:
                     queries.append(query)
             except Exception as e:
                 self.logger.exception(
                     "Error building query for adapter", source_type=adapter.get_source_type(), error=str(e)
                 )
 
-        return "\nUNION ALL\n".join(queries) if queries else FALLBACK_EMPTY_QUERY
+        if not queries:
+            return build_fallback_empty_query_ast(drill_down_level=self.context.drill_down_level)
+
+        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
     def _get_schema_id_for_table(self, table: DataWarehouseTable) -> str | None:
         """Get schema ID for a warehouse table"""

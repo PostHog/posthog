@@ -6,6 +6,7 @@ from django.db import transaction
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import ValidationError
 
 from posthog.models import Team, User
@@ -29,7 +30,7 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.resolve_reviewers import (
-    get_org_member_github_login_to_user_map,
+    resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -40,7 +41,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
 
@@ -223,7 +224,9 @@ def _resolve_autostart_assignee(
     whether the report's priority is high enough (lower rank = higher priority).
     Returns the first matching ``User``, or ``None`` if nobody qualifies.
     """
-    login_to_user = get_org_member_github_login_to_user_map(team_id) or {}
+    login_to_user = resolve_org_github_login_to_users(
+        team_id, (str(r["github_login"]) for r in reviewers_content if r.get("github_login"))
+    )
     report_rank = _priority_rank(report_priority)
 
     # Map reviewer github logins to user IDs (preserving reviewer order)
@@ -399,6 +402,7 @@ async def _persist_agentic_report_artefacts(
             reviewers_content=reviewers_content,
         )
     except Exception as error:
+        posthoganalytics.capture_exception(error)
         logger.exception(
             "signals auto-start task failed",
             report_id=report_id,
@@ -409,6 +413,7 @@ async def _persist_agentic_report_artefacts(
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
@@ -437,7 +442,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                branch="master",
                 signal_report_id=input.report_id,
             )
             # 4. Persist artefacts, avoid partial data from failed runs

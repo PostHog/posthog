@@ -11,7 +11,7 @@
  */
 
 import { cssVarsFlat } from './css'
-import { generateShadowCSS } from './shadow'
+import { generateShadowCSS, shadow } from './shadow'
 import { generateSpacingCSS } from './spacing'
 import { generateFontSizeCSS, generateFontFamilyCSS } from './typography'
 
@@ -91,23 +91,16 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
 
         card: [surface(0.995, 0.3, 'light'), surface(0.2, 1.2, 'dark'), 'bg-card'],
-        'card-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-card-foreground'],
-
-        popover: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-popover'],
-        'popover-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-popover-foreground'],
+        // Aliases `foreground` — kept for shadcn API compatibility. Drop once
+        // primitives migrate to plain `text-foreground`.
+        'card-foreground': ['var(--foreground)', 'var(--foreground)', 'text-card-foreground'],
 
         muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
 
-        accent: [surface(0.87, 0.8, 'light'), surface(0.35, 1.2, 'dark'), 'bg-accent'],
-        'accent-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-accent-foreground'],
-
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
-
-        secondary: [oklch(0.31, 0, 0), oklch(0.86, 0, 0), 'bg-secondary'],
-        'secondary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-secondary-foreground'],
 
         // ── Status (independent of theme hue) ─────────
         destructive: [oklch(0.92, 0.03, 32.22), oklch(0.24, 0.03, 2.79), 'bg-destructive'],
@@ -135,17 +128,25 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         input: [surface(0.81, 0.5, 'light'), surface(0.30, 1.5, 'dark'), 'border-input'],
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
-        // ── Interactive fills (reference other tokens) ─
-        'fill-hover': [
-            'oklch(0.87 0 0 / 40%)',
-            'oklch(0.55 0 0 / 25%)',
-            'bg-fill-hover',
+        // ── Interactive fills for default button / interactive elements ───────────
+        // Relative overlays on `--foreground` so hover/selected/expanded keep
+        // the same contrast against any surface (background, muted, card, etc.).
+        // Fixed-alpha gray fills were invisible on `bg-muted` because muted is
+        // itself a near-gray; mixing with foreground flips correctly per theme.
+        'fill-expanded': [
+            'color-mix(in oklab, var(--foreground) 6%, transparent)',
+            'color-mix(in oklab, var(--foreground) 14%, transparent)',
+            'bg-fill-expanded',
         ],
-        'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
         'fill-selected': [
-            'oklch(0.87 0 0 / 20%)',
-            'oklch(0.55 0 0 / 15%)',
+            'color-mix(in oklab, var(--foreground) 6%, transparent)',
+            'color-mix(in oklab, var(--foreground) 10%, transparent)',
             'bg-fill-selected',
+        ],
+        'fill-hover': [
+            'color-mix(in oklab, var(--foreground) 4%, transparent)',
+            'color-mix(in oklab, var(--foreground) 7%, transparent)',
+            'bg-fill-hover',
         ],
     } as const
 }
@@ -157,6 +158,26 @@ export const semanticColors = buildSemanticColors()
 export interface StylesConfig {
     /** Include @layer base reset rules (apps only) */
     includeBaseLayer?: boolean
+    /**
+     * CSS selector to scope all token CSS vars to. When set, vars are only
+     * defined inside elements matching this selector, preventing clashes
+     * with the consumer's existing CSS custom properties.
+     *
+     * Example: `'[data-quill]'` — consumer adds `data-quill` to wrapper
+     * elements. During migration the attribute moves up the DOM tree;
+     * when it reaches `<html>` the scope is effectively global and can
+     * be removed.
+     */
+    scope?: string
+    /**
+     * CSS selector(s) for dark mode. Accepts a single selector or an
+     * array — when multiple are given they are combined with `:is()`
+     * so any of them activates dark mode.
+     *
+     * Default: `['.dark', '[theme="dark"]']` (both `.dark` class and
+     * `theme="dark"` attribute work out of the box).
+     */
+    darkSelector?: string | string[]
 }
 
 // ── Helpers ───────────────────────────────────────────
@@ -173,23 +194,20 @@ export function resolveTheme(mode: 'light' | 'dark'): Record<string, string> {
  *
  * Direct references to `--theme-hue`, `--theme-dark-hue`, `--theme-tint`,
  * or `--primary-light` / `--primary-dark` are validated at module load
- * (see `assertThemeDerivedSyncedWithColors` below). The `fill-*` tokens are transitive — they reference
- * `var(--accent)` / `var(--muted)` rather than a theme var directly, so
- * they can't be auto-detected and must be listed explicitly.
+ * (see `assertThemeDerivedSyncedWithColors` below). The `fill-*` tokens are
+ * transitive — they reference `var(--foreground)` rather than a theme var
+ * directly, so they can't be auto-detected and must be listed explicitly.
  */
 const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'background',
     'card',
-    'popover',
     'muted',
-    'accent',
     'primary',
     'border',
     'input',
-    // Transitive: reference var(--accent) / var(--muted) — must also live
+    // Transitive: reference var(--foreground) / var(--muted) — must also live
     // on `*` to re-evaluate on local overrides.
     'fill-hover',
-    'fill-active',
     'fill-expanded',
     'fill-selected',
 ])
@@ -201,7 +219,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
  * (`[--theme-hue:X]`) would silently fail for it.
  *
  * This runs once at module load. It only catches direct references;
- * transitive references (e.g. `fill-*` → `var(--accent)`) must be kept
+ * transitive references (e.g. `fill-*` → `var(--foreground)`) must be kept
  * in the set manually.
  */
 function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>): void {
@@ -226,10 +244,24 @@ function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>):
 
 assertThemeDerivedSyncedWithColors(semanticColors)
 
+/** Normalize darkSelector option into a single CSS selector string. */
+function resolveDarkSelector(raw?: string | string[]): string {
+    const defaults = ['.dark', '[theme="dark"]']
+    const selectors = raw === undefined ? defaults : typeof raw === 'string' ? [raw] : raw
+    return selectors.length === 1 ? selectors[0] : `:is(${selectors.join(', ')})`
+}
+
 /** Generate color-system.css (:root light + .dark overrides) */
-export function generateColorSystemCSS(theme: ThemeConfig = DEFAULT_THEME): string {
-    const themeVars = (indent = '  '): string =>
+export function generateColorSystemCSS(
+    theme: ThemeConfig = DEFAULT_THEME,
+    opts: Pick<StylesConfig, 'scope' | 'darkSelector'> = {}
+): string {
+    const { scope } = opts
+    const darkSelector = resolveDarkSelector(opts.darkSelector)
+
+    const themeKnobs = (indent = '  '): string =>
         [
+            `${indent}--radius: 0.58rem;`,
             `${indent}--theme-hue: ${theme.hue};`,
             `${indent}--theme-dark-hue: ${theme.darkHue};`,
             `${indent}--theme-tint: ${theme.tint};`,
@@ -254,20 +286,68 @@ export function generateColorSystemCSS(theme: ThemeConfig = DEFAULT_THEME): stri
     const light = partition(0)
     const dark = partition(1)
 
+    // ── Scoped mode ─────────────────────────────────────
+    // All vars gated behind the scope selector to avoid clashing
+    // with the consumer's existing CSS custom properties.
+    if (scope) {
+        const scopeSel = `:is(${scope}, ${scope} *)`
+        // Handle both ancestor-dark (`.dark [data-quill]`) and same-element
+        // dark (`[data-quill].dark`) so dark mode works regardless of where
+        // the dark selector lives relative to the scope element.
+        const darkScopeSel = `:is(${darkSelector} ${scope}, ${scope}${darkSelector}, ${darkSelector} ${scope} *, ${scope}${darkSelector} *)`
+
+        return `/* Auto-generated by @posthog/quill-tokens — do not edit manually */
+
+/*
+ * Scoped output — all token vars are gated behind \`${scope}\` so they
+ * do not clash with the consumer's existing CSS custom properties.
+ * Add the \`${scope.replace(/[[\]]/g, '')}\` attribute to wrapper elements
+ * where quill components are rendered.
+ *
+ * Dark mode: works when the dark selector is on an ancestor of the scope
+ * element (.dark > [data-quill]) OR on the scope element itself
+ * ([data-quill].dark).
+ */
+${scope} {
+  color-scheme: light;
+}
+
+:is(${darkSelector} ${scope}, ${scope}${darkSelector}) {
+  color-scheme: dark;
+}
+
+${scopeSel} {
+${themeKnobs()}
+${cssVarsFlat(light.staticVars)}
+${cssVarsFlat(light.dynamicVars)}
+
+  /* Override Tailwind --color-* theme tokens within scope so utilities
+   * like bg-card, text-foreground, border-border resolve to quill's
+   * values instead of the consumer's global theme. */
+${generateColorMappingsCSS()}
+}
+
+${darkScopeSel} {
+${cssVarsFlat(dark.staticVars)}
+${cssVarsFlat(dark.dynamicVars)}
+}
+`
+    }
+
+    // ── Unscoped mode (default) ─────────────────────────
     return `/* Auto-generated by @posthog/quill-tokens — do not edit manually */
 
 :root {
   color-scheme: light;
 }
 
-.dark {
+${darkSelector} {
   color-scheme: dark;
 }
 
 /* Theme knobs — override these to shift the palette */
 :root {
-  --radius: 0.625rem;
-${themeVars()}
+${themeKnobs()}
 }
 
 /* Static colors (no theme-var references, safe on :root) */
@@ -275,7 +355,7 @@ ${themeVars()}
 ${cssVarsFlat(light.staticVars)}
 }
 
-.dark {
+${darkSelector} {
 ${cssVarsFlat(dark.staticVars)}
 }
 
@@ -288,7 +368,7 @@ ${cssVarsFlat(dark.staticVars)}
 ${cssVarsFlat(light.dynamicVars)}
 }
 
-:is(.dark, .dark *) {
+:is(${darkSelector}, ${darkSelector} *) {
 ${cssVarsFlat(dark.dynamicVars)}
 }
 `
@@ -315,13 +395,31 @@ function generateColorMappingsCSS(): string {
  *  - **App** (includeBaseLayer: true): @theme + base layer resets.
  *    Used by apps/web, apps/storybook.
  */
-export function generateStylesCSS(config: StylesConfig = {}): string {
-    const { includeBaseLayer = false } = config
+/**
+ * Radius materializations, emitted into BOTH `@theme inline` (for Tailwind
+ * utility generation) AND a runtime `:root` block (so BEM CSS can resolve
+ * `var(--radius-*)` at runtime — `@theme inline` alone does not emit to root).
+ */
+const RADIUS_VARS: ReadonlyArray<[string, string]> = [
+    ['--radius-xs', 'calc(var(--radius) - 7px)'],
+    ['--radius-sm', 'calc(var(--radius) - 5px)'],
+    ['--radius-md', 'calc(var(--radius) - 2px)'],
+    ['--radius-lg', 'var(--radius)'],
+    ['--radius-xl', 'calc(var(--radius) + 4px)'],
+    ['--radius-2xl', 'calc(var(--radius) + 8px)'],
+    ['--radius-3xl', 'calc(var(--radius) + 12px)'],
+    ['--radius-4xl', 'calc(var(--radius) + 16px)'],
+]
 
+export function generateStylesCSS(config: StylesConfig = {}): string {
+    const { includeBaseLayer = false, scope } = config
+    const darkSelector = resolveDarkSelector(config.darkSelector)
+
+    const darkVariantBody = `&:is(${darkSelector}, ${darkSelector} *)`
     const lines: string[] = [
         '/* Auto-generated by @posthog/quill-tokens — do not edit manually */',
         '',
-        '@custom-variant dark (&:is(.dark, .dark *));',
+        `@custom-variant dark (${darkVariantBody});`,
     ]
     lines.push('')
 
@@ -348,13 +446,9 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push(generateShadowCSS())
     lines.push('')
     lines.push('  /* --- Radius (derived from --radius base) --- */')
-    lines.push('  --radius-sm: calc(var(--radius) - 4px);')
-    lines.push('  --radius-md: calc(var(--radius) - 2px);')
-    lines.push('  --radius-lg: var(--radius);')
-    lines.push('  --radius-xl: calc(var(--radius) + 4px);')
-    lines.push('  --radius-2xl: calc(var(--radius) + 8px);')
-    lines.push('  --radius-3xl: calc(var(--radius) + 12px);')
-    lines.push('  --radius-4xl: calc(var(--radius) + 16px);')
+    for (const [name, value] of RADIUS_VARS) {
+        lines.push(`  ${name}: ${value};`)
+    }
     lines.push('')
     lines.push('  @keyframes skeleton {')
     lines.push('    to {')
@@ -363,8 +457,8 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('  }')
     lines.push('')
     lines.push('  @keyframes pulse-glow {')
-    lines.push('    0%, 100% { box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-accent)) }')
-    lines.push('    50% { box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-accent)) }')
+    lines.push('    0%, 100% { box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-primary)) }')
+    lines.push('    50% { box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-primary)) }')
     lines.push('  }')
     lines.push('')
     lines.push('  @keyframes horizontal-shake {')
@@ -381,15 +475,35 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('  }')
     lines.push('}')
 
+    // Runtime materialization: `@theme inline` only feeds Tailwind's utility
+    // generator, so BEM CSS that references `var(--radius-*)` / `var(--shadow-*)`
+    // directly needs a real `:root` (or scoped) block at runtime.
+    lines.push('')
+    const runtimeSelector = scope ?? ':root'
+    lines.push(`${runtimeSelector} {`)
+    for (const [name, value] of RADIUS_VARS) {
+        lines.push(`  ${name}: ${value};`)
+    }
+    for (const [name, value] of Object.entries(shadow)) {
+        lines.push(`  --shadow-${name}: ${value};`)
+    }
+    lines.push('}')
+
     if (includeBaseLayer) {
         lines.push('')
         lines.push('@layer base {')
-        lines.push('  * {')
-        lines.push('    @apply border-border outline-ring/50;')
-        lines.push('  }')
-        lines.push('  body {')
-        lines.push('    @apply bg-background text-foreground;')
-        lines.push('  }')
+        if (scope) {
+            lines.push(`  ${scope}, ${scope} * {`)
+            lines.push('    @apply border-border outline-ring/50;')
+            lines.push('  }')
+        } else {
+            lines.push('  * {')
+            lines.push('    @apply border-border outline-ring/50;')
+            lines.push('  }')
+            lines.push('  body {')
+            lines.push('    @apply bg-background text-foreground;')
+            lines.push('  }')
+        }
         lines.push('}')
     }
 

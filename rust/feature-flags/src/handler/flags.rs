@@ -4,6 +4,7 @@ use crate::{
         types::{FlagsQueryParams, FlagsResponse},
     },
     flags::{
+        feature_flag_list::PreparedFlags,
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{FeatureFlag, FeatureFlagList},
         flag_service::FlagService,
@@ -15,6 +16,7 @@ use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{evaluation, types::FeatureFlagEvaluationContext, with_canonical_log};
@@ -130,6 +132,74 @@ fn collect_excluded_by_runtime(
     }
 }
 
+/// Apply caller-supplied flag overrides to ``flags``, returning the keys that
+/// were successfully overridden.
+///
+/// The override map is keyed by flag key alone, so the override payload must
+/// re-state the resolved flag's ``id``, ``team_id``, and ``key``. Mismatches
+/// are dropped with a warning — a caller must not be able to swap one flag's
+/// identity for another (potentially cross-team) by submitting a forged
+/// override payload.
+fn apply_flag_overrides(
+    flags: &mut [FeatureFlag],
+    override_defs: &HashMap<String, Value>,
+) -> Vec<String> {
+    let mut overridden_keys = Vec::new();
+    tracing::debug!("Processing {} override definitions", override_defs.len());
+    for (flag_key, override_def) in override_defs {
+        tracing::debug!("Processing override for flag: {}", flag_key);
+        let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) else {
+            tracing::warn!("Flag not found for override: {}", flag_key);
+            continue;
+        };
+        tracing::trace!(
+            "Found flag to override: {}, current filters: {:?}",
+            flag_key,
+            flag.filters
+        );
+        let override_flag = match serde_json::from_value::<FeatureFlag>(override_def.clone()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to parse override definition for flag {}: {}",
+                    flag_key,
+                    e
+                );
+                tracing::debug!("Override definition: {:?}", override_def);
+                continue;
+            }
+        };
+        // Identity guard: a caller must not be able to use the override to
+        // swap in another flag's identity. The override is keyed by flag_key
+        // alone, so we reject payloads whose embedded key/id/team_id disagree
+        // with the flag we resolved from the team's flag list.
+        if override_flag.key != *flag_key
+            || override_flag.id != flag.id
+            || override_flag.team_id != flag.team_id
+        {
+            tracing::warn!(
+                "Override identity mismatch for flag {}: skipping (override key={:?}, id={}, team_id={}; expected key={:?}, id={}, team_id={})",
+                flag_key,
+                override_flag.key,
+                override_flag.id,
+                override_flag.team_id,
+                flag.key,
+                flag.id,
+                flag.team_id
+            );
+            continue;
+        }
+        tracing::trace!(
+            "Successfully parsed override flag: {}, new filters: {:?}",
+            flag_key,
+            override_flag.filters
+        );
+        *flag = override_flag;
+        overridden_keys.push(flag_key.clone());
+    }
+    overridden_keys
+}
+
 pub async fn fetch_and_filter(
     flag_service: &FlagService,
     team_id: TeamId,
@@ -144,55 +214,28 @@ pub async fn fetch_and_filter(
     // Record cache source in canonical log for observability
     with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
-    let mut flags = flag_result.flag_list.flags;
-    let evaluation_metadata = flag_result.flag_list.evaluation_metadata;
-    let cohorts = flag_result.flag_list.cohorts;
+    let prepared = &flag_result.prepared;
 
-    // Apply override flag definitions if provided
-    if let Some(override_defs) = override_flags_definitions {
-        let mut overridden_keys = Vec::new();
-        tracing::debug!("Processing {} override definitions", override_defs.len());
-        for (flag_key, override_def) in override_defs {
-            tracing::debug!("Processing override for flag: {}", flag_key);
-            // Find the flag to override
-            if let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) {
-                tracing::trace!(
-                    "Found flag to override: {}, current filters: {:?}",
-                    flag_key,
-                    flag.filters
-                );
-                // Parse and apply the override definition
-                match serde_json::from_value::<FeatureFlag>(override_def.clone()) {
-                    Ok(override_flag) => {
-                        tracing::trace!(
-                            "Successfully parsed override flag: {}, new filters: {:?}",
-                            flag_key,
-                            override_flag.filters
-                        );
-                        *flag = override_flag;
-                        overridden_keys.push(flag_key.clone());
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse override definition for flag {}: {}",
-                            flag_key,
-                            e
-                        );
-                        tracing::debug!("Override definition: {:?}", override_def);
-                    }
-                }
-            } else {
-                tracing::warn!("Flag not found for override: {}", flag_key);
+    // Apply override flag definitions if provided. Overrides require a clone
+    // because `prepared.flags` is Arc-backed and shared across requests.
+    let overridden_flags: Option<PreparedFlags> = match override_flags_definitions {
+        Some(override_defs) => {
+            let mut flags_vec: Vec<FeatureFlag> = prepared.flags.iter().cloned().collect();
+            let overridden_keys = apply_flag_overrides(&mut flags_vec, override_defs);
+            if !overridden_keys.is_empty() {
+                with_canonical_log(|log| {
+                    log.flags_overridden = Some(overridden_keys);
+                });
             }
+            Some(PreparedFlags::seal(flags_vec))
         }
+        None => None,
+    };
 
-        // Record override usage in canonical log
-        if !overridden_keys.is_empty() {
-            with_canonical_log(|log| {
-                log.flags_overridden = Some(overridden_keys);
-            });
-        }
-    }
+    let flags: &[FeatureFlag] = match &overridden_flags {
+        Some(p) => p,
+        None => &prepared.flags,
+    };
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
@@ -203,14 +246,14 @@ pub async fn fetch_and_filter(
         .collect();
 
     filtered_out_flag_ids.extend(collect_excluded_by_survey_filter(
-        &flags,
+        flags,
         query_params
             .only_evaluate_survey_feature_flags
             .unwrap_or(false),
     ));
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
-    filtered_out_flag_ids.extend(collect_excluded_by_runtime(&flags, current_runtime));
-    filtered_out_flag_ids.extend(collect_excluded_by_tags(&flags, environment_tags));
+    filtered_out_flag_ids.extend(collect_excluded_by_runtime(flags, current_runtime));
+    filtered_out_flag_ids.extend(collect_excluded_by_tags(flags, environment_tags));
 
     if tracing::enabled!(tracing::Level::DEBUG) {
         let active_count = flags
@@ -226,13 +269,18 @@ pub async fn fetch_and_filter(
         );
     }
 
-    let mut flag_list = FeatureFlagList {
-        flags,
+    // Every shared field of `prepared` is Arc-backed, so this is a handful
+    // of refcount bumps rather than a deep copy of the flag slice, the
+    // `EvaluationMetadata` map, or the cohort vec.
+    let flag_list = FeatureFlagList {
+        flags: match overridden_flags {
+            Some(p) => p,
+            None => PreparedFlags::from_arc(Arc::clone(prepared.flags.as_arc())),
+        },
         filtered_out_flag_ids,
-        evaluation_metadata,
-        cohorts,
+        evaluation_metadata: Arc::clone(&prepared.evaluation_metadata),
+        cohorts: prepared.cohorts.as_ref().map(Arc::clone),
     };
-    flag_list.prepare_regexes();
     Ok(flag_list)
 }
 
@@ -854,5 +902,93 @@ mod tests {
             Some(EvaluationRuntime::Server),
             "Without explicit runtime, should detect server from python user-agent"
         );
+    }
+
+    fn override_payload(id: i32, team_id: i32, key: &str) -> Value {
+        serde_json::json!({
+            "id": id,
+            "team_id": team_id,
+            "name": null,
+            "key": key,
+            "filters": { "groups": [{"properties": [], "rollout_percentage": 50}] },
+            "deleted": false,
+            "active": true,
+        })
+    }
+
+    fn flag_with_team(id: i32, team_id: i32, key: &str) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: id,
+            team_id: team_id,
+            key: key.mock_into()
+        )
+    }
+
+    #[test]
+    fn test_apply_flag_overrides_matching_identity_applies() {
+        let mut flags = vec![flag_with_team(1, 100, "my-flag")];
+        let mut overrides = HashMap::new();
+        overrides.insert("my-flag".to_string(), override_payload(1, 100, "my-flag"));
+
+        let applied = apply_flag_overrides(&mut flags, &overrides);
+
+        assert_eq!(applied, vec!["my-flag".to_string()]);
+        assert_eq!(flags[0].filters.groups[0].rollout_percentage, Some(50.0));
+    }
+
+    #[test]
+    fn test_apply_flag_overrides_rejects_team_id_mismatch() {
+        let mut flags = vec![flag_with_team(1, 100, "my-flag")];
+        let mut overrides = HashMap::new();
+        // Override claims to belong to team 999 — must be rejected to stop a
+        // caller from swapping in another team's identity.
+        overrides.insert("my-flag".to_string(), override_payload(1, 999, "my-flag"));
+
+        let applied = apply_flag_overrides(&mut flags, &overrides);
+
+        assert!(applied.is_empty(), "mismatched team_id must not be applied");
+        assert_eq!(flags[0].team_id, 100, "original team_id must be preserved");
+    }
+
+    #[test]
+    fn test_apply_flag_overrides_rejects_id_mismatch() {
+        let mut flags = vec![flag_with_team(1, 100, "my-flag")];
+        let mut overrides = HashMap::new();
+        overrides.insert("my-flag".to_string(), override_payload(999, 100, "my-flag"));
+
+        let applied = apply_flag_overrides(&mut flags, &overrides);
+
+        assert!(applied.is_empty(), "mismatched id must not be applied");
+        assert_eq!(flags[0].id, 1, "original id must be preserved");
+    }
+
+    #[test]
+    fn test_apply_flag_overrides_rejects_key_mismatch() {
+        let mut flags = vec![flag_with_team(1, 100, "my-flag")];
+        let mut overrides = HashMap::new();
+        // The map is keyed by "my-flag" but the payload's embedded key is
+        // different — reject to keep the keying contract honest.
+        overrides.insert(
+            "my-flag".to_string(),
+            override_payload(1, 100, "other-flag"),
+        );
+
+        let applied = apply_flag_overrides(&mut flags, &overrides);
+
+        assert!(applied.is_empty(), "mismatched key must not be applied");
+    }
+
+    #[test]
+    fn test_apply_flag_overrides_skips_unknown_keys() {
+        let mut flags = vec![flag_with_team(1, 100, "my-flag")];
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "not-in-list".to_string(),
+            override_payload(1, 100, "not-in-list"),
+        );
+
+        let applied = apply_flag_overrides(&mut flags, &overrides);
+
+        assert!(applied.is_empty());
     }
 }

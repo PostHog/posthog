@@ -40,6 +40,12 @@ Key URL patterns:
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
+{{#person_on_events_enabled}}
+Person-on-events mode is enabled. When querying `person.properties.*` on the events table, values reflect what was set at the time the event was ingested, not the person's current value. The same person can have different property values across different events. Do not suggest workarounds for "query-time" person properties.
+{{/person_on_events_enabled}}
+{{^person_on_events_enabled}}
+Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred.
+{{/person_on_events_enabled}}
 """.strip()
 
 # https://platform.openai.com/docs/guides/flex-processing
@@ -102,6 +108,7 @@ class MaxChatMixin(BaseModel):
             "user_full_name": self.user.get_full_name(),
             "user_email": self.user.email,
             "deployment_region": region,
+            "person_on_events_enabled": self.team.person_on_events_querying_enabled,
         }
 
     @sync_to_async

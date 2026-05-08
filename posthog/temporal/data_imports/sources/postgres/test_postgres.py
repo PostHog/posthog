@@ -1,16 +1,38 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 import pytest
+from freezegun import freeze_time
+from unittest import mock
 from unittest.mock import patch
 
 from django.db import connection as django_connection
 
+import psycopg
 import pyarrow as pa
 import structlog
 from psycopg import sql
 
-from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE, MAX_NUMERIC_SCALE
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DEFAULT_NUMERIC_SCALE,
+    MAX_NUMERIC_SCALE,
+    QueryTimeoutException,
+)
+from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
+    WINDOW_MAX_QUERY_CANCELED_RETRIES,
+    WINDOW_MAX_SERIALIZATION_RETRIES,
+    ChildPartition,
+    PartitionStrategy,
+    build_partition_query,
+    derive_upper_bound,
+    get_partition_strategy,
+    is_supported_incremental_type_for_window,
+    iterate_date_windows,
+    iterate_partitions,
+    list_child_partitions,
+    partition_bounds_for_range,
+    should_preserve_asc_sort,
+)
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
@@ -30,6 +52,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_read_replica,
     _normalize_function_names,
     filter_postgres_incremental_fields,
+    get_foreign_keys,
+    get_leading_index_columns,
+    get_postgres_row_count,
+    get_schemas,
 )
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -97,6 +123,193 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Cannot build decimal array from values",
+            "ValueError: Cannot build decimal array from values",
+        ],
+    )
+    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
+
+    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+
+        assert valid is False
+        assert error == "Schema is required for warehouse imports."
+
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="direct")
+
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+
+
+class TestPostgresSchemaDiscovery:
+    def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
+        cursor = mock.MagicMock()
+        cursor.fetchall.side_effect = list(fetchall_results)
+        cursor.fetchone.return_value = ("PostgreSQL 15.0",)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection
+
+    def test_get_schemas_qualifies_table_names_when_schema_is_blank(self):
+        connection = self._mock_connection(
+            [("public", "users"), ("analytics", "events")],
+            [
+                ("analytics", "events", "id", "integer", "NO", 1),
+                ("public", "users", "id", "integer", "NO", 1),
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        executed_queries = [
+            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+        ]
+        first_query = executed_queries[0]
+        second_query = executed_queries[1]
+
+        assert "NOT IN" in first_query
+        assert "ALL(" not in first_query
+        assert " IN (" in second_query
+        assert "ANY(" not in second_query
+        assert set(schemas.keys()) == {"public.users", "analytics.events"}
+        assert schemas["public.users"].source_schema == "public"
+        assert schemas["public.users"].source_table_name == "users"
+        assert schemas["analytics.events"].source_schema == "analytics"
+        assert schemas["analytics.events"].source_table_name == "events"
+
+    def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
+        connection = self._mock_connection(
+            [("public", "users"), ("analytics", "events")],
+            [("analytics", "events", "user_id", "public", "users", "id")],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            foreign_keys = get_foreign_keys(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        executed_queries = [
+            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+        ]
+        first_query = executed_queries[0]
+        second_query = executed_queries[1]
+
+        assert "NOT IN" in first_query
+        assert "ALL(" not in first_query
+        assert " IN (" in second_query
+        assert "ANY(" not in second_query
+        assert foreign_keys == {"analytics.events": [("user_id", "public.users", "id")]}
+
+    def test_get_schemas_for_duckdb_uses_current_catalog_only(self):
+        connection = self._mock_connection(
+            [("ducklake", "system", "query_log")],
+            [
+                ("system", "query_log", "query_id", "varchar", "NO", 1),
+            ],
+        )
+        connection.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
+            ("DuckDB 1.4 (Duckgres)",),
+            ("ducklake",),
+        ]
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        information_schema_call = next(
+            call for call in cursor.execute.call_args_list if "FROM information_schema.tables" in str(call.args[0])
+        )
+        information_schema_query = str(information_schema_call.args[0])
+        information_schema_params = information_schema_call.args[1]
+
+        assert "table_catalog = %(current_database)s" in information_schema_query
+        assert information_schema_params["current_database"] == "ducklake"
+        assert schemas["system.query_log"].source_catalog == "ducklake"
+        assert "public.ducklake_view" not in schemas
+
+    def test_get_postgres_row_count_skips_blank_schema_browse(self):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres"
+        ) as patch_connect_to_postgres:
+            row_counts = get_postgres_row_count(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="   ",
+            )
+
+        assert row_counts == {}
+        patch_connect_to_postgres.assert_not_called()
 
 
 class TestGetSslmode:
@@ -277,6 +490,50 @@ class TestBuildQuery:
         assert "random() < 0.01" in rendered
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
+
+
+class TestBuildPartitionQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def test_full_refresh_targets_child_relation(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+        )
+        rendered = self._render(query)
+        assert '"public"."events_2026_01"' in rendered
+        assert "WHERE" not in rendered
+
+    def test_incremental_applies_cursor_filter(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2026-01-15",
+        )
+        rendered = self._render(query)
+        assert '"public"."events_2026_01"' in rendered
+        assert '"created_at" > ' in rendered
+        assert "'2026-01-15'" in rendered
+        assert "ORDER BY" in rendered
+
+    def test_incremental_raises_without_field(self):
+        with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
+            build_partition_query(
+                "public",
+                "events_2026_01",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=None,
+            )
 
 
 class TestBuildCountQuery:
@@ -842,6 +1099,67 @@ class TestGetPrimaryKeys:
             assert result is None
 
 
+class TestGetLeadingIndexColumns:
+    """Unit tests for the leading-index-column helper used to flag unindexed
+    incremental fields in the source-setup wizard. The helper queries
+    ``pg_index``/``pg_attribute``; we mock the cursor to verify that:
+    - rows are bucketed by table
+    - tables in the input list with no rows return empty sets (so the UI
+      warning fires for tables without any indexes)
+    - empty input is short-circuited
+    """
+
+    def _mock_connection(self, fetched_rows: list[tuple[str, str]]):
+        cursor = mock.MagicMock()
+        cursor.__iter__.return_value = iter(fetched_rows)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection, cursor
+
+    def test_groups_columns_by_table(self):
+        connection, _ = self._mock_connection(
+            [
+                ("orders", "created_at"),
+                ("orders", "id"),
+                ("users", "id"),
+            ]
+        )
+        result = get_leading_index_columns(connection, "public", ["orders", "users", "logs"])
+        assert result == {
+            "orders": {"created_at", "id"},
+            "users": {"id"},
+        }
+        assert "logs" not in result  # caller distinguishes "no index" via missing key
+
+    def test_returns_empty_dict_for_empty_input(self):
+        # No connection cursor should be opened when there are no tables.
+        connection = mock.MagicMock()
+        result = get_leading_index_columns(connection, "public", [])
+        assert result == {}
+        connection.cursor.assert_not_called()
+
+    def test_returns_none_when_query_raises(self):
+        # Permission errors on system catalogs (rare, but possible with
+        # restricted roles) must not leak out — the caller defaults to
+        # `is_indexed=True` and skips the warning when discovery fails.
+        connection = mock.MagicMock()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("permission denied for table pg_index")
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+        connection.cursor.return_value = cursor_context
+
+        result = get_leading_index_columns(connection, "public", ["orders"])
+        assert result is None
+
+
 class TestHasDuplicatePrimaryKeys:
     @pytest.mark.django_db
     def test_returns_false_when_no_primary_keys(self):
@@ -1157,3 +1475,620 @@ class TestGetTable:
             # Constrained column is untouched.
             assert cols_by_name["c"].numeric_precision == 5
             assert cols_by_name["c"].numeric_scale == 2
+
+
+class TestBuildQueryUpperBound:
+    def test_includes_inclusive_upper_bound(self):
+        q = _build_query(
+            "public",
+            "t",
+            should_use_incremental_field=True,
+            table_type="table",
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value=datetime(2026, 1, 1),
+            upper_bound_inclusive=datetime(2026, 1, 2),
+        )
+        rendered = q.as_string()
+        assert '"created_at" > ' in rendered
+        assert '"created_at" <= ' in rendered
+        assert 'ORDER BY "created_at" ASC' in rendered
+
+    def test_skips_upper_bound_when_not_provided(self):
+        q = _build_query(
+            "public",
+            "t",
+            should_use_incremental_field=True,
+            table_type="table",
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value=datetime(2026, 1, 1),
+        )
+        rendered = q.as_string()
+        assert '"created_at" <= ' not in rendered
+        assert 'ORDER BY "created_at" ASC' in rendered
+
+
+class TestPartitionBoundsForRange:
+    @pytest.mark.parametrize(
+        "partbound,field_type,expected",
+        [
+            (
+                "FOR VALUES FROM ('2026-01-01') TO ('2026-02-01')",
+                IncrementalFieldType.Date,
+                (date(2026, 1, 1), date(2026, 2, 1)),
+            ),
+            (
+                "FOR VALUES FROM ('2026-01-01 00:00:00') TO ('2026-02-01 00:00:00')",
+                IncrementalFieldType.DateTime,
+                (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)),
+            ),
+            ("FOR VALUES FROM (100) TO (200)", IncrementalFieldType.Integer, (100, 200)),
+            ("FOR VALUES FROM (MINVALUE) TO ('2026-01-01')", IncrementalFieldType.Date, None),
+            ("FOR VALUES FROM ('2026-01-01') TO (MAXVALUE)", IncrementalFieldType.Date, None),
+            ("DEFAULT", IncrementalFieldType.Date, None),
+            ("FOR VALUES IN ('a', 'b')", IncrementalFieldType.Date, None),
+            ("FOR VALUES WITH (modulus 4, remainder 0)", IncrementalFieldType.Integer, None),
+        ],
+    )
+    def test_parses(self, partbound, field_type, expected):
+        child = ChildPartition(oid=1, schema="public", name="p", partbound=partbound)
+        assert partition_bounds_for_range(child, field_type) == expected
+
+
+class TestDeriveUpperBound:
+    def test_prefers_range_hi_when_available(self):
+        bounds = [(date(2026, 1, 1), date(2026, 2, 1)), (date(2026, 2, 1), date(2026, 3, 1))]
+        assert derive_upper_bound(IncrementalFieldType.Date, bounds) == date(2026, 3, 1)
+
+    @freeze_time("2026-04-20T12:00:00Z")
+    def test_uses_now_for_datetime_without_bounds(self):
+        out = derive_upper_bound(IncrementalFieldType.DateTime, [])
+        assert out == datetime(2026, 4, 20, 12, 0, 0, tzinfo=UTC)
+
+    def test_returns_none_for_numeric_without_bounds(self):
+        assert derive_upper_bound(IncrementalFieldType.Integer, []) is None
+        assert derive_upper_bound(IncrementalFieldType.Numeric, []) is None
+
+
+class TestShouldPreserveAscSort:
+    def test_true_for_range_on_incremental_field(self):
+        strat = PartitionStrategy(strategy="r", key_columns=("created_at",))
+        assert should_preserve_asc_sort(strat, "created_at") is True
+
+    def test_false_for_range_on_different_field(self):
+        strat = PartitionStrategy(strategy="r", key_columns=("region",))
+        assert should_preserve_asc_sort(strat, "created_at") is False
+
+    def test_false_for_hash_partitioning(self):
+        strat = PartitionStrategy(strategy="h", key_columns=("id",))
+        assert should_preserve_asc_sort(strat, "id") is False
+
+    def test_true_without_strategy_info(self):
+        assert should_preserve_asc_sort(None, "created_at") is True
+
+
+class TestIsSupportedIncrementalTypeForWindow:
+    @pytest.mark.parametrize(
+        "field_type,expected",
+        [
+            (IncrementalFieldType.Date, True),
+            (IncrementalFieldType.DateTime, True),
+            (IncrementalFieldType.Timestamp, True),
+            (IncrementalFieldType.Integer, True),
+            (IncrementalFieldType.Numeric, True),
+            (IncrementalFieldType.ObjectID, False),
+            (None, False),
+        ],
+    )
+    def test_matrix(self, field_type, expected):
+        assert is_supported_incremental_type_for_window(field_type) is expected
+
+
+class TestListChildPartitionsAndStrategy:
+    @pytest.mark.django_db
+    def test_lists_children_and_strategy(self):
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_lcp_parent (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute(
+                "CREATE TABLE test_lcp_2026_01 PARTITION OF test_lcp_parent "
+                "FOR VALUES FROM ('2026-01-01') TO ('2026-02-01')"
+            )
+            dj_cursor.execute(
+                "CREATE TABLE test_lcp_2026_02 PARTITION OF test_lcp_parent "
+                "FOR VALUES FROM ('2026-02-01') TO ('2026-03-01')"
+            )
+
+            children = list_child_partitions(cast(Any, dj_cursor), "public", "test_lcp_parent")
+            names = {c.name for c in children}
+            assert names == {"test_lcp_2026_01", "test_lcp_2026_02"}
+            # All children have parseable range bounds
+            for c in children:
+                assert partition_bounds_for_range(c, IncrementalFieldType.Date) is not None
+
+            strat = get_partition_strategy(cast(Any, dj_cursor), "public", "test_lcp_parent")
+            assert strat is not None
+            assert strat.strategy == "r"
+            assert strat.key_columns == ("created_at",)
+
+    @pytest.mark.django_db
+    def test_returns_none_for_non_partitioned(self):
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_lcp_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            assert get_partition_strategy(cast(Any, dj_cursor), "public", "test_lcp_regular") is None
+            assert list_child_partitions(cast(Any, dj_cursor), "public", "test_lcp_regular") == []
+
+
+# ---- Fake connection infrastructure for deterministic iterate_date_windows tests ----
+
+
+class _FakeClock:
+    def __init__(self, start: float = 0.0):
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
+class _FakeCursor:
+    """Minimal psycopg cursor stand-in.
+
+    Each invocation of iterate_date_windows opens a fresh cursor; `script` is a
+    list of per-cursor behaviors. A behavior is one of:
+      - list[tuple]  → rows returned from fetchmany, then []
+      - Exception instance → raised from execute()
+    """
+
+    def __init__(self, owner: "_FakeConnection", behaviour):
+        self.owner = owner
+        self.behaviour = behaviour
+        self.description = [mock.Mock(name="col1"), mock.Mock(name="col2")]
+        self.description[0].name = "id"
+        self.description[1].name = "val"
+        self._rows_remaining: list = []
+        self._executed = False
+
+    def execute(self, query):
+        self.owner.executed_queries.append(query)
+        if isinstance(self.behaviour, Exception):
+            raise self.behaviour
+        self._rows_remaining = list(self.behaviour)
+        self._executed = True
+
+    def fetchmany(self, n: int):
+        if not self._executed:
+            return []
+        batch, self._rows_remaining = self._rows_remaining[:n], self._rows_remaining[n:]
+        return batch
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _FakeConnection:
+    def __init__(self, owner: "_FakeConnectionFactory"):
+        self.owner = owner
+        self.executed_queries: list = []
+
+    def cursor(self, *args, **kwargs):
+        # Pop the next behaviour off the factory's script
+        behaviour = self.owner.script.pop(0) if self.owner.script else []
+        cur = _FakeCursor(self, behaviour)
+        return cur
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    @property
+    def closed(self):
+        return False
+
+
+class _FakeConnectionFactory:
+    def __init__(self, script: list):
+        self.script = script
+        self.connections_opened = 0
+        self.connections: list[_FakeConnection] = []
+
+    def __call__(self) -> _FakeConnection:
+        self.connections_opened += 1
+        conn = _FakeConnection(self)
+        self.connections.append(conn)
+        return conn
+
+    def all_executed_queries(self) -> list[str]:
+        return [
+            q.as_string() if hasattr(q, "as_string") else str(q) for c in self.connections for q in c.executed_queries
+        ]
+
+
+def _arrow_schema() -> pa.Schema:
+    fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("val", pa.int64())]
+    return pa.schema(fields)
+
+
+def _build_fake_query(lo, hi):
+    return sql.SQL("SELECT * FROM t WHERE x > {lo} AND x <= {hi}").format(lo=sql.Literal(lo), hi=sql.Literal(hi))
+
+
+def _run_windows(script, **overrides):
+    factory = _FakeConnectionFactory(script)
+    kwargs: dict[str, Any] = {
+        "get_connection": cast(Any, factory),
+        "build_windowed_query": _build_fake_query,
+        "schema": "public",
+        "table_name": "t",
+        "incremental_field": "x",
+        "incremental_field_type": IncrementalFieldType.Date,
+        "db_incremental_field_last_value": date(2026, 1, 1),
+        "child_partitions": [],
+        "chunk_size": 1000,
+        "arrow_schema": _arrow_schema(),
+        "logger": structlog.get_logger(),
+        "initial_window": timedelta(days=1),
+        "clock": _FakeClock(),
+        "sleeper": lambda _s: None,
+    }
+    kwargs.update(overrides)
+    # Give the test a deterministic finite range by forcing upper via a time-based field
+    # + partition bounds argument. Tests that need an explicit upper pass child_partitions.
+    return list(iterate_date_windows(**kwargs)), factory
+
+
+class TestIterateDateWindowsFake:
+    def test_single_window_yields_rows(self):
+        # One partition covering one day → one window, 3 rows
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        tables, factory = _run_windows(
+            script=[[(1, 10), (2, 20), (3, 30)]],
+            child_partitions=[child],
+        )
+        assert factory.connections_opened == 1
+        total = sum(t.num_rows for t in tables)
+        assert total == 3
+
+    def test_handles_naive_cursor_against_aware_partition_bounds(self):
+        # Pipeline can persist the incremental cursor as a naive datetime, but
+        # partition bounds parsed from the catalog are always UTC-aware. The
+        # walker must coerce naive->aware before comparing or Python raises
+        # `can't compare offset-naive and offset-aware datetimes`.
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01 00:00:00') TO ('2026-01-02 00:00:00')",
+        )
+        factory = _FakeConnectionFactory([[(1, 10)]])
+        tables = list(
+            iterate_date_windows(
+                get_connection=cast(Any, factory),
+                build_windowed_query=_build_fake_query,
+                schema="public",
+                table_name="t",
+                incremental_field="x",
+                incremental_field_type=IncrementalFieldType.DateTime,
+                db_incremental_field_last_value=datetime(2025, 12, 31, 23, 59, 59),  # naive!
+                child_partitions=[child],
+                chunk_size=1000,
+                arrow_schema=_arrow_schema(),
+                logger=structlog.get_logger(),
+                initial_window=timedelta(days=1),
+                clock=_FakeClock(),
+                sleeper=lambda _s: None,
+            )
+        )
+        assert sum(t.num_rows for t in tables) == 1
+
+    def test_walks_multiple_windows(self):
+        # Two partitions, each 1 day; with initial_window=1 day, expect two windows.
+        children = [
+            ChildPartition(
+                oid=1,
+                schema="public",
+                name="p1",
+                partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+            ),
+            ChildPartition(
+                oid=2,
+                schema="public",
+                name="p2",
+                partbound="FOR VALUES FROM ('2026-01-02') TO ('2026-01-03')",
+            ),
+        ]
+        tables, factory = _run_windows(
+            script=[[(1, 10)], [(2, 20)]],
+            child_partitions=children,
+            db_incremental_field_last_value=date(2026, 1, 1),
+        )
+        assert factory.connections_opened == 2
+        assert sum(t.num_rows for t in tables) == 2
+
+    def test_shrinks_and_retries_on_query_canceled(self):
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        # QueryCanceled once -> shrink + retry -> succeeds -> walker may continue
+        # through the remaining range. We only care that retries happened and rows came back.
+        script = [psycopg.errors.QueryCanceled("timeout"), [(1, 10)], [], []]
+        tables, factory = _run_windows(script=script, child_partitions=[child])
+        assert factory.connections_opened >= 2
+        assert sum(t.num_rows for t in tables) == 1
+
+    def test_raises_query_timeout_after_budget_exhausted(self):
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        # Fail every attempt; iterator must raise QueryTimeoutException.
+        script = [psycopg.errors.QueryCanceled("timeout")] * (WINDOW_MAX_QUERY_CANCELED_RETRIES + 2)
+        with pytest.raises(QueryTimeoutException):
+            list(
+                iterate_date_windows(
+                    get_connection=cast(Any, _FakeConnectionFactory(script)),
+                    build_windowed_query=_build_fake_query,
+                    schema="public",
+                    table_name="t",
+                    incremental_field="x",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    db_incremental_field_last_value=date(2026, 1, 1),
+                    child_partitions=[child],
+                    chunk_size=1000,
+                    arrow_schema=_arrow_schema(),
+                    logger=structlog.get_logger(),
+                    initial_window=timedelta(days=1),
+                    clock=_FakeClock(),
+                    sleeper=lambda _s: None,
+                )
+            )
+
+    def test_raises_after_max_serialization_retries_on_replica(self):
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        conflict_err = psycopg.errors.SerializationFailure("due to conflict with recovery")
+        script = [conflict_err] * (WINDOW_MAX_SERIALIZATION_RETRIES + 2)
+
+        with pytest.raises(psycopg.errors.SerializationFailure):
+            list(
+                iterate_date_windows(
+                    get_connection=cast(Any, _FakeConnectionFactory(script)),
+                    build_windowed_query=_build_fake_query,
+                    schema="public",
+                    table_name="t",
+                    incremental_field="x",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    db_incremental_field_last_value=date(2026, 1, 1),
+                    child_partitions=[child],
+                    chunk_size=1000,
+                    arrow_schema=_arrow_schema(),
+                    logger=structlog.get_logger(),
+                    initial_window=timedelta(days=1),
+                    clock=_FakeClock(),
+                    sleeper=lambda _s: None,
+                    using_read_replica=True,
+                )
+            )
+
+    def test_does_not_set_per_window_statement_timeout(self):
+        """Critical: this is the user's explicit requirement — no tightened timeout."""
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+        script = [[(1, 10)]]
+        factory = _FakeConnectionFactory(script)
+        list(
+            iterate_date_windows(
+                get_connection=cast(Any, factory),
+                build_windowed_query=_build_fake_query,
+                schema="public",
+                table_name="t",
+                incremental_field="x",
+                incremental_field_type=IncrementalFieldType.Date,
+                db_incremental_field_last_value=date(2026, 1, 1),
+                child_partitions=[child],
+                chunk_size=1000,
+                arrow_schema=_arrow_schema(),
+                logger=structlog.get_logger(),
+                initial_window=timedelta(days=1),
+                clock=_FakeClock(),
+                sleeper=lambda _s: None,
+            )
+        )
+        # Inspect every query issued across all opened connections — none must
+        # be a `SET statement_timeout` statement. The connection-level 10-min
+        # backstop set in postgres_source.get_connection is the only timeout.
+        all_queries = factory.all_executed_queries()
+        assert all_queries, "expected at least one query to be executed"
+        assert not any("statement_timeout" in q.lower() for q in all_queries), (
+            f"iterate_date_windows must not tighten statement_timeout per window; queries: {all_queries}"
+        )
+
+
+class TestIterateDateWindowsRealDb:
+    @pytest.mark.django_db
+    def test_yields_all_rows_over_partitioned_table(self):
+        logger = structlog.get_logger()
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_idw_parent (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    val INTEGER,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute(
+                "CREATE TABLE test_idw_p1 PARTITION OF test_idw_parent FOR VALUES FROM ('2026-01-01') TO ('2026-01-04')"
+            )
+            dj_cursor.execute(
+                "CREATE TABLE test_idw_p2 PARTITION OF test_idw_parent FOR VALUES FROM ('2026-01-04') TO ('2026-01-07')"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_idw_parent (created_at, val) "
+                "SELECT '2026-01-01'::date + (g % 6) * interval '1 day', g "
+                "FROM generate_series(1, 60) g"
+            )
+
+            children = list_child_partitions(cast(Any, dj_cursor), "public", "test_idw_parent")
+            idw_fields: list[pa.Field] = [
+                pa.field("id", pa.int64()),
+                pa.field("created_at", pa.date32()),
+                pa.field("val", pa.int64()),
+            ]
+            schema = pa.schema(idw_fields)
+
+            def get_connection():
+                # Hand out the Django-bound psycopg connection. The tests run in a
+                # single transaction so a fresh psycopg.connect would not see the
+                # CREATE/INSERT above. Wrap Django's connection in a shim that
+                # returns the same raw cursor each time and no-ops __exit__.
+                return _DjangoBackedConnection(dj_cursor)
+
+            def build_q(lo, hi):
+                return _build_query(
+                    "public",
+                    "test_idw_parent",
+                    should_use_incremental_field=True,
+                    table_type="table",
+                    incremental_field="created_at",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    db_incremental_field_last_value=lo,
+                    upper_bound_inclusive=hi,
+                )
+
+            tables = list(
+                iterate_date_windows(
+                    get_connection=get_connection,
+                    build_windowed_query=build_q,
+                    schema="public",
+                    table_name="test_idw_parent",
+                    incremental_field="created_at",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    db_incremental_field_last_value=date(2025, 12, 31),
+                    child_partitions=children,
+                    chunk_size=100,
+                    arrow_schema=schema,
+                    logger=logger,
+                    initial_window=timedelta(days=1),
+                )
+            )
+            total = sum(t.num_rows for t in tables)
+            assert total == 60
+
+
+class _DjangoBackedConnection:
+    """Shim wrapping a Django cursor for tests that must see uncommitted rows.
+
+    Named cursors go through the same raw psycopg cursor, so we just alias it.
+    """
+
+    def __init__(self, dj_cursor):
+        self._dj_cursor = dj_cursor
+        self.closed = False
+
+    def cursor(self, *args, **kwargs):
+        return _DjangoBackedCursorCtx(self._dj_cursor)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _DjangoBackedCursorCtx:
+    def __init__(self, dj_cursor):
+        self._dj_cursor = dj_cursor
+
+    def __enter__(self):
+        return self._dj_cursor
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestIteratePartitionsRealDb:
+    @pytest.mark.django_db
+    def test_yields_all_rows(self):
+        logger = structlog.get_logger()
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ip_parent (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    val INTEGER,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute(
+                "CREATE TABLE test_ip_p1 PARTITION OF test_ip_parent FOR VALUES FROM ('2026-01-01') TO ('2026-02-01')"
+            )
+            dj_cursor.execute(
+                "CREATE TABLE test_ip_p2 PARTITION OF test_ip_parent FOR VALUES FROM ('2026-02-01') TO ('2026-03-01')"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_ip_parent (created_at, val) "
+                "SELECT '2026-01-01'::date + (g % 40) * interval '1 day', g "
+                "FROM generate_series(1, 80) g"
+            )
+
+            children = list_child_partitions(cast(Any, dj_cursor), "public", "test_ip_parent")
+            ip_fields: list[pa.Field] = [
+                pa.field("id", pa.int64()),
+                pa.field("created_at", pa.date32()),
+                pa.field("val", pa.int64()),
+            ]
+            arrow_schema = pa.schema(ip_fields)
+
+            def build_q(child_schema, child_name):
+                return sql.SQL("SELECT id, created_at, val FROM {s}.{t} ORDER BY id ASC").format(
+                    s=sql.Identifier(child_schema), t=sql.Identifier(child_name)
+                )
+
+            def get_connection():
+                return _DjangoBackedConnection(dj_cursor)
+
+            tables = list(
+                iterate_partitions(
+                    get_connection=get_connection,
+                    build_partition_query=build_q,
+                    schema="public",
+                    table_name="test_ip_parent",
+                    child_partitions=children,
+                    chunk_size=100,
+                    arrow_schema=arrow_schema,
+                    logger=logger,
+                )
+            )
+            assert sum(t.num_rows for t in tables) == 80

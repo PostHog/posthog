@@ -23,7 +23,7 @@ from posthog.clickhouse.materialized_columns import (
     ColumnName,
     TablesWithMaterializedColumns,
 )
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -109,7 +109,11 @@ class MaterializedColumn:
         table_info = tables.get(table)
         data_table = table_info.data_table if table_info else table
 
-        with tags_context(name="get_all_materialized_columns"):
+        with tags_context(
+            name="get_all_materialized_columns",
+            product=Product.INTERNAL,
+            feature=Feature.SCHEMA_INTROSPECTION,
+        ):
             # Query columns and their indexes using multiple LEFT JOINs
             # Returns index names as an array, parsed in Python to set boolean flags
             # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables

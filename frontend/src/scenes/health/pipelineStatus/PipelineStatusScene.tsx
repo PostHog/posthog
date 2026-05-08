@@ -7,12 +7,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { HealthIssueCard } from '~/layout/navigation-3000/sidepanel/panels/SidePanelHealth'
-import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
-import type { DataHealthIssue } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { pipelineHealthLogic } from './pipelineHealthLogic'
+import type { DataHealthIssue } from './pipelineHealthLogic'
+import { PipelineStatusIssueCard } from './PipelineStatusIssueCard'
 import { pipelineStatusSceneLogic } from './pipelineStatusSceneLogic'
 import { PipelineStatusSummary } from './PipelineStatusSummary'
 import { PipelineStatusToolbar } from './PipelineStatusToolbar'
@@ -23,8 +23,8 @@ export const scene: SceneExport = {
 }
 
 export function PipelineStatusScene(): JSX.Element {
-    const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(sidePanelHealthLogic)
-    const { loadHealthIssues } = useActions(sidePanelHealthLogic)
+    const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(pipelineHealthLogic)
+    const { loadHealthIssues } = useActions(pipelineHealthLogic)
     const { filteredIssues, filteredIssueCount, isIssueDismissed } = useValues(pipelineStatusSceneLogic)
     const { dismissIssue, undismissIssue } = useActions(pipelineStatusSceneLogic)
 
@@ -78,7 +78,7 @@ export function PipelineStatusScene(): JSX.Element {
                         ) : (
                             <div className="space-y-3">
                                 {filteredIssues.map((issue: DataHealthIssue) => (
-                                    <HealthIssueCard
+                                    <PipelineStatusIssueCard
                                         key={issue.id}
                                         issue={issue}
                                         isDismissed={isIssueDismissed(issue.id)}

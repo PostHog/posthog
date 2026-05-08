@@ -10,7 +10,9 @@ import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     LinkSurveyQuestion,
@@ -29,6 +31,7 @@ import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
 import { WizardSection, WizardStepLayout } from '../WizardLayout'
+import { TranslationsSection } from './TranslationsSection'
 
 const MAX_CHOICES = 10
 
@@ -487,13 +490,20 @@ function SortableQuestionCard({
     )
 }
 
-export function QuestionsStep(): JSX.Element {
+interface QuestionsStepProps {
+    editingLanguage: string | null
+    setEditingLanguage: (language: string | null) => void
+}
+
+export function QuestionsStep({ editingLanguage, setEditingLanguage }: QuestionsStepProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const { selectedTemplate } = useValues(surveyWizardLogic)
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
     const [activeId, setActiveId] = useState<string | null>(null)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
     const questions = survey.questions as SurveyQuestion[]
     const sortedItemIds = questions.map((_, index) => index.toString())
@@ -616,6 +626,10 @@ export function QuestionsStep(): JSX.Element {
                 appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
                 onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
             />
+
+            {surveyTranslationsEnabled ? (
+                <TranslationsSection editingLanguage={editingLanguage} setEditingLanguage={setEditingLanguage} />
+            ) : null}
         </WizardStepLayout>
     )
 }

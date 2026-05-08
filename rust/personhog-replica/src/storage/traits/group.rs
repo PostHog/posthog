@@ -5,6 +5,7 @@ use crate::storage::postgres::ConsistencyLevel;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
 
 /// Group and group type mapping operations
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait GroupStorage: Send + Sync {
     // Group lookups
@@ -30,7 +31,49 @@ pub trait GroupStorage: Send + Sync {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<(GroupKey, Group)>>;
 
-    // Group type mappings
+    async fn list_groups(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key_contains: &str,
+        search: &str,
+        cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        cursor_id: i64,
+        limit: i32,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<(Vec<Group>, bool)>;
+
+    // Group writes
+
+    async fn create_group(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key: &str,
+        group_properties: &serde_json::Value,
+        created_at: chrono::DateTime<chrono::Utc>,
+    ) -> StorageResult<Group>;
+
+    #[allow(clippy::too_many_arguments)]
+    async fn update_group(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key: &str,
+        update_mask: &[String],
+        group_properties: Option<&serde_json::Value>,
+        properties_last_updated_at: Option<&serde_json::Value>,
+        properties_last_operation: Option<&serde_json::Value>,
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> StorageResult<Option<Group>>;
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        team_id: i64,
+        batch_size: i64,
+    ) -> StorageResult<i64>;
+
+    // Group type mapping lookups
 
     async fn get_group_type_mappings_by_team_id(
         &self,
@@ -55,4 +98,37 @@ pub trait GroupStorage: Send + Sync {
         project_ids: &[i64],
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>>;
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        team_id: i64,
+        dashboard_id: i64,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<Option<GroupTypeMapping>>;
+
+    // Group type mapping writes
+
+    #[allow(clippy::too_many_arguments)]
+    async fn update_group_type_mapping(
+        &self,
+        project_id: i64,
+        group_type_index: i32,
+        update_mask: &[String],
+        name_singular: Option<&str>,
+        name_plural: Option<&str>,
+        detail_dashboard_id: Option<i64>,
+        default_columns: Option<&[String]>,
+    ) -> StorageResult<Option<GroupTypeMapping>>;
+
+    async fn delete_group_type_mapping(
+        &self,
+        project_id: i64,
+        group_type_index: i32,
+    ) -> StorageResult<bool>;
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        team_id: i64,
+        batch_size: i64,
+    ) -> StorageResult<i64>;
 }

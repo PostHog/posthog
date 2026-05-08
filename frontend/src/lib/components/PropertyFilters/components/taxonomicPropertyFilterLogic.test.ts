@@ -181,6 +181,22 @@ describe('taxonomicPropertyFilterLogic', () => {
             logic.actions.selectItem(group, undefined)
             expect(setFilterSpy).not.toHaveBeenCalled()
         })
+
+        // The full matchedOn/matchedValue matrix is covered in utils.test.ts.
+        it('forwards matchedValue to the new filter when the row matched on value', () => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.EventProperties,
+                'user.email',
+                PropertyFilterType.Event,
+                {
+                    key: 'user.email',
+                    type: PropertyFilterType.Event,
+                    value: ['frank@posthog.com'],
+                    operator: PropertyOperator.Exact,
+                },
+                { matchedOn: 'value', matchedValue: 'frank@posthog.com' }
+            )
+        })
     })
 
     it('restores a complete property filter from a recent filter item', async () => {

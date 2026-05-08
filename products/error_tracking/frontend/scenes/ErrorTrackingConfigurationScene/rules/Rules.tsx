@@ -12,7 +12,7 @@ import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFi
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import {
@@ -147,7 +147,7 @@ const ReorderRules = (): JSX.Element | null => {
 }
 
 const DisabledBanner = ({ rule }: { rule: ErrorTrackingRule }): JSX.Element => {
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const message =
         'disabled_data' in rule && rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
 

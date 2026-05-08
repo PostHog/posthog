@@ -9,9 +9,10 @@ from django.conf import settings
 
 import structlog
 import temporalio
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricCounter, RetryPolicy
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -42,6 +43,7 @@ class FlushBufferOutput:
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOutput:
     batch_id = str(uuid.uuid4())
     object_key = f"{OBJECT_STORAGE_SIGNALS_PREFIX}/{batch_id}"
@@ -66,6 +68,7 @@ class SignalWithStartGroupingV2Input:
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV2Input) -> None:
     """Signal-with-start the grouping v2 workflow, creating it if it doesn't exist."""
     client = await async_connect()
@@ -90,6 +93,7 @@ BACKPRESSURE_POLL_INTERVAL_SECONDS = 1
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> None:
     """Poll the buffer workflow's size via query, then send the signal once there's space."""
     client = await async_connect()
@@ -117,6 +121,7 @@ class BufferSignalsWorkflow:
 
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
+        self._signals_emitted_counters: dict[tuple[str, str], MetricCounter] = {}
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -126,12 +131,35 @@ class BufferSignalsWorkflow:
     def get_buffer_size(self) -> int:
         return len(self._signal_buffer)
 
+    def _get_emitted_counter(self, team_id: int, source_product: str, source_type: str) -> MetricCounter:
+        key = (source_product, source_type)
+        if key not in self._signals_emitted_counters:
+            meter = workflow.metric_meter().with_additional_attributes(
+                {
+                    "team_id": str(team_id),
+                    "source_product": source_product,
+                    "source_type": source_type,
+                }
+            )
+            self._signals_emitted_counters[key] = meter.create_counter(
+                "signals_emitted",
+                "Number of signals emitted",
+            )
+        return self._signals_emitted_counters[key]
+
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
+        self._get_emitted_counter(signal.team_id, signal.source_product, signal.source_type).add(1)
         self._signal_buffer.append(signal)
 
     @temporalio.workflow.run
     async def run(self, input: BufferSignalsInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: BufferSignalsInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
 
         while True:
@@ -169,8 +197,9 @@ class BufferSignalsWorkflow:
                 if result.safe:
                     safe_signals.append(signal)
                 else:
-                    workflow.logger.warning(
-                        f"Safety filter dropped signal: {result.threat_type}",
+                    logger.warning(
+                        "Safety filter dropped signal",
+                        threat_type=result.threat_type,
                         team_id=signal.team_id,
                         source_product=signal.source_product,
                         source_type=signal.source_type,

@@ -1,20 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
-import * as incidentIoStatusPageWarning from '~/mocks/fixtures/_incident_io_status_page_warning.json'
-import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
+import { mswDecorator } from '~/mocks/browser'
 import { SidePanelTab } from '~/types'
 
-import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 type StoryArgs = { panel: SidePanelTab }
@@ -59,29 +53,6 @@ export default meta
 
 type Story = StoryObj<StoryArgs>
 
-export const SidePanelDocs: Story = {
-    args: { panel: SidePanelTab.Docs },
-    render: ({ panel }) => {
-        const { openSidePanel } = useActions(sidePanelStateLogic)
-        const { setIframeReady } = useActions(sidePanelDocsLogic({ iframeRef: { current: null } }))
-
-        // Directly set iframeReady to skip waiting for external iframe to load
-        useOnMountEffect(() => {
-            openSidePanel(panel)
-            setIframeReady(true)
-        })
-
-        return <App />
-    },
-    parameters: {
-        testOptions: {
-            // Skip iframe wait since the external docs iframe fails to load in CI
-            skipIframeWait: true,
-            snapshotBrowsers: [], // disable visual regression — external iframe is non-deterministic
-        },
-    },
-}
-
 export const SidePanelSettings: Story = {
     args: { panel: SidePanelTab.Settings },
 }
@@ -102,77 +73,22 @@ export const SidePanelActivity: Story = {
     },
 }
 
-export const SidePanelSupportNoEmail: Story = {
+export const SidePanelDiscussion: Story = {
+    args: { panel: SidePanelTab.Discussion },
+}
+
+export const SidePanelAccessControl: Story = {
+    args: { panel: SidePanelTab.AccessControl },
+}
+
+export const SidePanelInfo: Story = {
+    args: { panel: SidePanelTab.Info },
+}
+
+export const SidePanelExports: Story = {
+    args: { panel: SidePanelTab.Exports },
+}
+
+export const SidePanelSupport: Story = {
     args: { panel: SidePanelTab.Support },
-}
-
-export const SidePanelSupportWithEmail: Story = {
-    args: { panel: SidePanelTab.Support },
-    render: ({ panel }) => {
-        const { openSidePanel } = useActions(sidePanelStateLogic)
-        const { openEmailForm, closeEmailForm } = useActions(supportLogic)
-
-        useStorybookMocks({
-            get: {
-                // TODO: setting available featues should be a decorator to make this easy
-                '/api/users/@me': () => [
-                    200,
-                    {
-                        email: 'test@posthog.com',
-                        first_name: 'Test Hedgehog',
-                        organization: {
-                            ...organizationCurrent,
-                            available_product_features: [
-                                {
-                                    key: 'email_support',
-                                    name: 'Email support',
-                                },
-                            ],
-                        },
-                    },
-                ],
-            },
-        })
-
-        useOnMountEffect(() => {
-            openSidePanel(panel)
-            openEmailForm()
-            return () => closeEmailForm()
-        })
-
-        return <App />
-    },
-}
-
-export const SidePanelStatusWarning: Story = {
-    render: () => {
-        const { closeSidePanel } = useActions(sidePanelStateLogic)
-        useOnMountEffect(() => closeSidePanel())
-        const summary = Object.assign({}, incidentIoStatusPageWarning)
-
-        useStorybookMocks({
-            get: {
-                [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: summary,
-            },
-        })
-
-        return <App />
-    },
-}
-
-export const SidePanelStatusCritical: Story = {
-    render: () => {
-        const { closeSidePanel } = useActions(sidePanelStateLogic)
-        useOnMountEffect(() => closeSidePanel())
-
-        const summary = Object.assign({}, incidentIoStatusPageCritical)
-
-        useStorybookMocks({
-            get: {
-                [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: summary,
-            },
-        })
-
-        return <App />
-    },
 }

@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from datetime import timedelta
 
+import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -26,6 +27,7 @@ class EmitBackfillSignalInput:
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
     """Fetch the 100 most recent error tracking issues ordered by first seen."""
     from posthog.schema import DateRange, ErrorTrackingQuery
@@ -84,6 +86,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> None:
     """Emit an issue_created signal for a single error tracking issue."""
     from posthog.models import Team
@@ -116,6 +119,12 @@ class BackfillErrorTrackingWorkflow:
 
     @workflow.run
     async def run(self, input: BackfillErrorTrackingInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: BackfillErrorTrackingInput) -> None:
         issues = await workflow.execute_activity(
             fetch_error_tracking_issues_activity,
             input,

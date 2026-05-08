@@ -64,6 +64,15 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
 # Other constraints
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>
+- SQL editor nodes can use `{filters}` placeholders. These placeholders are backed by `HogQLQuery.filters`, not by SQL text:
+  - If the current query contains `{filters}` and the user asks to change the date range or property filters, keep the placeholder in the SQL and pass updated `filters` to this tool.
+  - When keeping `{filters}` in the SQL, pass the complete desired `filters` object to this tool. Copy `current_query_node.source.filters` unchanged unless the user asked to change or remove filters.
+  - To remove all editor filters while preserving `{filters}`, pass an empty `filters` object (`{}`).
+  - Do not replace `{filters}` with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
+  - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, and `{filters.dateRange.to}`.
+  - `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, or `groups`. It is not valid for arbitrary data warehouse/source tables.
+  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups.
+  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, and session scope on `sessions` unless the query also includes `events`.
 - If a filter is optional, ALWAYS implement via the variables namespace with guards:
   - ALWAYS use the "variables." prefix (e.g., variables.org, variables.browser) - never use bare variable names
   - Use coalesce() or IS NULL checks to handle optional values
@@ -74,6 +83,16 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
   - Time window should remain enforced for events; add variable guards only if explicitly asked
 - Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.
+
+# SQL variables
+SQL variables are stored in `system.insight_variables`. There is no list/get tool for reading them. When asked to find, search, or inspect SQL variables, query this system table directly:
+```sql
+SELECT id, name, code_name, type, default_value, values
+FROM system.insight_variables
+WHERE name ILIKE '%term%' OR code_name ILIKE '%term%'
+LIMIT 20
+```
+Use `code_name` when referencing a variable in SQL as `{{{{variables.code_name}}}}`. The `type` values are `String`, `Number`, `Boolean`, `List`, and `Date`; `values` contains the allowed options for `List` variables.
 
 # Expressions guide
 
@@ -133,4 +152,13 @@ The current HogQL query (which CAN be empty) is:
 <current_query>
 {current_query}
 </current_query>
+
+The current SQL editor query node, if available, is:
+<current_query_node>
+{current_query_node}
+</current_query_node>
+
+When `current_query_node.source.filters` exists, those filters are applied through `{filters}` placeholders in `current_query_node.source.query`.
+For notebook SQL editor nodes, the query is usually a `DataVisualizationNode` with `source.kind = "HogQLQuery"`.
+If the user asks to change "last 90 days", "test accounts", or property filters and the query contains `{filters}`, update the tool's `filters` argument instead of editing the SQL text.
 """.strip()

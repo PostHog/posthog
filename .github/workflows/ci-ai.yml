@@ -2,16 +2,10 @@ name: AI
 on:
     pull_request:
         types: [opened, synchronize, reopened, labeled, unlabeled]
-    push:
-        branches:
-            - master
-        paths:
-            - 'ee/hogai/**'
-            - '.github/workflows/ci-ai.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }} # We only want one AI CI run per PR concurrently
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true # We only want one AI CI run per PR concurrently
 
 jobs:
     eval:
@@ -20,9 +14,7 @@ jobs:
         runs-on: ubuntu-latest
         # Skipping on forks as Braintrust credentials are not available there
         if: |
-            github.repository == 'PostHog/posthog' && (
-                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
-            )
+            github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')
 
         strategy:
             fail-fast: false
@@ -113,7 +105,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -165,7 +157,7 @@ jobs:
                   sparse-checkout: .github/scripts
 
             - name: Download all eval results
-              uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: eval-results-*
                   path: eval-artifacts

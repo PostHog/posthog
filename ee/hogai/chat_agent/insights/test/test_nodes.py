@@ -833,8 +833,8 @@ class TestInsightSearchNode(BaseTest):
             "source": {
                 "kind": "RetentionQuery",
                 "retentionFilter": {
-                    "targetEntity": {"name": "$pageview"},
-                    "returningEntity": {"name": "$pageview"},
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
                 },
                 "dateRange": {"date_from": "-7d"},
                 "filterTestAccounts": False,

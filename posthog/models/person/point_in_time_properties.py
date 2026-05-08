@@ -7,13 +7,22 @@ chronologically.
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.clickhouse.client import sync_execute
 
 if TYPE_CHECKING:
     from posthog.models.person import Person
+
+
+DEFAULT_PROPERTY_ROW_LIMIT = 100_000
+
+# Hard floor on how far back the property scan walks. Anything older is almost
+# certainly past retention anyway; bounding here saves ClickHouse from walking
+# dead partitions when ``timestamp`` is the only bound (worst case: a brand-new
+# distinct_id with no matching events on a team with multi-year retention).
+_HISTORY_SCAN_FLOOR = timedelta(days=365 * 2)
 
 
 def get_person_and_distinct_ids_for_identifier(
@@ -49,36 +58,21 @@ def get_person_and_distinct_ids_for_identifier(
     if person_id is not None and not person_id:
         raise ValueError("person_id must be a non-empty value")
 
-    try:
-        from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid
+    from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid
 
-        if distinct_id is not None:
-            person = get_person_by_distinct_id(team_id, distinct_id)
-        else:
-            assert person_id is not None
-            person = get_person_by_uuid(team_id, person_id)
+    if distinct_id is not None:
+        person = get_person_by_distinct_id(team_id, distinct_id)
+    else:
+        assert person_id is not None
+        person = get_person_by_uuid(team_id, person_id)
 
-        if person is None:
-            return None, []
+    if person is None:
+        return None, []
 
-        # The personhog-routed functions already include distinct_ids
-        if hasattr(person, "distinct_ids"):
-            distinct_ids = person.distinct_ids
-        else:
-            # Fallback for ORM-only path
-            from posthog.models import PersonDistinctId
-            from posthog.models.person.person import READ_DB_FOR_PERSONS
-
-            distinct_ids = list(
-                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(team_id=team_id, person_id=person.pk)
-                .values_list("distinct_id", flat=True)
-            )
-
-        return person, distinct_ids
-
-    except Exception:
-        raise
+    # Person.distinct_ids returns the in-memory cache when populated (e.g. by
+    # the personhog client wrapper around posthog/personhog_client/) and
+    # otherwise falls back to a DB query, so we can rely on it directly.
+    return person, person.distinct_ids
 
 
 def get_distinct_ids_for_person_identifier(
@@ -102,12 +96,11 @@ def build_person_properties_at_time(
     distinct_ids: list[str],
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
+    row_limit: int = DEFAULT_PROPERTY_ROW_LIMIT,
+    lower_bound: Optional[datetime] = None,
 ) -> dict[str, Any]:
     """
-    Build person properties as they existed at a specific point in time.
-
-    This method queries ClickHouse events to find all person property updates
-    up to the given timestamp and reconstructs the final person properties state.
+    Build person properties at a specific point in time from ClickHouse events.
 
     Args:
         team_id: The team ID to filter events by
@@ -115,9 +108,11 @@ def build_person_properties_at_time(
         distinct_ids: List of distinct_ids to query for person properties
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
+        row_limit: Maximum property update rows to ship back from ClickHouse (default 100_000).
+        lower_bound: Optional lower bound for the time range scan. If not provided, defaults to timestamp - 2 years.
 
     Returns:
-        Dictionary of person properties as they existed at the specified time
+        Dict containing person properties as they existed at the specified timestamp.
 
     Raises:
         ValueError: If parameters are invalid
@@ -136,49 +131,43 @@ def build_person_properties_at_time(
     if not all(isinstance(did, str) and did for did in distinct_ids):
         raise ValueError("All distinct_ids must be non-empty strings")
 
-    # Build the ClickHouse query for all distinct_ids
+    if not isinstance(row_limit, int) or row_limit <= 0:
+        raise ValueError("row_limit must be a positive integer")
+
     if include_set_once:
-        # Query to get all property update events ($set, $set_once) up to timestamp
-        # This includes both dedicated events and other events with $set in their properties
-        query = """
-        SELECT
-            toJSONString(properties) as properties_json,
-            timestamp,
-            event
-        FROM events
-        WHERE team_id = %(team_id)s
-            AND distinct_id IN %(distinct_ids)s
-            AND timestamp <= %(timestamp)s
-            AND (
-                event = '$set'
-                OR event = '$set_once'
-                OR JSONHas(properties, '$set')
-            )
-        ORDER BY timestamp ASC
-        """
+        event_filter = "event IN ('$set', '$set_once') OR JSONHas(properties, '$set')"
     else:
-        # Query to get all events that might contain $set operations
-        # This includes both dedicated $set events and other events with $set in their properties
-        query = """
-        SELECT
-            toJSONString(properties) as properties_json,
-            timestamp,
-            event
-        FROM events
-        WHERE team_id = %(team_id)s
-            AND distinct_id IN %(distinct_ids)s
-            AND timestamp <= %(timestamp)s
-            AND (
-                event = '$set'
-                OR JSONHas(properties, '$set')
-            )
-        ORDER BY timestamp ASC
-        """
+        event_filter = "event = '$set' OR JSONHas(properties, '$set')"
+
+    # Pulls every property-update event in the window. Existence is established
+    # upstream by get_person_and_distinct_ids_for_identifier (Postgres row);
+    # ``existed`` here means "had property activity in the scan window", which
+    # the property row count answers directly. We extract $set / $set_once raw
+    # JSON instead of shipping the full properties blob, and the timestamp
+    # window + LIMIT keeps ClickHouse from walking dead partitions.
+    query = f"""
+    SELECT
+        JSONExtractRaw(properties, '$set') AS set_json,
+        JSONExtractRaw(properties, '$set_once') AS set_once_json,
+        event AS event_name
+    FROM events
+    WHERE team_id = %(team_id)s
+        AND distinct_id IN %(distinct_ids)s
+        AND timestamp >= %(lower_bound)s
+        AND timestamp <= %(upper_bound)s
+        AND ({event_filter})
+    ORDER BY timestamp ASC
+    LIMIT {int(row_limit)}
+    """
+
+    # Use provided lower_bound or default to timestamp - 2 years
+    effective_lower_bound = lower_bound if lower_bound is not None else timestamp - _HISTORY_SCAN_FLOOR
 
     params = {
         "team_id": team_id,
         "distinct_ids": distinct_ids,
-        "timestamp": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        "lower_bound": effective_lower_bound.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        "upper_bound": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     try:
@@ -186,95 +175,30 @@ def build_person_properties_at_time(
     except Exception as e:
         raise Exception(f"Failed to query ClickHouse events: {str(e)}") from e
 
-    # Build person properties by applying operations chronologically
-    person_properties = {}
+    person_properties: dict[str, Any] = {}
 
     for row in rows:
-        properties_json, _, event_name = row
+        set_json, set_once_json, event_name = row
 
-        if properties_json:
+        if set_json:
             try:
-                # ClickHouse toJSONString() may return double-escaped JSON
-                # Parse defensively to handle both single and double encoding
-                parsed = json.loads(properties_json)
-                event_properties = json.loads(parsed) if isinstance(parsed, str) else parsed
+                set_properties = json.loads(set_json)
+            except (json.JSONDecodeError, TypeError):
+                set_properties = None
 
-                if include_set_once:
-                    # Handle both $set and $set_once when include_set_once is True
-                    # Handle $set operations from any event (including nested $set in $pageview etc.)
-                    if "$set" in event_properties:
-                        set_properties = event_properties["$set"]
-                        if isinstance(set_properties, dict):
-                            person_properties.update(set_properties)
+            if isinstance(set_properties, dict):
+                person_properties.update(set_properties)
 
-                    # Handle $set_once operations (only from dedicated $set_once events)
-                    if event_name == "$set_once" and "$set_once" in event_properties:
-                        set_once_properties = event_properties["$set_once"]
-                        if isinstance(set_once_properties, dict):
-                            for key, value in set_once_properties.items():
-                                if key not in person_properties:
-                                    person_properties[key] = value
-                else:
-                    # Only handle $set operations when include_set_once is False
-                    if "$set" in event_properties:
-                        set_properties = event_properties["$set"]
-                        if isinstance(set_properties, dict):
-                            person_properties.update(set_properties)
+        # $set_once semantics only apply to dedicated $set_once events.
+        if include_set_once and event_name == "$set_once" and set_once_json:
+            try:
+                set_once_properties = json.loads(set_once_json)
+            except (json.JSONDecodeError, TypeError):
+                set_once_properties = None
 
-            except (json.JSONDecodeError, KeyError, TypeError):
-                # Skip events with malformed property data
-                continue
+            if isinstance(set_once_properties, dict):
+                for key, value in set_once_properties.items():
+                    if key not in person_properties:
+                        person_properties[key] = value
 
     return person_properties
-
-
-def person_existed_at_timestamp(team_id: int, timestamp: datetime, distinct_ids: list[str]) -> bool:
-    """
-    Check if a person existed at a specific timestamp by looking for any events.
-
-    A person is considered to have existed if there were any events for their
-    distinct_ids at or before the given timestamp.
-
-    Args:
-        team_id: The team ID to filter events by
-        timestamp: The point in time to check person existence at
-        distinct_ids: List of distinct_ids to query for person existence
-
-    Returns:
-        True if the person had any activity at or before the timestamp, False otherwise
-
-    Raises:
-        ValueError: If parameters are invalid
-        Exception: If ClickHouse query fails
-    """
-    # Validation
-    if not isinstance(team_id, int) or team_id <= 0:
-        raise ValueError("team_id must be a positive integer")
-
-    if not isinstance(distinct_ids, list) or not distinct_ids:
-        raise ValueError("distinct_ids must be a non-empty list")
-
-    if not all(isinstance(did, str) and did for did in distinct_ids):
-        raise ValueError("All distinct_ids must be non-empty strings")
-
-    # Query to check if any events exist for this person at or before the timestamp
-    query = """
-    SELECT 1
-    FROM events
-    WHERE team_id = %(team_id)s
-        AND distinct_id IN %(distinct_ids)s
-        AND timestamp <= %(timestamp)s
-    LIMIT 1
-    """
-
-    params = {
-        "team_id": team_id,
-        "distinct_ids": distinct_ids,
-        "timestamp": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
-    }
-
-    try:
-        rows = sync_execute(query, params, settings={"max_execution_time": 10})
-        return len(rows) > 0
-    except Exception as e:
-        raise Exception(f"Failed to check person existence: {str(e)}") from e

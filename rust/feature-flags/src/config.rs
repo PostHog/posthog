@@ -408,6 +408,12 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub cohort_cache_monitor_interval_secs: u64,
 
+    // How often to report flag definitions cache metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_MONITOR_INTERVAL_SECS", default = "30")]
+    pub flag_definitions_cache_monitor_interval_secs: u64,
+
     // Pool utilization percentage that triggers warnings (0.0-1.0)
     // - Lower values (e.g., 0.7) provide earlier warnings
     // - Higher values (e.g., 0.9) reduce alert noise
@@ -419,12 +425,6 @@ pub struct Config {
     // - Higher values reduce Redis queries but may allow brief overages
     #[envconfig(default = "5")]
     pub billing_limiter_cache_ttl_secs: u64,
-
-    // Health check registration interval (seconds)
-    // - Should be less than your orchestrator's liveness probe timeout
-    // - Common values: 10-30 for Kubernetes environments
-    #[envconfig(default = "30")]
-    pub health_check_interval_secs: u64,
 
     // OpenTelemetry exporter timeout (seconds)
     // - Increase if OTEL endpoint is slow or remote
@@ -464,6 +464,17 @@ pub struct Config {
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
+
+    /// Maximum memory for the in-memory flag definitions cache (deserialized + regex-compiled).
+    /// Default: 134217728 bytes (128 MB)
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_CAPACITY_BYTES", default = "134217728")]
+    pub flag_definitions_cache_capacity_bytes: u64,
+
+    /// TTL for in-memory flag definitions cache entries.
+    /// Etag-keyed entries ensure correctness, so TTL is purely for memory reclamation.
+    /// Default: 90 seconds
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_TTL_SECONDS", default = "90")]
+    pub flag_definitions_cache_ttl_seconds: u64,
 
     #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
     pub group_type_cache_ttl_seconds: u64,
@@ -680,6 +691,36 @@ pub struct Config {
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
+
+    // Shadow-keyspace writer for reconciliation. Off by default.
+    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_ENABLED", default = "false")]
+    pub billing_aggregator_enabled: FlexBool,
+
+    // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
+    // rejects zero values at boot — see the module docs on
+    // `src/billing/aggregator.rs` for the durability trade-offs that hang
+    // off these knobs.
+    //
+    // How often the flusher drains the in-memory map (milliseconds). Must
+    // stay well below `CACHE_BUCKET_SIZE` (120s) so bucket rollover doesn't
+    // collapse counts. Also directly bounds the worst-case crash-loss
+    // window: a SIGKILL or OOM-kill past the shutdown grace period loses
+    // up to one interval of records per pod.
+    #[envconfig(from = "FLAGS_BILLING_FLUSH_INTERVAL_MS", default = "10000")]
+    pub billing_flush_interval_ms: u64,
+
+    // Safety cap on pending entries — tripwire, not a working-set estimate.
+    #[envconfig(from = "FLAGS_BILLING_MAX_PENDING_ENTRIES", default = "500000")]
+    pub billing_max_pending_entries: usize,
+
+    // Maximum `HIncrBy` commands per pipeline round-trip during a flush.
+    #[envconfig(from = "FLAGS_BILLING_PER_FLUSH_BATCH_SIZE", default = "200")]
+    pub billing_per_flush_batch_size: usize,
+
+    // Upper bound on the graceful-shutdown flush (milliseconds). Should stay
+    // comfortably within the pod's `terminationGracePeriodSeconds`.
+    #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
+    pub billing_shutdown_flush_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -832,14 +873,16 @@ impl Config {
             writer_statement_timeout_ms: 3000,
             db_monitor_interval_secs: 30,
             cohort_cache_monitor_interval_secs: 30,
+            flag_definitions_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
-            health_check_interval_secs: 30,
             otel_export_timeout_secs: 3,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
+            flag_definitions_cache_capacity_bytes: 134_217_728, // 128 MB
+            flag_definitions_cache_ttl_seconds: 90,
             cache_ttl_seconds: 300,
             group_type_cache_ttl_seconds: 300,
             group_type_cache_max_entries: 50_000,
@@ -889,6 +932,11 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
+            billing_aggregator_enabled: FlexBool(false),
+            billing_flush_interval_ms: 10_000,
+            billing_max_pending_entries: 500_000,
+            billing_per_flush_batch_size: 200,
+            billing_shutdown_flush_timeout_ms: 15_000,
         }
     }
 

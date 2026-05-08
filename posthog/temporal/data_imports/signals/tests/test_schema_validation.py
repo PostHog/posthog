@@ -1,5 +1,7 @@
 import json
+import dataclasses
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -19,16 +21,16 @@ def _load_fixture(filename: str) -> list[dict]:
 
 
 def _validate_output(output):
-    SignalInput.model_validate(
-        {
-            "source_product": output.source_product,
-            "source_type": output.source_type,
-            "source_id": output.source_id,
-            "description": output.description,
-            "weight": output.weight,
-            "extra": output.extra,
-        }
-    )
+    data = dataclasses.asdict(output)
+    for variant_type in get_args(SignalInput.model_fields["root"].annotation):
+        fields = variant_type.model_fields
+        if (
+            fields["source_product"].default == output.source_product
+            and fields["source_type"].default == output.source_type
+        ):
+            variant_type.model_validate(data)
+            return
+    raise ValueError(f"No SignalInput variant for ({output.source_product}, {output.source_type})")
 
 
 GITHUB_RECORDS = _load_fixture("github_issues.json")

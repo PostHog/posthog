@@ -30,7 +30,7 @@ export interface HogFlowMaskingApi {
     /** @nullable */
     threshold?: number | null
     hash: string
-    bytecode?: unknown | null
+    bytecode?: unknown
 }
 
 /**
@@ -63,10 +63,6 @@ export const OnErrorEnumApi = {
     Branch: 'branch',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `events` - events
  * `person-updates` - person-updates
@@ -95,7 +91,7 @@ export interface HogFunctionFiltersApi {
     events?: HogFunctionFiltersApiEventsItem[]
     data_warehouse?: HogFunctionFiltersApiDataWarehouseItem[]
     properties?: HogFunctionFiltersApiPropertiesItem[]
-    bytecode?: unknown | null
+    bytecode?: unknown
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
@@ -110,20 +106,20 @@ export interface HogFlowTemplateActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    on_error?: OnErrorEnumApi | NullEnumApi | null
+    on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
     /** @maxLength 100 */
     type: string
     config: unknown
-    output_variable?: unknown | null
+    output_variable?: unknown
 }
 
 /**
  * @nullable
  */
-export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -149,7 +145,7 @@ export interface HogFlowTemplateApi {
     readonly updated_at: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions: HogFlowTemplateActionApi[]
@@ -173,7 +169,7 @@ export interface PaginatedHogFlowTemplateListApi {
 /**
  * @nullable
  */
-export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -199,7 +195,7 @@ export interface PatchedHogFlowTemplateApi {
     readonly updated_at?: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions?: HogFlowTemplateActionApi[]
@@ -216,9 +212,9 @@ export interface PatchedHogFlowTemplateApi {
  * `active` - Active
  * `archived` - Archived
  */
-export type StatusA5eEnumApi = (typeof StatusA5eEnumApi)[keyof typeof StatusA5eEnumApi]
+export type HogFlowStatusEnumApi = (typeof HogFlowStatusEnumApi)[keyof typeof HogFlowStatusEnumApi]
 
-export const StatusA5eEnumApi = {
+export const HogFlowStatusEnumApi = {
     Draft: 'draft',
     Active: 'active',
     Archived: 'archived',
@@ -256,7 +252,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -276,7 +272,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface HogFlowMinimalApi {
@@ -285,20 +281,20 @@ export interface HogFlowMinimalApi {
     readonly name: string | null
     readonly description: string
     readonly version: number
-    readonly status: StatusA5eEnumApi
+    readonly status: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
     readonly trigger: unknown
-    readonly trigger_masking: unknown | null
-    readonly conversion: unknown | null
+    readonly trigger_masking: unknown
+    readonly conversion: unknown
     readonly exit_condition: ExitConditionEnumApi
     readonly edges: unknown
     readonly actions: unknown
     /** @nullable */
     readonly abort_action: string | null
-    readonly variables: unknown | null
-    readonly billable_action_types: unknown | null
+    readonly variables: unknown
+    readonly billable_action_types: unknown
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -317,14 +313,14 @@ export interface HogFlowActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    on_error?: OnErrorEnumApi | NullEnumApi | null
+    on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
     /** @maxLength 100 */
     type: string
     config: unknown
-    output_variable?: unknown | null
+    output_variable?: unknown
 }
 
 export interface HogFlowApi {
@@ -336,20 +332,20 @@ export interface HogFlowApi {
     name?: string | null
     description?: string
     readonly version: number
-    status?: StatusA5eEnumApi
+    status?: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action: string | null
     variables?: HogFlowApiVariablesItem[]
-    readonly billable_action_types: unknown | null
+    readonly billable_action_types: unknown
 }
 
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
@@ -363,20 +359,36 @@ export interface PatchedHogFlowApi {
     name?: string | null
     description?: string
     readonly version?: number
-    status?: StatusA5eEnumApi
+    status?: HogFlowStatusEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions?: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action?: string | null
     variables?: PatchedHogFlowApiVariablesItem[]
-    readonly billable_action_types?: unknown | null
+    readonly billable_action_types?: unknown
+}
+
+export interface AppMetricSeriesApi {
+    name: string
+    values: number[]
+}
+
+export interface AppMetricsResponseApi {
+    labels: string[]
+    series: AppMetricSeriesApi[]
+}
+
+export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
+
+export interface AppMetricsTotalsResponseApi {
+    totals: AppMetricsTotalsResponseApiTotals
 }
 
 /**
@@ -449,6 +461,38 @@ export type HogFlowTemplatesListParams = {
     offset?: number
 }
 
+export type HogFlowTemplatesLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
 export type HogFlowsListParams = {
     created_at?: string
     created_by?: number
@@ -463,6 +507,162 @@ export type HogFlowsListParams = {
     offset?: number
     updated_at?: string
 }
+
+export type HogFlowsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type HogFlowsMetricsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+ * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+* `name` - name
+* `kind` - kind
+ * @minLength 1
+ */
+    breakdown_by?: HogFlowsMetricsRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+ * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+* `hour` - hour
+* `day` - day
+* `week` - week
+ * @minLength 1
+ */
+    interval?: HogFlowsMetricsRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+}
+
+export type HogFlowsMetricsRetrieveBreakdownBy =
+    (typeof HogFlowsMetricsRetrieveBreakdownBy)[keyof typeof HogFlowsMetricsRetrieveBreakdownBy]
+
+export const HogFlowsMetricsRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFlowsMetricsRetrieveInterval =
+    (typeof HogFlowsMetricsRetrieveInterval)[keyof typeof HogFlowsMetricsRetrieveInterval]
+
+export const HogFlowsMetricsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
+export type HogFlowsMetricsTotalsRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+ * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+
+* `name` - name
+* `kind` - kind
+ * @minLength 1
+ */
+    breakdown_by?: HogFlowsMetricsTotalsRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+ * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+
+* `hour` - hour
+* `day` - day
+* `week` - week
+ * @minLength 1
+ */
+    interval?: HogFlowsMetricsTotalsRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+}
+
+export type HogFlowsMetricsTotalsRetrieveBreakdownBy =
+    (typeof HogFlowsMetricsTotalsRetrieveBreakdownBy)[keyof typeof HogFlowsMetricsTotalsRetrieveBreakdownBy]
+
+export const HogFlowsMetricsTotalsRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFlowsMetricsTotalsRetrieveInterval =
+    (typeof HogFlowsMetricsTotalsRetrieveInterval)[keyof typeof HogFlowsMetricsTotalsRetrieveInterval]
+
+export const HogFlowsMetricsTotalsRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
 
 export type HogFlowsSchedulesListParams = {
     created_at?: string

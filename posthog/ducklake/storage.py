@@ -26,9 +26,11 @@ from urllib.parse import urlparse
 import psycopg
 
 from posthog.ducklake.common import (
+    _get_org_id_for_team,
     escape as ducklake_escape,
     get_config,
-    get_team_config,
+    get_org_config,
+    is_dev_mode,
 )
 
 if TYPE_CHECKING:
@@ -150,6 +152,7 @@ class DuckLakeStorageConfig:
         *,
         use_local_setup: bool | None = None,
         team_id: int | None = None,
+        organization_id: str | None = None,
     ) -> DuckLakeStorageConfig:
         """Create storage config from current runtime environment.
 
@@ -161,12 +164,19 @@ class DuckLakeStorageConfig:
             use_local_setup: Override for USE_LOCAL_SETUP setting. If None,
                 reads from Django settings or defaults to True for CLI tools.
             team_id: Optional team ID to look up team-specific configuration.
+            organization_id: Optional organization ID. When provided, skips
+                the Team→Organization DB lookup.
 
         Returns:
             DuckLakeStorageConfig instance with appropriate credentials.
         """
-        if team_id is not None:
-            config = get_team_config(team_id)
+        if organization_id is not None:
+            config = get_org_config(organization_id)
+        elif team_id is not None:
+            if is_dev_mode():
+                config = get_config()
+            else:
+                config = get_org_config(_get_org_id_for_team(team_id))
         else:
             config = get_config()
         settings = _get_django_settings()
@@ -420,6 +430,7 @@ def ensure_ducklake_bucket_exists(
     config: dict[str, str] | None = None,
     *,
     team_id: int | None = None,
+    organization_id: str | None = None,
 ) -> None:
     """Ensure the DuckLake bucket exists (local dev only).
 
@@ -430,16 +441,23 @@ def ensure_ducklake_bucket_exists(
         storage_config: Storage config to use. If None, creates one from runtime.
         config: DuckLake config dict. If None, resolved from team_id or get_config().
         team_id: Optional team ID to look up team-specific configuration.
+        organization_id: Optional organization ID. When provided, skips
+            the Team→Organization DB lookup.
     """
     if storage_config is None:
-        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id)
+        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id, organization_id=organization_id)
 
     if not storage_config.is_local:
         return
 
     if config is None:
-        if team_id is not None:
-            config = get_team_config(team_id)
+        if organization_id is not None:
+            config = get_org_config(organization_id)
+        elif team_id is not None:
+            if is_dev_mode():
+                config = get_config()
+            else:
+                config = get_org_config(_get_org_id_for_team(team_id))
         else:
             config = get_config()
 
@@ -460,6 +478,7 @@ def get_deltalake_storage_options(
     storage_config: DuckLakeStorageConfig | None = None,
     *,
     team_id: int | None = None,
+    organization_id: str | None = None,
 ) -> dict[str, str]:
     """Get storage options for deltalake library.
 
@@ -468,12 +487,14 @@ def get_deltalake_storage_options(
     Args:
         storage_config: Storage config to use. If None, creates one from runtime.
         team_id: Optional team ID to look up team-specific configuration.
+        organization_id: Optional organization ID. When provided, skips
+            the Team→Organization DB lookup.
 
     Returns:
         Dict of storage options to pass to deltalake.DeltaTable.
     """
     if storage_config is None:
-        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id)
+        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id, organization_id=organization_id)
     return storage_config.to_deltalake_options()
 
 
@@ -486,7 +507,13 @@ def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
     return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
 
 
-def _get_delta_snapshot_files(source_uri: str) -> tuple[int, list[str]]:
+def _get_delta_snapshot_files(
+    source_uri: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> tuple[int, list[str]]:
     """Pin to the current Delta table version and return its data file S3 keys.
 
     Opens the Delta table at *source_uri* using the deltalake library (which
@@ -500,7 +527,14 @@ def _get_delta_snapshot_files(source_uri: str) -> tuple[int, list[str]]:
     """
     import deltalake
 
-    dt = deltalake.DeltaTable(table_uri=source_uri, storage_options=get_deltalake_storage_options())
+    dt = deltalake.DeltaTable(
+        table_uri=source_uri,
+        storage_options=get_deltalake_storage_options(
+            storage_config=storage_config,
+            team_id=team_id,
+            organization_id=organization_id,
+        ),
+    )
     version = dt.version()
     keys: list[str] = []
     for uri in dt.file_uris():
@@ -551,6 +585,10 @@ def stage_delta_table(
     catalog_bucket: str,
     role_arn: str,
     external_id: str | None = None,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
 ) -> str:
     """Copy a version-pinned Delta table snapshot to the catalog bucket under __posthog_staging/.
 
@@ -570,7 +608,12 @@ def stage_delta_table(
     if not source_prefix.endswith("/"):
         source_prefix += "/"
 
-    version, data_keys = _get_delta_snapshot_files(source_uri)
+    version, data_keys = _get_delta_snapshot_files(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
 
     access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
 

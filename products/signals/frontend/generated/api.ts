@@ -10,12 +10,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    SignalReportApi,
     SignalSourceConfigApi,
+    SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
+    SignalsReportsListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -36,9 +40,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Return current processing state including pause status.
- */
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -55,6 +56,9 @@ export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsP
         : `/api/projects/${projectId}/signals/processing/`
 }
 
+/**
+ * Return current processing state including pause status.
+ */
 export const signalsProcessingList = async (
     projectId: string,
     params?: SignalsProcessingListParams,
@@ -66,13 +70,13 @@ export const signalsProcessingList = async (
     })
 }
 
-/**
- * View and control signal processing pipeline state for a team.
- */
 export const getSignalsProcessingPauseUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
+/**
+ * View and control signal processing pipeline state for a team.
+ */
 export const signalsProcessingPauseUpdate = async (
     projectId: string,
     pauseUntilRequestApi: PauseUntilRequestApi,
@@ -86,13 +90,13 @@ export const signalsProcessingPauseUpdate = async (
     })
 }
 
-/**
- * View and control signal processing pipeline state for a team.
- */
 export const getSignalsProcessingPauseDestroyUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
+/**
+ * View and control signal processing pipeline state for a team.
+ */
 export const signalsProcessingPauseDestroy = async (
     projectId: string,
     options?: RequestInit
@@ -100,6 +104,48 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsListUrl = (projectId: string, params?: SignalsReportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/`
+}
+
+export const signalsReportsList = async (
+    projectId: string,
+    params?: SignalsReportsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportListApi> => {
+    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+export const signalsReportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -187,7 +233,7 @@ export const getSignalsSourceConfigsPartialUpdateUrl = (projectId: string, id: s
 export const signalsSourceConfigsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSignalSourceConfigApi: NonReadonly<PatchedSignalSourceConfigApi>,
+    patchedSignalSourceConfigApi?: NonReadonly<PatchedSignalSourceConfigApi>,
     options?: RequestInit
 ): Promise<SignalSourceConfigApi> => {
     return apiMutator<SignalSourceConfigApi>(getSignalsSourceConfigsPartialUpdateUrl(projectId, id), {
@@ -213,6 +259,10 @@ export const signalsSourceConfigsDestroy = async (
     })
 }
 
+export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
+}
+
 /**
  * Per-user signal autonomy config (singleton keyed by user).
 
@@ -220,33 +270,42 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
-export const usersSignalAutonomyRetrieve = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyRetrieveUrl(userId), {
+export const usersSignalAutonomyRetrieve = async (
+    userId: string,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyRetrieveUrl(userId), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
- */
 export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyCreate = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyCreateUrl(userId), {
+/**
+ * Per-user signal autonomy config (singleton keyed by user).
+
+GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+POST   /api/users/<id>/signal_autonomy/ → create or update
+DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ */
+export const usersSignalAutonomyCreate = async (
+    userId: string,
+    signalUserAutonomyConfigApi?: NonReadonly<SignalUserAutonomyConfigApi>,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalUserAutonomyConfigApi),
     })
+}
+
+export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
 }
 
 /**
@@ -256,10 +315,6 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
 export const usersSignalAutonomyDestroy = async (userId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersSignalAutonomyDestroyUrl(userId), {
         ...options,

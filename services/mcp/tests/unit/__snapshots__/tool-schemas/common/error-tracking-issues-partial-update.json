@@ -6,14 +6,10 @@
                 "id": {
                     "anyOf": [
                         {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "string"
-                                }
-                            ]
+                            "type": "number"
+                        },
+                        {
+                            "type": "string"
                         },
                         {
                             "type": "null"
@@ -39,6 +35,7 @@
         "external_issues": {
             "items": {
                 "properties": {
+                    "config": {},
                     "external_url": {
                         "type": "string"
                     },
@@ -54,54 +51,26 @@
                                 "type": "number"
                             },
                             "kind": {
-                                "enum": [
-                                    "slack",
-                                    "slack-posthog-code",
-                                    "salesforce",
-                                    "hubspot",
-                                    "google-pubsub",
-                                    "google-cloud-service-account",
-                                    "google-cloud-storage",
-                                    "google-ads",
-                                    "google-sheets",
-                                    "linkedin-ads",
-                                    "snapchat",
-                                    "intercom",
-                                    "email",
-                                    "twilio",
-                                    "linear",
-                                    "github",
-                                    "gitlab",
-                                    "meta-ads",
-                                    "clickup",
-                                    "reddit-ads",
-                                    "databricks",
-                                    "tiktok-ads",
-                                    "bing-ads",
-                                    "vercel",
-                                    "azure-blob",
-                                    "firebase",
-                                    "jira",
-                                    "pinterest-ads",
-                                    "customerio-app",
-                                    "customerio-webhook",
-                                    "customerio-track"
-                                ],
                                 "type": "string"
                             }
                         },
-                        "required": ["display_name", "id", "kind"],
                         "type": "object"
+                    },
+                    "integration_id": {
+                        "type": "number"
+                    },
+                    "issue": {
+                        "type": "string"
                     }
                 },
-                "required": ["external_url", "id", "integration"],
+                "required": ["integration_id", "config", "issue"],
                 "type": "object"
             },
             "type": "array"
         },
         "first_seen": {
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
         "id": {

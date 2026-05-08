@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 from asgiref.sync import async_to_sync
 from posthoganalytics import capture_exception
+from pydantic import BaseModel
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -23,6 +24,7 @@ from posthog.schema import (
     AssistantTrendsQuery,
     ChartDisplayType,
     CurrencyCode,
+    DataVisualizationNode,
     FunnelsQuery,
     FunnelVizType,
     HogQLQuery,
@@ -45,7 +47,7 @@ from posthog.hogql.errors import (
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
@@ -119,6 +121,7 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | RetentionQuery
         | AssistantHogQLQuery
         | HogQLQuery
+        | DataVisualizationNode
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -182,7 +185,13 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} Starting arun_and_format_query for {query_type}")
 
         try:
-            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            active_tags = get_query_tags()
+            with tags_context(
+                product=Product.MAX_AI,
+                feature=active_tags.feature or Feature.POSTHOG_AI,
+                team_id=self._team.pk,
+                org_id=self._team.organization_id,
+            ):
                 if insight_id:
                     # Including insight ID for insight search
                     tag_queries(insight_id=insight_id)
@@ -315,17 +324,30 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.warning(f"{TIMING_LOG_PREFIX} Calling process_query_dict")
 
+            # Snapshot the caller's query tags from the async context so we can replay them inside
+            # the threaded sync function — `database_sync_to_async` crosses a thread boundary and
+            # downstream code (e.g. `enqueue_process_query_task`) reads `get_query_tags()` from the
+            # executing thread to forward to Celery, where contextvars do not propagate.
+            parent_tag_kwargs = get_query_tags().model_dump(exclude_none=True)
+            team = self._team
+            user = self._user
+            query_dict = query.model_dump(mode="json")
+
+            def process_query_dict_with_tags() -> dict | BaseModel:
+                with tags_context(**parent_tag_kwargs):
+                    return process_query_dict(
+                        team,
+                        query_dict,
+                        execution_mode=execution_mode,
+                        limit_context=LimitContext.POSTHOG_AI,
+                        user=user,
+                    )
+
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread
             # as it only does lightweight ORM retrievals and Redis calls. If we run in tests, do not spawn another thread.
             results_response = await database_sync_to_async(
-                process_query_dict, thread_sensitive=execution_mode not in BLOCKING_EXECUTION_MODES
-            )(
-                self._team,
-                query.model_dump(mode="json"),
-                execution_mode=execution_mode,
-                limit_context=LimitContext.POSTHOG_AI,
-                user=self._user,
-            )
+                process_query_dict_with_tags, thread_sensitive=execution_mode not in BLOCKING_EXECUTION_MODES
+            )()
 
             process_elapsed = time.time() - process_start
             if debug_timing:
@@ -486,6 +508,12 @@ class AssistantQueryExecutor:
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, DataVisualizationNode):
+                formatter_name = "SQLResultsFormatter"
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query.source, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
@@ -562,7 +590,7 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         return STICKINESS_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
-    if isinstance(query, AssistantHogQLQuery | HogQLQuery):
+    if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
         return SQL_EXAMPLE_PROMPT
     if isinstance(query, RevenueAnalyticsGrossRevenueQuery):
         return REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT
@@ -615,8 +643,8 @@ async def execute_and_format_query(
         insight_schema = query.model_dump_json(exclude_none=True)
 
     # Check if SQL results contain truncated values
-    has_truncated_values = (
-        isinstance(query, AssistantHogQLQuery | HogQLQuery) and TRUNCATED_MARKER in results and not used_fallback
+    has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
+        TRUNCATED_MARKER in results and not used_fallback
     )
 
     query_result = format_prompt_string(
@@ -629,7 +657,7 @@ async def execute_and_format_query(
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         currency=currency if is_revenue_analytics_query(query) else None,
         has_truncated_values=has_truncated_values,
-        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery) else None,
+        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 
     return f"{example_prompt}\n\n{query_result}"

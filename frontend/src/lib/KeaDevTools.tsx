@@ -1567,11 +1567,11 @@ class MemoryErrorBoundary extends React.Component<{ children: React.ReactNode },
         return { hasError: true, msg: err?.message ?? String(err) }
     }
 
-    componentDidCatch(err: any): void {
+    override componentDidCatch(err: any): void {
         console.warn('MemoryTree error', err)
     }
 
-    render(): JSX.Element | null {
+    override render(): JSX.Element | null {
         if (this.state.hasError) {
             return (
                 <div style={{ padding: 6, color: 'rgba(0,0,0,0.7)' }}>

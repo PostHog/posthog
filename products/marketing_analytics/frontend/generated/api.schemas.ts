@@ -23,8 +23,8 @@ export interface UtmIssueApi {
     field: string
     /** Issue severity level
 
-* `error` - error
-* `warning` - warning */
+  * `error` - error
+  * `warning` - warning */
     severity: UtmIssueSeverityEnumApi
     /** Human-readable description of the issue */
     message: string
@@ -56,19 +56,6 @@ export interface CampaignAuditResultApi {
  * `auto` - auto
  * `mapped` - mapped
  */
-export type CampaignMatchEnumApi = (typeof CampaignMatchEnumApi)[keyof typeof CampaignMatchEnumApi]
-
-export const CampaignMatchEnumApi = {
-    None: 'none',
-    Auto: 'auto',
-    Mapped: 'mapped',
-} as const
-
-/**
- * * `none` - none
- * `auto` - auto
- * `mapped` - mapped
- */
 export type SourceMatchEnumApi = (typeof SourceMatchEnumApi)[keyof typeof SourceMatchEnumApi]
 
 export const SourceMatchEnumApi = {
@@ -86,15 +73,15 @@ export interface UtmEventApi {
     event_count: number
     /** How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)
 
-* `none` - none
-* `auto` - auto
-* `mapped` - mapped */
-    campaign_match: CampaignMatchEnumApi
+  * `none` - none
+  * `auto` - auto
+  * `mapped` - mapped */
+    campaign_match: SourceMatchEnumApi
     /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
 
-* `none` - none
-* `auto` - auto
-* `mapped` - mapped */
+  * `none` - none
+  * `auto` - auto
+  * `mapped` - mapped */
     source_match: SourceMatchEnumApi
     /**
      * Name of the matched campaign, if any
@@ -126,7 +113,6 @@ export type MarketingAnalyticsUtmAuditRetrieveParams = {
     date_from?: string
     /**
      * End date for the audit period
-     * @minLength 1
      * @nullable
      */
     date_to?: string | null

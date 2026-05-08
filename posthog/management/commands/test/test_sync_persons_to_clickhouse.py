@@ -36,7 +36,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
                 uuid=uuid4(),
             )
 
-        run_person_sync(self.team.pk, live_run=True, deletes=False, sync=True)
+        run_person_sync(self.team.pk, live_run=True, deletes=False)
 
         ch_persons = sync_execute(
             """
@@ -56,7 +56,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
                 uuid=uuid4(),
             )
 
-        run_person_sync(self.team.pk, live_run=True, deletes=False, sync=True)
+        run_person_sync(self.team.pk, live_run=True, deletes=False)
 
         ch_persons = sync_execute(
             """
@@ -72,10 +72,9 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             team_id=self.team.pk,
             version=5,
             properties={"abc": 123},
-            sync=True,
         )
 
-        run_person_sync(self.team.pk, live_run=True, deletes=True, sync=True)
+        run_person_sync(self.team.pk, live_run=True, deletes=True)
 
         ch_persons = sync_execute(
             """
@@ -90,7 +89,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
             PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=4)
 
-        run_distinct_id_sync(self.team.pk, live_run=True, deletes=False, sync=True)
+        run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
 
         ch_person_distinct_ids = sync_execute(
             f"""
@@ -105,7 +104,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
             PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=None)
 
-        run_distinct_id_sync(self.team.pk, live_run=True, deletes=False, sync=True)
+        run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
 
         ch_person_distinct_ids = sync_execute(
             f"""
@@ -123,9 +122,8 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person_id=str(uuid),
             is_deleted=False,
             version=7,
-            sync=True,
         )
-        run_distinct_id_sync(self.team.pk, live_run=True, deletes=True, sync=True)
+        run_distinct_id_sync(self.team.pk, live_run=True, deletes=True)
 
         ch_person_distinct_ids = sync_execute(
             f"""
@@ -153,7 +151,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             version=5,
         )
 
-        run_group_sync(self.team.pk, live_run=True, sync=True)
+        run_group_sync(self.team.pk, live_run=True)
         mocked_ch_call.assert_called_once()
 
         ch_groups = sync_execute(
@@ -170,7 +168,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), ts.strftime("%Y-%m-%d %H:%M:%S"))
 
         # second time it's a no-op
-        run_group_sync(self.team.pk, live_run=True, sync=True)
+        run_group_sync(self.team.pk, live_run=True)
         mocked_ch_call.assert_called_once()
 
     @mock.patch(
@@ -189,7 +187,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         group.save()
 
         ts_before = datetime.now(UTC)
-        run_group_sync(self.team.pk, live_run=True, sync=True)
+        run_group_sync(self.team.pk, live_run=True)
         mocked_ch_call.assert_called_once()
 
         ch_groups = sync_execute(
@@ -217,7 +215,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
 
         # second time it's a no-op
-        run_group_sync(self.team.pk, live_run=True, sync=True)
+        run_group_sync(self.team.pk, live_run=True)
         mocked_ch_call.assert_called_once()
 
     @mock.patch(
@@ -251,7 +249,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             version=7,
         )
 
-        run_group_sync(self.team.pk, live_run=True, sync=True)
+        run_group_sync(self.team.pk, live_run=True)
         self.assertEqual(mocked_ch_call.call_count, 3)
 
         ch_groups = sync_execute(
@@ -271,7 +269,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
 
         # second time it's a no-op
-        run_group_sync(self.team.pk, live_run=True, sync=True)
+        run_group_sync(self.team.pk, live_run=True)
         self.assertEqual(mocked_ch_call.call_count, 3)
 
     def test_live_run_everything(self):
@@ -320,14 +318,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             team_id=person_should_update_1.team_id,
             properties={"a": 13},
             version=4,
-            sync=True,
         )
         create_person(
             uuid=str(person_should_update_2.uuid),
             team_id=person_should_update_2.team_id,
             properties={"a": 1},
             version=6,
-            sync=True,
         )
 
         # 2 persons need to be deleted
@@ -336,14 +332,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             team_id=self.team.pk,
             version=7,
             properties={"abcd": 123},
-            sync=True,
         )
         deleted_person_2_uuid = create_person(
             uuid=str(uuid4()),
             team_id=self.team.pk,
             version=8,
             properties={"abcef": 123},
-            sync=True,
         )
 
         # 2 distinct id no update
@@ -394,7 +388,6 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person_id=str(person_not_changed_1.uuid),
             is_deleted=False,
             version=12,
-            sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -402,7 +395,6 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person_id=str(person_not_changed_1.uuid),
             is_deleted=False,
             version=14,
-            sync=True,
         )
 
         # 2 distinct ids need to be deleted
@@ -413,7 +405,6 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person_id=str(deleted_distinct_id_1_uuid),
             is_deleted=False,
             version=17,
-            sync=True,
         )
         deleted_distinct_id_2_uuid = uuid4()
         create_person_distinct_id(
@@ -422,7 +413,6 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             person_id=str(deleted_distinct_id_2_uuid),
             is_deleted=False,
             version=18,
-            sync=True,
         )
 
         Group.objects.create(
@@ -444,7 +434,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             "group": True,
             "deletes": True,
         }
-        run(options, sync=True)
+        run(options)
 
         ch_persons = sync_execute(
             """

@@ -2,11 +2,7 @@ import './FunnelsQuerySteps.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -18,12 +14,9 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { EditorFilterProps, FilterType, FunnelVizType as FunnelVizTypeEnum } from '~/types'
+import { EditorFilterProps, FilterType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { AggregationSelect } from '../filters/AggregationSelect'
-import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
-import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseStepDefinitionPopover'
 
 export const FUNNEL_STEP_COUNT_LIMIT = 30
@@ -31,8 +24,6 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
-
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
@@ -47,7 +38,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
         } as FunnelsQuery)
     }
 
-    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     if (!actionFilters) {
         return null
@@ -59,23 +50,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            {!editorPanelsEnabled && (
-                <div className="flex justify-between items-center">
-                    <LemonLabel>Query Steps</LemonLabel>
-
-                    {(querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow && (
-                        <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                            <div className="flex items-center gap-2">
-                                <span className="text-secondary">Graph type</span>
-                                <FunnelVizType insightProps={insightProps} />
-                            </div>
-                        </Tooltip>
-                    )}
-                </div>
-            )}
             <div className="FunnelsQuerySteps">
                 <ActionFilter
-                    bordered={!editorPanelsEnabled}
+                    bordered={false}
                     filters={actionFilters}
                     setFilters={setActionFilters}
                     typeKey={keyForInsightLogicProps('new')(insightProps)}
@@ -119,18 +96,6 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ]}
                 />
             </div>
-            {!editorPanelsEnabled && (
-                <div className="mt-4 deprecated-space-y-4">
-                    {showGroupsOptions && (
-                        <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
-                            <span>Aggregating by</span>
-                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
-                        </div>
-                    )}
-
-                    <FunnelConversionWindowFilter insightProps={insightProps} />
-                </div>
-            )}
         </>
     )
 }

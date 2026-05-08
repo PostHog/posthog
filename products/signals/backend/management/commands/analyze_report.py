@@ -225,7 +225,6 @@ class Command(BaseCommand):
                 summary=summary,
                 previous_report_id=previous_report_id,
                 previous_report_research=previous_report_research,
-                branch="master",
                 verbose=verbose,
                 output_fn=self._flushing_write,
             )

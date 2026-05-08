@@ -541,6 +541,20 @@ WHERE
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
+    def _events_prefilter_date_bounds(self) -> tuple[str, str]:
+        lower = self.query_date_range.date_from()
+        upper = self.query_date_range.date_to()
+
+        if self.query_compare_to_date_range:
+            lower = min(lower, self.query_compare_to_date_range.date_from())
+            upper = max(upper, self.query_compare_to_date_range.date_to())
+
+        utc = ZoneInfo("UTC")
+        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        return date_from, date_to
+
     @cached_property
     def events_session_property(self):
         # we should delete this once SessionsV2JoinMode is always uuid, eventually we will always use $session_id_uuid

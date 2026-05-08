@@ -43,7 +43,7 @@ export function SourcesScene(): JSX.Element {
     )
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Sources].name}
                 description={sceneConfigurations[Scene.Sources].description}

@@ -33,6 +33,7 @@ import { OllamaInstallation } from '@posthog/shared-onboarding/llm-analytics/oll
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenAIAgentsInstallation } from '@posthog/shared-onboarding/llm-analytics/openai-agents'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
+import { OpenTelemetryInstallation } from '@posthog/shared-onboarding/llm-analytics/opentelemetry'
 import { PerplexityInstallation } from '@posthog/shared-onboarding/llm-analytics/perplexity'
 import { PortkeyInstallation } from '@posthog/shared-onboarding/llm-analytics/portkey'
 import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
@@ -218,6 +219,10 @@ const LLMDedalusInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DedalusInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMOpenTelemetryInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenTelemetryInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKTagOverrides: SDKTagOverrides = {
     [SDKKey.HELICONE]: [SDKTag.GATEWAY],
@@ -262,5 +267,6 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
     [SDKKey.XAI]: LLMXAIInstructionsWrapper,
     [SDKKey.OPENAI_AGENTS]: LLMOpenAIAgentsInstructionsWrapper,
+    [SDKKey.OPENTELEMETRY]: LLMOpenTelemetryInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }

@@ -4,13 +4,13 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { truncate } from 'lib/utils'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { ErrorTrackingRule } from './types'
 
 export function DisabledRuleBanner({ rule, onClose }: { rule: ErrorTrackingRule; onClose?: () => void }): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const rawMessage = rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
     const message = rawMessage ? truncate(rawMessage, 200) : null
 
