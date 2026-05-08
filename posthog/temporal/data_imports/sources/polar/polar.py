@@ -158,6 +158,10 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
                 continue
             raise PolarPermissionError(f"Missing permissions for {endpoint}")
         response.raise_for_status()
+        # First non-403 success is proof enough — stop probing so a transient
+        # 5xx on a later endpoint can't block source creation.
+        if is_create_probe:
+            return True
 
     if is_create_probe and len(forbidden) == len(endpoints_to_check):
         raise PolarPermissionError(f"token has no readable scope for any supported endpoint ({', '.join(forbidden)})")
