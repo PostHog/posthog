@@ -61,13 +61,15 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   INPUT_RUN_ID: ${{ inputs.run_id }}
               run: |
-                  args=""
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      args="--run-id $INPUT_RUN_ID"
+                      if ! [[ "$INPUT_RUN_ID" =~ ^[0-9]+$ ]]; then
+                          echo "::error::run_id must be a numeric GitHub Actions run ID"
+                          exit 1
+                      fi
+                      python .github/scripts/update_rust_shard_weights.py --run-id "$INPUT_RUN_ID"
                   else
-                      args="--num-runs 3"
+                      python .github/scripts/update_rust_shard_weights.py --num-runs 3
                   fi
-                  python .github/scripts/update_rust_shard_weights.py $args
 
             - name: Check for changes
               if: steps.schedule.outputs.skip != 'true'
