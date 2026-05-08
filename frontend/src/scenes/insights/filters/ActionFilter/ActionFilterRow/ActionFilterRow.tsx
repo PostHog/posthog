@@ -631,12 +631,15 @@ export function ActionFilterRow({
                                                               item:
                                                                   filter.type === EntityTypes.DATA_WAREHOUSE
                                                                       ? {
+                                                                            // `...filter` already provides
+                                                                            // `name`; DWH `getValue` reads
+                                                                            // it. Pull in the resolved
+                                                                            // schema (`fields` etc.) from
+                                                                            // `dataWarehouseTablesMap` so
+                                                                            // re-opening the menu routes
+                                                                            // into `dwh-config` with the
+                                                                            // form pre-filled.
                                                                             ...filter,
-                                                                            name: filter.name,
-                                                                            // DWH `getValue` reads `name`,
-                                                                            // not `id` — make sure both
-                                                                            // are present so routing +
-                                                                            // checkmark match.
                                                                             ...dataWarehouseTablesMap[
                                                                                 String(filter.name)
                                                                             ],

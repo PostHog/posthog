@@ -89,7 +89,11 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             showBreakdownLabelHint: input.hogQLExpressionShowBreakdownLabelHint ?? false,
         }
         return {
-            currentTeam,
+            // `BuildTaxonomicGroupsContext.currentTeam` is non-nullable; the
+            // logic-backed value is nullable until the team boots. Cast
+            // through `unknown` — the consuming `buildTaxonomicGroups`
+            // path tolerates a missing team for the early-mount frame.
+            currentTeam: currentTeam as unknown as BuildTaxonomicGroupsContext['currentTeam'],
             projectId: currentProjectId,
             groupAnalyticsTaxonomicGroups: buildGroupAnalyticsTaxonomicGroups(
                 groupTypes,
@@ -101,18 +105,23 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
                 currentTeam?.id ?? 0,
                 aggregationLabel
             ),
-            eventNames: input.eventNames ?? (EMPTY_ARRAY as string[]),
-            schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as DatabaseSchemaField[]),
+            eventNames: input.eventNames ?? (EMPTY_ARRAY as readonly never[] as string[]),
+            schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as readonly never[] as DatabaseSchemaField[]),
             schemaColumnsLoading: input.schemaColumnsLoading,
             metadataSource: input.metadataSource ?? DEFAULT_METADATA_SOURCE,
             suggestedFiltersLabel: input.suggestedFiltersLabel,
             propertyFilters,
             eventMetadataPropertyDefinitions,
-            maxContextOptions: input.maxContextOptions ?? (EMPTY_ARRAY as MaxContextTaxonomicFilterOption[]),
+            maxContextOptions:
+                input.maxContextOptions ?? (EMPTY_ARRAY as readonly never[] as MaxContextTaxonomicFilterOption[]),
             hideBehavioralCohorts: input.hideBehavioralCohorts ?? false,
             endpointFilters: input.endpointFilters,
             hogQLExpressionComponentProps,
-            featureFlags,
+            // `featureFlags` from featureFlagLogic returns the project's
+            // own `FeatureFlagsSet` shape; widen to the looser
+            // `Record<string, boolean | string | undefined>` the
+            // taxonomic-groups builder accepts.
+            featureFlags: featureFlags as unknown as BuildTaxonomicGroupsContext['featureFlags'],
         }
     }, [
         currentTeam,

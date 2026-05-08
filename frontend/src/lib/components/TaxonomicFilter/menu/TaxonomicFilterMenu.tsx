@@ -387,7 +387,7 @@ export function TaxonomicFilterMenu({
                     // unreliable when the trigger button isn't the
                     // PopoverTrigger element, so we cancel and let the
                     // document pointerdown effect handle it.
-                    if (eventDetails.reason === 'escapeKey') {
+                    if (eventDetails.reason === 'escape-key') {
                         closeAll()
                         return
                     }

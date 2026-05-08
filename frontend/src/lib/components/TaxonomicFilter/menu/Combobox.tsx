@@ -520,7 +520,6 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
     const isSelected = selectedRowId === stableId
     return (
         <Autocomplete.Item
-            id={stableId}
             value={entry}
             onClick={(e) => {
                 e.preventDefault()
@@ -539,7 +538,14 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 // passed to `Autocomplete.Item` would be dropped.
                 isSelected && 'bg-[var(--fill-hover)]'
             )}
-            render={(itemProps, state) => <div {...itemProps} data-selected={state.highlighted ? '' : undefined} />}
+            // `id` lives on the rendered `<div>` (not on the Autocomplete.Item
+            // props) — base-ui omits `id` from its prop typing because it
+            // assigns its own. The wrap-render lets us pin the stable id
+            // we need for `scrollIntoView` + checkmark lookups without
+            // fighting the type.
+            render={(itemProps, state) => (
+                <div {...itemProps} id={stableId} data-selected={state.highlighted ? '' : undefined} />
+            )}
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>

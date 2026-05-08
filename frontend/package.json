@@ -212,6 +212,7 @@
         "lodash.throttle": "^4.1.1",
         "lodash.uniqby": "^4.7.0",
         "lowlight": "^3.3.0",
+        "lucide-react": "^0.577.0",
         "maplibre-gl": "^3.5.1",
         "marked": "^17.0.4",
         "md5": "^2.3.0",

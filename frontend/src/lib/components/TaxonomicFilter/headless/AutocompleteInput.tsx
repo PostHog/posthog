@@ -523,7 +523,7 @@ export function Root({
     const commitEntry = useCallback(
         (entry: IndexedItem, extra?: Record<string, unknown>): void => {
             const mergedItem = extra
-                ? ({ ...(entry.item as object), ...extra } as TaxonomicDefinitionTypes)
+                ? ({ ...(entry.item as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
             const itemValue = entry.group.getValue?.(mergedItem) ?? null
             const finalEntry: IndexedItem = extra ? { ...entry, item: mergedItem } : entry
@@ -1148,13 +1148,16 @@ function DefaultRow({ entry }: DefaultRowProps): JSX.Element {
     if (!showHover) {
         return (
             <Autocomplete.Item
-                id={stableId}
                 value={entry}
                 onClick={(e) => {
                     e.preventDefault()
                     ctx.onSelectEntry(entry)
                 }}
                 className={itemClassName}
+                // base-ui omits `id` from `AutocompleteItem`'s prop type
+                // (it assigns its own internally). Pin the stable id we
+                // need via the wrap-render fallthrough.
+                render={(itemProps) => <div {...itemProps} id={stableId} />}
             >
                 {rowContent}
             </Autocomplete.Item>
@@ -1172,13 +1175,16 @@ function DefaultRow({ entry }: DefaultRowProps): JSX.Element {
                 render={(triggerProps) => (
                     <Autocomplete.Item
                         {...triggerProps}
-                        id={stableId}
                         value={entry}
                         onClick={(e) => {
                             e.preventDefault()
                             ctx.onSelectEntry(entry)
                         }}
                         className={itemClassName}
+                        // base-ui omits `id` from `AutocompleteItem`'s
+                        // prop type (it assigns its own internally). Pin
+                        // the stable id via the wrap-render fallthrough.
+                        render={(itemProps) => <div {...itemProps} id={stableId} />}
                     >
                         {rowContent}
                     </Autocomplete.Item>
@@ -1670,11 +1676,17 @@ export function useTaxonomicAutocompleteItemDetails(
             typeof (item as { description?: unknown }).description === 'string'
                 ? ((item as { description?: string }).description as string)
                 : undefined
+        // `getCoreFilterDefinition.description` is typed as `ReactNode`
+        // (some core defs ship JSX); narrow to string here so the
+        // returned `TaxonomicAutocompleteItemDetails.description?: string`
+        // contract holds. Lossy for JSX-shaped descriptions, but the
+        // current consumers all render plain strings anyway.
+        const coreDescription = typeof def?.description === 'string' ? def.description : undefined
         return {
             title,
             groupLabel,
             rawName: name,
-            description: def?.description ?? itemDescription,
+            description: coreDescription ?? itemDescription,
             example,
             propertyType: propertyType ? String(propertyType) : undefined,
             isPinned: isPinnable ? isPinned(group.type, value) : false,

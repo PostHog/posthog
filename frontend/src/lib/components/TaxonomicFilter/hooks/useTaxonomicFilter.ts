@@ -411,14 +411,14 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                 // closing popover with a stale list.
                 setTimeout(() => {
                     if (recentTaxonomicFiltersLogic.isMounted()) {
-                        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                            sourceGroupType,
-                            sourceGroupName,
-                            valueIn,
-                            cleanItem,
-                            teamLogic.values.currentTeamId ?? undefined,
-                            propertyFilterFromRecent
-                        )
+                        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                            groupType: sourceGroupType,
+                            groupName: sourceGroupName,
+                            value: valueIn,
+                            item: cleanItem,
+                            teamId: teamLogic.values.currentTeamId ?? undefined,
+                            propertyFilter: propertyFilterFromRecent,
+                        })
                     }
                 }, 0)
             }

@@ -6,7 +6,10 @@ import { useTaxonomicFilterContext } from './context'
 
 export interface TaxonomicFilterInputProps extends Omit<
     InputHTMLAttributes<HTMLInputElement>,
-    'value' | 'onChange' | 'onKeyDown'
+    // `prefix` exists on `HTMLAttributes` typed as `string` (RDFa);
+    // we redeclare it as `ReactNode` for the slot, so omit the parent
+    // version to avoid the structural mismatch error from ts.
+    'value' | 'onChange' | 'onKeyDown' | 'prefix'
 > {
     /** Override the placeholder produced by useTaxonomicFilter. */
     placeholder?: string
