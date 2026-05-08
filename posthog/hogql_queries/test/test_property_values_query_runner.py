@@ -233,7 +233,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("poll", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, "force_cache"),
         ]
     )
-    def test_execution_mode_recorded_in_query_executed_event(self, _name, execution_mode, expected_value):
+    def test_execution_mode_recorded_in_slo_started_event(self, _name, execution_mode, expected_value):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         flush_persons_and_events()
 
@@ -247,6 +247,8 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as mock_capture:
             runner.run(execution_mode)
 
-        mock_capture.assert_called_once()
-        captured_props = mock_capture.call_args.kwargs["properties"]
+        mock_capture.assert_called()
+        slo_started_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"]
+        assert len(slo_started_calls) == 1
+        captured_props = slo_started_calls[0].kwargs["properties"]
         assert captured_props["execution_mode"] == expected_value
