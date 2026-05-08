@@ -21,11 +21,11 @@ export function NotebookStaleConflictModal(): JSX.Element | null {
             description="The notebook has changed too much since you started typing. We can't reconcile the changes automatically."
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={discardLocalChanges}>
-                        Discard unsaved changes and reload
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={copyUnsavedToNewNotebook}>
+                    <LemonButton type="secondary" onClick={copyUnsavedToNewNotebook}>
                         Copy unsaved version to a new notebook
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={discardLocalChanges}>
+                        Discard unsaved changes and reload
                     </LemonButton>
                 </>
             }
