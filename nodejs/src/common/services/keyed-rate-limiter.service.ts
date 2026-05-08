@@ -180,19 +180,29 @@ export class KeyedRateLimiterService {
 
         redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitGrouped' }, items.length)
 
-        if (!res && this.config.failOpen === false) {
-            throw new Error(`KeyedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
+        if (!res) {
+            if (this.config.failOpen === false) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
+            }
+            // Fail-open: allow every request, no fan-out deduction. The earlier shape
+            // here seeded `budgetById` with bucketSize and then ran the fan-out, which
+            // wrongly rate-limited any id whose total cost exceeded bucketSize.
+            const bucketSizeById = new Map(items.map((req, i) => [req.id, bucketSizes[i]]))
+            requestsTotal.inc(
+                { name: this.config.name, method: 'rateLimitGrouped', outcome: 'allowed' },
+                requests.length
+            )
+            return requests.map((req) => {
+                const bucketSize = bucketSizeById.get(req.id) ?? 0
+                return [req.id, { tokensBefore: bucketSize, tokens: bucketSize, isRateLimited: false }]
+            })
         }
 
         const budgetById = new Map<string, number>()
         items.forEach((req, index) => {
-            if (res) {
-                const [tokenRes] = getRedisPipelineResults(res, index, 1)
-                const tokensBefore = tokenRes[1]?.[0]
-                budgetById.set(req.id, tokensBefore != null ? Number(tokensBefore) : bucketSizes[index])
-            } else {
-                budgetById.set(req.id, bucketSizes[index])
-            }
+            const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            const tokensBefore = tokenRes[1]?.[0]
+            budgetById.set(req.id, tokensBefore != null ? Number(tokensBefore) : bucketSizes[index])
         })
 
         let allowed = 0

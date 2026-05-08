@@ -262,7 +262,6 @@ describe('KeyedRateLimiterService', () => {
             expect(lastAfterRecovery).toBeGreaterThanOrEqual(0)
         })
 
-
         it('refreshes the V2 TTL on every call', async () => {
             const limiter = buildLimiter('test-v2-ttl', { ttlSeconds: 60 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
@@ -408,6 +407,26 @@ describe('KeyedRateLimiterService', () => {
 
             expect(res.map(([id]) => id)).toEqual(['a', 'b', 'a'])
             // All three allowed — fail-open assumes full bucket.
+            expect(res.every(([, r]) => !r.isRateLimited)).toBe(true)
+        })
+
+        // Earlier shape seeded budgetById = bucketSize and then ran the fan-out, so
+        // any id whose total request count exceeded bucketSize was rate-limited under
+        // fail-open. This regression locks in the all-allowed behavior even when the
+        // batch dwarfs the bucket.
+        it('allows every request under fail-open even when batch size exceeds bucketSize', async () => {
+            const limiter = new KeyedRateLimiterService(
+                { name: 'grouped-fail-open-overflow', bucketSize: 100, refillRate: 1, ttlSeconds: 60 },
+                {
+                    useClient: jest.fn(),
+                    usePipeline: jest.fn().mockResolvedValue(null),
+                } as unknown as RedisV2
+            )
+
+            const requests = Array.from({ length: 200 }, () => ({ id: 'team-1', cost: 1 }))
+            const res = await limiter.rateLimitGrouped(requests)
+
+            expect(res).toHaveLength(200)
             expect(res.every(([, r]) => !r.isRateLimited)).toBe(true)
         })
 
