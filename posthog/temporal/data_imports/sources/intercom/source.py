@@ -2,6 +2,7 @@ from typing import cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
@@ -52,7 +53,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                 ],
             ),
             featureFlag="dwh_intercom",
-            unreleasedSource=True,
+            releaseStatus=ReleaseStatus.ALPHA,
         )
 
     def get_schemas(
