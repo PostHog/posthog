@@ -151,6 +151,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "limited_products_display",
         "customer_trust_scores",
         "bulk_delete_data_display",
+        "sync_to_billing_display",
         "is_active",
         "is_not_active_reason",
         "is_hipaa",
@@ -175,6 +176,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "limited_products_display",
         "customer_trust_scores",
         "bulk_delete_data_display",
+        "sync_to_billing_display",
     ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
@@ -311,6 +313,36 @@ class OrganizationAdmin(admin.ModelAdmin):
         url = reverse("admin:organization_model_counts", args=[organization.pk])
         return format_html('<a class="button" href="{}">View counts</a>', url)
 
+    @admin.display(description="Sync to billing")
+    def sync_to_billing_display(self, organization: Organization):
+        if not organization.pk:
+            return "-"
+        request = getattr(self, "_current_request", None)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/organization/sync_to_billing.html",
+                {"organization_id": organization.pk},
+                request=request,
+            )
+        )
+
+    def sync_to_billing_view(self, request, organization_id):
+        from posthog.tasks.sync_billing import sync_members_to_billing
+
+        organization = Organization.objects.get(id=organization_id)
+
+        if request.method == "POST":
+            try:
+                sync_members_to_billing.delay(organization.id)
+                messages.success(
+                    request, f"Queued sync to billing for organization {organization.name} ({organization.id})."
+                )
+            except Exception as e:
+                messages.error(request, f"Error queuing sync to billing: {e}")
+
+        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
+
     def limit_product_view(self, request, organization_id):
         from ee.billing.quota_limiting import QuotaResource
 
@@ -370,6 +402,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "<path:organization_id>/model-counts/",
                 self.admin_site.admin_view(self.model_counts_view),
                 name="organization_model_counts",
+            ),
+            path(
+                "<path:organization_id>/sync-to-billing/",
+                self.admin_site.admin_view(self.sync_to_billing_view),
+                name="organization_sync_to_billing",
             ),
         ]
         return custom_urls + urls
