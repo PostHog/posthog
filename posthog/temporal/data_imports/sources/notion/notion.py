@@ -208,8 +208,10 @@ def _flatten_property(prop: dict[str, Any]) -> Any:
 
 def _flatten_row(row: dict[str, Any]) -> dict[str, Any]:
     properties = row.get("properties") or {}
+    # `id` is the merge primary key — fail fast if Notion ever returns a row without
+    # it instead of silently producing a None-keyed row that corrupts the merge.
     flattened: dict[str, Any] = {
-        "id": row.get("id"),
+        "id": row["id"],
         "object": row.get("object"),
         "created_time": row.get("created_time"),
         "last_edited_time": row.get("last_edited_time"),
