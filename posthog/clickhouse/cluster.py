@@ -707,6 +707,14 @@ class MutationRunner(abc.ABC):
         # we match commands by position, so require a stable ordering - this is because this class is provided the
         # command template without parameter values, while the record in the mutation log will have the values inlined
         command_list = [*commands]
+        # `formatQuerySingleLine` + collapse-whitespace + trim on both sides of the join so
+        # cosmetic spacing differences between our formatting and what
+        # `system.mutations.command` stored don't break the byte-equality match.
+        # Callers must pass fully-qualified identifiers (`db.table` / `db.dictionary`) —
+        # ClickHouse normalizes bare references against the connection database when
+        # storing the mutation, and a bare-vs-qualified mismatch defeats the join.
+        alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
+        per_command_alters = ", ".join(f"$__sql${alter_prefix}{cmd}$__sql$" for cmd in command_list)
         mutations = client.execute(
             f"""
             SELECT mutation_id
@@ -715,11 +723,13 @@ class MutationRunner(abc.ABC):
                     (arrayJoin(
                         arrayZip(
                             arrayMap(
-                                command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
-                                arraySlice(  -- drop "ALTER TABLE" preamble line
-                                    splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(command_list)}$__sql$)),
-                                    2
-                                )
+                                alter -> trim(BOTH ' ' FROM
+                                    replaceRegexpAll(
+                                        replaceOne(formatQuerySingleLine(alter), %(__alter_prefix)s, ''),
+                                        '[ \\t\\n]+', ' '
+                                    )
+                                ),
+                                [{per_command_alters}]
                             ) as commands,
                             arrayEnumerate(commands)
                         )
@@ -728,7 +738,7 @@ class MutationRunner(abc.ABC):
             ) commands
             LEFT OUTER JOIN (
                 SELECT
-                    command,
+                    trim(BOTH ' ' FROM replaceRegexpAll(command, '[ \\t\\n]+', ' ')) as command,
                     argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
@@ -743,6 +753,7 @@ class MutationRunner(abc.ABC):
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
                 f"__table": self.table,
+                f"__alter_prefix": alter_prefix,
                 **self.parameters,
             },
         )

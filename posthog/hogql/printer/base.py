@@ -39,6 +39,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
     TablesWithMaterializedColumns,
@@ -1548,7 +1549,7 @@ class BasePrinter(Visitor[str]):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
+        return json_extract_trim_quotes(unsafe_field, *unsafe_args)
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
@@ -1564,7 +1565,7 @@ class BasePrinter(Visitor[str]):
         """
         Get the dmat column name for a property if available.
 
-        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
         otherwise None.
         """
         if self.context.property_swapper is None:
