@@ -128,13 +128,22 @@ A grouping rule is worth creating when both are true:
 - You can describe the pattern with property filters that won't accidentally
   swallow unrelated errors
 
-The canonical exception properties are plural arrays — `$exception_types`,
-`$exception_values` (messages), `$exception_sources` (file paths),
-`$exception_functions` (function names). Filter engines handle array
-containment, so a scalar `value` with `exact`/`icontains`/`regex` matches if
-any element does. Singular forms (`$exception_type`, `$exception_message`) and
-`$exception_stack_trace_raw` are not emitted by the modern ingestion path —
-filtering on them produces a rule that silently never matches.
+The canonical exception properties (`$exception_types`, `$exception_values`
+for messages, `$exception_sources` for file paths, `$exception_functions` for
+function names) are arrays at capture time but are materialized as
+JSON-encoded strings in ClickHouse — the stored column literal for a
+TypeError is `["TypeError"]`, not `TypeError`. That changes which operators
+work:
+
+- `icontains` and `regex` work — they substring/match against the JSON literal
+  (`icontains "TypeError"` becomes `ILIKE '%TypeError%'`).
+- `exact` and `is_not` do **not** work for matching individual elements:
+  `exact "TypeError"` compiles to `column = 'TypeError'` and never matches
+  `["TypeError"]`. Use `regex '"TypeError"'` (with quotes inside the pattern)
+  when you need exact-element precision — it scopes to the JSON-quoted token.
+- The singular forms (`$exception_type`, `$exception_message`) and
+  `$exception_stack_trace_raw` are not emitted by the modern ingestion path —
+  filtering on them produces a rule that silently never matches.
 
 If the volatility is in the message (e.g.,
 `TypeError at /static/main.<hash>.js`), a regex filter on `$exception_values`
@@ -160,8 +169,8 @@ posthog:error-tracking-grouping-rules-create
       {
         "type": "event",
         "key": "$exception_types",
-        "operator": "exact",
-        "value": "TypeError"
+        "operator": "regex",
+        "value": "\"TypeError\""
       },
       {
         "type": "event",
