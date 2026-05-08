@@ -11332,6 +11332,9 @@
         "CustomerAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "account_group_type_index": {
+                    "type": ["number", "null"]
+                },
                 "activity_event": {
                     "anyOf": [
                         {
