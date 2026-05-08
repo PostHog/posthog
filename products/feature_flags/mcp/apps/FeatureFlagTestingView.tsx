@@ -5,12 +5,13 @@ import { Badge, Card, Stack } from '@posthog/mosaic'
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
 export interface ConditionAnalysis {
-    condition_index: number
+    index: number
     matched: boolean
     rollout_percentage: number
     variant?: string | null
     properties?: Array<{ key: string; value: unknown; operator?: string; type?: string }>
     reason?: string
+    explanation?: string
 }
 
 export interface FeatureFlagTestEvaluationResult {
@@ -129,7 +130,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                         <Stack gap="xs">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">
-                                                    Condition #{condition.condition_index + 1}
+                                                    Condition #{condition.index + 1}
                                                 </span>
                                                 <Badge variant={condition.matched ? 'success' : 'danger'} size="sm">
                                                     {condition.matched ? 'Matched' : 'No match'}
@@ -143,8 +144,10 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                     </Badge>
                                                 )}
                                             </div>
-                                            {condition.reason && (
-                                                <div className="text-sm text-text-secondary">{condition.reason}</div>
+                                            {(condition.explanation || condition.reason) && (
+                                                <div className="text-sm text-text-secondary">
+                                                    {condition.explanation || condition.reason}
+                                                </div>
                                             )}
                                             {condition.properties && condition.properties.length > 0 && (
                                                 <PropertyFilterList

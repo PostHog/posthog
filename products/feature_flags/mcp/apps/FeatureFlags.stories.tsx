@@ -134,18 +134,18 @@ const sampleTestingMatchedData: FeatureFlagTestingData = {
     },
     conditions: [
         {
-            condition_index: 0,
+            index: 0,
             matched: true,
             rollout_percentage: 100,
             properties: [{ key: 'email', value: '@posthog.com', operator: 'icontains', type: 'person' }],
-            reason: 'All properties matched and rollout passed',
+            explanation: 'All properties matched and rollout passed',
         },
         {
-            condition_index: 1,
+            index: 1,
             matched: false,
             rollout_percentage: 50,
             properties: [],
-            reason: 'Earlier condition already matched',
+            explanation: 'Earlier condition already matched',
         },
     ],
 }
@@ -162,19 +162,19 @@ const sampleTestingNoMatchData: FeatureFlagTestingData = {
     },
     conditions: [
         {
-            condition_index: 0,
+            index: 0,
             matched: false,
             rollout_percentage: 100,
             variant: 'test-a',
             properties: [{ key: 'plan', value: 'enterprise', operator: 'exact', type: 'person' }],
-            reason: 'Property "plan" did not match: expected "enterprise", got "free"',
+            explanation: 'Property "plan" did not match: expected "enterprise", got "free"',
         },
         {
-            condition_index: 1,
+            index: 1,
             matched: false,
             rollout_percentage: 80,
             properties: [],
-            reason: 'User excluded by rollout percentage',
+            explanation: 'User excluded by rollout percentage',
         },
     ],
 }
