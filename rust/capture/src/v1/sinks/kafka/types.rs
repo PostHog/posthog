@@ -25,7 +25,7 @@ pub fn error_code_tag(code: RDKafkaErrorCode) -> &'static str {
         RDKafkaErrorCode::InvalidMessageSize => "invalid_message_size",
         RDKafkaErrorCode::NotLeaderForPartition => "not_leader_for_partition",
         RDKafkaErrorCode::RequestTimedOut => "request_timed_out",
-        // Transport/infra codes surfaced by ClientContext::error() callback
+        // Broker/idempotent-producer codes from delivery reports
         RDKafkaErrorCode::NotEnoughReplicas => "not_enough_replicas",
         RDKafkaErrorCode::NotEnoughReplicasAfterAppend => "not_enough_replicas_after_append",
         RDKafkaErrorCode::OperationNotAttempted => "operation_not_attempted",
