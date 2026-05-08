@@ -92,11 +92,11 @@ class Command(BaseCommand):
             )
             return
 
-        first_error = errors[0] if errors else {}
+        first_error_message = errors[0].get("msg", "validation failed") if errors else "validation failed"
         self.stdout.write(
             self.style.WARNING(
                 "Invalid test account filters for "
                 f"team_id={team.id}, project_id={team.project_id}, organization_id={team.organization_id}: "
-                f"{first_error.get('msg', 'validation failed')}"
+                f"{first_error_message}"
             )
         )
