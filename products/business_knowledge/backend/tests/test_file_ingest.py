@@ -222,7 +222,7 @@ class TestParseFileSecurity:
 class TestFileSourceAPIIntegration(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/environments/{self.team.id}/business_knowledge/sources/"
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
     def test_upload_txt_file(self, _ff: MagicMock) -> None:
         content = b"Hello world\n\nSecond paragraph about pricing."
@@ -358,6 +358,6 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        other_url = f"/api/environments/{other_team.id}/business_knowledge/sources/"
+        other_url = f"/api/projects/{other_team.id}/business_knowledge/sources/"
         response = self.client.get(f"{other_url}{source.id}/")
         assert response.status_code == http_status.HTTP_404_NOT_FOUND

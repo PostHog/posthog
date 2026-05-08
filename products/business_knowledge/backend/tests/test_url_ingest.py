@@ -287,7 +287,7 @@ class TestRefreshSource(BaseTest):
 class TestUrlApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/environments/{self.team.id}/business_knowledge/sources/"
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
     @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))

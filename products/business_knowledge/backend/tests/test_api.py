@@ -12,7 +12,7 @@ from products.business_knowledge.backend.models import KnowledgeChunk, Knowledge
 class TestKnowledgeSourceAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/environments/{self.team.id}/business_knowledge/sources/"
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
     def test_create_text_source_and_chunks(self, _ff) -> None:
         response = self.client.post(
