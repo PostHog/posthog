@@ -1,27 +1,10 @@
-"""Tests for `LLMAnalyticsSentimentViewSet.generations` — the
-`sentiment_generations.sql`-equivalent backend endpoint.
-
-The view's responsibility is narrow: parse + validate the filter payload, route
-the SQL through `execute_with_ai_events_fallback` so the rollout flag /
-events fallback / `ai_query_source` tagging are honored, and return the result
-rows tuple-shape unchanged. Tests cover:
-
-  - success on the dedicated path with populated rows
-  - success on the events fallback when ai_events is empty (post-strip is the
-    motivating case — the resolver re-runs against `events` automatically)
-  - kill-switch off (skips ai_events, queries events directly)
-  - empty filters (omitted dateRange / properties / filterTestAccounts)
-  - resolver receives the correct query body + tags
-
-The resolver itself is covered by `test_ai_table_resolver.py`; here we mock
-it and verify the call shape, then probe the failure paths.
-"""
-
-from typing import cast
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 
@@ -32,29 +15,38 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         super().setUp()
         self.URL = f"/api/environments/{self.team.id}/llm_analytics/sentiment/generations/"
 
-    def _resolver_path(self) -> str:
-        return "products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback"
-
-    def _make_resolver_response(self, rows: list[list]) -> MagicMock:
+    def _make_response(self, rows: list[list[Any]]) -> MagicMock:
         response = MagicMock()
         response.results = rows
         return response
 
+    def _preflight_row(
+        self,
+        uuid: str = "uuid-1",
+        trace_id: str = "trace-1",
+        model: str = "gpt-4",
+        distinct_id: str = "person-1",
+        ts_max: Any = "2026-04-27T07:00:00+00:00",
+        ts_min: Any = "2026-04-27T06:50:00+00:00",
+    ) -> list[Any]:
+        return [uuid, trace_id, model, distinct_id, ts_max, ts_min]
+
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_returns_rows_in_tuple_order(self, mock_resolver: MagicMock) -> None:
-        # Tuple order: [uuid, trace_id, ai_input, model, distinct_id, timestamp, created_at]
-        rows = [
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_returns_rows_in_tuple_order(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
+        mock_preflight.return_value = self._make_response(
             [
-                "uuid-1",
-                "trace-1",
-                '[{"role":"user","content":"hi"}]',
-                "gpt-4",
-                "person-1",
-                "2026-04-27T07:00:00+00:00",
-                "2026-04-27T06:50:00+00:00",
-            ],
-        ]
-        mock_resolver.return_value = self._make_resolver_response(rows)
+                self._preflight_row(
+                    uuid="uuid-1",
+                    trace_id="trace-1",
+                    model="gpt-4",
+                    distinct_id="person-1",
+                    ts_max="2026-04-27T07:00:00+00:00",
+                    ts_min="2026-04-27T06:50:00+00:00",
+                ),
+            ]
+        )
+        mock_heavy.return_value = self._make_response([["trace-1", '[{"role":"user","content":"hi"}]']])
 
         response = self.client.post(
             self.URL,
@@ -64,64 +56,149 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert body == {"results": rows}
-        # Resolver received an LLMSentimentGenerations query_type for tagging dashboards.
-        assert mock_resolver.call_args.kwargs["query_type"] == "LLMSentimentGenerations"
+        assert body == {
+            "results": [
+                [
+                    "uuid-1",
+                    "trace-1",
+                    '[{"role":"user","content":"hi"}]',
+                    "gpt-4",
+                    "person-1",
+                    "2026-04-27T07:00:00+00:00",
+                    "2026-04-27T06:50:00+00:00",
+                ]
+            ]
+        }
+        assert mock_preflight.call_args.kwargs["query_type"] == "LLMSentimentGenerationsTraceIdResolve"
+        assert mock_heavy.call_args.kwargs["query_type"] == "LLMSentimentGenerations"
 
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_empty_filters_payload_is_accepted(self, mock_resolver: MagicMock) -> None:
-        # Tab loads with no filters set; backend should not reject this.
-        mock_resolver.return_value = self._make_resolver_response([])
-
-        response = self.client.post(self.URL, {}, content_type="application/json")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"results": []}
-
-    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_invalid_filters_returns_400(self, mock_resolver: MagicMock) -> None:
-        # `filterTestAccounts` is meant to be a bool; a non-bool should fail
-        # `HogQLFilters` validation and surface as a 400 (not 500).
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_invalid_filters_returns_400(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         response = self.client.post(
             self.URL,
             {"filters": {"filterTestAccounts": "this should be a bool"}},
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert mock_resolver.call_count == 0
+        assert mock_preflight.call_count == 0
+        assert mock_heavy.call_count == 0
 
+    @parameterized.expand(
+        [
+            ("missing_filters_key", {}),
+            ("empty_filters_dict", {"filters": {}}),
+        ]
+    )
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_resolver_failure_returns_500(self, mock_resolver: MagicMock) -> None:
-        mock_resolver.side_effect = RuntimeError("clickhouse boom")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_empty_preflight_skips_heavy_query(
+        self,
+        _name: str,
+        payload: dict[str, Any],
+        mock_preflight: MagicMock,
+        mock_heavy: MagicMock,
+    ) -> None:
+        mock_preflight.return_value = self._make_response([])
 
-        response = self.client.post(
-            self.URL,
-            {"filters": {}},
-            content_type="application/json",
-        )
+        response = self.client.post(self.URL, payload, content_type="application/json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": []}
+        assert mock_heavy.call_count == 0
+
+    @parameterized.expand(
+        [
+            ("preflight", "preflight"),
+            ("heavy", "heavy"),
+        ]
+    )
+    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_clickhouse_failure_returns_500(
+        self,
+        _name: str,
+        failing_stage: str,
+        mock_preflight: MagicMock,
+        mock_heavy: MagicMock,
+    ) -> None:
+        if failing_stage == "preflight":
+            mock_preflight.side_effect = RuntimeError("clickhouse boom")
+        else:
+            mock_preflight.return_value = self._make_response([self._preflight_row()])
+            mock_heavy.side_effect = RuntimeError("clickhouse boom")
+
+        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        if failing_stage == "preflight":
+            assert mock_heavy.call_count == 0
 
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_query_targets_ai_events_with_heavy_input_column(self, mock_resolver: MagicMock) -> None:
-        """The migrated SQL must reach the resolver with the heavy `input`
-        column referenced via the dedicated `ai_events` table — not as
-        `properties.$ai_input`. That's the whole point of the migration; if
-        someone reverts the SQL, this test catches it."""
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_preflight_targets_events_and_heavy_targets_ai_events(
+        self, mock_preflight: MagicMock, mock_heavy: MagicMock
+    ) -> None:
         from posthog.hogql import ast
 
-        mock_resolver.return_value = self._make_resolver_response([])
+        mock_preflight.return_value = self._make_response(
+            [
+                self._preflight_row(
+                    uuid="uuid-1",
+                    trace_id="trace-1",
+                    ts_max=datetime(2026, 4, 27, 7, 0, tzinfo=UTC),
+                    ts_min=datetime(2026, 4, 27, 6, 50, tzinfo=UTC),
+                ),
+                self._preflight_row(
+                    uuid="uuid-2",
+                    trace_id="trace-2",
+                    ts_max=datetime(2026, 4, 27, 6, 30, tzinfo=UTC),
+                    ts_min=datetime(2026, 4, 27, 6, 0, tzinfo=UTC),
+                ),
+            ]
+        )
+        mock_heavy.return_value = self._make_response(
+            [
+                ["trace-1", '[{"role":"user","content":"hi"}]'],
+                ["trace-2", '[{"role":"user","content":"hello"}]'],
+            ]
+        )
 
         response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
         assert response.status_code == status.HTTP_200_OK
 
-        query_arg = mock_resolver.call_args.kwargs["query"]
-        # SelectQuery → outer query reads `argMax(ai_input, ts)` over a subquery
-        # whose FROM is `posthog.ai_events`.
-        # Easier to verify by walking down to the FROM clause.
-        select = cast(ast.SelectQuery, query_arg)
-        # Outer: argMax(ai_input, ts) … FROM (subquery)
-        # Subquery's FROM is what we care about.
-        inner = select.select_from.table  # type: ignore[union-attr]
-        if isinstance(inner, ast.SelectQuery):
-            from_chain = inner.select_from.table.chain  # type: ignore[union-attr]
-            # nosemgrep: hogql-no-string-table-chain
-            assert from_chain == ["posthog", "ai_events"], f"expected FROM posthog.ai_events, got {from_chain}"
+        preflight_query = mock_preflight.call_args.kwargs["query"]
+        preflight_select = cast(ast.SelectQuery, preflight_query)
+        # nosemgrep: hogql-no-string-table-chain
+        assert preflight_select.select_from.table.chain == ["events"]  # type: ignore[union-attr]
+
+        heavy_query = mock_heavy.call_args.kwargs["query"]
+        heavy_select = cast(ast.SelectQuery, heavy_query)
+        # nosemgrep: hogql-no-string-table-chain
+        assert heavy_select.select_from.table.chain == ["posthog", "ai_events"]  # type: ignore[union-attr]
+
+        heavy_placeholders = mock_heavy.call_args.kwargs["placeholders"]
+        trace_id_values = [c.value for c in heavy_placeholders["trace_ids"].exprs]
+        uuid_values = [c.value for c in heavy_placeholders["uuids"].exprs]
+        assert trace_id_values == ["trace-1", "trace-2"]
+        assert uuid_values == ["uuid-1", "uuid-2"]
+        assert heavy_placeholders["ts_start"].value == datetime(2026, 4, 27, 6, 0, tzinfo=UTC)
+        assert heavy_placeholders["ts_end"].value == datetime(2026, 4, 27, 7, 0, tzinfo=UTC)
+
+    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_traces_without_heavy_match_get_null_ai_input(
+        self, mock_preflight: MagicMock, mock_heavy: MagicMock
+    ) -> None:
+        mock_preflight.return_value = self._make_response(
+            [
+                self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
+                self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
+            ]
+        )
+        mock_heavy.return_value = self._make_response([["trace-1", '[{"role":"user","content":"hi"}]']])
+
+        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body["results"]) == 2
+        assert body["results"][0][2] == '[{"role":"user","content":"hi"}]'
+        assert body["results"][1][2] is None

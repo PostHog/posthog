@@ -97,7 +97,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
@@ -180,7 +180,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
@@ -393,7 +393,7 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                     ),
                 value: zod
                     .unknown()
-                    .nullish()
+                    .optional()
                     .describe(
                         'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                     ),
@@ -503,7 +503,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -612,7 +612,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -715,7 +715,7 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -810,7 +810,7 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -907,7 +907,7 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -999,7 +999,7 @@ export const LogsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                     ),
                 value: zod
                     .unknown()
-                    .nullish()
+                    .optional()
                     .describe(
                         'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                     ),

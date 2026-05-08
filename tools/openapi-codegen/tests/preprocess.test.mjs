@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampIntegerBounds, INT32_MAX, INT32_MIN, preprocessSchema } from '../index.mjs'
+import { clampIntegerBounds, INT32_MAX, INT32_MIN, preprocessSchema } from '../src/preprocess.mjs'
 
 describe('clampIntegerBounds', () => {
     it('clamps i64 bounds to int32 range on a type: integer schema', () => {

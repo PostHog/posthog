@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { filterSchemaByOperationIds } from '../index.mjs'
+import { filterSchemaByOperationIds } from '../src/schema.mjs'
 
 const buildSpec = () => ({
     openapi: '3.1.0',
