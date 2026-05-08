@@ -417,7 +417,7 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class IntercomSourceConfig(config.Config):
-    pass
+    intercom_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
