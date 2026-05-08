@@ -1,8 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { TimeSeriesLineChart } from 'lib/hog-charts'
+import { ciRanges, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
-import { ciRanges } from 'lib/statistics'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import {
