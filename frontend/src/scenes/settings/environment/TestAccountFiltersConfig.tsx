@@ -83,12 +83,22 @@ function TestAccountFiltersConfig(): JSX.Element {
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4 flex flex-col gap-2">
                 <LemonBanner type="info">
-                    When filtering out internal users, inline person property filters (e.g., "email does not contain
-                    your-domain.com") work everywhere, including real-time CDP destinations. Alternatively, you can
-                    create a cohort and add it with a "not in" operator - this works well for analytics queries
-                    (insights, dashboards) and also works in CDP destinations if the cohort contains{' '}
-                    <strong>exclusively person property filters</strong>. Cohorts with behavioral filters or no
-                    properties defined will cause CDP destinations to error.
+                    <p>
+                        When filtering out internal users, inline person property filters (e.g., "email does not contain
+                        your-domain.com") are evaluated against the person properties stored on each event{' '}
+                        <strong>at the time it was ingested</strong>. That means events captured before a user was
+                        identified (and therefore before the matching property was set on the person) are{' '}
+                        <strong>not</strong> excluded — only events captured after the property was set will be
+                        filtered out. These filters do work everywhere, including real-time CDP destinations.
+                    </p>
+                    <p className="mb-0">
+                        Alternatively, you can create a cohort and add it with a "not in" operator. Cohorts are
+                        evaluated against a person's <strong>current</strong> properties, so all of a matching user's
+                        events are excluded — including any captured before they were identified. This is usually the
+                        better fit for analytics queries (insights, dashboards), and also works in CDP destinations if
+                        the cohort contains <strong>exclusively person property filters</strong>. Cohorts with
+                        behavioral filters or no properties defined will cause CDP destinations to error.
+                    </p>
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
