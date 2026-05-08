@@ -203,7 +203,6 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                             disabled={!newOptOutIdentifier.trim()}
                             onClick={() => {
                                 addOptOut(newOptOutIdentifier.trim())
-                                setNewOptOutIdentifier('')
                             }}
                         >
                             Add opt-out
@@ -224,7 +223,6 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                         onPressEnter={() => {
                             if (newOptOutIdentifier.trim()) {
                                 addOptOut(newOptOutIdentifier.trim())
-                                setNewOptOutIdentifier('')
                             }
                         }}
                     />
