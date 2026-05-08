@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -299,7 +299,20 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
-    urls.oauthAuthorize(),
+    // /integrations/* — OAuth + third-party round-trips: must complete (callback/landing effects)
+    // even when onboarding is incomplete, else /onboarding swallows the response. E.g.
+    // /integrations/<kind>/callback (urls.integrationsRedirect), stripe confirm-install, vercel link-error.
+    '/integrations',
+    // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
+    '/account-connected',
+    // /oauth/authorize and any /oauth/* callback path.
+    '/oauth',
+    // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
+    '/connect',
+    // /agentic/authorize.
+    '/agentic/authorize',
+    // /cli/authorize, /cli/live (CLI auth round-trip).
+    '/cli',
     '/startups',
     '/coupons',
 ]
@@ -1522,26 +1535,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     router.actions.replace(targetPathname, targetSearch, targetHash)
                     return
                 }
-            }
-
-            const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
-            if (isAIFirst) {
-                router.actions.replace(
-                    withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
-                )
-                return
-            }
-
-            const primaryDashboardId = teamLogic.values.currentTeam?.primary_dashboard
-            if (primaryDashboardId) {
-                router.actions.replace(
-                    withForwardedSearchParams(
-                        urls.dashboard(primaryDashboardId),
-                        searchParams,
-                        forwardedRedirectQueryParams
-                    )
-                )
-                return
             }
 
             router.actions.replace(

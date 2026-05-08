@@ -7,6 +7,7 @@ import * as React from 'react'
 import { Button } from './button'
 import './dialog.css'
 import { cn } from './lib/utils'
+import { ScrollArea } from './scroll-area'
 
 /** Note: if you're nesting dialogs, in order for you to click the overlay to close it, you must pass 'mounted: true' to the nested dialog*/
 function Dialog({ ...props }: DialogPrimitive.Root.Props): React.ReactElement {
@@ -42,10 +43,21 @@ function DialogContent({
     children,
     showCloseButton = true,
     nested = false,
+    size,
     ...props
 }: DialogPrimitive.Popup.Props & {
     showCloseButton?: boolean
     nested?: boolean
+    /**
+     * Width variant. Defaults to the standard ~24rem dialog width
+     * (Quill's existing media-query clamp at ≥640px viewports).
+     *   - `'wide'`: clamps to `min(72rem, calc(100vw - 3rem))` for
+     *     content that needs horizontal breathing room (data tables,
+     *     side-by-side editors, etc.).
+     *   - `'full'`: drops the desktop clamp entirely and grows to
+     *     `calc(100vw - 3rem)`.
+     */
+    size?: 'wide' | 'full'
 }): React.ReactElement {
     return (
         <DialogPortal>
@@ -54,6 +66,7 @@ function DialogContent({
                 data-quill
                 data-quill-portal="modal-content"
                 data-slot="dialog-content"
+                data-size={size}
                 className={cn('quill-dialog__content grid gap-4', className)}
                 {...props}
             >
@@ -98,16 +111,40 @@ function DialogFooter({
     )
 }
 
-function DialogBody({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+function DialogBody({
+    className,
+    render,
+    children,
+    ...props
+}: useRender.ComponentProps<'div'>): React.ReactElement {
+    /*
+     * Default render = `<ScrollArea>` so consumers get scroll shadows
+     * (and edge-overflow data attrs) for free. The scroll-area-aware
+     * branches in `dialog.css` (`[data-component='scroll-area']`) take
+     * care of moving padding into the viewport so content doesn't ride
+     * against the scrollbar.
+     *
+     * Consumers can override with `<DialogBody render={<div />}>` for
+     * a plain non-scrolling body, or `<DialogBody render={<ScrollArea
+     * scrollShadows={false} />}>` to tweak the scroll-area config.
+     *
+     * `useRender` is called unconditionally — when no consumer render
+     * is provided we substitute a `<ScrollArea>` template so the hooks
+     * order stays stable (eslint-plugin-react-hooks would flag a
+     * conditional call otherwise, since `useRender` starts with `use`).
+     */
+    const effectiveRender =
+        render ?? <ScrollArea data-slot="dialog-body" className={cn('quill-dialog__body', className)} />
     return useRender({
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
                 className: cn('quill-dialog__body', className),
+                children,
             } as Omit<React.ComponentProps<'div'>, 'ref'>,
             props
         ),
-        render,
+        render: effectiveRender,
         state: { slot: 'dialog-body' },
     })
 }

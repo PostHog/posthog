@@ -91,6 +91,11 @@ tools:
         exclude_params:
             - format
             - properties
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
         response:
             include:
                 - id

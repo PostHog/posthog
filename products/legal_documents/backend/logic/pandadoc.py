@@ -123,6 +123,7 @@ class PandaDocClient:
         recipients: list[PandaDocRecipient],
         tokens: dict[str, str] | None = None,
         metadata: dict[str, str] | None = None,
+        owner_email: str | None = None,
     ) -> PandaDocDocument:
         """
         Create a new document from a PandaDoc template. The returned document is in
@@ -132,6 +133,10 @@ class PandaDocClient:
         placeholders (`[Client.Company]`, `[Client.StreetAddress]`, etc.). Only
         `Client.Email` is auto-populated from the recipient — everything else
         the template references has to be passed explicitly here.
+
+        `owner_email` overrides the document owner. PandaDoc sends the signing
+        envelope on behalf of the owner, so this also controls the From address
+        the signer sees. Defaults to the user that owns the API key.
         """
         payload: dict[str, Any] = {
             "name": name,
@@ -142,6 +147,8 @@ class PandaDocClient:
             payload["tokens"] = [{"name": name, "value": value} for name, value in tokens.items()]
         if metadata:
             payload["metadata"] = metadata
+        if owner_email:
+            payload["owner"] = {"email": owner_email}
         data = self._post("/public/v1/documents", payload)
         return PandaDocDocument(
             id=data["id"],

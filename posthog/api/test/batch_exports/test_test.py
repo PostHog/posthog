@@ -350,14 +350,32 @@ def bigquery_config() -> dict[str, str]:
     }
 
 
+@pytest.fixture
+def bigquery_integration(team, user):
+    """Create a Google Cloud Service Account integration for BigQuery."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id="test-bigquery-service-account",
+        config={"project_id": "project", "service_account_email": "client_email"},
+        sensitive_config={
+            "private_key": "private_key",
+            "private_key_id": "private_key_id",
+            "token_uri": "token_uri",
+        },
+        created_by=user,
+    )
+
+
 def test_can_run_bigquery_test_step_with_castable_type(
-    client: HttpClient, bigquery_config, temporal, organization, team, user
+    client: HttpClient, bigquery_config, bigquery_integration, temporal, organization, team, user
 ):
     """Test a destination test with invalid types that can be casted to required types."""
     config = {"use_json_type": "True", **bigquery_config}  # "True" (string) can be casted to True (bool)
 
     destination_data = {
         "type": "BigQuery",
+        "integration_id": bigquery_integration.id,
         "config": config,
     }
 

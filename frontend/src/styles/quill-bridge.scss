@@ -27,6 +27,16 @@
  *          emits no rule for them and the elements render unstyled. We
  *          register them as plain CSS rules pointing at quill's tokens.
  *
+ *   - `[data-quill] [data-not-quill]` escape hatch: cancels the colour
+ *     rebindings for nested non-quill subtrees so PostHog primitives
+ *     rendered inside a quill panel (e.g. `DatabaseTablePreview`,
+ *     `LemonSelect`, monaco) keep their original colours. CSS variable
+ *     resolution is lazy at use site, so we can't snapshot the originals
+ *     into an alias — the only working approach is to re-bind back to
+ *     base.scss's underlying source-of-truth tokens. Mirror every entry
+ *     in `[data-quill]` here, plus a `[theme="dark"]` variant for the
+ *     dark-theme branches.
+ *
  * Long-term plan: rename quill's colour tokens to `--quill-*` so the
  * `[data-quill]` colour rebindings become unnecessary. Tracked separately.
  * Until then, this file is the single integration seam — every new colour
@@ -75,11 +85,20 @@
 }
 
 /*
+ * Reset various annoying global styles from global styles.
+ */
+[data-quill] p,
+[data-quill] h2 {
+    margin-bottom: 0;
+}
+
+/*
  * Override #2: register the quill-only utilities PostHog's compiler skipped.
  * Scoped to `[data-quill]` so they don't pollute the rest of the app.
  * Specificity (0,2,0) beats Tailwind's plain class (0,1,0), so these always
  * win inside the subtree even if PostHog later adds a same-named class.
  */
+
 [data-quill] .bg-background {
     background-color: var(--background);
 }
@@ -181,4 +200,57 @@
 
 [data-quill] .ring-destructive\/20 {
     --tw-ring-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+}
+
+/*
+ * ---- [data-not-quill] escape hatch ---------------------------------------
+ *
+ * When non-quill PostHog content is rendered inside a quill subtree (e.g.
+ * the DataWarehouseTablePreview, LemonSelect, monaco, or any legacy
+ * component), wrap it in `data-not-quill` to restore PostHog's colour
+ * system inside that subtree.
+ *
+ * Specificity (0,2,0) of `[data-quill] [data-not-quill]` beats `[data-quill]`
+ * (0,1,0), so these rebindings always win for nested content. The values
+ * mirror what base.scss sets at `:root` / `[theme="dark"]` — duplicating
+ * them is unfortunate but lazy CSS variable evaluation makes a snapshot
+ * impossible.
+ */
+[data-quill] [data-not-quill] {
+    --muted-3000: var(--muted-3000-light);
+    --color-bg-primary: var(--color-posthog-3000-50);
+    --color-bg-surface-primary: var(--color-white);
+    --color-bg-surface-secondary: var(--color-posthog-3000-100);
+    --color-bg-surface-tertiary: var(--color-posthog-3000-150);
+    --color-text-primary: var(--color-neutral-950);
+    --color-text-secondary: var(--color-neutral-750);
+    --color-border-primary: var(--color-posthog-3000-200);
+    --color-border-secondary: var(--color-posthog-3000-400);
+    --color-accent: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness)
+    );
+    --color-accent-hover: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 10%)
+    );
+    --color-accent-active: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 15%)
+    );
+}
+
+[theme='dark'] [data-quill] [data-not-quill] {
+    --muted-3000: var(--muted-3000-dark);
+    --color-bg-primary: var(--color-neutral-cool-950);
+    --color-bg-surface-primary: var(--color-neutral-cool-850);
+    --color-bg-surface-secondary: var(--color-neutral-cool-900);
+    --color-bg-surface-tertiary: var(--color-neutral-cool-950);
+    --color-text-primary: var(--color-neutral-100);
+    --color-text-secondary: var(--color-neutral-350);
+    --color-border-primary: var(--color-neutral-cool-800);
+    --color-border-secondary: var(--color-neutral-cool-600);
 }

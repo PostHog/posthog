@@ -43,17 +43,25 @@ def _make_team(organization: Organization, name: str) -> Team:
     return Team.objects.create(organization=organization, name=name)
 
 
-def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int) -> Any:
+def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extra_team_ids: int) -> Any:
     """Default payload per query — uses team rows where it makes sense, and
     multi-key dicts for the three multi-output specs.
+
+    `extra_team_ids` lets callers seed billable events for additional teams
+    so the orgs they belong to survive the upstream `has_non_zero_usage`
+    filter. Each extra team gets a small `web_events` and
+    `event_count_in_period` row.
     """
+    extra_event_rows = [(tid, 13) for tid in extra_team_ids]
+    extra_total_rows = [(tid, 20) for tid in extra_team_ids]
+
     if query_name == "all_event_metrics":
         return {
             "helicone_events": [],
             "langfuse_events": [],
             "keywords_ai_events": [],
             "traceloop_events": [],
-            "web_events": [(team_a_id, 7), (team_b_id, 11)],
+            "web_events": [(team_a_id, 7), (team_b_id, 11), *extra_event_rows],
             "web_lite_events": [],
             "node_events": [],
             "android_events": [],
@@ -90,7 +98,7 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int) -> An
         return {"count": [(team_b_id, 100)], "read_bytes": [(team_b_id, 5_000_000)]}
 
     if query_name == "teams_with_event_count_in_period":
-        return [(team_a_id, 100), (team_b_id, 50)]
+        return [(team_a_id, 100), (team_b_id, 50), *extra_total_rows]
     if query_name == "teams_with_recording_count_in_period":
         return [(team_a_id, 8)]
 
@@ -131,14 +139,16 @@ def _instance_metadata() -> InstanceMetadata:
     )
 
 
-def _seed_query_results(ctx: WorkflowContext, team_a_id: int, team_b_id: int) -> list[RunQueryToS3Result]:
+def _seed_query_results(
+    ctx: WorkflowContext, team_a_id: int, team_b_id: int, *extra_team_ids: int
+) -> list[RunQueryToS3Result]:
     """Write a canned JSON file per QuerySpec into MinIO and return the
     matching `RunQueryToS3Result` list the activity expects as input.
     """
     query_results: list[RunQueryToS3Result] = []
     for spec in QUERIES:
         key = queries_key(ctx, spec.name)
-        write_json(key, _canned_query_payload(spec.name, team_a_id, team_b_id))
+        write_json(key, _canned_query_payload(spec.name, team_a_id, team_b_id, *extra_team_ids))
         query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))
     return query_results
 
@@ -234,15 +244,16 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
     extra_org_a = await _make_org("Extra A")
     extra_org_b = await _make_org("Extra B")
     extra_team_a = await _make_team(extra_org_a, "EA")
-    await _make_team(extra_org_b, "EB")
+    extra_team_b = await _make_team(extra_org_b, "EB")
 
     # Scope the activity to just the three orgs we created — the shared
     # test DB has pre-seeded internal orgs that would otherwise inflate
-    # the chunk counts.
+    # the chunk counts. Each team gets billable events so all three orgs
+    # survive the upstream `has_non_zero_usage` filter.
     ctx = minio_workflow_ctx.model_copy(
         update={"organization_ids": [str(org.id), str(extra_org_a.id), str(extra_org_b.id)]}
     )
-    query_results = _seed_query_results(ctx, team.id, extra_team_a.id)
+    query_results = _seed_query_results(ctx, team.id, extra_team_a.id, extra_team_b.id)
 
     with (
         patch.object(module, "CHUNK_SIZE_ORGS", 2),
@@ -258,6 +269,7 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
 
     # 3 orgs / 2 per chunk = 2 chunks (2 + 1)
     assert result.total_orgs == 3
+    assert result.total_orgs_with_usage == 3
     assert len(result.chunk_keys) == 2
 
     all_lines: list[dict] = []
@@ -270,6 +282,59 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
     manifest = _read_json(result.manifest_key)
     assert manifest["chunk_count"] == 2
     assert manifest["chunk_keys"] == result.chunk_keys
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_aggregate_drops_orgs_with_no_usage_from_chunks(
+    minio_workflow_ctx: WorkflowContext, activity_environment
+) -> None:
+    """Orgs with zero billable usage must not show up in any chunk, but
+    they should still be counted in `total_orgs` (which represents orgs in
+    scope) so the manifest stays a faithful snapshot of the run."""
+    org_with_usage = await _make_org("With Usage")
+    team_with_usage = await _make_team(org_with_usage, "T")
+
+    org_idle = await _make_org("Idle")
+    await _make_team(org_idle, "Idle T")
+
+    ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_with_usage.id), str(org_idle.id)]})
+
+    # Hand-roll a sparse seed so only `team_with_usage` has billable
+    # events — every other team in the org pool stays at zero counters.
+    # The canned helper would assign web_events to the second team, which
+    # would defeat the filter test.
+    query_results: list[RunQueryToS3Result] = []
+    for spec in QUERIES:
+        if spec.name == "teams_with_event_count_in_period":
+            payload: Any = [(team_with_usage.id, 100)]
+        elif spec.name == "all_event_metrics":
+            payload = _canned_query_payload(spec.name, team_with_usage.id, team_with_usage.id)
+        elif spec.name == "exceptions_captured":
+            payload = _canned_query_payload(spec.name, team_with_usage.id, team_with_usage.id)
+        elif spec.name == "api_queries_metrics":
+            payload = {"count": [], "read_bytes": []}
+        else:
+            payload = []
+        key = queries_key(ctx, spec.name)
+        write_json(key, payload)
+        query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))
+
+    with patch(
+        "posthog.temporal.usage_report.activities.get_instance_metadata",
+        return_value=_instance_metadata(),
+    ):
+        result = await activity_environment.run(
+            aggregate_and_chunk_org_reports,
+            AggregateInputs(ctx=ctx, query_results=query_results),
+        )
+
+    assert result.total_orgs == 2
+    assert result.total_orgs_with_usage == 1
+    assert len(result.chunk_keys) == 1
+
+    rows = _read_jsonl_gz(result.chunk_keys[0])
+    assert {row["organization_id"] for row in rows} == {str(org_with_usage.id)}
 
 
 @pytest.mark.django_db

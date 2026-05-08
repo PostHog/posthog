@@ -3,8 +3,10 @@ import { FunnelPathType } from '~/types'
 
 import {
     bridgeConfigForExpansion,
+    buildFunnelStepReplacementMap,
     buildPathFlowElements,
     buildPathsQuery,
+    extractStepIndex,
     PathExpansion,
     pathExpansionCacheKey,
     PATH_NODE_HEIGHT,
@@ -356,19 +358,24 @@ describe('buildPathFlowElements with funnel step dedup', () => {
         }
     )
 
-    it('drops self-loop edges when source and target resolve to the same funnel step', () => {
-        const selfLoopLinks: PathsLink[] = [
+    it('repeated path-data nodes with the same event name keep all but one as auxiliary nodes (no self-loops or cycles)', () => {
+        // When the same event name appears at multiple path layers, only ONE
+        // layer can redirect to the funnel step — otherwise the redirect would
+        // collapse them into a cycle. The earliest occurrence wins for source-
+        // matching events; later occurrences stay as auxiliary path nodes.
+        const repeatedEventLinks: PathsLink[] = [
             { source: '1_Signed up', target: '2_Signed up', value: 10, average_conversion_time: 1000 },
             { source: '2_Signed up', target: '3_/other', value: 5, average_conversion_time: 2000 },
         ]
-        const { nodes, edges } = buildPathFlowElements(selfLoopLinks, 'step-0', null, undefined, funnelSteps)
+        const { nodes, edges } = buildPathFlowElements(repeatedEventLinks, 'step-0', null, undefined, funnelSteps)
 
-        expect(nodes.map((n) => n.id)).toEqual(['path-3_/other'])
+        expect(nodes.map((n) => n.id).sort()).toEqual(['path-2_Signed up', 'path-3_/other'])
 
-        const selfLoops = edges.filter((e) => e.source === e.target)
-        expect(selfLoops).toHaveLength(0)
-
-        expect(edges.map((e) => [e.source, e.target])).toEqual([['step-0', 'path-3_/other']])
+        expect(edges.filter((e) => e.source === e.target)).toHaveLength(0)
+        expect(edges.map((e) => [e.source, e.target])).toEqual([
+            ['step-0', 'path-2_Signed up'],
+            ['path-2_Signed up', 'path-3_/other'],
+        ])
     })
 
     it('rewrites handle IDs to match the replacement funnel step node', () => {
@@ -380,6 +387,240 @@ describe('buildPathFlowElements with funnel step dedup', () => {
         const pathEdge = edges.find((e) => e.id.startsWith('path-edge-'))!
         expect(pathEdge.sourceHandle).toBe('step-0-source')
         expect(pathEdge.targetHandle).toBe('path-2_/other-target')
+    })
+
+    it('after-step expansion: a path event matching an earlier funnel step stays as an auxiliary node (no backward edge)', () => {
+        // Funnel:
+        //   step-0 (customer analytics viewed)
+        //     → step-1 (query executed)
+        //       → step-2 (pay gate shown)
+        //
+        // Expansion: paths AFTER step-2.
+        // Path data includes an event named "query executed" — same name as step-1.
+        // Expected: "query executed" stays as path-2_query executed; no edge points to step-1.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'pay gate shown' },
+        ]
+        const links: PathsLink[] = [
+            { source: '1_pay gate shown', target: '2_query executed', value: 10, average_conversion_time: 1000 },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, 'step-2', null)
+
+        const { nodes, edges } = buildPathFlowElements(links, 'step-2', null, undefined, stepMap)
+
+        expect(nodes.map((n) => n.id)).toContain('path-2_query executed')
+        expect(edges.every((e) => e.target !== 'step-1')).toBe(true)
+        expect(edges.every((e) => e.source !== 'step-1')).toBe(true)
+    })
+
+    it('before-step expansion: a path event matching a later funnel step stays as an auxiliary node (no forward jump)', () => {
+        // Mirror of the above for the before-expansion direction.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'pay gate shown' },
+            { id: 'step-2', name: 'billing product activated' },
+        ]
+        const links: PathsLink[] = [
+            {
+                source: '1_billing product activated',
+                target: '2_pay gate shown',
+                value: 10,
+                average_conversion_time: 1000,
+            },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, null, 'step-1')
+
+        const { nodes, edges } = buildPathFlowElements(links, null, 'step-1', undefined, stepMap)
+
+        expect(nodes.map((n) => n.id)).toContain('path-1_billing product activated')
+        expect(edges.every((e) => e.target !== 'step-2')).toBe(true)
+        expect(edges.every((e) => e.source !== 'step-2')).toBe(true)
+    })
+
+    it('between-step expansion: a path that revisits an event matching the source step does not create a cycle', () => {
+        // Real-world reproduction. Funnel: [query executed, client_request_failure, query executed].
+        // Expansion: between step-1 (client_request_failure) and step-2 (query executed).
+        // Path data has client_request_failure at TWO layers (1 and 3) — users hit it,
+        // then bounced back through livestream_sse_error and hit it again.
+        // Without the per-event-name redirect cap, both layers would collapse onto step-1,
+        // producing a cycle step-1 → path-2_livestream_sse_error → step-1.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'query executed' },
+            { id: 'step-1', name: 'client_request_failure' },
+            { id: 'step-2', name: 'query executed' },
+        ]
+        const links: PathsLink[] = [
+            {
+                source: '1_client_request_failure',
+                target: '2_livestream_sse_error',
+                value: 1,
+                average_conversion_time: 2930,
+            },
+            {
+                source: '2_livestream_sse_error',
+                target: '3_client_request_failure',
+                value: 1,
+                average_conversion_time: 743463,
+            },
+            {
+                source: '3_client_request_failure',
+                target: '4_livestream_sse_error',
+                value: 1,
+                average_conversion_time: 18893,
+            },
+            {
+                source: '4_livestream_sse_error',
+                target: '5_livestream_sse_max_errors',
+                value: 1,
+                average_conversion_time: 6,
+            },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, 'step-1', 'step-2')
+
+        const { nodes, edges } = buildPathFlowElements(links, 'step-1', 'step-2', undefined, stepMap)
+
+        expect(nodes.map((n) => n.id)).toContain('path-3_client_request_failure')
+
+        for (const edge of edges) {
+            expect(edge.source).not.toBe(edge.target)
+        }
+
+        const incomingToStep1 = edges.filter((e) => e.target === 'step-1')
+        const outgoingFromStep1 = edges.filter((e) => e.source === 'step-1')
+        for (const incoming of incomingToStep1) {
+            for (const outgoing of outgoingFromStep1) {
+                expect(incoming.source).not.toBe(outgoing.target)
+            }
+        }
+    })
+
+    it('every step→step edge in the resulting graph runs forward (DAG invariant)', () => {
+        // Strongest regression assertion. For any edge whose source AND target
+        // are both funnel-step IDs, the target index must be >= source index.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'dashboard mode changed' },
+            { id: 'step-3', name: 'pay gate shown' },
+        ]
+        const links: PathsLink[] = [
+            { source: '1_pay gate shown', target: '2_query executed', value: 10, average_conversion_time: 1000 },
+            {
+                source: '2_query executed',
+                target: '3_dashboard mode changed',
+                value: 5,
+                average_conversion_time: 500,
+            },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, 'step-3', null)
+
+        const { edges } = buildPathFlowElements(links, 'step-3', null, undefined, stepMap)
+
+        for (const edge of edges) {
+            const sourceIdx = extractStepIndex(edge.source)
+            const targetIdx = extractStepIndex(edge.target)
+            if (sourceIdx === -1 || targetIdx === -1) {
+                continue
+            }
+            expect(targetIdx).toBeGreaterThanOrEqual(sourceIdx)
+        }
+    })
+})
+
+describe('buildFunnelStepReplacementMap', () => {
+    const FUNNEL_SIGNUP_TO_PAY = [
+        { id: 'step-0', name: 'customer analytics viewed' },
+        { id: 'step-1', name: 'query executed' },
+        { id: 'step-2', name: 'dashboard mode changed' },
+        { id: 'step-3', name: 'pay gate shown' },
+        { id: 'step-4', name: 'pay gate CTA clicked' },
+        { id: 'step-5', name: 'billing product activated' },
+    ]
+
+    it('after-step expansion: only the source step and forward steps are in the map', () => {
+        // Expanding paths AFTER "pay gate shown" (step-3). A path node named
+        // "query executed" (step-1) must NOT be in the map — redirecting to it
+        // would draw a backward edge step-3 → step-1.
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, 'step-3', null)
+
+        expect(Object.fromEntries(map)).toEqual({
+            'pay gate shown': 'step-3',
+            'pay gate CTA clicked': 'step-4',
+            'billing product activated': 'step-5',
+        })
+    })
+
+    it('before-step expansion: only the target step and earlier steps are in the map', () => {
+        // Expanding paths BEFORE "pay gate shown" (step-3). A path node named
+        // "billing product activated" (step-5) must NOT be in the map.
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, null, 'step-3')
+
+        expect(Object.fromEntries(map)).toEqual({
+            'customer analytics viewed': 'step-0',
+            'query executed': 'step-1',
+            'dashboard mode changed': 'step-2',
+            'pay gate shown': 'step-3',
+        })
+    })
+
+    it('between-step expansion: only the two adjacent anchor steps are in the map', () => {
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, 'step-2', 'step-3')
+
+        expect(Object.fromEntries(map)).toEqual({
+            'dashboard mode changed': 'step-2',
+            'pay gate shown': 'step-3',
+        })
+    })
+
+    it('after-step from the first step: every step is in the map', () => {
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, 'step-0', null)
+        expect(map.size).toBe(FUNNEL_SIGNUP_TO_PAY.length)
+    })
+
+    it('before-step to the last step: every step is in the map', () => {
+        const map = buildFunnelStepReplacementMap(FUNNEL_SIGNUP_TO_PAY, null, 'step-5')
+        expect(map.size).toBe(FUNNEL_SIGNUP_TO_PAY.length)
+    })
+
+    it('empty funnel returns an empty map', () => {
+        const map = buildFunnelStepReplacementMap([], 'step-0', null)
+        expect(map.size).toBe(0)
+    })
+
+    it('after-step expansion with a duplicate event name: the closest forward step wins', () => {
+        // Funnel where "query executed" appears at step-1 and step-3.
+        // Expanding after step-2: the in-range candidate closest to the source
+        // (step-3) should win — NOT step-1 (out of range).
+        const funnel = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'dashboard mode changed' },
+            { id: 'step-3', name: 'query executed' },
+            { id: 'step-4', name: 'pay gate shown' },
+        ]
+
+        const map = buildFunnelStepReplacementMap(funnel, 'step-2', null)
+
+        expect(map.get('query executed')).toBe('step-3')
+    })
+
+    it('before-step expansion with a duplicate event name: the closest preceding step wins', () => {
+        // Mirror of the above. Expanding before step-4: among the in-range
+        // matches for "query executed" (step-1 and step-3), the largest
+        // in-range index wins — step-3, the most recent prior occurrence.
+        const funnel = [
+            { id: 'step-0', name: 'customer analytics viewed' },
+            { id: 'step-1', name: 'query executed' },
+            { id: 'step-2', name: 'dashboard mode changed' },
+            { id: 'step-3', name: 'query executed' },
+            { id: 'step-4', name: 'pay gate shown' },
+        ]
+
+        const map = buildFunnelStepReplacementMap(funnel, null, 'step-4')
+
+        expect(map.get('query executed')).toBe('step-3')
     })
 })
 
