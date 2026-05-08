@@ -357,6 +357,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflowSuccess: () => false,
                 saveWorkflowFailure: () => false,
                 resetWorkflow: () => false,
+                setAutoSaveEnabled: (_, { enabled }) => (!enabled ? false : _),
             },
         ],
         autoSaveEnabled: [
@@ -767,6 +768,11 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         setWorkflowValue: () => {
             actions.autoSaveWorkflow()
+        },
+        setAutoSaveEnabled: ({ enabled }) => {
+            if (enabled && values.workflowChanged) {
+                actions.autoSaveWorkflow()
+            }
         },
         autoSaveWorkflow: async (_, breakpoint) => {
             await breakpoint(3000)
