@@ -52,10 +52,11 @@ class TestFailClosedIntrospection(SimpleTestCase):
     def _has_team_scoped_manager(model: type[models.Model]) -> bool:
         return any(isinstance(m, TeamScopedManager) for m in model._meta.managers)
 
-    def test_mixin_is_detected(self) -> None:
-        for model_cls in (ProductTeamModel, TeamScopedRootMixin):
-            with self.subTest(mixin=model_cls.__name__):
-                self.assertTrue(self._has_team_scoped_manager(model_cls))
+    def test_product_team_model_is_detected(self) -> None:
+        self.assertTrue(self._has_team_scoped_manager(ProductTeamModel))
+
+    def test_team_scoped_root_mixin_is_detected(self) -> None:
+        self.assertTrue(self._has_team_scoped_manager(TeamScopedRootMixin))
 
     def test_adhoc_declaration_is_detected(self) -> None:
         """A bare `objects = TeamScopedManager()` on a model that doesn't inherit

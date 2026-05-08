@@ -68,7 +68,7 @@ class Campaign(TeamScopedRootMixin):
     name = models.CharField(max_length=255)
 ```
 
-`hogli product:bootstrap` scaffolds new products with this base by default. CI enforces it: any new team-scoped model on a non-fail-closed manager (i.e., not in `posthog/models/scoping/baseline_unmigrated.txt`) fails `check-idor-model-coverage.py`.
+`hogli product:bootstrap` scaffolds new products with the correct fail-closed base automatically — `ProductTeamModel` for separate-DB products, `TeamScopedRootMixin` for main-DB products. CI enforces it: any new team-scoped model on a non-fail-closed manager (i.e., not in `posthog/models/scoping/baseline_unmigrated.txt`) fails `check-idor-model-coverage.py`.
 
 ### New product on a separate database
 
