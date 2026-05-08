@@ -9,10 +9,7 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.sources import SourceRegistry
 
-from products.data_warehouse.backend.data_load.service import (
-    _get_discover_schemas_schedule_id,
-    delete_external_data_schedule,
-)
+from products.data_warehouse.backend.data_load.service import delete_discover_schemas_schedule
 from products.data_warehouse.backend.models import ExternalDataSource, sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -48,7 +45,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         ExternalDataSource.objects.filter(team_id=inputs.team_id, id=inputs.source_id).exclude(deleted=True).exists()
     )
     if not source_exists:
-        delete_external_data_schedule(_get_discover_schemas_schedule_id(str(inputs.source_id)))
+        delete_discover_schemas_schedule(str(inputs.source_id))
         raise Exception("Source no longer exists - deleted discover-schemas temporal schedule")
 
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
