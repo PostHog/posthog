@@ -17,12 +17,12 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
+import { BarChart } from '../BarChart/BarChart'
 import {
     resolveValueLabelsConfig,
     useSeriesWithValueLabelAllowlist,
     type ValueLabelsConfig,
 } from '../utils/use-value-labels'
-import { BarChart } from '../BarChart/BarChart'
 
 export type { ValueLabelsConfig }
 

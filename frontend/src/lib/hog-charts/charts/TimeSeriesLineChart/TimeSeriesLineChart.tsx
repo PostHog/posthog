@@ -17,12 +17,12 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
+import { LineChart } from '../LineChart'
 import {
     resolveValueLabelsConfig,
     useSeriesWithValueLabelAllowlist,
     type ValueLabelsConfig,
 } from '../utils/use-value-labels'
-import { LineChart } from '../LineChart'
 import {
     useDerivedSeries,
     type ConfidenceIntervalConfig,

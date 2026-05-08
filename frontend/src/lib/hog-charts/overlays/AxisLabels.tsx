@@ -105,10 +105,7 @@ function YTickLabel({
             ? { right: box.width - box.plotLeft + TICK_GAP }
             : { left: box.plotLeft + box.plotWidth + TICK_GAP }
     return (
-        <div
-            data-attr={dataAttr}
-            style={{ ...TICK_STYLE_BASE, ...edge, top: y, transform: 'translateY(-50%)', color }}
-        >
+        <div data-attr={dataAttr} style={{ ...TICK_STYLE_BASE, ...edge, top: y, transform: 'translateY(-50%)', color }}>
             {text}
         </div>
     )
