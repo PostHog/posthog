@@ -37,6 +37,16 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
     previousDates?: string[]
 }
 
+/** Track index for the previous-period timeline. Track 0 is always the primary period. */
+export const PREVIOUS_TRACK_INDEX = 1
+
+interface AnnotationBadgeDataIndex {
+    dateKey: string
+    date: Dayjs
+    dataIndex: number
+    trackIndex: number
+}
+
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
 export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
     return intervalUnit === 'week' || intervalUnit === 'month' ? 'day' : intervalUnit
@@ -295,7 +305,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 trackDateRanges,
                 dates,
                 previousDates
-            ): Array<{ dateKey: string; date: Dayjs; dataIndex: number; trackIndex: number }> => {
+            ): AnnotationBadgeDataIndex[] => {
                 if (dates.length === 0) {
                     return []
                 }
@@ -330,9 +340,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                         }
                         return { dateKey, date, dataIndex, trackIndex }
                     })
-                    .filter(
-                        (b): b is { dateKey: string; date: Dayjs; dataIndex: number; trackIndex: number } => b !== null
-                    )
+                    .filter((b): b is AnnotationBadgeDataIndex => b !== null)
                     .sort((a, b) => a.dataIndex - b.dataIndex)
             },
         ],

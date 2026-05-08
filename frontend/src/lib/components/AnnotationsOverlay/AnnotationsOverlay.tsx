@@ -23,7 +23,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
-import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
+import { AnnotationsOverlayLogicProps, PREVIOUS_TRACK_INDEX, annotationsOverlayLogic } from './annotationsOverlayLogic'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 const MIN_BADGE_SPACING_PX = 24
@@ -148,7 +148,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const clusters = React.useMemo<AnnotationBadgeCluster[]>(() => {
         const positioned = annotationBadgeDataIndices
             .map(({ dateKey, date, dataIndex, trackIndex }) => {
-                const resolveX = trackIndex === 1 && getPreviousDataPointX ? getPreviousDataPointX : getDataPointX
+                const fromPreviousTrack = trackIndex === PREVIOUS_TRACK_INDEX
+                const resolveX = fromPreviousTrack && getPreviousDataPointX ? getPreviousDataPointX : getDataPointX
                 const absoluteX = getInterpolatedDataPointX(dataIndex, resolveX)
                 if (absoluteX === null) {
                     return null
@@ -157,7 +158,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                     date,
                     leftPx: absoluteX - chartAreaLeft,
                     annotations: groupedAnnotations[dateKey] || [],
-                    fromPreviousTrack: trackIndex === 1,
+                    fromPreviousTrack,
                 }
             })
             .filter((b): b is NonNullable<typeof b> => b !== null)
