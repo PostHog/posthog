@@ -230,7 +230,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return false
                     }
                     const response = await api.fileSystem.unfiled()
-                    if (response.results?.length > 0) {
+                    if ((response?.count ?? 0) > 0) {
                         actions.loadFolder('Unfiled')
                         for (const folder of Object.keys(values.folders)) {
                             if (folder.startsWith('Unfiled/')) {

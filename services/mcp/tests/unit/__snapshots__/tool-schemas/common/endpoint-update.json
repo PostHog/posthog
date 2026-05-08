@@ -49,12 +49,6 @@
             "type": "string"
         },
         "query": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "HogQL or insight query this endpoint executes. Changing this auto-creates a new version."
         },
         "version": {
