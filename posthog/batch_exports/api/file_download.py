@@ -213,21 +213,22 @@ class FileDownloadBatchExportOnDemandViewSet(
         return response.Response({"id": instance.id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
-        request=PolymorphicProxySerializer(
-            component_name="RetrieveFileDownloadRequest",
-            serializers={
-                "Starting": RetrieveBasicOutputSerializer,
-                "Running": RetrieveBasicOutputSerializer,
-                "Cancelled": RetrieveBasicOutputSerializer,
-                "Completed": RetrieveCompletedOutputSerializer,
-                "Failed": RetrieveFailedOutputSerializer,
-                "FailedRetryable": RetrieveFailedOutputSerializer,
-                "TimedOut": RetrieveFailedOutputSerializer,
-                "Terminated": RetrieveFailedOutputSerializer,
-            },
-            resource_type_field_name="status",
-        ),
-        responses={200: RetrieveOutputSerializer},
+        responses={
+            200: PolymorphicProxySerializer(
+                component_name="RetrieveFileDownloadResponse",
+                serializers={
+                    "Starting": RetrieveBasicOutputSerializer,
+                    "Running": RetrieveBasicOutputSerializer,
+                    "Cancelled": RetrieveBasicOutputSerializer,
+                    "Completed": RetrieveCompletedOutputSerializer,
+                    "Failed": RetrieveFailedOutputSerializer,
+                    "FailedRetryable": RetrieveFailedOutputSerializer,
+                    "TimedOut": RetrieveFailedOutputSerializer,
+                    "Terminated": RetrieveFailedOutputSerializer,
+                },
+                resource_type_field_name="status",
+            )
+        },
     )
     def retrieve(self, *args, **kwargs) -> response.Response:
         """Get a run of a batch export on demand.
