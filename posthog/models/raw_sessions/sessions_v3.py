@@ -177,9 +177,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean),
 
-    -- Interestingness score in [0, 1] populated by an external scoring job (used for session summarization).
-    -- Nullable so "not yet scored" is distinguishable from "scored as 0"; the scorer filters on IS NULL and writes once per session.
-    -- max merges NULL-vs-value as the value, so the events MV's NULL never clobbers a written score.
+    -- Interestingness score between 0 and 1 filled in by posthog/temporal/session_replay/interestingness_scoring_sweep
     interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
 ) ENGINE = {engine}
 """
