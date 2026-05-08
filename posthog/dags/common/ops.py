@@ -39,6 +39,12 @@ def _filter_team_ids_for_rollout(team_ids: list[int], rollout_percentage: float)
             is_required=False,
             description="Number of team IDs per batch.",
         ),
+        "max_batches": dagster.Field(
+            dagster.Int,
+            default_value=0,
+            is_required=False,
+            description="Cap the number of batches yielded. 0 means unlimited. Use to bound peak parallelism / memory.",
+        ),
         "rollout_percentage": dagster.Field(
             dagster.Float,
             default_value=1.0,
@@ -59,10 +65,14 @@ def get_all_team_ids_op(context: dagster.OpExecutionContext):
 
     override_team_ids = context.op_config["team_ids"]
     batch_size = context.op_config.get("batch_size", 1000)
+    max_batches = int(context.op_config.get("max_batches", 0))
     rollout_percentage = float(context.op_config.get("rollout_percentage", 1.0))
 
     if rollout_percentage < 0 or rollout_percentage > 1:
         raise ValueError(f"rollout_percentage must be in [0, 1], got {rollout_percentage}")
+
+    if max_batches < 0:
+        raise ValueError(f"max_batches must be >= 0, got {max_batches}")
 
     if override_team_ids:
         team_ids = override_team_ids
@@ -75,6 +85,11 @@ def get_all_team_ids_op(context: dagster.OpExecutionContext):
         team_ids = _filter_team_ids_for_rollout(team_ids, rollout_percentage)
         context.log.info(f"After rollout ({rollout_percentage}%), processing {len(team_ids)} teams")
 
+    yielded = 0
     for i in range(0, len(team_ids), batch_size):
+        if max_batches and yielded >= max_batches:
+            context.log.info(f"Reached max_batches={max_batches}; stopping at team index {i} of {len(team_ids)}")
+            break
         batch = team_ids[i : i + batch_size]
         yield dagster.DynamicOutput(batch, mapping_key=f"batch_{i // batch_size}")
+        yielded += 1
