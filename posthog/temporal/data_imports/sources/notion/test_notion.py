@@ -387,6 +387,21 @@ class TestListDataSources:
         assert session.post.call_args.args[0] == f"{NOTION_API_URL}/search"
         session.get.assert_not_called()
 
+    @parameterized.expand([("null_next_cursor", None), ("empty_next_cursor", "")])
+    @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
+    def test_full_enumeration_raises_when_has_more_but_cursor_missing(
+        self, _name: str, bad_cursor: str | None, mock_make_session: MagicMock
+    ) -> None:
+        # Mirrors `_paginate`'s defensive raise: silently returning a partial list would
+        # hide truncated enumeration from callers (e.g. `get_schemas` would show fewer
+        # data sources than exist in the workspace, with no error).
+        session = MagicMock()
+        session.post.return_value = _make_response([{"id": "id-a"}], True, bad_cursor)
+        mock_make_session.return_value = session
+
+        with pytest.raises(Exception, match="next_cursor is empty"):
+            _list_data_sources("tok")
+
 
 def _make_response_for_get(body: dict[str, Any]) -> MagicMock:
     response = MagicMock()

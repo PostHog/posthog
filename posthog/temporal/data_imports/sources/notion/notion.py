@@ -351,7 +351,9 @@ def _list_data_sources(
                 return data_sources
             next_cursor = payload.get("next_cursor")
             if not next_cursor:
-                return data_sources
+                # Mirror `_paginate`'s behavior — silently returning here would hide an
+                # incomplete enumeration and users would see fewer data sources than exist.
+                raise Exception(f"Notion: has_more=True but next_cursor is empty for {NOTION_API_URL}/search")
             body["start_cursor"] = next_cursor
     finally:
         sess.close()
