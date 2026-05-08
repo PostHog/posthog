@@ -3,7 +3,6 @@ from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -55,7 +54,6 @@ def _page_from_url(url: str) -> int:
 def get_rows(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PolarResumeConfig],
 ):
     headers = {
@@ -106,7 +104,6 @@ def get_rows(
 def polar_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PolarResumeConfig],
 ) -> SourceResponse:
     def items():
@@ -114,7 +111,6 @@ def polar_source(
             api_key=api_key,
             endpoint=endpoint,
             resumable_source_manager=resumable_source_manager,
-            logger=logger,
         )
 
     return SourceResponse(

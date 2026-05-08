@@ -115,6 +115,5 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return polar_source(
             api_key=config.polar_api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
         )
