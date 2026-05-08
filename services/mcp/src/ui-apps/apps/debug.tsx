@@ -1,15 +1,35 @@
 import '../styles/tailwind.css'
 
 import type { App } from '@modelcontextprotocol/ext-apps'
+import { BookOpen, ExternalLink, Flag, History, Info, Plus, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { DataTable, type DataTableColumn, DescriptionList } from '@posthog/mcp-ui'
 import {
     Badge,
     Button,
     Card,
     CardContent,
+    CardDescription,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Field,
+    FieldDescription,
+    FieldGroup,
+    FieldLabel,
+    Progress,
+    ProgressLabel,
+    ProgressValue,
+    Separator,
+    Spinner,
+    Switch,
     Tabs,
     TabsContent,
     TabsList,
@@ -21,7 +41,6 @@ import {
 } from '@posthog/quill'
 
 import { AppErrorState, AppLoadingState } from '../components/AppWrapper'
-import { Select } from '../components/charts'
 import { useToolResult } from '../hooks/useToolResult'
 import type { UseToolResultReturn } from '../hooks/useToolResult'
 
@@ -264,9 +283,9 @@ function DebugTab({
                                         >
                                             {call.status}
                                         </Badge>
-                                        <span className="text-[10px] text-muted-foreground font-mono">#{call.id}</span>
+                                        <span className="text-xxs text-muted-foreground font-mono">#{call.id}</span>
                                     </div>
-                                    <span className="text-[10px] text-muted-foreground font-mono block mt-1">
+                                    <span className="text-xxs text-muted-foreground font-mono block mt-1">
                                         Sent: {call.sentAt}
                                         {call.receivedAt && ` | Received: ${call.receivedAt}`}
                                     </span>
@@ -295,8 +314,8 @@ function DebugTab({
                 <div className="flex flex-col gap-1">
                     <span className="text-sm font-medium text-muted-foreground">Waiting for tool result</span>
                     <span className="text-sm text-muted-foreground">
-                        Call the <code className="rounded bg-muted px-1 py-0.5 text-xs">debug-mcp-ui-apps</code> tool to
-                        see data here.
+                        Call the <code className="rounded-sm bg-muted px-1 py-0.5 text-xs">debug-mcp-ui-apps</code> tool
+                        to see data here.
                     </span>
                 </div>
             )}
@@ -320,7 +339,7 @@ function DebugTab({
                             <div className="flex flex-col gap-1">
                                 {hostMessages.map((msg) => (
                                     <div key={msg.id} className="border-b pb-2 last:border-b-0">
-                                        <span className="text-[10px] text-muted-foreground font-mono">
+                                        <span className="text-xxs text-muted-foreground font-mono">
                                             {msg.timestamp}
                                         </span>
                                         <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-0.5">
@@ -353,229 +372,310 @@ function DebugTab({
     )
 }
 
-// -- Badge demo --
+// -- Showcase tab --
+//
+// Single rich Quill composition that mocks a realistic product surface
+// (a fictional "release dashboard"). Demonstrates how Card, Badge,
+// Progress, Tooltip, Tabs, DataTable, Empty, Field, Switch, Button,
+// DescriptionList, and Separator compose together — not as isolated
+// component demos, but as a page a developer would actually build.
+//
+// All data here is fabricated; the goal is layout fidelity, not realism.
 
-function BadgeDemo(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3">
-            <span className="text-sm text-muted-foreground">Variants</span>
-            <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="success">Active</Badge>
-                <Badge variant="destructive">Error</Badge>
-                <Badge variant="warning">Warning</Badge>
-                <Badge variant="info">Info</Badge>
-                <Badge>Default</Badge>
-            </div>
-        </div>
-    )
+interface MockEvaluation {
+    timestamp: string
+    distinctId: string
+    variant: string
+    matched: boolean
 }
 
-// -- Card demo --
-
-function CardDemo(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3">
-            <Card>
-                <CardContent className="p-3">
-                    <span className="text-sm text-muted-foreground">Compact card</span>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardContent>
-                    <div className="flex flex-col gap-1">
-                        <span className="text-sm font-semibold">Default card</span>
-                        <span className="text-sm text-muted-foreground">
-                            Cards group related content with a border and background.
-                        </span>
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-    )
-}
-
-// -- Tooltip demo --
-
-function TooltipDemo(): JSX.Element {
-    return (
-        <TooltipProvider>
-            <div className="flex flex-col gap-3">
-                <span className="text-sm text-muted-foreground">Hover over items to see tooltips.</span>
-                <div className="flex items-center gap-6 flex-wrap py-4">
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <span className="text-sm cursor-default border-b border-dashed border-muted-foreground">
-                                    Top tooltip
-                                </span>
-                            }
-                        />
-                        <TooltipContent side="top">This appears above</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <span className="text-sm cursor-default border-b border-dashed border-muted-foreground">
-                                    Bottom tooltip
-                                </span>
-                            }
-                        />
-                        <TooltipContent side="bottom">This appears below</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                        <TooltipTrigger render={<Badge variant="info">Hover me</Badge>} />
-                        <TooltipContent>Tooltips work on any element</TooltipContent>
-                    </Tooltip>
-                </div>
-            </div>
-        </TooltipProvider>
-    )
-}
-
-// -- Select demo (chart-internal Select) --
-
-function SelectDemo(): JSX.Element {
-    const [viz, setViz] = useState('table')
-    return (
-        <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-2">
-                <span className="text-sm text-muted-foreground">Visualization picker (chart-internal Select)</span>
-                {/* eslint-disable-next-line react/forbid-elements */}
-                <Select
-                    value={viz}
-                    onChange={setViz}
-                    options={[
-                        { value: 'table', label: 'Table' },
-                        { value: 'bar', label: 'Bar chart' },
-                        { value: 'line', label: 'Line chart' },
-                        { value: 'number', label: 'Big number' },
-                    ]}
-                />
-                <span className="text-xs text-muted-foreground">
-                    Selected: <span className="font-medium text-foreground">{viz}</span>
-                </span>
-            </div>
-        </div>
-    )
-}
-
-// -- DataTable demo --
-
-interface SampleRow {
-    name: string
-    country: string
-    events: number
-    revenue: number | null
-    active: boolean
-}
-
-const sampleData: SampleRow[] = [
-    { name: 'Acme Corp', country: 'US', events: 14280, revenue: 52000, active: true },
-    { name: 'Globex', country: 'UK', events: 8930, revenue: 31500, active: true },
-    { name: 'Initech', country: 'US', events: 6210, revenue: null, active: false },
-    { name: 'Umbrella', country: 'JP', events: 22450, revenue: 89000, active: true },
-    { name: 'Hooli', country: 'US', events: 3100, revenue: 12500, active: true },
-    { name: 'Pied Piper', country: 'US', events: 45670, revenue: 120000, active: true },
-    { name: 'Stark Ind.', country: 'US', events: 18900, revenue: 75000, active: false },
-    { name: 'Wayne Ent.', country: 'US', events: 29300, revenue: 95000, active: true },
-    { name: 'Cyberdyne', country: 'JP', events: 7800, revenue: 28000, active: false },
-    { name: 'Oscorp', country: 'US', events: 11200, revenue: 41000, active: true },
-    { name: 'Wonka Ind.', country: 'UK', events: 5400, revenue: 19000, active: true },
-    { name: 'Aperture', country: 'US', events: 16700, revenue: 63000, active: false },
+const mockEvaluations: MockEvaluation[] = [
+    { timestamp: '2 min ago', distinctId: 'user_8af2…', variant: 'treatment-a', matched: true },
+    { timestamp: '4 min ago', distinctId: 'user_3c91…', variant: 'control', matched: true },
+    { timestamp: '7 min ago', distinctId: 'user_b14e…', variant: 'treatment-b', matched: true },
+    { timestamp: '12 min ago', distinctId: 'user_77d0…', variant: 'control', matched: false },
+    { timestamp: '18 min ago', distinctId: 'user_e5a3…', variant: 'treatment-a', matched: true },
 ]
 
-const sampleColumns: DataTableColumn<SampleRow>[] = [
-    { key: 'name', header: 'Company', sortable: true },
-    { key: 'country', header: 'Country', sortable: true },
-    { key: 'events', header: 'Events', align: 'right', sortable: true },
-    { key: 'revenue', header: 'Revenue', align: 'right', sortable: true },
+const evaluationColumns: DataTableColumn<MockEvaluation>[] = [
+    { key: 'timestamp', header: 'When', sortable: true },
     {
-        key: 'active',
-        header: 'Status',
-        render: (row) => (
-            <Badge variant={row.active ? 'success' : 'default'}>{row.active ? 'Active' : 'Inactive'}</Badge>
-        ),
+        key: 'distinctId',
+        header: 'Distinct ID',
+        render: (row) => <span className="font-mono text-xs">{row.distinctId}</span>,
+    },
+    {
+        key: 'variant',
+        header: 'Variant',
+        render: (row) => <Badge variant="info">{row.variant}</Badge>,
+    },
+    {
+        key: 'matched',
+        header: 'Matched',
+        align: 'right',
+        render: (row) => <Badge variant={row.matched ? 'success' : 'destructive'}>{row.matched ? 'Yes' : 'No'}</Badge>,
     },
 ]
 
-function DataTableDemo(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3">
-            <span className="text-sm text-muted-foreground">
-                Sortable columns, pagination (5 per page), and custom cell rendering.
-            </span>
-            <DataTable columns={sampleColumns} data={sampleData} pageSize={5} />
-        </div>
-    )
-}
+function ShowcaseTab(): JSX.Element {
+    const [enabled, setEnabled] = useState(true)
+    const [autoArchive, setAutoArchive] = useState(false)
 
-// -- Link demo --
-
-function LinkDemo(): JSX.Element {
     return (
-        <div className="flex flex-col gap-3">
-            <span className="text-sm text-muted-foreground">
-                External and internal links (plain &lt;a&gt; styled with Quill tokens + Button link variants).
-            </span>
-            <div className="flex flex-col gap-2 items-start">
-                <a
-                    href="https://posthog.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                >
-                    PostHog (external)
-                </a>
-                <a href="#" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    Internal link
-                </a>
-                <Button variant="link" size="sm" className="px-0">
-                    Button styled as link
-                </Button>
+        <TooltipProvider>
+            <div className="flex flex-col gap-4">
+                {/* Header */}
+                <div className="flex flex-wrap items-start gap-3">
+                    <Flag className="h-5 w-5 shrink-0 text-muted-foreground mt-0.5" />
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-lg font-semibold">acme-q3-onboarding</span>
+                            <Badge variant="success">Live</Badge>
+                            <Badge variant="info">v2.4</Badge>
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <Badge variant="warning">
+                                            <Info className="h-3 w-3" data-icon="inline-start" />
+                                            Recently changed
+                                        </Badge>
+                                    }
+                                />
+                                <TooltipContent side="bottom">Rollout updated 14 minutes ago</TooltipContent>
+                            </Tooltip>
+                        </div>
+                        <span className="text-xs font-mono text-muted-foreground">flag_8af2c91e</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <Button variant="outline" size="sm">
+                            Edit
+                        </Button>
+                        <Button size="sm">View in PostHog</Button>
+                    </div>
+                </div>
+
+                {/* Hero card — rollout summary */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Variant rollout</CardTitle>
+                        <CardDescription>How traffic is currently distributed.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex flex-col gap-3">
+                            <Progress value={25} variant="default">
+                                <ProgressLabel>control</ProgressLabel>
+                                <ProgressValue />
+                            </Progress>
+                            <Progress value={55} variant="success">
+                                <ProgressLabel>treatment-a</ProgressLabel>
+                                <ProgressValue />
+                            </Progress>
+                            <Progress value={20} variant="warning">
+                                <ProgressLabel>treatment-b</ProgressLabel>
+                                <ProgressValue />
+                            </Progress>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Stats card */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Overview</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <DescriptionList
+                            columns={2}
+                            items={[
+                                { label: 'Created', value: 'Sep 14, 2025' },
+                                { label: 'Last evaluated', value: '2 minutes ago' },
+                                { label: 'Total exposures', value: '124,802' },
+                                { label: 'Owner', value: 'platform-team' },
+                                {
+                                    label: 'Linked experiment',
+                                    value: (
+                                        // eslint-disable-next-line react/forbid-elements
+                                        <a
+                                            href="#"
+                                            className="inline-flex items-center gap-1 text-primary hover:underline"
+                                        >
+                                            onboarding-flow-v3
+                                            <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                    ),
+                                },
+                                { label: 'Environments', value: 'production, staging' },
+                            ]}
+                        />
+                    </CardContent>
+                </Card>
+
+                {/* Buttons — variants, sizes, icon-only, with-icon, disabled, loading */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Buttons</CardTitle>
+                        <CardDescription>
+                            Variants, sizes, and states from <code className="font-mono">@posthog/quill</code>'s{' '}
+                            <code className="font-mono">Button</code>.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted-foreground">Variants</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button>Default</Button>
+                                    <Button variant="primary">Primary</Button>
+                                    <Button variant="outline">Outline</Button>
+                                    <Button variant="destructive">Destructive</Button>
+                                    <Button variant="link">Link</Button>
+                                    <Button variant="link-muted">Link muted</Button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted-foreground">Sizes</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button size="xs">Extra small</Button>
+                                    <Button size="sm">Small</Button>
+                                    <Button size="default">Default</Button>
+                                    <Button size="lg">Large</Button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted-foreground">Icon-only</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button size="icon-xs" aria-label="Add">
+                                        <Plus />
+                                    </Button>
+                                    <Button size="icon-sm" aria-label="Add">
+                                        <Plus />
+                                    </Button>
+                                    <Button size="icon" aria-label="Add">
+                                        <Plus />
+                                    </Button>
+                                    <Button size="icon-lg" aria-label="Add">
+                                        <Plus />
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted-foreground">With icon</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button>
+                                        <Plus />
+                                        Add variant
+                                    </Button>
+                                    <Button variant="outline">
+                                        <SettingsIcon />
+                                        Settings
+                                    </Button>
+                                    <Button variant="destructive">
+                                        <Trash2 />
+                                        Delete flag
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted-foreground">Disabled and loading</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button disabled>Disabled</Button>
+                                    <Button variant="outline" disabled>
+                                        Outline disabled
+                                    </Button>
+                                    <Button disabled>
+                                        <Spinner />
+                                        Saving…
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Inner tabs — Activity / Audit / Settings */}
+                <Card>
+                    <Tabs defaultValue="activity">
+                        <TabsList className="px-3">
+                            <TabsTrigger value="activity">Recent evaluations</TabsTrigger>
+                            <TabsTrigger value="audit">Audit log</TabsTrigger>
+                            <TabsTrigger value="settings">Settings</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="activity" className="px-4 pb-4">
+                            <DataTable<MockEvaluation>
+                                columns={evaluationColumns}
+                                data={mockEvaluations}
+                                pageSize={0}
+                                emptyMessage="No evaluations yet"
+                            />
+                        </TabsContent>
+                        <TabsContent value="audit" className="px-4 pb-4">
+                            <Empty className="py-10">
+                                <EmptyHeader>
+                                    <EmptyMedia variant="icon">
+                                        <History className="h-5 w-5" />
+                                    </EmptyMedia>
+                                    <EmptyTitle>No audit entries yet</EmptyTitle>
+                                    <EmptyDescription>
+                                        Changes to this flag will appear here. Audit history is retained for 90 days.
+                                    </EmptyDescription>
+                                </EmptyHeader>
+                            </Empty>
+                        </TabsContent>
+                        <TabsContent value="settings" className="px-4 pb-4">
+                            <FieldGroup>
+                                <Field orientation="horizontal">
+                                    <FieldLabel>Enabled</FieldLabel>
+                                    <Switch checked={enabled} onCheckedChange={setEnabled} />
+                                </Field>
+                                <Separator />
+                                <Field orientation="horizontal">
+                                    <FieldLabel>Auto-archive after 30 days</FieldLabel>
+                                    <Switch checked={autoArchive} onCheckedChange={setAutoArchive} />
+                                </Field>
+                                <Separator />
+                                <Field>
+                                    <FieldLabel>Description</FieldLabel>
+                                    <FieldDescription>
+                                        Q3 onboarding redesign — control keeps the legacy stepper, treatment-a uses the
+                                        new progressive layout, treatment-b adds inline validation.
+                                    </FieldDescription>
+                                </Field>
+                            </FieldGroup>
+                        </TabsContent>
+                    </Tabs>
+                </Card>
+
+                {/* Footer card with link */}
+                <Card>
+                    <CardContent>
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground flex-1 min-w-0">
+                                Learn how to roll feature flags out gradually without breaking experiments.
+                            </span>
+                            <Button
+                                variant="link"
+                                size="sm"
+                                // eslint-disable-next-line react/forbid-elements
+                                render={
+                                    <a href="https://posthog.com/docs/feature-flags" target="_blank" rel="noreferrer" />
+                                }
+                            >
+                                Read the docs
+                                <ExternalLink className="ml-1 h-3 w-3" />
+                            </Button>
+                        </div>
+                    </CardContent>
+                    <CardFooter>
+                        <span className="text-xs text-muted-foreground">Mock surface — none of this data is real.</span>
+                    </CardFooter>
+                </Card>
             </div>
-        </div>
-    )
-}
-
-// -- Tabs demo --
-
-function TabsDemo(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3">
-            <span className="text-sm text-muted-foreground">
-                Composable tabs using children: Tabs &gt; TabsList + TabsContent.
-            </span>
-            <Card>
-                <Tabs defaultValue="overview">
-                    <TabsList className="px-3">
-                        <TabsTrigger value="overview">Overview</TabsTrigger>
-                        <TabsTrigger value="details">Details</TabsTrigger>
-                        <TabsTrigger value="settings">Settings</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="overview" className="px-4 pb-4">
-                        <Card>
-                            <CardContent className="p-3">
-                                <span className="text-sm text-muted-foreground">Overview content goes here.</span>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                    <TabsContent value="details" className="px-4 pb-4">
-                        <Card>
-                            <CardContent className="p-3">
-                                <span className="text-sm text-muted-foreground">Details content goes here.</span>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                    <TabsContent value="settings" className="px-4 pb-4">
-                        <Card>
-                            <CardContent className="p-3">
-                                <span className="text-sm text-muted-foreground">Settings content goes here.</span>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                </Tabs>
-            </Card>
-        </div>
+        </TooltipProvider>
     )
 }
 
@@ -590,18 +690,14 @@ function DebugApp(): JSX.Element {
         <div className="p-4">
             <div className="mb-4 flex flex-col gap-1">
                 <span className="text-lg font-semibold">MCP Apps Debug</span>
-                <span className="text-sm text-muted-foreground">SDK debug view and Quill component showcase.</span>
+                <span className="text-sm text-muted-foreground">
+                    SDK debug view, a realistic Quill composition, and the shared loading/error states.
+                </span>
             </div>
             <Tabs defaultValue="debug">
                 <TabsList>
                     <TabsTrigger value="debug">Debug</TabsTrigger>
-                    <TabsTrigger value="badge">Badge</TabsTrigger>
-                    <TabsTrigger value="card">Card</TabsTrigger>
-                    <TabsTrigger value="tooltip">Tooltip</TabsTrigger>
-                    <TabsTrigger value="select">Select</TabsTrigger>
-                    <TabsTrigger value="link">Link</TabsTrigger>
-                    <TabsTrigger value="datatable">DataTable</TabsTrigger>
-                    <TabsTrigger value="tabs">Tabs</TabsTrigger>
+                    <TabsTrigger value="showcase">Showcase</TabsTrigger>
                     <TabsTrigger value="loading">Loading</TabsTrigger>
                     <TabsTrigger value="error">Error</TabsTrigger>
                 </TabsList>
@@ -615,26 +711,8 @@ function DebugApp(): JSX.Element {
                         debugState={debugState}
                     />
                 </TabsContent>
-                <TabsContent value="badge">
-                    <BadgeDemo />
-                </TabsContent>
-                <TabsContent value="card">
-                    <CardDemo />
-                </TabsContent>
-                <TabsContent value="tooltip">
-                    <TooltipDemo />
-                </TabsContent>
-                <TabsContent value="select">
-                    <SelectDemo />
-                </TabsContent>
-                <TabsContent value="link">
-                    <LinkDemo />
-                </TabsContent>
-                <TabsContent value="datatable">
-                    <DataTableDemo />
-                </TabsContent>
-                <TabsContent value="tabs">
-                    <TabsDemo />
+                <TabsContent value="showcase">
+                    <ShowcaseTab />
                 </TabsContent>
                 <TabsContent value="loading">
                     <AppLoadingState />
