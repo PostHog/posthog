@@ -32,7 +32,7 @@ class TestGetSandboxForRepositoryActivity:
             task_created_by_id=test_task.created_by_id,
         )
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_sandbox_with_existing_snapshot(
         self, activity_environment, github_integration, test_task, test_task_run
     ):
@@ -65,7 +65,7 @@ class TestGetSandboxForRepositoryActivity:
                 except Exception:
                     pass
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_sandbox_without_snapshot_returns_should_create_snapshot(
         self, activity_environment, github_integration, test_task, test_task_run
     ):
@@ -90,7 +90,7 @@ class TestGetSandboxForRepositoryActivity:
                 except Exception:
                     pass
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_sandbox_creates_sandbox_from_base_when_no_snapshot(
         self, activity_environment, github_integration, test_task, test_task_run
     ):
@@ -118,7 +118,7 @@ class TestGetSandboxForRepositoryActivity:
                 except Exception:
                     pass
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_sandbox_includes_environment_variables(
         self, activity_environment, github_integration, test_task, test_task_run
     ):

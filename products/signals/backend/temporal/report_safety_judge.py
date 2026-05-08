@@ -4,6 +4,7 @@ from typing import Optional
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import BaseModel, Field, model_validator
 
 from products.signals.backend.models import SignalReportArtefact
@@ -108,6 +109,7 @@ class SafetyJudgeOutput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:

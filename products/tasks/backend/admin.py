@@ -83,9 +83,9 @@ class CodeInviteAdmin(admin.ModelAdmin):
                 ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
                 ("Metadata", {"fields": ("created_by", "created_at")}),
             )
-        # On add, omit code — it will be auto-generated on save
+        # On add, code may be set manually or left blank to auto-generate on save
         return (
-            (None, {"fields": ("id", "description")}),
+            (None, {"fields": ("id", "code", "description")}),
             ("Limits", {"fields": ("is_active", "max_redemptions", "expires_at")}),
             ("Metadata", {"fields": ("created_by",)}),
         )
