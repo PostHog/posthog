@@ -155,7 +155,7 @@ def parse_detailed_timings(logs: str) -> dict[str, float]:
                 # each package's compile "Finished" marker and the next one.
                 gaps = [compile_times[i + 1] - compile_times[i] for i in range(len(compile_times) - 1)]
                 all_gaps = gaps[: len(packages) - 1]
-                pkg_times = all_gaps + [total_compile_span - sum(all_gaps)] if all_gaps else [total_compile_span]
+                pkg_times = [*all_gaps, total_compile_span - sum(all_gaps)] if all_gaps else [total_compile_span]
                 scale = duration / max(sum(pkg_times), 1)
                 for pkg, t in zip(packages, pkg_times):
                     package_durations[pkg] = max(1.0, t * scale)
