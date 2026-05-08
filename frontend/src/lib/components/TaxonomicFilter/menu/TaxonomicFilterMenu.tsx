@@ -394,7 +394,16 @@ export function TaxonomicFilterMenu({
                     eventDetails.cancel()
                 }}
             >
-                <span ref={triggerWrapRef} className="relative inline-flex">
+                {/*
+                 * `flex min-w-0 w-full` (not `inline-flex`) so the wrap
+                 * fills its parent column instead of sizing to the
+                 * trigger's intrinsic width. Without `min-w-0` the
+                 * default `min-width: auto` makes the wrap grow to its
+                 * content and overflow narrow parents — long filter
+                 * names then bleed past the parity wrapper instead of
+                 * truncating like the legacy trigger.
+                 */}
+                <span ref={triggerWrapRef} className="relative flex min-w-0 w-full">
                     <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     <PopoverTrigger
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}

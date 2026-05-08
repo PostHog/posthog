@@ -666,18 +666,27 @@ export function ActionFilterRow({
                                                         : null
                                                 }
                                                 trigger={({ selected, label, open }) => (
-                                                    <div className="relative border border-dashed border-accent p-1 rounded-sm">
+                                                    // `min-w-0` lets the truncate inside the button
+                                                    // actually clip — without it the flex child grows
+                                                    // to its content's intrinsic width and the row
+                                                    // overflows the parent column.
+                                                    <div className="relative min-w-0 border border-dashed border-accent p-1 rounded-sm">
                                                         <LemonButton
                                                             type="secondary"
                                                             fullWidth
                                                             data-attr={`series-parity-autocomplete-trigger-${index}`}
                                                             aria-expanded={open}
                                                             sideIcon={<IconChevronDown />}
+                                                            truncate
                                                         >
                                                             {selected ? (
-                                                                <EntityFilterInfo filter={filter} showIcon />
+                                                                <EntityFilterInfo
+                                                                    filter={filter}
+                                                                    showIcon
+                                                                    allowWrap={false}
+                                                                />
                                                             ) : (
-                                                                <span className="text-secondary">{label}</span>
+                                                                <span className="text-secondary truncate">{label}</span>
                                                             )}
                                                         </LemonButton>
                                                         <div className="absolute -top-1 -right-1">
