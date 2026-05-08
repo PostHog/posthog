@@ -243,10 +243,10 @@
         }
     },
     "switch-organization": {
-        "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
+        "description": "Switch the active PostHog organization that subsequent tool calls will operate against. Call this proactively whenever the user references an organization by name or you have reason to believe their request applies to an organization other than the currently active one. If you don't have the organization id, call `organizations-list` first to resolve a name (or other description) to an id. Defaulting to the active organization is fine when no specific organization is mentioned. Switching is cheap and reversible, so prefer switching over guessing.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active organization from the default organization.",
+        "summary": "Switch the active PostHog organization for subsequent tool calls.",
         "title": "Switch active organization",
         "required_scopes": ["organization:read"],
         "new_mcp": true,
@@ -332,10 +332,10 @@
         }
     },
     "switch-project": {
-        "description": "Change the active project from the default project. You should only use this tool if the user asks you to change the project - otherwise, the default project will be used.",
+        "description": "Switch the active PostHog project that subsequent tool calls will operate against. Call this proactively whenever the user references a project by name, mentions a different workspace, or you have reason to believe their request applies to a project other than the currently active one. If you don't have the project id, call `projects-get` first to resolve a name (or other description) to an id. Defaulting to the active project is fine when no specific project is mentioned. Switching is cheap and reversible, so prefer switching over guessing.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active project from the default project.",
+        "summary": "Switch the active PostHog project for subsequent tool calls.",
         "title": "Switch active project",
         "required_scopes": ["project:read"],
         "new_mcp": true,
