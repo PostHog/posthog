@@ -410,10 +410,11 @@ def team_api_test_factory():
         def test_filter_permission_rejects_invalid_filters(
             self, _name: str, test_account_filters: list[dict[str, Any]]
         ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/",
-                {"test_account_filters": test_account_filters},
-            )
+            with self.settings(TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"test_account_filters": test_account_filters},
+                )
 
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.json()["attr"], "test_account_filters")
@@ -423,10 +424,11 @@ def team_api_test_factory():
             self.assertEqual(self.team.test_account_filters, [])
 
         def test_filter_permission_allows_is_set_filters_without_value(self):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/",
-                {"test_account_filters": [{"key": "email", "type": "person", "operator": "is_set"}]},
-            )
+            with self.settings(TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"test_account_filters": [{"key": "email", "type": "person", "operator": "is_set"}]},
+                )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(

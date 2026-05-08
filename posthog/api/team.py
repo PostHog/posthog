@@ -225,8 +225,7 @@ TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
 def validate_test_account_filters(value: object) -> list[dict[str, object]]:
-    # temporarily disable validation, until we checked all prod entities
-    if True:
+    if not settings.TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED:
         return cast(list[dict[str, object]], value)
 
     try:

@@ -2,11 +2,19 @@ import os
 import json
 from contextlib import suppress
 
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
+
+# Temporarily disabled until teams have been validated with
+# audit_test_account_filters.py in prod.
+TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED: bool = get_from_env(
+    "TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
