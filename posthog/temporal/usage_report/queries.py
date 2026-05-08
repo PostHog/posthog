@@ -49,7 +49,6 @@ from posthog.constants import FlagRequestType
 from posthog.models import GroupTypeMapping
 from posthog.models.feature_flag import FeatureFlag
 from posthog.tasks.usage_report import (
-    get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
     get_teams_with_active_hog_destinations_in_period,
@@ -57,8 +56,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
-    get_teams_with_billable_enhanced_persons_event_count_in_period,
-    get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
@@ -83,6 +80,11 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_push_sent_in_period,
     get_teams_with_workflow_sms_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
+)
+from posthog.temporal.usage_report.preagg_queries import (
+    get_all_event_metrics_in_period_from_preagg,
+    get_teams_with_billable_enhanced_persons_event_count_in_period_from_preagg,
+    get_teams_with_billable_event_count_in_period_from_preagg,
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -203,15 +205,21 @@ class QuerySpec:
 
 QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: events --------------------------------------------------
+    # The three event-count specs below read from `usage_report_events_preagg`,
+    # a daily aggregate MV. They previously each scanned the raw `events`
+    # table for ~30 minutes; the preagg versions complete in seconds, so
+    # the activity timeout drops to match the other ClickHouse specs.
+    # See `posthog/temporal/usage_report/preagg_queries.py` for parity
+    # notes vs. the legacy implementations.
     QuerySpec(
         name="teams_with_event_count_in_period",
-        fn=lambda b, e: get_teams_with_billable_event_count_in_period(b, e, count_distinct=True),
-        timeout_minutes=30,
+        fn=get_teams_with_billable_event_count_in_period_from_preagg,
+        timeout_minutes=5,
     ),
     QuerySpec(
         name="teams_with_enhanced_persons_event_count_in_period",
-        fn=lambda b, e: get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True),
-        timeout_minutes=30,
+        fn=get_teams_with_billable_enhanced_persons_event_count_in_period_from_preagg,
+        timeout_minutes=5,
     ),
     QuerySpec(
         name="teams_with_event_count_with_groups_in_period",
@@ -219,7 +227,7 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="all_event_metrics",
-        fn=get_all_event_metrics_in_period,
+        fn=get_all_event_metrics_in_period_from_preagg,
         output="multi",
         multi_keys_mapping={
             "helicone_events": "teams_with_event_count_from_helicone_in_period",
@@ -243,7 +251,7 @@ QUERIES: list[QuerySpec] = [
             "unity_events": "teams_with_unity_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
         },
-        timeout_minutes=30,
+        timeout_minutes=5,
     ),
     # ---- ClickHouse: recordings ----------------------------------------------
     QuerySpec(
