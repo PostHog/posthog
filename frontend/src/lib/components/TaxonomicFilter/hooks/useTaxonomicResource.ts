@@ -142,23 +142,28 @@ export function useTaxonomicResource<T>(
             return () => {
                 entry.subscribers.delete(notifyChange)
                 if (entry.subscribers.size === 0) {
-                    // Defer eviction one task — React's strict-mode
-                    // double-invoke + concurrent rendering tears the
-                    // subscriber down and re-attaches it within the same
-                    // tick, and Jest's `cleanup()` between tests can do
-                    // the same. Evicting synchronously kills the entry +
-                    // any in-flight fetch that the *next* mount of the
-                    // same hook is about to need, leaving the consumer
-                    // hung on `isLoading`. Re-check after the current
-                    // task drains; if no fresh subscriber attached,
-                    // the entry is genuinely orphaned and safe to drop.
+                    // Abort synchronously so in-flight requests don't
+                    // finish into a void on unmount (the existing
+                    // `useTaxonomicResource` test asserts the signal is
+                    // aborted right after `unmount()`).
+                    entry.abort?.abort()
+                    entry.abort = undefined
+                    entry.inflight = undefined
+                    // Defer the actual cache eviction one task — React's
+                    // strict-mode double-invoke and Jest's `cleanup()`
+                    // between tests both tear the subscriber down and
+                    // re-attach it within the same tick. Synchronous
+                    // `cache.delete` would force the re-mount to
+                    // re-fetch, but more importantly any code path that
+                    // captured `entry` already (other consumers, the
+                    // in-flight closure) would write into a detached
+                    // entry the cache can no longer find. Re-check
+                    // subscriber count on the next task; only evict
+                    // when the entry is still genuinely orphaned.
                     setTimeout(() => {
                         if (entry.subscribers.size > 0) {
                             return
                         }
-                        entry.abort?.abort()
-                        entry.abort = undefined
-                        entry.inflight = undefined
                         cache.delete(hash)
                     }, 0)
                 }
