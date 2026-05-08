@@ -204,9 +204,9 @@ Inherit all safety rules from `debugging-ci-failures`. In addition:
 - If you can't confidently determine PR-caused vs unrelated, say so and
   ask for human input — don't guess.
 
-## Reporting shape
+## Internal analysis (not the response)
 
-Always respond with:
+Before composing the reply, internally work through:
 
 1. The failing test (path + name) and classification from
    `debugging-ci-failures`.
@@ -216,5 +216,7 @@ Always respond with:
    - the GitHub team handle / feature-handbook team name (or "unknown")
    - the resolved Slack sub-team mention as `<!subteam^...>` (or
      "unresolved" — never guessed)
-   - the reply itself, with the mention rendered inline so the team is
-     pinged when the message lands
+
+Do not output these as the response. The final user-facing message is the
+reply defined in Step 4, written as a single conversational message with
+the resolved mention rendered inline.
