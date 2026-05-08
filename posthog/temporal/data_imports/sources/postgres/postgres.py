@@ -1685,7 +1685,7 @@ def postgres_source(
                     )
 
                     has_duplicate_primary_keys = False
-                    if used_id_pk_fallback and primary_keys is not None:
+                    if used_id_pk_fallback:
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys, logger
