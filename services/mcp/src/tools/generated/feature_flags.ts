@@ -26,6 +26,7 @@ import {
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -275,9 +276,9 @@ const featureFlagsStatusRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true }).extend(
-    FeatureFlagsTestEvaluationCreateBody.shape
-)
+const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
+    .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+    .superRefine(validateDistinctIdPersonIdExclusive)
 
 const featureFlagsTestEvaluationCreate = (): ToolBase<
     typeof FeatureFlagsTestEvaluationCreateSchema,
