@@ -56,7 +56,19 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
             if (config.kind.endsWith('ActorsQuery')) {
-                const data = await context.api.query({ projectId }).trendsActors({ query })
+                const sourceKind = (query.source as Record<string, unknown> | undefined)?.kind
+                const queryClient = context.api.query({ projectId })
+                let data
+                switch (sourceKind) {
+                    case 'LifecycleQuery':
+                        data = await queryClient.lifecycleActors({ query })
+                        break
+                    case 'TrendsQuery':
+                        data = await queryClient.trendsActors({ query })
+                        break
+                    default:
+                        throw new Error(`Unsupported source kind for actors query: ${sourceKind}`)
+                }
                 return {
                     ...data,
                     _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
