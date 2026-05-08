@@ -286,8 +286,19 @@ export function MenuFilterDwhConfig({
                 size="wide"
                 className="gap-0 p-0"
             >
-                <DialogHeader className="px-4 py-3 border-b">
-                    <DialogTitle>Configure data warehouse table</DialogTitle>
+                <DialogHeader className="flex-row items-center gap-2 px-4 py-3 border-b">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label="Go back"
+                        onClick={onBack}
+                        className="shrink-0 gap-1"
+                        data-attr="dwh-config-back"
+                    >
+                        Go back
+                    </Button>
+                    <DialogTitle className="flex-1 truncate">Configure data warehouse table</DialogTitle>
                 </DialogHeader>
                 {/* `DialogBody` defaults to a `ScrollArea` (per Quill)
                     so we get scroll shadows and edge-overflow data

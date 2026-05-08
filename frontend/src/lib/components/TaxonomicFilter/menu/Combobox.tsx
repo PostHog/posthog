@@ -429,7 +429,7 @@ export function MenuFilterCombobox({
                         )}
                         {!drillItems &&
                             targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
-                        <ScrollArea className="flex-1 min-h-0 scroll-py-8" showScrollToButton={['bottom']}>
+                        <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
                                 <Autocomplete.Empty className="empty:hidden">
                                     {emptyState && (

@@ -4,7 +4,6 @@
  * decides what "back" means for the current page (typically: re-open the
  * dropdown menu).
  */
-import { ChevronLeftIcon } from 'lucide-react'
 
 import { Button, cn, Kbd } from '@posthog/quill'
 
@@ -30,13 +29,13 @@ export function MenuFilterHeader({ title, onBack, className, showTabHint = true 
             <Button
                 type="button"
                 variant="outline"
-                size="icon-sm"
-                aria-label="Back"
+                size="sm"
+                aria-label="Go back"
                 onClick={onBack}
-                className="-ml-1 shrink-0"
+                className="-ml-1 shrink-0 gap-1"
                 data-attr="menu-filter-back"
             >
-                <ChevronLeftIcon className="size-4" />
+                Go back
             </Button>
             <span className="flex-1 truncate">{title}</span>
 
