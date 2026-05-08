@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
 
 WORKFLOW_FILE = Path(__file__).resolve().parents[1] / "workflows" / "ci-rust.yml"
@@ -83,9 +84,6 @@ def parse_shard_timings(logs: str) -> dict[str, float]:
         shard_key = shard_match.group(1)
         ts_match = ts_pattern.search(line)
         if ts_match:
-            # Parse timestamp to epoch seconds
-            from datetime import datetime
-
             ts = datetime.fromisoformat(ts_match.group(1))
             shard_timestamps[shard_key].append(ts.timestamp())
 
@@ -128,7 +126,6 @@ def parse_detailed_timings(logs: str) -> dict[str, float]:
     Looks at "Finished" lines (compile time) and "test result:" lines
     (test execution time) to build a more accurate per-package picture.
     """
-    from datetime import datetime
 
     # Track time ranges per shard
     shard_pattern = re.compile(r"^Test Rust \(([^)]+)\)")
@@ -175,17 +172,16 @@ def parse_detailed_timings(logs: str) -> dict[str, float]:
         compile_times = sorted(t for t, _ in compile_phases)
 
         if len(compile_times) >= 2:
-            # Group compile phases into blocks for each package
-            # The first compile is typically the biggest (shared deps)
-            # Distribute proportionally based on gaps between compiles
             total_compile_span = compile_times[-1] - compile_times[0]
 
             if total_compile_span > 0 and len(packages) > 1:
-                # Split based on number of compile phases per package
-                phases_per_pkg = num_phases / len(packages)
-                per_pkg = duration / len(packages)
-                for pkg in packages:
-                    package_durations[pkg] = per_pkg
+                # Distribute shard duration proportionally to the gap between
+                # each package's compile "Finished" marker and the next one.
+                gaps = [compile_times[i + 1] - compile_times[i] for i in range(len(compile_times) - 1)]
+                pkg_times = gaps[: len(packages) - 1] + [total_compile_span - sum(gaps[: len(packages) - 1])]
+                scale = duration / max(sum(pkg_times), 1)
+                for pkg, t in zip(packages, pkg_times):
+                    package_durations[pkg] = max(1.0, t * scale)
             else:
                 per_pkg = duration / len(packages)
                 for pkg in packages:
@@ -231,18 +227,7 @@ def update_workflow_file(weights: dict[str, int], dry_run: bool = False) -> bool
         return False
     packages_end += 1  # include the }
 
-    # Build the new packages dict with proper indentation
-    indent = "                      "
-    lines = [f"{indent}packages = {{"]
-    for pkg, weight in sorted(weights.items()):
-        lines.append(f'{indent}    "{pkg}": {weight},')
-    lines.append(f"{indent}}}")
-
-    new_packages = "\n".join(lines)
-    old_packages = content[packages_start:packages_end]
-
-    # Check if indentation matches by looking at the first line
-    # Find the actual indentation used
+    # Find the actual indentation used for the packages block
     line_start = content.rfind("\n", 0, packages_start) + 1
     actual_indent = content[line_start:packages_start]
 
@@ -265,9 +250,7 @@ def update_workflow_file(weights: dict[str, int], dry_run: bool = False) -> bool
         return True
 
     # Also update the "last updated" comment
-    import datetime
-
-    today = datetime.date.today().isoformat()
+    today = date.today().isoformat()
     new_content = re.sub(
         r"last updated: \d{4}-\d{2}-\d{2}",
         f"last updated: {today}",
@@ -335,7 +318,7 @@ def main():
 
     # Update the workflow file
     changed = update_workflow_file(final_weights, dry_run=args.dry_run)
-    sys.exit(0 if changed or args.dry_run else 0)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
