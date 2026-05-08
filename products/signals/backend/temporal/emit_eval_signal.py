@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.llm import call_llm
@@ -111,7 +112,7 @@ async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalS
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def emit_eval_signal_activity(inputs: EmitEvalSignalInputs) -> None:
     def _is_eval_enabled() -> Team | None:
         """Check SignalSourceConfig and return Team if this eval is enabled, else None."""

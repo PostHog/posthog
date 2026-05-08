@@ -16,6 +16,7 @@ from temporalio.common import MetricCounter, RetryPolicy
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
@@ -43,7 +44,7 @@ class FlushBufferOutput:
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOutput:
     batch_id = str(uuid.uuid4())
     object_key = f"{OBJECT_STORAGE_SIGNALS_PREFIX}/{batch_id}"
@@ -68,7 +69,7 @@ class SignalWithStartGroupingV2Input:
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV2Input) -> None:
     """Signal-with-start the grouping v2 workflow, creating it if it doesn't exist."""
     client = await async_connect()
@@ -93,7 +94,7 @@ BACKPRESSURE_POLL_INTERVAL_SECONDS = 1
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> None:
     """Poll the buffer workflow's size via query, then send the signal once there's space."""
     client = await async_connect()
