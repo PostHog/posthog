@@ -17,7 +17,7 @@ from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
@@ -240,6 +240,32 @@ def _invalidate_personal_api_key_cache_on_user_deactivation(sender, instance, up
         stale_keys = [k for k, v in PERSONAL_API_KEY_LOOKUP_CACHE.items() if v.user_id == user_id]
         for k in stale_keys:
             PERSONAL_API_KEY_LOOKUP_CACHE.pop(k, None)
+
+
+def _invalidate_personal_api_key_cache_for_secure_value(secure_value: Optional[str]) -> None:
+    if not secure_value:
+        return
+    with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
+        stale_keys = [k for k, v in PERSONAL_API_KEY_LOOKUP_CACHE.items() if v.secure_value == secure_value]
+        for k in stale_keys:
+            PERSONAL_API_KEY_LOOKUP_CACHE.pop(k, None)
+
+
+@receiver(post_save, sender=PersonalAPIKey)
+def _invalidate_personal_api_key_cache_on_save(sender, instance, update_fields=None, **kwargs):
+    """Drop any cached entry for this key so scope/label edits take effect immediately on the
+    saving pod. Other pods catch up within TTL.
+
+    Skipped when the only field being updated is `last_used_at` — that write happens on every
+    authenticated request via the cached path itself, so invalidating would defeat the cache."""
+    if update_fields is not None and set(update_fields) <= {"last_used_at"}:
+        return
+    _invalidate_personal_api_key_cache_for_secure_value(instance.secure_value)
+
+
+@receiver(post_delete, sender=PersonalAPIKey)
+def _invalidate_personal_api_key_cache_on_delete(sender, instance, **kwargs):
+    _invalidate_personal_api_key_cache_for_secure_value(instance.secure_value)
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):

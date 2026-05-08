@@ -1942,6 +1942,49 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
 
         assert len(PERSONAL_API_KEY_LOOKUP_CACHE) == 2
 
+    def test_personal_api_key_save_invalidates_cached_entry(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+
+        personal_api_key = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["feature_flag:read"],
+        )
+        self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        cache_key = _personal_api_key_cache_key(personal_api_key)
+        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        key.scopes = ["integration:read"]
+        key.save()
+
+        assert cache_key not in PERSONAL_API_KEY_LOOKUP_CACHE
+
+    def test_personal_api_key_delete_invalidates_cached_entry(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+
+        personal_api_key = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+        self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        cache_key = _personal_api_key_cache_key(personal_api_key)
+        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        key.delete()
+
+        assert cache_key not in PERSONAL_API_KEY_LOOKUP_CACHE
+
 
 class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
