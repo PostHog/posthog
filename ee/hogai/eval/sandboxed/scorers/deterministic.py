@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 
 from braintrust import Score
 from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.log_parser import LogParser
+
+
+def _matches_any_tool_pattern(tool_name: str, patterns: frozenset[str]) -> bool:
+    return any(fnmatchcase(tool_name, pattern) for pattern in patterns)
 
 
 class ExitCodeZero(Scorer):
@@ -76,6 +81,56 @@ class NoToolCall(Scorer):
                 name=self._name(),
                 score=0.0,
                 metadata={"forbidden_tools_called": successful_calls},
+            )
+        return Score(name=self._name(), score=1.0, metadata={})
+
+
+class NoToolAttempt(Scorer):
+    """Binary scorer: did the agent avoid attempting any forbidden tool?
+
+    Unlike ``NoToolCall``, this scorer treats errored tool calls as failures.
+    Use it when a tool is forbidden by policy or task routing, where even an
+    attempted call indicates the agent chose the wrong path.
+    """
+
+    forbidden: frozenset[str]
+    _label: str
+
+    def __init__(self, forbidden: Iterable[str], *, name: str = "no_forbidden_tool_attempt"):
+        self.forbidden = frozenset(forbidden)
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        attempted = [
+            {
+                "name": call.name,
+                "raw_name": call.raw_name,
+                "is_error": call.is_error,
+            }
+            for call in parser.get_tool_calls()
+            if _matches_any_tool_pattern(call.name, self.forbidden)
+        ]
+        if attempted:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"forbidden_tools_attempted": attempted},
             )
         return Score(name=self._name(), score=1.0, metadata={})
 
@@ -185,4 +240,64 @@ class RequiredToolCall(Scorer):
             name=self._name(),
             score=0.0,
             metadata={"reason": "No required tool call found", "required": sorted(self.required)},
+        )
+
+
+class RequiredToolAttempt(Scorer):
+    """Binary scorer: did the agent attempt at least one required tool?
+
+    Successful and errored calls both count. This is useful when a separate
+    scorer evaluates the resulting artifact, but the eval still wants to
+    distinguish "took the required path and hit an error" from "never tried
+    the required path."
+    """
+
+    required: frozenset[str]
+    _label: str
+
+    def __init__(self, required: Iterable[str], *, name: str = "required_tool_attempt"):
+        self.required = frozenset(required)
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        attempts = [call for call in parser.get_tool_calls() if call.name in self.required]
+        if not attempts:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "No required tool attempt found", "required": sorted(self.required)},
+            )
+
+        successful_tools = sorted({call.name for call in attempts if not call.is_error})
+        errored_tools = sorted({call.name for call in attempts if call.is_error})
+        last_attempt = attempts[-1]
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={
+                "required_tools_attempted": sorted({call.name for call in attempts}),
+                "successful_tools": successful_tools,
+                "errored_tools": errored_tools,
+                "last_attempt": {
+                    "name": last_attempt.name,
+                    "is_error": last_attempt.is_error,
+                    "output": last_attempt.output[:1000],
+                },
+            },
         )

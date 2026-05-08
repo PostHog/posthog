@@ -20,10 +20,30 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import (
     EXPERIMENT_CREATE_TOOL_NAME,
     FEATURE_FLAG_CREATE_TOOL_NAME,
+    ExpectedSkillsLoaded,
     ExperimentCreatedAndConfigured,
     ExperimentIdInFinalMessage,
+    NoSurveyIdInFinalMessage,
 )
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolAttempt, RequiredToolAttempt
+
+CREATING_EXPERIMENTS_SKILL_NAME = "creating-experiments"
+CONFIGURING_EXPERIMENT_ROLLOUT_SKILL_NAME = "configuring-experiment-rollout"
+
+FORBIDDEN_EXPERIMENT_CREATE_ATTEMPTS = {
+    FEATURE_FLAG_CREATE_TOOL_NAME,
+    "experiment-archive",
+    "experiment-delete",
+    "experiment-duplicate",
+    "experiment-end",
+    "experiment-launch",
+    "experiment-pause",
+    "experiment-reset",
+    "experiment-resume",
+    "experiment-ship-variant",
+    "survey-*",
+    "surveys-*",
+}
 
 
 def _experiment_case(
@@ -35,6 +55,7 @@ def _experiment_case(
     variant_keys: list[str] | None = None,
     variant_splits: dict[str, int] | None = None,
     overall_rollout_percentage: int | None = None,
+    requires_rollout_skill: bool = False,
 ) -> SandboxedEvalCase:
     experiment_expected: dict[str, Any] = {
         "name_contains": name_contains,
@@ -51,7 +72,10 @@ def _experiment_case(
         experiment_expected["overall_rollout_percentage"] = overall_rollout_percentage
     expected: dict[str, Any] = {
         "experiment_created_and_configured": experiment_expected,
+        "required_skills": [CREATING_EXPERIMENTS_SKILL_NAME],
     }
+    if requires_rollout_skill:
+        expected["required_skills"].append(CONFIGURING_EXPERIMENT_ROLLOUT_SKILL_NAME)
     return SandboxedEvalCase(name=name, prompt=prompt, expected=expected)
 
 
@@ -61,51 +85,52 @@ async def eval_create_experiment_tool(sandboxed_demo_data, pytestconfig, posthog
         _experiment_case(
             name="experiment_create_pricing_page",
             prompt=(
-                "Create a draft A/B test experiment named 'Pricing Test' to test our new pricing page. "
-                "Choose a sensible feature flag key, do not add metrics yet, and reply with the created experiment ID."
+                "Create an A/B test experiment called 'Pricing Test' to test our new pricing page. "
+                "Once it's created, send me the experiment ID."
             ),
             name_contains="pricing",
         ),
         _experiment_case(
             name="experiment_create_checkout_flow",
             prompt=(
-                "Set up a draft experiment named 'Checkout Flow' to test a new checkout experience. "
-                "Choose a sensible feature flag key, do not add metrics yet, and reply with the created experiment ID."
+                "Set up an experiment named 'Checkout Flow' to test a new checkout experience. "
+                "Once it's created, send me the experiment ID."
             ),
             name_contains="checkout",
         ),
         _experiment_case(
             name="experiment_create_homepage_hero",
             prompt=(
-                "Create a draft A/B test experiment named 'Hero Test' for the homepage hero section. "
-                "Choose a sensible feature flag key, do not add metrics yet, and reply with the created experiment ID."
+                "I want to run an A/B test on our homepage hero section, call it 'Hero Test'. "
+                "Once it's created, send me the experiment ID."
             ),
             name_contains="hero",
         ),
         _experiment_case(
             name="experiment_create_multivariant_cta",
             prompt=(
-                "Create a draft experiment named 'Multi-variant CTA' with exactly three variants: "
-                "control, variant_a, and variant_b, split evenly, to test different call-to-action buttons. "
-                "Choose a sensible feature flag key, do not add metrics yet, and reply with the created experiment ID."
+                "Create an experiment called 'Multi-variant CTA' with three variants: "
+                "control, variant_a, and variant_b to test different call-to-action buttons. "
+                "Once it's created, send me the experiment ID."
             ),
             name_contains="cta",
             variant_count=3,
             variant_keys=["control", "variant_a", "variant_b"],
+            requires_rollout_skill=True,
         ),
         _experiment_case(
             name="experiment_create_gradual_rollout_split",
             prompt=(
-                "Create a draft experiment named 'Gradual Rollout' to test a new onboarding flow. "
-                "The split has already been clarified: it is a variant split, not an overall rollout. "
-                "Use 80% control and 20% test, with 100% overall rollout. "
-                "Choose a sensible feature flag key, do not add metrics yet, and reply with the created experiment ID."
+                "Set up an experiment called 'Gradual Rollout' with experiment traffic split 80/20 "
+                "between control and test to cautiously test a new onboarding flow. "
+                "Once it's created, send me the experiment ID."
             ),
             name_contains="rollout",
             variant_count=2,
             variant_keys=["control", "test"],
             variant_splits={"control": 80, "test": 20},
             overall_rollout_percentage=100,
+            requires_rollout_skill=True,
         ),
     ]
 
@@ -114,10 +139,12 @@ async def eval_create_experiment_tool(sandboxed_demo_data, pytestconfig, posthog
         cases=cases,
         scorers=[
             ExitCodeZero(),
-            RequiredToolCall([EXPERIMENT_CREATE_TOOL_NAME]),
-            NoToolCall(forbidden={FEATURE_FLAG_CREATE_TOOL_NAME}, name="no_separate_feature_flag_create"),
+            NoToolAttempt(forbidden=FORBIDDEN_EXPERIMENT_CREATE_ATTEMPTS, name="no_forbidden_tool_attempts"),
+            RequiredToolAttempt(required={EXPERIMENT_CREATE_TOOL_NAME}, name="experiment_create_attempted"),
+            ExpectedSkillsLoaded(),
             ExperimentCreatedAndConfigured(),
             ExperimentIdInFinalMessage(),
+            NoSurveyIdInFinalMessage(),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,

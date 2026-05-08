@@ -11,8 +11,8 @@ on cases where they are not applicable.
 
 from __future__ import annotations
 
-import json
 import re
+import json
 from typing import Any
 
 from autoevals.llm import LLMClassifier
@@ -29,6 +29,7 @@ EXPERIMENT_UPDATE_TOOL_NAME = "experiment-update"
 FEATURE_FLAG_CREATE_TOOL_NAME = "create-feature-flag"
 
 _ID_BOUNDARY_TEMPLATE = r"(?<!\d){experiment_id}(?!\d)"
+_SURVEY_ID_PATTERN = re.compile(r"(?i)(\bsurvey[_\s-]*id\b\s*[:=#]?\s*['\"]?[0-9a-f-]{3,}|/surveys?/[0-9a-f-]{3,})")
 _JUDGE_MODEL = "gpt-4.1"
 
 
@@ -191,6 +192,97 @@ def _contains_all(actual: str, expected: str | list[str]) -> list[str]:
     expected_values = [expected] if isinstance(expected, str) else expected
     lowered = actual.lower()
     return [value for value in expected_values if isinstance(value, str) and value.lower() not in lowered]
+
+
+def _expected_string_list(expected: dict[str, Any] | None, key: str) -> list[str]:
+    if not isinstance(expected, dict):
+        return []
+    values = expected.get(key)
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, str) and value]
+
+
+class ExpectedSkillsLoaded(Scorer):
+    """Binary: did the agent load every skill listed in ``expected.required_skills``?"""
+
+    def _name(self) -> str:
+        return "expected_skills_loaded"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None) -> Score:
+        required_skills = _expected_string_list(expected, "required_skills")
+        if not required_skills:
+            return Score(name=self._name(), score=1.0, metadata={"skipped": True, "reason": "No required skills"})
+
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        loaded: dict[str, dict[str, str]] = {}
+        missing: list[str] = []
+        for skill_name in required_skills:
+            match = self._skill_match(parser, skill_name)
+            if match is None:
+                missing.append(skill_name)
+            else:
+                loaded[skill_name] = match
+
+        return Score(
+            name=self._name(),
+            score=0.0 if missing else 1.0,
+            metadata={"required_skills": required_skills, "loaded": loaded, "missing": missing},
+        )
+
+    def _skill_match(self, parser: LogParser, skill_name: str) -> dict[str, str] | None:
+        for skill_call in parser.get_skill_calls(skill_name):
+            if not skill_call.is_error:
+                return {"matched_via": "skill_tool"}
+
+        for read_call in parser.get_tool_calls("Read"):
+            if read_call.is_error:
+                continue
+            file_path = read_call.input.get("file_path", "")
+            if isinstance(file_path, str) and skill_name in file_path and file_path.endswith("SKILL.md"):
+                return {"matched_via": "read_skill_md", "file_path": file_path}
+        return None
+
+
+class NoSurveyIdInFinalMessage(Scorer):
+    """Binary: did the final answer avoid returning a survey ID or survey URL?"""
+
+    def _name(self) -> str:
+        return "no_survey_id_in_final_message"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict[str, Any] | None) -> Score:
+        parser = _parser_for(output)
+        final_message = parser.get_final_agent_message() if parser is not None else None
+        if final_message is None and output is not None:
+            fallback = output.get("last_message")
+            final_message = fallback if isinstance(fallback, str) else None
+
+        if not final_message:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No final assistant message"})
+
+        matches = _SURVEY_ID_PATTERN.findall(final_message)
+        if matches:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"survey_id_mentions": matches, "final_message": final_message},
+            )
+        return Score(name=self._name(), score=1.0, metadata={})
 
 
 class ExperimentCreatedAndConfigured(Scorer):
