@@ -330,7 +330,11 @@ class OrganizationAdmin(admin.ModelAdmin):
     def sync_to_billing_view(self, request, organization_id):
         from posthog.tasks.sync_billing import sync_members_to_billing
 
-        organization = Organization.objects.get(id=organization_id)
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            messages.error(request, f"Organization with id {organization_id} not found.")
+            return redirect(reverse("admin:posthog_organization_changelist"))
 
         if request.method == "POST":
             try:
