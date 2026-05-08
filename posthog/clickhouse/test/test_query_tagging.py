@@ -405,6 +405,41 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment.get("product") != Product.MCP.value
 
+    def test_execute_hogql_query_populates_hogql_features_tag(self):
+        # End-to-end: a HogQLQuery against `events` filtered by `$exception` should
+        # land in query_log with both the AST-derived hogql_features tag and the
+        # error_tracking product attribution that derives from it.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
+        execute_hogql_query(
+            f"SELECT count() FROM events WHERE distinct_id = '{marker}' AND event = '$exception'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["hogql_features"] == {"tables": ["events"], "events": ["$exception"]}
+        assert comment["product"] == Product.ERROR_TRACKING.value
+
+    def test_execute_hogql_query_attributes_plain_events_query_to_product_analytics(self):
+        # Plain `events` query (no narrowing event filter) should fall back to
+        # product_analytics via the table-level rule.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
+        execute_hogql_query(
+            f"SELECT count() FROM events WHERE distinct_id = '{marker}'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["hogql_features"] == {"tables": ["events"], "events": []}
+        assert comment["product"] == Product.PRODUCT_ANALYTICS.value
+
 
 class TestAddFallbackQueryTags(BaseTest):
     def test_does_not_override_set_product(self):
