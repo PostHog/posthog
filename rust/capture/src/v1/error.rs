@@ -56,6 +56,8 @@ pub enum Error {
     InvalidDistinctId(String),
     #[error("event submitted without a uuid")]
     MissingEventUuid,
+    #[error("event uuid is not valid: {0}")]
+    InvalidEventUuid(String),
     #[error("duplicate event uuid: {0}")]
     DuplicateEventUuid(String),
     #[error("event submitted with invalid timestamp")]
@@ -66,6 +68,8 @@ pub enum Error {
     DroppedPerformanceEvent,
 
     // 401 - authentication_error
+    #[error("missing Authorization header")]
+    MissingAuthorization,
     #[error("API token is not valid: {0}")]
     InvalidApiToken(String),
 
@@ -118,12 +122,14 @@ impl Error {
             Self::DistinctIdTooLarge => "distinct_id_too_large",
             Self::InvalidDistinctId(_) => "invalid_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
+            Self::InvalidEventUuid(_) => "invalid_event_uuid",
             Self::DuplicateEventUuid(_) => "duplicate_event_uuid",
             Self::InvalidEventTimestamp => "invalid_event_timestamp",
             Self::MalformedEventProperties => "malformed_event_properties",
             Self::DroppedPerformanceEvent => "dropped_performance_event",
             Self::RequestTimeout => "request_timeout",
             Self::BodyReadTimeout(_) => "body_read_timeout",
+            Self::MissingAuthorization => "missing_authorization",
             Self::InvalidApiToken(_) => "invalid_api_token",
             Self::PayloadTooLarge(_) => "payload_too_large",
             Self::UnsupportedContentType(_) => "unsupported_content_type",
@@ -174,11 +180,13 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
+            | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
             | Self::DroppedPerformanceEvent
             | Self::RequestTimeout
+            | Self::MissingAuthorization
             | Self::InvalidApiToken(_)
             | Self::PayloadTooLarge(_)
             | Self::UnsupportedContentType(_)
@@ -232,6 +240,7 @@ impl Error {
             | Self::DistinctIdTooLarge
             | Self::InvalidDistinctId(_)
             | Self::MissingEventUuid
+            | Self::InvalidEventUuid(_)
             | Self::DuplicateEventUuid(_)
             | Self::InvalidEventTimestamp
             | Self::MalformedEventProperties
@@ -239,7 +248,7 @@ impl Error {
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
-            Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
+            Self::MissingAuthorization | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
 
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
 

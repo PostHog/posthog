@@ -6,8 +6,8 @@ use uuid::Uuid;
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_PERSON_PROCESSING_DISABLED,
-    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP,
+    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
@@ -89,7 +89,12 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
 
     for event in batch.batch.into_iter() {
-        let uuid = Uuid::parse_str(event.uuid()).map_err(|_| Error::MissingEventUuid)?;
+        let uuid_str = event.uuid();
+        if uuid_str.is_empty() {
+            return Err(Error::MissingEventUuid);
+        }
+        let uuid =
+            Uuid::parse_str(uuid_str).map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
         if !seen.insert(uuid) {
             return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }
@@ -209,7 +214,7 @@ fn normalize_timestamp(
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event.options.disable_skew_adjustment.unwrap_or(false) {
+    if event.options.disable_skew_correction.unwrap_or(false) {
         return raw_event_ts;
     }
 
@@ -276,6 +281,7 @@ async fn apply_restrictions(
 
         if applied.should_drop() {
             event.result = EventResult::Drop;
+            event.details = Some(DETAIL_EVENT_RESTRICTION_DROP);
             event.destination = Destination::Drop;
             metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "event_restriction")
                 .increment(1);
@@ -642,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_events_missing_uuid_bails_batch() {
+    fn validate_events_invalid_uuid_bails_batch() {
         let ctx = test_utils::test_context();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
@@ -654,7 +660,7 @@ mod tests {
             }],
         };
         let err = validate_events(&ctx, batch).unwrap_err();
-        assert!(matches!(err, Error::MissingEventUuid));
+        assert!(matches!(err, Error::InvalidEventUuid(_)));
     }
 
     #[test]
@@ -722,7 +728,7 @@ mod tests {
         }
     }
 
-    fn event_with_disable_skew_adjustment(disable: bool) -> Event {
+    fn event_with_disable_skew_correction(disable: bool) -> Event {
         Event {
             event: "$pageview".to_string(),
             uuid: Uuid::new_v4().to_string(),
@@ -732,7 +738,7 @@ mod tests {
             window_id: None,
             options: Options {
                 cookieless_mode: None,
-                disable_skew_adjustment: Some(disable),
+                disable_skew_correction: Some(disable),
                 product_tour_id: None,
                 process_person_profile: None,
             },
@@ -791,20 +797,20 @@ mod tests {
     }
 
     #[test]
-    fn normalize_disable_skew_adjustment_skips_adjustment() {
+    fn normalize_disable_skew_correction_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_adjustment(true);
+        let event = event_with_disable_skew_correction(true);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, event_ts);
     }
 
     #[test]
-    fn normalize_disable_skew_adjustment_false_still_adjusts() {
+    fn normalize_disable_skew_correction_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_adjustment(false);
+        let event = event_with_disable_skew_correction(false);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
