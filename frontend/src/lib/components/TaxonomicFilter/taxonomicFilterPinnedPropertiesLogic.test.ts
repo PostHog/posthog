@@ -77,15 +77,20 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         expect(logic.values.isPinned(groupType, value)).toBe(pinned)
     })
 
-    it('pinnedFilterItems includes _pinnedContext with sourceGroupType and sourceGroupName', () => {
+    it('pinnedFilterItems includes _pinnedContext with sourceGroupType, sourceGroupName, and value', () => {
         const item = { name: '$pageview' }
         logic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', '$pageview', item)
 
         const items = logic.values.pinnedFilterItems
         expect(items).toHaveLength(1)
+        // `value` is on the context so groups whose `getValue` reads a
+        // field other than `name` (e.g. Actions → `id`) can roundtrip
+        // through the shrunk-down stored item without losing the key
+        // needed for isPinned / togglePin lookups.
         expect((items[0] as any)._pinnedContext).toEqual({
             sourceGroupType: TaxonomicFilterGroupType.Events,
             sourceGroupName: 'Events',
+            value: '$pageview',
         })
     })
 

@@ -1,7 +1,7 @@
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { Team } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
+import { logger, serializeError } from '~/utils/logger'
 
 import { HogFunctionFilters } from '../../types'
 
@@ -48,7 +48,10 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius from Django', { error: fetchError, urlPath })
+                logger.error('Error fetching blast radius from Django', {
+                    error: serializeError(fetchError),
+                    urlPath,
+                })
                 throw fetchError
             }
 
@@ -66,7 +69,7 @@ export class HogFlowBatchPersonQueryService {
 
             return data
         } catch (error) {
-            logger.error('Error calling blast radius endpoint', { error, urlPath })
+            logger.error('Error calling blast radius endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }
@@ -99,7 +102,10 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius persons from Django', { error: fetchError, urlPath })
+                logger.error('Error fetching blast radius persons from Django', {
+                    error: serializeError(fetchError),
+                    urlPath,
+                })
                 throw fetchError
             }
 
@@ -117,7 +123,7 @@ export class HogFlowBatchPersonQueryService {
 
             return data
         } catch (error) {
-            logger.error('Error calling blast radius persons endpoint', { error, urlPath })
+            logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }

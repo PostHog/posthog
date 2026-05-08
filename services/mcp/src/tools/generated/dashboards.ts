@@ -15,6 +15,7 @@ import {
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
 } from '@/generated/dashboards/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -107,7 +108,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
     },
 })
 
-const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true })
+const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, DashboardsDestroyParams.shape['id']),
+})
 
 const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashboard> => ({
     name: 'dashboard-delete',
@@ -125,6 +128,7 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
 
 const DashboardGetSchema = DashboardsRetrieveParams.omit({ project_id: true })
     .extend(DashboardsRetrieveQueryParams.omit({ format: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsRetrieveParams.shape['id']) })
     .extend({
         filters_override: z
             .union([z.string(), z.record(z.string(), z.unknown())])
@@ -196,6 +200,7 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
 
 const DashboardInsightsRunSchema = DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
     .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']) })
     .extend({
         filters_override: z
             .union([z.string(), z.record(z.string(), z.unknown())])
@@ -255,9 +260,9 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
-const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true }).extend(
-    DashboardsPartialUpdateBody.shape
-)
+const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
+    .extend(DashboardsPartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
 
 const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-update',
@@ -344,7 +349,10 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
     },
 })
 
-const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true })
+const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true }).extend({
+    limit: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['offset']).optional(),
+})
 
 const dashboardsGetAll = (): ToolBase<
     typeof DashboardsGetAllSchema,

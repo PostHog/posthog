@@ -216,6 +216,9 @@ describe('KeyedRateLimiterService', () => {
             const limiter = buildLimiter('test-thread')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
+            // After call 3 (cost=2) is denied with pool=1, the V2 wedge fix means the
+            // bucket retains its 1 token — leftover budget isn't discarded on denial. So
+            // call 4 (cost=1) can spend it and lands at tokens=0.
             const res = await limiter.rateLimitMany([
                 { id: 'team-1', cost: 90 },
                 { id: 'team-1', cost: 9 },
@@ -227,9 +230,38 @@ describe('KeyedRateLimiterService', () => {
                 ['team-1', { tokensBefore: 100, tokens: 10, isRateLimited: false }],
                 ['team-1', { tokensBefore: 10, tokens: 1, isRateLimited: false }],
                 ['team-1', { tokensBefore: 1, tokens: -1, isRateLimited: true }],
-                ['team-1', { tokensBefore: -1, tokens: -1, isRateLimited: true }],
+                ['team-1', { tokensBefore: 1, tokens: 0, isRateLimited: true }],
             ])
         })
+
+        // Regression for the V2 lua wedge: with sub-2 fractional fillRates, V2 used to
+        // store -1 in `pool` on every denial, which threw away the fractional refill
+        // that had just accrued. Subsequent 1 req/s calls would re-read -1, accrue the
+        // fillRate, fail to afford cost=1, and re-clamp to -1 — wedged forever. The fix
+        // keeps the public return contract (`tokens = -1` on denial) but stores the
+        // un-clamped balance so partial refills accumulate across calls.
+        it('recovers from overdraft under sustained sub-2 fillRate (V2 wedge regression)', async () => {
+            const limiter = buildLimiter('test-v2-wedge', { bucketSize: 10, refillRate: 1.5 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            // Drain into denial: 100 cost-1 calls against a 10-token bucket.
+            let lastDuringDrain = 0
+            for (let i = 0; i < 100; i++) {
+                const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
+                lastDuringDrain = res[0][1].tokens
+            }
+            expect(lastDuringDrain).toBe(-1)
+
+            // 1 req/s with refillRate=1.5 should recover within ~10s.
+            let lastAfterRecovery = -1
+            for (let i = 0; i < 10; i++) {
+                advanceTime(1000)
+                const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
+                lastAfterRecovery = res[0][1].tokens
+            }
+            expect(lastAfterRecovery).toBeGreaterThanOrEqual(0)
+        })
+
 
         it('refreshes the V2 TTL on every call', async () => {
             const limiter = buildLimiter('test-v2-ttl', { ttlSeconds: 60 })

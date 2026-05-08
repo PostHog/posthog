@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -36,6 +36,7 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
@@ -298,7 +299,20 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
-    urls.oauthAuthorize(),
+    // /integrations/* — OAuth + third-party round-trips: must complete (callback/landing effects)
+    // even when onboarding is incomplete, else /onboarding swallows the response. E.g.
+    // /integrations/<kind>/callback (urls.integrationsRedirect), stripe confirm-install, vercel link-error.
+    '/integrations',
+    // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
+    '/account-connected',
+    // /oauth/authorize and any /oauth/* callback path.
+    '/oauth',
+    // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
+    '/connect',
+    // /agentic/authorize.
+    '/agentic/authorize',
+    // /cli/authorize, /cli/live (CLI auth round-trip).
+    '/cli',
     '/startups',
     '/coupons',
 ]
@@ -971,6 +985,9 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         loadPinnedTabsFromBackend: async () => {
+            if (isSharedView()) {
+                return
+            }
             try {
                 const response = await api.get<{
                     tabs?: SceneTab[]
@@ -1520,26 +1537,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
-            if (isAIFirst) {
-                router.actions.replace(
-                    withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
-                )
-                return
-            }
-
-            const primaryDashboardId = teamLogic.values.currentTeam?.primary_dashboard
-            if (primaryDashboardId) {
-                router.actions.replace(
-                    withForwardedSearchParams(
-                        urls.dashboard(primaryDashboardId),
-                        searchParams,
-                        forwardedRedirectQueryParams
-                    )
-                )
-                return
-            }
-
             router.actions.replace(
                 withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
             )
@@ -1572,6 +1569,9 @@ export const sceneLogic = kea<sceneLogicType>([
 
     subscriptions(({ actions, values, cache }) => {
         const schedulePinnedStateSync = (): void => {
+            if (isSharedView()) {
+                return
+            }
             const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
             const homepageForPersistence = getHomepageForPersistence(values.homepage)
             const serializedPinnedState = JSON.stringify({

@@ -215,6 +215,7 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
                                             TaxonomicFilterGroupType.PersonProperties,
                                             TaxonomicFilterGroupType.Cohorts,
                                         ]}
+                                        allowRelativeDateOptions
                                         buttonText="Add audience rule"
                                         buttonSize="small"
                                         openOnInsert

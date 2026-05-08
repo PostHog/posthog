@@ -197,6 +197,22 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 | `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, the local agent packages are overlaid onto the image. |
 | `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed.                                                                                                                                                                                                         |
 
+### Optional: local repository mounts (Docker only)
+
+If you already have a repository checked out locally, you can skip cloning by
+bind-mounting it into the Docker sandbox:
+
+```bash
+# Format: org/repo:/local/path,org2/repo2:~/other/path
+SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog
+```
+
+When configured, matching repositories are mounted read-write from your host
+into the container, and `clone_repository` becomes a no-op for those
+repositories.
+
+> **Note:** This only works with `SANDBOX_PROVIDER=docker`.
+
 ### How `MODAL_DOCKER` works
 
 When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:

@@ -44,6 +44,14 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+    create_notification,
+)
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -426,7 +434,11 @@ class ExperimentService:
             raise ValidationError(
                 f"Event(s) {unknown_str} not found. "
                 "No events with these names have been ingested by this project. "
-                "If this is intentional, set allow_unknown_events=True."
+                "If you meant a different event, please correct it. "
+                "Only if the user has explicitly confirmed they want to proceed with "
+                "the unknown event (e.g. they will instrument it shortly), "
+                "call again with allow_unknown_events=True. "
+                "Do not flip the flag silently to bypass this check."
             )
 
     @transaction.atomic
@@ -1176,6 +1188,40 @@ class ExperimentService:
             team=experiment.team,
             request=request,
         )
+
+        # Skip notifying the creator when they're the one ending the experiment —
+        # surfacing a notification for an action they just performed is noise.
+        if experiment.created_by_id and experiment.created_by_id != self.user.id:
+            try:
+                significant = completed_metadata.get("significant")
+                body = ""
+                if significant is True:
+                    body = "Primary metric: significant"
+                elif significant is False:
+                    body = "Primary metric: inconclusive"
+
+                create_notification(
+                    NotificationData(
+                        team_id=experiment.team_id,
+                        notification_type=NotificationType.EXPERIMENT_CONCLUDED,
+                        priority=Priority.NORMAL,
+                        title=f"Experiment concluded: {experiment.name}"[:100],
+                        body=body,
+                        target_type=TargetType.USER,
+                        target_id=str(experiment.created_by_id),
+                        resource_type="experiment",
+                        resource_id=str(experiment.id),
+                        source_url=f"/project/{self.team.project_id}/experiments/{experiment.id}",
+                        source_type=SourceType.EXPERIMENT,
+                        source_id=str(experiment.id),
+                    )
+                )
+            except Exception as e:
+                logger.exception(
+                    "experiment_concluded.realtime_failed",
+                    experiment_id=experiment.id,
+                    error=str(e),
+                )
 
     # ------------------------------------------------------------------
     # Reset

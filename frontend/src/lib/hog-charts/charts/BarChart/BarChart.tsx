@@ -1,3 +1,4 @@
+import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
 import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../../core/bar-layout'
@@ -5,6 +6,7 @@ import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } 
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
+    buildStackedResolveValue,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -31,6 +33,18 @@ import { seriesKeysAtCursor } from './utils/bars-under-cursor'
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
     return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
+ *  to anchor on the current-period bar in compare-against-previous grouped layouts.
+ *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
+function groupedBarCenter(scales: BarChartPrivate['__barChart'], label: string, seriesKey: string): number | undefined {
+    const start = scales.band(label)
+    const groupOffset = scales.group?.(seriesKey)
+    if (start == null || groupOffset == null) {
+        return undefined
+    }
+    return start + groupOffset + (scales.group?.bandwidth() ?? 0) / 2
 }
 
 export interface BarChartProps<Meta = unknown> {
@@ -147,7 +161,15 @@ function BarChartInner<Meta = unknown>({
             // calls `scales.y(tick)` for x-pixel positioning of value ticks).
             // For vertical, `y` is the value scale on the y-axis.
             return {
-                x: (label: string) => bandCenter(d3Scales, label),
+                x: (label: string, seriesKey?: string) => {
+                    if (seriesKey != null && barLayout === 'grouped') {
+                        const xForSeries = groupedBarCenter(d3Scales, label, seriesKey)
+                        if (xForSeries != null) {
+                            return xForSeries
+                        }
+                    }
+                    return bandCenter(d3Scales, label)
+                },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
                 _private: barChartPrivate,
@@ -223,26 +245,16 @@ function BarChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({
-            ctx,
-            scales,
-            series: coloredSeries,
-            labels: drawLabels,
-            hoverIndex,
-            hoverPosition,
-            theme,
-        }: ChartDrawArgs) => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs) => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
-            // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
-            // (no hits), fall back to highlighting all — matches the tooltip narrower's
-            // gap-fallback so highlight and tooltip don't disagree about what's "active".
+            // Narrow to bars whose band-axis extent contains the cursor; an empty hit set
+            // means the cursor is in a gap, so draw nothing.
             let hitKeys: Set<string> | null = null
-            if (barLayout === 'grouped' && hoverPosition) {
+            if (hoverPosition) {
                 const hits = seriesKeysAtCursor({
                     series: coloredSeries,
                     label: hoveredLabel,
@@ -254,9 +266,10 @@ function BarChartInner<Meta = unknown>({
                     stackedData,
                     topStackedKeyByAxis,
                 })
-                if (hits.size > 0) {
-                    hitKeys = hits
+                if (hits.size === 0) {
+                    return
                 }
+                hitKeys = hits
             }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
@@ -279,6 +292,7 @@ function BarChartInner<Meta = unknown>({
                     isTopOfStack: isTop,
                 })
                 if (bar) {
+                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }
@@ -286,20 +300,7 @@ function BarChartInner<Meta = unknown>({
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        // Return the stacked top so the tooltip anchor lands at the visual top of each segment, not the raw series value.
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
 
     return (
         <Chart

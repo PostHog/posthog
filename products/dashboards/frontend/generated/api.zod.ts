@@ -22,21 +22,21 @@ export const dashboardTemplatesCreateBodyAvailabilityContextsItemMax = 255
 export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     template_name: zod.string().max(dashboardTemplatesCreateBodyTemplateNameMax).nullish(),
     dashboard_description: zod.string().max(dashboardTemplatesCreateBodyDashboardDescriptionMax).nullish(),
-    dashboard_filters: zod.unknown().nullish(),
+    dashboard_filters: zod.unknown().optional(),
     tags: zod.array(zod.string().max(dashboardTemplatesCreateBodyTagsItemMax)).nullish(),
-    tiles: zod.unknown().nullish(),
-    variables: zod.unknown().nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesCreateBodyImageUrlMax).nullish(),
     scope: zod
         .union([
             zod
                 .enum(['team', 'global', 'feature_flag'])
-                .describe('* `team` - Only team\n* `global` - Global\n* `feature_flag` - Feature Flag'),
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     availability_contexts: zod
         .array(zod.string().max(dashboardTemplatesCreateBodyAvailabilityContextsItemMax))
         .nullish(),
@@ -64,7 +64,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -73,9 +73,9 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -96,7 +96,9 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
 export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(21), zod.literal(37)])
-        .describe('* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'),
+        .describe(
+            '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+        ),
     user_uuid: zod.uuid(),
 })
 
@@ -105,13 +107,13 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
 export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
@@ -124,7 +126,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -133,9 +135,9 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -162,7 +164,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -171,9 +173,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -204,7 +206,7 @@ export const DashboardsAnalyzeRefreshResultCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsAnalyzeRefreshResultCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -213,9 +215,9 @@ export const DashboardsAnalyzeRefreshResultCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -250,7 +252,7 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsMoveTilePartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -259,9 +261,9 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -299,7 +301,7 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsSnapshotCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -308,9 +310,9 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -348,9 +350,9 @@ export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('List of object IDs to update tags on.'),
     action: zod
         .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
         .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })
@@ -364,7 +366,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -373,9 +375,9 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -407,7 +409,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({}).nullish(),
+        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
@@ -416,9 +418,9 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({}).nullish(),
+        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()

@@ -9,6 +9,7 @@ import { expect, Page } from '@playwright/test'
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
 import { SharingConfigurationType } from '../../frontend/src/types'
 import { PlaywrightSetup } from '../utils/playwright-setup'
+import { expectNoTeamScopedApiLeaks, openUnauthenticatedSharedPage } from '../utils/sharedViewExpectations'
 import { test } from '../utils/workspace-test-base'
 
 async function createSharedDashboard(
@@ -74,7 +75,7 @@ test.describe('Shared dashboard (unauthenticated)', () => {
         )
 
         const unauthContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
-        const unauthPage = await unauthContext.newPage()
+        const { unauthPage, failedApiResponses } = await openUnauthenticatedSharedPage(unauthContext)
 
         try {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
@@ -83,6 +84,8 @@ test.describe('Shared dashboard (unauthenticated)', () => {
             await expect(unauthPage.locator(`text=${dashboardName}`)).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator(`text=${insightName}`)).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator('[data-attr="insights-graph"]').first()).toBeVisible({ timeout: 30000 })
+
+            expectNoTeamScopedApiLeaks(failedApiResponses)
         } finally {
             await unauthContext.close()
         }

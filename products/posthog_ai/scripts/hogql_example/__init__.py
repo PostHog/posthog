@@ -8,18 +8,46 @@ Only available when DEBUG=True, since it requires Django and a database.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 _cached_team: Any = None
 
-FROZEN_TIME = "2025-12-10T00:00:00"
+# Used as the synthetic "now" for relative date ranges (e.g. "-7d") so the
+# rendered HogQL is reproducible and doesn't drift between builds. Pinned per
+# runner instead of via freezegun: freezegun monkey-patches `datetime.datetime`
+# process-globally, which is not thread-safe and corrupts unrelated workers
+# (Temporal activities, Django request handlers) running in the same process.
+# Tz-aware UTC so QueryDateRange.now_with_timezone (which calls .astimezone)
+# produces output that doesn't depend on the build machine's local timezone.
+FROZEN_TIME = "2025-12-10T00:00:00+00:00"
+_FROZEN_DATETIME = datetime.fromisoformat(FROZEN_TIME).astimezone(UTC)
+
+
+def _pin_runner_now(runner: Any, now: datetime) -> None:
+    """Pin the runner's notion of "now" to a fixed datetime.
+
+    Mutates the runner so subsequent ``to_query()`` calls resolve relative date
+    ranges (``-7d``, ``-30d``, ...) against ``now`` instead of the real wall
+    clock. Best-effort: runners without a standard ``query_date_range``/``context``
+    surface keep their default behavior and produce non-deterministic output —
+    that's strictly cosmetic since rendered skills land in a gitignored
+    ``dist/`` directory.
+    """
+    context = getattr(runner, "context", None)
+    if context is not None and hasattr(context, "now"):
+        context.now = now
+
+    query_date_range = getattr(runner, "query_date_range", None)
+    if query_date_range is not None and hasattr(query_date_range, "pin_now"):
+        query_date_range.pin_now(now)
 
 
 def render_hogql_example(query_dict: dict[str, Any]) -> str:
     """Render a query dict to a HogQL string using the query runner pipeline.
 
-    Time is frozen to FROZEN_TIME so that relative date ranges produce
-    deterministic output regardless of when the build runs.
+    Relative date ranges are resolved against ``FROZEN_TIME`` so output is
+    reproducible across builds.
 
     Usage in a template::
 
@@ -41,14 +69,6 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
         if _cached_team is None:
             raise RuntimeError("render_hogql_example requires at least one Team in the database")
 
-    import freezegun
-    from freezegun import freeze_time
-
-    # Skip `transformers` when freezegun walks sys.modules: it has a broken
-    # lazy-import path that crashes `getattr`, leaving a partial monkey-patch
-    # on `time.time` that poisons the whole process.
-    freezegun.configure(extend_ignore_list=["transformers"])
-
     from posthog.schema import HogQLFilters
 
     from posthog.hogql import ast
@@ -58,32 +78,32 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
     from posthog.hogql_queries.query_runner import get_query_runner
 
-    with freeze_time(FROZEN_TIME):
-        kind = query_dict.get("kind")
+    kind = query_dict.get("kind")
 
-        if kind == "RecordingsQuery":
-            return _render_recordings_query(query_dict, _cached_team)
+    if kind == "RecordingsQuery":
+        return _render_recordings_query(query_dict, _cached_team)
 
-        runner = get_query_runner(query_dict, _cached_team)
-        ast_query: ast.Expr = runner.to_query()
+    runner = get_query_runner(query_dict, _cached_team)
+    _pin_runner_now(runner, _FROZEN_DATETIME)
+    ast_query: ast.Expr = runner.to_query()
 
-        from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+    from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-        from products.logs.backend.logs_query_runner import LogsQueryRunner
+    from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+    from products.logs.backend.logs_query_runner import LogsQueryRunner
 
-        hogql_filters = HogQLFilters()
-        if isinstance(runner, ErrorTrackingQueryRunner):
-            hogql_filters = runner._builder.hogql_filters()
-        elif isinstance(runner, LogsQueryRunner):
-            hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)
+    hogql_filters = HogQLFilters()
+    if isinstance(runner, ErrorTrackingQueryRunner):
+        hogql_filters = runner._builder.hogql_filters()
+    elif isinstance(runner, LogsQueryRunner):
+        hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)
 
-        if isinstance(runner, TraceQueryRunner):
-            ast_query = replace_placeholders(ast_query, {"filter_conditions": runner._get_where_clause()})
+    if isinstance(runner, TraceQueryRunner):
+        ast_query = replace_placeholders(ast_query, {"filter_conditions": runner._get_where_clause()})
 
-        ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
+    ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
 
-        return to_printed_hogql(ast_query, _cached_team)
+    return to_printed_hogql(ast_query, _cached_team)
 
 
 def _render_recordings_query(query_dict: dict[str, Any], team: Any) -> str:

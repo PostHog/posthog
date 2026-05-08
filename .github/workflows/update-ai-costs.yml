@@ -138,7 +138,8 @@ jobs:
                       --base master \
                       --head chore/llma-update-ai-costs \
                       --label "automated" --label "llm-analytics" \
-                      --reviewer "PostHog/team-llm-analytics"
+                      --reviewer "PostHog/team-llm-analytics" \
+                      --reviewer "PostHog/team-llm-gateway"
                   fi
 
             - name: Alert Slack on failure

@@ -16,7 +16,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -78,14 +77,9 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
 export interface MaxInstanceProps {
     sidePanel?: boolean
     tabId: string
-    isAIOnlyMode?: boolean
 }
 
-export const MaxInstance = React.memo(function MaxInstance({
-    sidePanel,
-    tabId,
-    isAIOnlyMode,
-}: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -98,7 +92,6 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
-    const { exitAIOnlyMode } = useActions(appLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -156,14 +149,7 @@ export const MaxInstance = React.memo(function MaxInstance({
         </BindLogic>
     )
     const header = (
-        <SidePanelPaneHeader
-            className="transition-all duration-200"
-            onClose={() => {
-                exitAIOnlyMode()
-                startNewConversation()
-            }}
-            showCloseButton={false}
-        >
+        <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
                     <AnimatedBackButton in={!backButtonDisabled}>
@@ -182,7 +168,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                         <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{chatTitle || 'PostHog AI'}</h3>
                     </Tooltip>
                 </div>
-                {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
+                {conversationId && !conversationHistoryVisible && !threadVisible && (
                     <LemonButton
                         size="small"
                         icon={<IconPlus />}
