@@ -86,6 +86,8 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
+        # Build only the schemas the caller actually asked for. Static endpoints get
+        # filtered upfront via `names`; dynamic data source rows are fetched live below.
         schemas: list[SourceSchema] = [
             SourceSchema(
                 name=endpoint,
@@ -94,6 +96,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
                 incremental_fields=NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields,
             )
             for endpoint in STATIC_ENDPOINTS
+            if names is None or endpoint in names
         ]
 
         # Data source row tables are discovered live — one warehouse table per Notion data
@@ -127,9 +130,6 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
                     )
                 )
 
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
     def validate_credentials(
