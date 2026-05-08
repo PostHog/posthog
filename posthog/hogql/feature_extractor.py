@@ -81,8 +81,7 @@ def _looks_like_event_field(expr: ast.Expr) -> bool:
     populated (e.g. pre-resolution caller, or a partially-typed branch) we
     fall back to a last-identifier chain match — looser, but still useful.
     """
-    if isinstance(expr, ast.Alias):
-        expr = expr.expr
+    expr = _strip_aliases(expr)
     if not isinstance(expr, ast.Field) or not expr.chain:
         return False
 
@@ -91,6 +90,14 @@ def _looks_like_event_field(expr: ast.Expr) -> bool:
 
     last = expr.chain[-1]
     return isinstance(last, str) and last in _EVENT_FIELD_NAMES
+
+
+def _strip_aliases(expr: ast.Expr) -> ast.Expr:
+    """Aliases can nest — e.g. resolver passes that re-wrap an already-aliased
+    expression — so unwrap until we hit a non-Alias node."""
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr
 
 
 def _is_event_field_via_types(field: ast.Field) -> bool | None:
@@ -123,8 +130,7 @@ def _is_event_field_via_types(field: ast.Field) -> bool | None:
 def _iter_string_constants(expr: ast.Expr):
     """Yield string literals from a constant, tuple, or array — covers
     ``event = 'X'`` and ``event IN ('X', 'Y')``."""
-    if isinstance(expr, ast.Alias):
-        expr = expr.expr
+    expr = _strip_aliases(expr)
     if isinstance(expr, ast.Constant):
         if isinstance(expr.value, str):
             yield expr.value

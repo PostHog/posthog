@@ -108,6 +108,24 @@ class TestHogQLFeatureExtractor(BaseTest):
         _tables, events = extract_hogql_features(self._resolve("SELECT * FROM events WHERE event = '$exception'"))
         assert events == ["$exception"]
 
+    def test_nested_aliases_on_field_and_constant(self):
+        # Aliases can stack — e.g. resolver passes that re-wrap. Verify both
+        # the field and the constant unwrap fully so the comparison is still
+        # recognised.
+        field = ast.Alias(
+            alias="outer",
+            expr=ast.Alias(alias="inner", expr=ast.Field(chain=["event"])),
+        )
+        constant = ast.Alias(
+            alias="outer",
+            expr=ast.Alias(alias="inner", expr=ast.Constant(value="$exception")),
+        )
+        compare = ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=constant)
+
+        visitor = HogQLFeatureExtractor()
+        visitor.visit(compare)
+        assert visitor.events == {"$exception"}
+
     def test_resolved_event_field_on_non_events_table_ignored(self):
         # Construct a Field whose chain ends in "event" but whose resolved
         # type lives on a non-EventsTable. The chain-only heuristic would
