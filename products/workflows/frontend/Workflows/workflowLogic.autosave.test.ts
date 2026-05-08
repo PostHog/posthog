@@ -213,18 +213,61 @@ describe('workflowLogic auto-save', () => {
     })
 
     describe('navigation guard', () => {
-        it('does not fire save on unmount (no silent flush)', async () => {
+        // The beforeUnload hook reads hasUnsavedChanges to decide whether to show the
+        // browser confirmation dialog ("Leave workflow? Changes you made will be discarded.")
+        // when the user navigates away. onConfirm dispatches resetWorkflow to discard changes.
+
+        beforeEach(async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
 
+        it('does not fire save on unmount (no silent flush)', async () => {
             logic.actions.setWorkflowValue('name', 'Unsaved edit')
             expect(logic.values.hasUnsavedChanges).toBe(true)
 
             logic.unmount()
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(updateCalls).toBe(0)
+        })
+
+        it('hasUnsavedChanges is false after a clean load (no dialog)', () => {
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        })
+
+        it('hasUnsavedChanges becomes true after editing a draft (dialog shown)', () => {
+            logic.actions.setWorkflowValue('name', 'Edited draft')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('hasUnsavedChanges becomes true after editing an active workflow (dialog shown)', () => {
+            logic.actions.setWorkflowValue('status', 'active')
+            logic.actions.setWorkflowValue('name', 'Edited active')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('hasUnsavedChanges goes back to false after onConfirm resets the workflow', () => {
+            logic.actions.setWorkflowValue('name', 'Edited then discarded')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+
+            // beforeUnload.onConfirm dispatches resetWorkflow with the original workflow
+            logic.actions.resetWorkflow(logic.values.originalWorkflow!)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+            expect(updateCalls).toBe(0)
+        })
+
+        it('hasUnsavedChanges goes back to false after a successful save', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited then saved')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(logic.values.hasUnsavedChanges).toBe(false)
         })
     })
 })
