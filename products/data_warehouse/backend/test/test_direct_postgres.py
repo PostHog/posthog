@@ -53,6 +53,7 @@ class TestFilterDwhColumnsByEnabledColumns:
     dwh_columns = {
         "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"},
         "email": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+        "updated_at": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime"},
         "secret": {"hogql": "StringDatabaseField", "clickhouse": "String"},
     }
 
@@ -62,3 +63,13 @@ class TestFilterDwhColumnsByEnabledColumns:
     def test_subset_keeps_pks(self) -> None:
         result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, ["email"], ["id"])
         assert set(result.keys()) == {"id", "email"}
+
+    def test_incremental_field_retained(self) -> None:
+        result = filter_dwh_columns_by_enabled_columns(
+            self.dwh_columns, ["email"], ["id"], incremental_field="updated_at"
+        )
+        assert set(result.keys()) == {"id", "email", "updated_at"}
+
+    def test_empty_keeps_only_pks_and_incremental(self) -> None:
+        result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, [], ["id"], incremental_field="updated_at")
+        assert set(result.keys()) == {"id", "updated_at"}

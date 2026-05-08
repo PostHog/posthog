@@ -436,10 +436,11 @@ function ColumnsSection({
 
     const handleSave = (nextSyncedColumns: string[] | null): void => {
         const syncType = schema.sync_type
+        const added = getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available)
         const requiresPrompt =
             !!schema.last_synced_at &&
             (syncType === 'incremental' || syncType === 'append' || syncType === 'cdc') &&
-            getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available).length > 0
+            added.length > 0
 
         if (!requiresPrompt) {
             updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
@@ -447,7 +448,6 @@ function ColumnsSection({
             return
         }
 
-        const added = getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available)
         LemonDialog.open({
             title: 'New columns added to a partial-sync table',
             description: (
