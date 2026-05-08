@@ -6,8 +6,6 @@ import { deleteKeysWithPrefix } from '../../cdp/_tests/redis'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
-// All three commands share the same arg shape; the only thing that varies is
-// the Lua body. We test each by name so a regression in any version is loud.
 type CommandName = 'checkRateLimit' | 'checkRateLimitV2' | 'checkRateLimitV3'
 
 describe('redis-token-bucket lua', () => {
@@ -60,9 +58,6 @@ describe('redis-token-bucket lua', () => {
         fillRate: number
     }): Promise<[number, number]> => {
         const result = await redis.useClient({ name: 'lua-test' }, async (client) => {
-            // V1's typing claims `Promise<number>` but the underlying Lua is identical
-            // to V2 and returns [tokensBefore, tokensAfter]. V3 returns strings to
-            // preserve fractional balances. Normalise both to numbers.
             return (await (client[command] as any)(key, nowSeconds(), cost, poolMax, fillRate, 60)) as
                 | [number, number]
                 | [string, string]
@@ -79,34 +74,49 @@ describe('redis-token-bucket lua', () => {
         { command: 'checkRateLimitV3', expectsRecovery: true },
     ])('$command', ({ command, expectsRecovery }) => {
         it('refill=1.5/s cost=1 1req/s starting in overdraft — recovers (V3) or stays denied (V1/V2)', async () => {
-            // Each tick we earn 1.5 tokens and spend 1 → net +0.5/tick.
-            // V1/V2 (charge-first) clamp every overdraft to -1 and throw the +0.5
-            // away each tick → wedged forever.
-            // V3 (check-first) refuses the initial cost=101 request without
-            // charging, so the bucket stays at 100 and serves cost=1 every tick.
             const key = `@posthog-test/lua-bucket/${command}/team-1`
             await deleteKeysWithPrefix(redis, key)
 
-            const [, tokensAfterFirstCall] = await callRateLimit({
-                command,
-                key,
-                cost: 100,
-                poolMax: 100,
-                fillRate: 1.5,
-            })
-            expect(tokensAfterFirstCall).toBe(0)
+            let tokensAfterA = 0
+            // here we are putting the bucket in overdraft. We send 100 requests with cost 1 to a 10 token bucket
+            // after this, bucket reaches its "minimum state"
+            for (let i = 0; i < 100; i++) {
+                const [, tokensAfterTemp] = await callRateLimit({
+                    command,
+                    key,
+                    cost: 1,
+                    poolMax: 10,
+                    fillRate: 1.5,
+                })
+                tokensAfterA = tokensAfterTemp
+            }
 
-            let tokensAfter = tokensAfterFirstCall
+            // v1/v2 and v3 have different minimum states
+            if (expectsRecovery) {
+                // v3 never goes below 0
+                expect(tokensAfterA).toBe(0)
+            } else {
+                // v1/v2 goes below 0
+                expect(tokensAfterA).toBe(-1)
+            }
+
+            let tokensAfterB = 0
+
+            // here we are simulating a sustained traffic pattern
+            // 1 request with cost 1 every second to a 1.5 token refill rate bucket
+            // in theory it should recover
             for (let i = 0; i < 10; i++) {
                 advanceTime(1000)
-                const [, tokensAfterTemp] = await callRateLimit({ command, key, cost: 1, poolMax: 100, fillRate: 1.5 })
-                tokensAfter = tokensAfterTemp
+                const [, tokensAfterTemp] = await callRateLimit({ command, key, cost: 1, poolMax: 10, fillRate: 1.5 })
+                tokensAfterB = tokensAfterTemp
             }
 
             if (expectsRecovery) {
-                expect(tokensAfter).toBeGreaterThan(0)
+                // and v3 does recover
+                expect(tokensAfterB).toBeGreaterThan(0)
             } else {
-                expect(tokensAfter).toBe(-1)
+                // but v1/v2 doesn't recover
+                expect(tokensAfterB).toBe(-1)
             }
         })
     })
