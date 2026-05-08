@@ -7322,7 +7322,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "groups[0].properties[0].value must be a string, got int")
+        self.assertEqual(response.json()["detail"], "Invalid value for operator regex: 123")
 
     def test_can_create_flag_with_valid_regex(self):
         response = self.client.post(
