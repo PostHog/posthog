@@ -1206,6 +1206,30 @@ class TestExperimentService(APIBaseTest):
 
         assert "global filter properties" in str(ctx.exception)
 
+    def test_update_experiment_rejects_invalid_regex_in_flag_filters(self):
+        experiment = self._create_draft_experiment()
+        flag = experiment.feature_flag
+        flag.filters["groups"][0]["properties"] = [
+            {"key": "email", "value": "[unclosed", "operator": "regex", "type": "person"}
+        ]
+        flag.save(update_fields=["filters"])
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ],
+                    },
+                },
+            )
+
+        assert "invalid regex pattern" in str(ctx.exception)
+
     def test_update_experiment_syncs_feature_flag_variants_for_draft(self):
         experiment = self._create_draft_experiment()
         service = self._service()
