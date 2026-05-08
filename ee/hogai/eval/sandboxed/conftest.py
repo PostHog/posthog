@@ -17,7 +17,6 @@ from django.conf import settings
 
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.models import OAuthApplication
 from posthog.temporal.common.worker import create_worker
 
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
@@ -138,50 +137,6 @@ def _cleanup_sandbox_containers(pytestconfig):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _posthog_oauth_app(django_db_setup, django_db_blocker):
-    """Seed the Array OAuth application required by sandbox MCP auth.
-
-    The temporal workflow's ``provision_sandbox`` activity creates an OAuth
-    access token so the sandbox can authenticate with the PostHog MCP server.
-    Without this record the activity raises ``OAuthTokenError``.
-
-    Uses ``get_array_app()`` first (succeeds if the app already exists in a
-    reused DB), falling back to creating it with the client ID that
-    ``get_array_app()`` would resolve for the current ``CLOUD_DEPLOYMENT``.
-    """
-    from posthog.temporal.oauth import (
-        ARRAY_APP_CLIENT_ID_DEV,
-        ARRAY_APP_CLIENT_ID_EU,
-        ARRAY_APP_CLIENT_ID_US,
-        get_array_app,
-    )
-    from posthog.utils import get_instance_region
-
-    with django_db_blocker.unblock():
-        try:
-            app = get_array_app()
-        except RuntimeError:
-            region = get_instance_region()
-            if region == "EU":
-                client_id = ARRAY_APP_CLIENT_ID_EU
-            elif region == "US":
-                client_id = ARRAY_APP_CLIENT_ID_US
-            else:
-                client_id = ARRAY_APP_CLIENT_ID_DEV
-            app, _ = OAuthApplication.objects.get_or_create(
-                client_id=client_id,
-                defaults={
-                    "name": "Array Test App",
-                    "client_type": OAuthApplication.CLIENT_PUBLIC,
-                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                    "redirect_uris": "https://app.posthog.com/callback",
-                    "algorithm": "RS256",
-                },
-            )
-    yield app
-
-
-@pytest.fixture(scope="session", autouse=True)
 def _django_live_server(django_db_setup, django_db_blocker):
     """Start an in-process Django HTTP server on the test database.
 
@@ -264,7 +219,6 @@ def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
 def _sandbox_settings(
     _django_live_server: object,
     _llm_gateway: object,
-    _posthog_oauth_app: OAuthApplication,
     _temporal_test_server: tuple[str, str, str],
 ) -> Generator[None, None, None]:
     """Configure Django settings required by the sandbox/temporal activities.
