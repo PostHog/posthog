@@ -303,7 +303,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (rowCount === 0) {
             return
         }
-        setIndex((cur) => (cur - 1 + rowCount) % rowCount)
+        // From NO_ITEM_SELECTED (-1), the modulo formula `(cur - 1 + rowCount) % rowCount`
+        // would land on rowCount - 2 instead of the last row. Branch on `cur <= 0`
+        // so both "no selection" and "already at top" wrap to the last row.
+        setIndex((cur) => (cur <= 0 ? rowCount - 1 : cur - 1))
     }
 
     const moveDown = (): void => {
