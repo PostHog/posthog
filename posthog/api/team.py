@@ -232,7 +232,7 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     try:
         TestAccountFilters.model_validate(value)
     except PydanticValidationError as error:
-        raise exceptions.ValidationError("Must provide an array of valid property filters.") from error
+        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
 
     return cast(list[dict[str, object]], value)
 
