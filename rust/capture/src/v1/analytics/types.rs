@@ -105,10 +105,10 @@ impl SinkEvent for WrappedEvent {
         self.uuid
     }
 
-    // Helps the Sink implementations filter events that were marked
-    // as ineligible for publishing in the request preprocessing step.
+    // Publish Ok and Limited events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        self.result == EventResult::Ok && self.destination != Destination::Drop
+        (self.result == EventResult::Ok || self.result == EventResult::Limited)
+            && self.destination != Destination::Drop
     }
 
     // Resolve the storage-agnostic Destination scope for this event.
@@ -702,30 +702,31 @@ mod tests {
         test_utils::wrapped_event(event_name, distinct_id)
     }
 
-    #[test]
-    fn should_publish_ok_and_non_drop() {
-        let ev = ok_wrapped("$pageview", "user-1");
+    #[rstest::rstest]
+    #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
+    #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
+    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::limited_main(EventResult::Limited, Destination::AnalyticsMain)]
+    #[case::limited_historical(EventResult::Limited, Destination::AnalyticsHistorical)]
+    #[case::limited_overflow(EventResult::Limited, Destination::Overflow)]
+    fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = result;
+        ev.destination = dest;
         assert!(ev.should_publish());
     }
 
-    #[test]
-    fn should_publish_false_when_dropped() {
+    #[rstest::rstest]
+    #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
+    #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
+    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
+    #[case::limited_dest_drop(EventResult::Limited, Destination::Drop)]
+    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
+    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
+    fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_false_when_destination_drop() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_false_when_limited() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Limited;
+        ev.result = result;
+        ev.destination = dest;
         assert!(!ev.should_publish());
     }
 

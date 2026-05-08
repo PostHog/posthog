@@ -8,6 +8,8 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.hogql.database.database import get_data_warehouse_table_name
+
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -60,9 +62,11 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         if schema.table is None:
             log.warning(f"Schema {inputs.schema_id} has no table for emitting signals")
             return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
-        # Build fetcher context with data-warehouse-specific runtime values
+        # `DataWarehouseTable.name` is the storage form (e.g. `<prefix><source_type>_<schema>`),
+        # but HogQL exposes warehouse tables under the keys produced by `get_data_warehouse_table_name`
+        # (e.g. `github.issues` or `github.<prefix>.<schema>`). Querying the storage name fails to resolve.
         fetcher_context = {
-            "table_name": schema.table.name,
+            "table_name": get_data_warehouse_table_name(schema.source, schema.table.name),
             "last_synced_at": inputs.last_synced_at,
             "extra": inputs.properties_to_log,
         }

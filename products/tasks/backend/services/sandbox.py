@@ -45,6 +45,7 @@ class SandboxStatus(str, Enum):
 class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
+    PI_BASE = "pi_base"
 
 
 class ExecutionResult(BaseModel):
@@ -82,8 +83,9 @@ class SandboxConfig(BaseModel):
 
 WORKING_DIR = "/tmp/workspace"
 
-PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
-"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
+"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
+# TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:

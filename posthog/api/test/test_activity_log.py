@@ -4,6 +4,7 @@ from typing import Any, Optional
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -222,6 +223,16 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
         self.organization.save()
 
         with self.is_cloud(False):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_allowed_for_impersonator_without_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True), patch("posthog.permissions.is_impersonated_session", return_value=True):
             res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
 
         assert res.status_code == status.HTTP_200_OK

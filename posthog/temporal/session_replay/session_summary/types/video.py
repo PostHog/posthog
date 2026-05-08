@@ -37,6 +37,7 @@ class VideoSummarySingleSessionInputs(BaseModel):
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     product_context: str | None = None
+    custom_tags: dict[str, str] | None = None
 
 
 class PrepSessionVideoAssetResult(BaseModel):
@@ -276,6 +277,9 @@ class SessionTaggingOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     tags_fixed: list[str] = Field(description="1-5 tags from the fixed taxonomy")
+    tags_custom: list[str] = Field(
+        default_factory=list, description="0-5 tags from the team's custom taxonomy, if one was provided"
+    )
     tags_freeform: list[str] = Field(description="1-5 specific free-form tags")
     highlighted: bool = Field(default=False, description="Whether the session is worth watching")
 

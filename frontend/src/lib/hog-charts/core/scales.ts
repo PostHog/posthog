@@ -66,7 +66,7 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): d3.
 }
 
 export function yTickCountForHeight(plotHeight: number): number {
-    return Math.max(2, Math.min(8, Math.floor(plotHeight / 80)))
+    return Math.max(2, Math.min(11, Math.floor(plotHeight / 50)))
 }
 
 export function createYScale(

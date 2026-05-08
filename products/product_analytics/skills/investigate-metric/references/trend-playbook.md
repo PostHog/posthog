@@ -36,7 +36,7 @@ moved). For UI-shaped drops, pull session recordings for the same segment.
 
 ## 4. Errors / logs
 
-`posthog:error-tracking-issues-list` and `posthog:query-logs` for the window. Confirm
+`posthog:query-error-tracking-issues-list` and `posthog:query-logs` for the window. Confirm
 timing, plausible mechanism, and user overlap before treating as the cause.
 
 ## 5. Cohort composition
