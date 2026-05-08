@@ -23,12 +23,13 @@ parse_args() {
 }
 
 show_usage() {
-    echo "Usage: $0 <all|persons|cyclotron|cyclotron-node|behavioral-cohorts> [--fresh]"
+    echo "Usage: $0 <all|persons|cyclotron|cyclotron-node|behavioral-cohorts|flags-read-store> [--fresh]"
     echo "  all                - Run all migrations"
     echo "  persons            - Run only persons migrations"
     echo "  cyclotron          - Run only cyclotron migrations"
     echo "  cyclotron-node     - Run only cyclotron node migrations"
     echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
+    echo "  flags-read-store   - Run only flags read store migrations"
     echo ""
     echo "Options:"
     echo "  --fresh            - Drop and recreate database before migrating (for test environments)"
@@ -163,6 +164,31 @@ run_behavioral_cohorts_migrations() {
     fi
 }
 
+run_flags_read_store_migrations() {
+    local db_type="flags-read-store"
+    FLAGS_READ_STORE_DATABASE_NAME=${FLAGS_READ_STORE_DATABASE_NAME:-flags_read_store}
+
+    # Use environment variables with defaults
+    DB_HOST="${POSTGRES_FLAGS_READ_STORE_HOST:-localhost}"
+    DB_USER="${POSTGRES_FLAGS_READ_STORE_USER:-posthog}"
+    DB_PASS="${POSTGRES_FLAGS_READ_STORE_PASSWORD:-posthog}"
+
+    FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://${DB_USER}:${DB_PASS}@${DB_HOST}:5432/$FLAGS_READ_STORE_DATABASE_NAME}
+
+    log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$FLAGS_READ_STORE_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
+
+    if [ "$FRESH_MODE" = true ]; then
+        sqlx database reset -y -D "$FLAGS_READ_STORE_DATABASE_URL" --source "$MIGRATIONS_BASE/flags_read_store_migrations/"
+        log_json "info" "Database reset and migrations completed" "completed" "$db_type"
+    else
+        sqlx database create -D "$FLAGS_READ_STORE_DATABASE_URL"
+        log_json "info" "Database created or already exists" "running" "$db_type"
+
+        sqlx migrate run -D "$FLAGS_READ_STORE_DATABASE_URL" --source "$MIGRATIONS_BASE/flags_read_store_migrations/"
+        log_json "info" "Migrations completed successfully" "completed" "$db_type"
+    fi
+}
+
 case "$MIGRATION_TYPE" in
     persons)
         run_persons_migrations
@@ -175,6 +201,9 @@ case "$MIGRATION_TYPE" in
         ;;
     behavioral-cohorts)
         run_behavioral_cohorts_migrations
+        ;;
+    flags-read-store)
+        run_flags_read_store_migrations
         ;;
     all)
         run_persons_migrations

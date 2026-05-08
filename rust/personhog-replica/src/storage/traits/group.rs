@@ -5,6 +5,7 @@ use crate::storage::postgres::ConsistencyLevel;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
 
 /// Group and group type mapping operations
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait GroupStorage: Send + Sync {
     // Group lookups
@@ -29,6 +30,18 @@ pub trait GroupStorage: Send + Sync {
         keys: &[GroupKey],
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<(GroupKey, Group)>>;
+
+    async fn list_groups(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key_contains: &str,
+        search: &str,
+        cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        cursor_id: i64,
+        limit: i32,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<(Vec<Group>, bool)>;
 
     // Group writes
 

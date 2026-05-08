@@ -17,8 +17,8 @@ export const LegalDocumentsCreateBody = /* @__PURE__ */ zod
     .object({
         document_type: zod
             .enum(['BAA', 'DPA'])
-            .describe('* `BAA` - BAA\n* `DPA` - DPA')
-            .describe("Either 'BAA' or 'DPA'.\n\n* `BAA` - BAA\n* `DPA` - DPA"),
+            .describe('\* `BAA` - BAA\n\* `DPA` - DPA')
+            .describe("Either 'BAA' or 'DPA'.\n\n\* `BAA` - BAA\n\* `DPA` - DPA"),
         company_name: zod
             .string()
             .max(legalDocumentsCreateBodyCompanyNameMax)

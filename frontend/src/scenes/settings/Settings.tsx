@@ -18,6 +18,8 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
 import { SearchResultGroup } from './settingsLogic'
 import { settingsLogic } from './settingsLogic'
 import { SettingId, SettingLevelId, SettingSectionId, SettingsLogicProps } from './types'
@@ -371,7 +373,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                             </p>
                         )}
 
-                        {x.component}
+                        <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
             ) : (

@@ -937,7 +937,7 @@ describe('ErrorTrackingPipeline', () => {
 
             topHog = new TopHog({
                 outputs: tophogOutputs,
-                pipeline: 'error_tracking',
+                pipeline: 'errortracking',
                 lane: 'main',
             })
         })
@@ -1044,7 +1044,7 @@ describe('ErrorTrackingPipeline', () => {
             const messages = getTopHogMessages()
             expect(messages.length).toBeGreaterThan(0)
             for (const msg of messages) {
-                expect(msg.pipeline).toBe('error_tracking')
+                expect(msg.pipeline).toBe('errortracking')
                 expect(msg.lane).toBe('main')
             }
         })

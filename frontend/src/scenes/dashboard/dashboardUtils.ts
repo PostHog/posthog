@@ -4,12 +4,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
-
-import {
-    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
-} from './dashboardConstants'
-export { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS, SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES }
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -29,6 +23,8 @@ import {
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
@@ -140,23 +136,6 @@ function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
 export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
     const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
-}
-
-/**
- * Trigger one force_blocking refresh on initial shared-dashboard load if the stalest tile is too old.
- * Idempotent across reloads since the follow-up run uses `forceRefresh` + non-initial action.
- */
-export function scheduleSharedDashboardStaleAutoForceIfEligible(options: {
-    effectiveLastRefresh: Dayjs | null
-    triggerDashboardRefresh: () => void
-}): void {
-    const { effectiveLastRefresh, triggerDashboardRefresh } = options
-    if (!shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh)) {
-        return
-    }
-    queueMicrotask(() => {
-        triggerDashboardRefresh()
-    })
 }
 
 // Helper function for exponential backoff

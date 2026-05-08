@@ -545,6 +545,8 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             "$ai_tagger_start_time": start_time.isoformat(),
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
+            "$ai_target_id": event_data["uuid"],
+            "$ai_target_type": "generation_uuid",
             "$ai_trace_id": properties_raw.get("$ai_trace_id"),
         }
 

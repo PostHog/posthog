@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import IntegrityError, transaction
 
 from rest_framework import serializers, status, viewsets
@@ -8,11 +10,13 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.cohort import Cohort
 
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency
 
 MAX_JOBS_PER_TEAM = 10
+_COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
 
 
 class ClusteringJobSerializer(serializers.ModelSerializer):
@@ -32,6 +36,43 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def validate_event_filters(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Reject filters that reference a cohort that doesn't exist (or is deleted).
+
+        Saved jobs run on a schedule with no human in the loop, so a dangling
+        cohort id would silently break sampling. Catching it at save time gives
+        the user immediate feedback. Cohorts deleted *after* save are still
+        handled defensively in the sampling activity itself.
+        """
+        team = self.context["get_team"]()
+        referenced_ids: list[int] = []
+        for f in value:
+            if f.get("type") not in _COHORT_FILTER_TYPES:
+                continue
+            cohort_value = f.get("value")
+            if not isinstance(cohort_value, (int, str)):
+                continue
+            try:
+                referenced_ids.append(int(cohort_value))
+            except (TypeError, ValueError):
+                # Non-numeric cohort references (e.g. name lookups) are passed
+                # through untouched — the resolver validates them at query time.
+                continue
+
+        if referenced_ids:
+            existing = set(
+                Cohort.objects.filter(
+                    team__project_id=team.project_id,
+                    id__in=referenced_ids,
+                    deleted=False,
+                ).values_list("id", flat=True)
+            )
+            missing = sorted({cid for cid in referenced_ids if cid not in existing})
+            if missing:
+                raise serializers.ValidationError(f"Cohort(s) not found or deleted: {missing}")
+
+        return value
 
 
 class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

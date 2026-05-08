@@ -1,5 +1,6 @@
 use crate::{
     api::{
+        body_read_metrics::BodyReadDuration,
         concurrency_metrics::ConcurrencyLimitWait,
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
@@ -209,6 +210,11 @@ pub async fn flags(
     // `ConcurrencyLimitLayer` hands off a permit. Optional so the handler
     // tolerates the layer pair being removed or temporarily disabled.
     concurrency_wait: Option<Extension<ConcurrencyLimitWait>>,
+    // Populated by the `record_body_read` middleware after it buffers
+    // the inbound POST body to memory. Optional so the handler tolerates
+    // the shim being removed or absent on routes that bypass it (e.g. a
+    // future `/flags`-only sub-router).
+    body_read_duration: Option<Extension<BodyReadDuration>>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
@@ -292,6 +298,13 @@ pub async fn flags(
     // would take longer than the age of the universe.
     let concurrency_limit_wait_ms = concurrency_wait.map(|Extension(w)| w.0.as_millis() as u64);
 
+    // Body-buffering wall-clock, captured by `record_body_read`. Sub-ms
+    // precision (paired with the sub-ms-floor `BODY_READ_BUCKETS_MS`):
+    // integer-ms truncation would collapse fast in-memory POSTs into the
+    // 0-ms bucket and hide the very tail behavior the buckets exist to
+    // surface.
+    let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_secs_f64() * 1000.0);
+
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -304,6 +317,7 @@ pub async fn flags(
         api_version: query_params.version.clone(),
         queue_time_ms,
         concurrency_limit_wait_ms,
+        body_read_ms,
         ..Default::default()
     };
 
@@ -431,6 +445,10 @@ pub async fn flags(
     // Emit queue/pre-handler/concurrency-wait histograms with team_id labels.
     // Must run after `process_request` returns so `log.team_id` is populated.
     log.emit_timing_metrics();
+    // Emit per-phase histograms accumulated by `PhaseGuard` drops inside
+    // `process_request_inner`. Same `team_id` resolution requirement as
+    // `emit_timing_metrics`, so it must run alongside it.
+    log.emit_phase_metrics();
 
     match result {
         Ok(response) => {
@@ -620,6 +638,8 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
         };
 
         if params_both_none.version.is_none() && params_both_none.config.is_none() {
@@ -638,6 +658,8 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
         };
 
         if params_version_missing.version.is_none() && params_version_missing.config.is_none() {
@@ -654,6 +676,8 @@ mod tests {
             config: None,
             compression: None,
             lib_version: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
         };
