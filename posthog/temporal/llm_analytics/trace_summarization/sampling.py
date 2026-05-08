@@ -22,6 +22,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    AI_EVENT_TYPES,
     MAX_TRACE_EVENTS_LIMIT,
     MAX_TRACE_PROPERTIES_SIZE,
 )
@@ -138,7 +139,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN {event_types}
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
@@ -157,6 +158,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     query_type="GenerationsForSampling",
                     query=generations_query,
                     placeholders={
+                        "event_types": ast.Tuple(exprs=[ast.Constant(value=e) for e in AI_EVENT_TYPES]),
                         "start_ts": ast.Constant(value=start_dt_str),
                         "end_ts": ast.Constant(value=end_dt_str),
                         "limit": ast.Constant(value=max_items),
@@ -206,7 +208,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN {event_types}
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
@@ -224,6 +226,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     query_type="TracesForSampling",
                     query=traces_query,
                     placeholders={
+                        "event_types": ast.Tuple(exprs=[ast.Constant(value=e) for e in AI_EVENT_TYPES]),
                         "start_ts": ast.Constant(value=start_dt_str),
                         "end_ts": ast.Constant(value=end_dt_str),
                         "limit": ast.Constant(value=max_items),
