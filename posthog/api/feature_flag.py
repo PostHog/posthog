@@ -97,6 +97,7 @@ from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, C
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -1052,6 +1053,21 @@ class FeatureFlagSerializer(
 
         _validate_integer(flag_level_aggregation, "aggregation_group_type_index")
 
+        # Collect existing regex patterns so we don't reject unchanged patterns on
+        # PATCH — flags may contain regexes valid in fancy_regex/PG ARE but not Python re.
+        existing_patterns: set[str] = set()
+        if self.instance is not None:
+            for g in (self.instance.filters or {}).get("groups", []) or []:
+                for p in g.get("properties", []) or []:
+                    if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
+                        existing_patterns.add(p["value"])
+
+        def _validate_regex_pattern(value: Any, path: str) -> None:
+            if not isinstance(value, str):
+                raise serializers.ValidationError(f"{path} must be a string, got {type(value).__name__}")
+            if value not in existing_patterns and not is_valid_regex(value):
+                raise serializers.ValidationError(f"{path}: invalid regex pattern")
+
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
             if variant is not None and not isinstance(variant, str):
@@ -1072,14 +1088,10 @@ class FeatureFlagSerializer(
                 )
 
                 if prop.get("operator") in ("regex", "not_regex"):
-                    pattern = prop.get("value")
-                    if isinstance(pattern, str):
-                        try:
-                            re.compile(pattern)
-                        except re.error:
-                            raise serializers.ValidationError(
-                                f"groups[{group_index}].properties[{prop_index}].value: invalid regex pattern"
-                            )
+                    _validate_regex_pattern(
+                        prop.get("value"),
+                        f"groups[{group_index}].properties[{prop_index}].value",
+                    )
 
         for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
             _validate_rollout_percentage(

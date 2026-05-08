@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonPropertyFilter, PropertyOperator
 
 from posthog.models import FeatureFlag
@@ -427,7 +429,13 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert flag.filters["aggregation_group_type_index"] == 0
         assert len(flag.filters["groups"][0]["properties"]) == 1
 
-    async def test_create_flag_rejects_invalid_regex(self):
+    @parameterized.expand(
+        [
+            ("regex", PropertyOperator.REGEX),
+            ("not_regex", PropertyOperator.NOT_REGEX),
+        ]
+    )
+    async def test_create_flag_rejects_invalid_regex(self, _name, operator):
         tool = self._create_tool()
 
         schema = FeatureFlagCreationSchema(
@@ -439,7 +447,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
                         PersonPropertyFilter(
                             key="email",
                             value="[unclosed",
-                            operator=PropertyOperator.REGEX,
+                            operator=operator,
                         )
                     ],
                     rollout_percentage=None,

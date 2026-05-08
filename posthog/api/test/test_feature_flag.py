@@ -7176,7 +7176,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("invalid regex pattern", response.json()["detail"])
+        self.assertEqual(response.json()["detail"], "groups[0].properties[0].value: invalid regex pattern")
 
     def test_cant_create_flag_with_invalid_not_regex(self):
         response = self.client.post(
@@ -7203,7 +7203,126 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("invalid regex pattern", response.json()["detail"])
+        self.assertEqual(response.json()["detail"], "groups[0].properties[0].value: invalid regex pattern")
+
+    def test_patch_flag_with_unchanged_python_incompatible_regex(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="flag-with-lookbehind",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "(?<!a{2,5})b",
+                                "operator": "regex",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}",
+            {"active": False},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 50,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "(?<!a{2,5})b",
+                                    "operator": "regex",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_patch_flag_rejects_new_invalid_regex(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="flag-valid-regex",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "^valid$",
+                                "operator": "regex",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "[unclosed",
+                                    "operator": "regex",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "groups[0].properties[0].value: invalid regex pattern")
+
+    def test_cant_create_flag_with_non_string_regex_value(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": 123,
+                                    "operator": "regex",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "groups[0].properties[0].value must be a string, got int")
 
     def test_can_create_flag_with_valid_regex(self):
         response = self.client.post(
@@ -7229,6 +7348,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}").json()
+        self.assertEqual(saved["filters"]["groups"][0]["properties"][0]["value"], "^[a-z]+@posthog\\.com$")
+
+    @parameterized.expand(
+        [
+            ("python_valid_pg_invalid_persons", "person", None, "2.3.9{0-9}{1}"),
+            ("python_valid_pg_invalid_groups", "group", 1, "2.3.9{0-9}{1 ef}"),
+        ]
+    )
+    def test_can_create_flag_with_postgres_incompatible_regex(self, _name, prop_type, group_type_index, pattern):
+        if prop_type == "group":
+            create_group_type_mapping_without_created_at(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type="xyz",
+                group_type_index=group_type_index,
+            )
+        prop = {"key": "email", "type": prop_type, "value": pattern, "operator": "regex"}
+        if group_type_index is not None:
+            prop["group_type_index"] = group_type_index
+        filters: dict = {"groups": [{"rollout_percentage": 65, "properties": [prop]}]}
+        if group_type_index is not None:
+            filters["aggregation_group_type_index"] = group_type_index
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {"name": "Beta feature", "key": f"beta-{prop_type}", "filters": filters},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}").json()
+        self.assertEqual(saved["filters"]["groups"][0]["properties"][0]["value"], pattern)
 
     def test_feature_flag_includes_cohort_names(self):
         cohort = Cohort.objects.create(

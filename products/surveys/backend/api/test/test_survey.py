@@ -1780,7 +1780,8 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
-    def test_survey_targeting_flag_rejects_invalid_regex(self):
+    @parameterized.expand([("regex",), ("not_regex",)])
+    def test_survey_targeting_flag_rejects_invalid_regex(self, operator):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -1795,7 +1796,7 @@ class TestSurvey(APIBaseTest):
                                 {
                                     "key": "email",
                                     "value": "[unclosed",
-                                    "operator": "regex",
+                                    "operator": operator,
                                     "type": "person",
                                 }
                             ],
