@@ -307,7 +307,10 @@ async fn flush_remaining(writer: &BulkWriter, batch: &mut BulkBatch, reason: &'s
     if batch.is_empty() {
         return;
     }
-    match writer.flush(batch).await {
+    // Drain variant: the shutdown arm fires with the writer's cancel token
+    // already tripped, so steady-state `flush` would `ShutdownAborted` before
+    // posting.
+    match writer.flush_for_shutdown(batch).await {
         Ok(stats) => info!(
             reason,
             committed_partitions = stats.committed_partitions,

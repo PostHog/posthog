@@ -15,6 +15,10 @@ const RETRY_INITIAL: Duration = Duration::from_secs(1);
 const RETRY_MAX: Duration = Duration::from_secs(60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Backoff cap for `flush_for_shutdown`. Tighter than `RETRY_MAX` so a single
+/// sleep can't outlive the graceful-shutdown deadline.
+const SHUTDOWN_RETRY_MAX: Duration = Duration::from_secs(5);
+
 /// Per-item overhead from the action line + two newlines on top of the
 /// serialized body. `{"index":{"_id":"<36-char uuid>"}}\n` plus the trailing
 /// newline after the body line. Constant since `event_uuid` is hyphenated.
@@ -316,14 +320,35 @@ fn insert_max<O: OffsetKey>(map: &mut HashMap<i32, O>, candidate: O) {
     }
 }
 
-/// Conservative size estimate (never undercount). Heavy text fields exact,
-/// `+ 4` per tool covers quoting and separators, fudge absorbs the rest.
+/// Conservative size estimate (never undercount). Raw len + JSON-escape
+/// overhead per text field, `+ 4` per tool, plus a per-doc fudge.
 fn approx_doc_bytes(doc: &IndexDoc) -> usize {
-    let text_len = doc.input.as_ref().map(String::len).unwrap_or(0)
-        + doc.output.as_ref().map(String::len).unwrap_or(0)
-        + doc.error.as_ref().map(String::len).unwrap_or(0)
-        + doc.tool_names.iter().map(|s| s.len() + 4).sum::<usize>();
+    let text_field = |s: &Option<String>| {
+        s.as_ref()
+            .map(|v| v.len() + json_escape_overhead(v))
+            .unwrap_or(0)
+    };
+    let text_len = text_field(&doc.input)
+        + text_field(&doc.output)
+        + text_field(&doc.error)
+        + doc
+            .tool_names
+            .iter()
+            .map(|s| s.len() + json_escape_overhead(s) + 4)
+            .sum::<usize>();
     text_len + DOC_OVERHEAD_FUDGE
+}
+
+/// Bytes serde_json adds when escaping `s`: +1 for named escapes (`"`, `\`,
+/// `\n`, `\r`, `\t`, `\x08`, `\x0C`), +5 for other 0x00..=0x1F (becomes `\u00XX`).
+fn json_escape_overhead(s: &str) -> usize {
+    s.bytes()
+        .map(|b| match b {
+            b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0C => 1,
+            0x00..=0x1F => 5,
+            _ => 0,
+        })
+        .sum()
 }
 
 fn serialize_action_and_body(buf: &mut Vec<u8>, doc: &IndexDoc) {
@@ -403,6 +428,25 @@ impl BulkWriter {
             return Ok(self.flush_skip_only(batch));
         }
         self.flush_with_items(batch).await
+    }
+
+    /// Graceful-drain flush. The writer's shutdown token is already cancelled
+    /// at this point (it's the same lifecycle signal that triggered the drain),
+    /// so this path drops the cancel guard and clamps backoff to
+    /// `SHUTDOWN_RETRY_MAX`. The lifecycle Manager's per-component graceful
+    /// deadline still bounds total time externally.
+    pub async fn flush_for_shutdown<O: StoreOffset>(
+        &self,
+        batch: &mut BulkBatch<O>,
+    ) -> Result<FlushStats, FlushError> {
+        let drain = BulkWriter {
+            client: self.client.clone(),
+            url: self.url.clone(),
+            retry_initial: self.retry_initial,
+            retry_max: self.retry_max.min(SHUTDOWN_RETRY_MAX),
+            shutdown_token: None,
+        };
+        drain.flush(batch).await
     }
 
     fn flush_skip_only<O: StoreOffset>(&self, batch: &mut BulkBatch<O>) -> FlushStats {
@@ -1002,11 +1046,37 @@ mod tests {
                 d.tool_names = (0..50).map(|i| format!("tool_{i}")).collect();
                 d
             },
+            // Conversation-history shape: embedded quotes and backslashes.
+            {
+                let mut d = fixture_doc(4);
+                let turn = r#"[{"role":"user","content":"hello \"world\""},{"role":"assistant","content":"line\nbreak"}]"#;
+                d.input = Some(turn.repeat(50));
+                d.output = Some(r#"{"choices":[{"text":"\\path\\to\\file"}]}"#.repeat(20));
+                d.error = Some("\"err\":\"bad\\nbreak\"".repeat(10));
+                d
+            },
+            // Worst case: pure-quote / pure-backslash strings double in size.
+            {
+                let mut d = fixture_doc(5);
+                d.input = Some("\"".repeat(500));
+                d.output = Some("\\".repeat(500));
+                d.tool_names = vec!["with\"quote".to_string(), "back\\slash".to_string()];
+                d
+            },
+            // Control bytes hit the 6-byte `\u00XX` path.
+            {
+                let mut d = fixture_doc(6);
+                d.input = Some("\x01\x02\x03".repeat(100));
+                d
+            },
         ];
-        for doc in cases {
-            let estimate = approx_doc_bytes(&doc);
-            let actual = serde_json::to_vec(&doc).expect("serialize").len();
-            assert!(estimate >= actual, "estimate {estimate} < actual {actual}");
+        for (i, doc) in cases.iter().enumerate() {
+            let estimate = approx_doc_bytes(doc);
+            let actual = serde_json::to_vec(doc).expect("serialize").len();
+            assert!(
+                estimate >= actual,
+                "case {i}: estimate {estimate} < actual {actual}"
+            );
         }
     }
 
@@ -1437,6 +1507,37 @@ mod tests {
             .expect("task joined")
             .expect("Ok after retry");
         assert_eq!(resp.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn flush_for_shutdown_drains_when_token_already_cancelled() {
+        // Regression: pre-cancelled token must not abort the drain POST.
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/llm-traces/_bulk");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(r#"{"took":1,"errors":false,"items":[{"index":{"status":201}}]}"#);
+            })
+            .await;
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let writer = writer_for(format!("{}/llm-traces/_bulk", server.base_url()))
+            .with_shutdown_token(token);
+
+        let rec = recorder();
+        let mut batch: BulkBatch<TestOffset> = BulkBatch::new();
+        batch.push_index(fixture_doc(1), TestOffset::new(0, 7, &rec));
+
+        let stats = writer
+            .flush_for_shutdown(&mut batch)
+            .await
+            .expect("graceful drain must succeed despite cancelled token");
+        assert_eq!(stats.committed_partitions, 1);
+        assert_eq!(mock.hits_async().await, 1);
+        assert!(rec.lock().unwrap().contains(&(0, 7)));
     }
 
     #[tokio::test]
