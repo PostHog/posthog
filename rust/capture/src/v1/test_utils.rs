@@ -143,6 +143,9 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
         ("TOPIC_HISTORICAL", "events_hist"),
         ("TOPIC_OVERFLOW", "events_overflow"),
         ("TOPIC_DLQ", "events_dlq"),
+        ("TOPIC_EXCEPTION", "error_tracking_events"),
+        ("TOPIC_HEATMAP", "heatmaps_ingestion"),
+        ("TOPIC_CLIENT_INGESTION_WARNING", "events_plugin_ingestion"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))

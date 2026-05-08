@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -28,7 +29,9 @@ import temporalio.activity
 
 from posthog import redis as posthog_redis
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.models.utils import UUIDModel
 from posthog.sync import database_sync_to_async
 
@@ -73,8 +76,12 @@ class SyncFullCacheTimeoutError(Exception):
 
 
 class IntegrationRepositoryCacheEntry(UUIDModel):
-    integration = models.ForeignKey(Integration, on_delete=models.CASCADE, related_name="repository_cache_entries")
-    # Denormalized from Integration so HogQL's team_id guard can filter this table directly.
+    integration = models.ForeignKey(
+        Integration, on_delete=models.CASCADE, related_name="repository_cache_entries", null=True, blank=True
+    )
+    user_integration = models.ForeignKey(
+        UserIntegration, on_delete=models.CASCADE, related_name="repository_cache_entries", null=True, blank=True
+    )
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     full_name = models.TextField()  # Duplicate field, required for indexing
     description = models.TextField(null=True, blank=True)
@@ -95,8 +102,29 @@ class IntegrationRepositoryCacheEntry(UUIDModel):
 
     class Meta:
         app_label = "posthog"
-        unique_together = [("integration", "full_name")]
-        # `unique_together` already creates a btree index on (integration, full_name) — no need to duplicate it.
+        constraints = [
+            # Integration is team-bound by FK, so (integration, full_name) implicitly per-team.
+            models.UniqueConstraint(
+                fields=["integration", "full_name"],
+                condition=models.Q(integration__isnull=False),
+                name="integration_full_name_unique",
+            ),
+            # A UserIntegration spans every team its owner has access to, so the team has to be
+            # part of the uniqueness to not hydrate the same repo for two teams on a single row.
+            models.UniqueConstraint(
+                fields=["user_integration", "team", "full_name"],
+                condition=models.Q(user_integration__isnull=False),
+                name="user_integration_team_full_name_unique",
+            ),
+            # Exactly one of `integration` or `user_integration` is set per row
+            models.CheckConstraint(
+                condition=(
+                    models.Q(integration__isnull=False, user_integration__isnull=True)
+                    | models.Q(integration__isnull=True, user_integration__isnull=False)
+                ),
+                name="integration_xor_user_integration",
+            ),
+        ]
         indexes = [
             models.Index(fields=["team", "updated_at"]),
         ]
@@ -105,11 +133,23 @@ class IntegrationRepositoryCacheEntry(UUIDModel):
 class GitHubRepositoryFullCache:
     """Owns the heavy per-repo cache (README + tree + metadata) for a GitHub integration."""
 
-    def __init__(self, github: GitHubIntegration) -> None:
+    def __init__(self, github: GitHubIntegrationBase, *, team_id: int | None = None) -> None:
         self.github = github
+        if isinstance(github, GitHubIntegration):
+            # Team-level integration is bound to one team
+            if team_id is not None and team_id != github.integration.team_id:
+                raise ValueError(
+                    f"team_id={team_id} does not match team-level integration's team_id={github.integration.team_id}"
+                )
+            self.team_id = github.integration.team_id
+        elif team_id is not None:
+            self.team_id = team_id
+        else:
+            # UserGitHubIntegration is not bound to a team, so the team should be provided
+            raise ValueError("team_id is required for non-team GitHub integrations")
 
     @property
-    def integration(self) -> Integration:
+    def integration(self) -> Integration | UserIntegration:
         return self.github.integration
 
     @staticmethod
@@ -122,7 +162,9 @@ class GitHubRepositoryFullCache:
         # never read them, and bulk sync would otherwise drag MBs of `tree_paths` per repo through
         # Postgres just to decide the cache is still good.
         return (
-            self.integration.repository_cache_entries.filter(full_name=full_name).defer("readme", "tree_paths").first()
+            self.integration.repository_cache_entries.filter(team_id=self.team_id, full_name=full_name)
+            .defer("readme", "tree_paths")
+            .first()
         )
 
     def _fetch_repo_meta(self, owner: str, repo: str, full_name: str) -> tuple[dict, str, str]:
@@ -202,23 +244,33 @@ class GitHubRepositoryFullCache:
         tree_paths: str,
         tree_truncated: bool,
     ) -> IntegrationRepositoryCacheEntry:
-        entry, _ = IntegrationRepositoryCacheEntry.objects.update_or_create(
-            integration=self.integration,
-            full_name=full_name,
-            defaults={
-                "team_id": self.integration.team_id,
-                "description": repo_data.get("description"),
-                "topics": repo_data.get("topics") or [],
-                "archived": bool(repo_data.get("archived", False)),
-                "fork": bool(repo_data.get("fork", False)),
-                "primary_language": repo_data.get("language"),
-                "default_branch": default_branch,
-                "default_branch_sha": default_branch_sha,
-                "readme": readme_text,
-                "tree_paths": tree_paths,
-                "tree_truncated": tree_truncated,
-            },
-        )
+        defaults = {
+            "team_id": self.team_id,
+            "description": repo_data.get("description"),
+            "topics": repo_data.get("topics") or [],
+            "archived": bool(repo_data.get("archived", False)),
+            "fork": bool(repo_data.get("fork", False)),
+            "primary_language": repo_data.get("language"),
+            "default_branch": default_branch,
+            "default_branch_sha": default_branch_sha,
+            "readme": readme_text,
+            "tree_paths": tree_paths,
+            "tree_truncated": tree_truncated,
+        }
+        # UserIntegration spans teams — include team_id so one team's hydrate can't overwrite another's row.
+        if isinstance(self.github, UserGitHubIntegration):
+            entry, _ = IntegrationRepositoryCacheEntry.objects.update_or_create(
+                full_name=full_name,
+                user_integration=self.integration,
+                team_id=self.team_id,
+                defaults=defaults,
+            )
+        else:
+            entry, _ = IntegrationRepositoryCacheEntry.objects.update_or_create(
+                full_name=full_name,
+                integration=self.integration,
+                defaults=defaults,
+            )
         return entry
 
     async def sync_full_cache_entry_async(
@@ -271,7 +323,14 @@ class GitHubRepositoryFullCache:
 
     @database_sync_to_async
     def _evict_orphans(self, valid_full_names: set[str]) -> int:
-        deleted, _ = self.integration.repository_cache_entries.exclude(full_name__in=valid_full_names).delete()
+        # Drop every row for this team that isn't one we just hydrated — covers own-source orphans and leftovers
+        keep = (
+            Q(integration_id=self.integration.id, full_name__in=valid_full_names)
+            if isinstance(self.github, GitHubIntegration)
+            else Q(user_integration_id=self.integration.id, full_name__in=valid_full_names)
+        )
+        qs = IntegrationRepositoryCacheEntry.objects.filter(team_id=self.team_id).exclude(keep)
+        deleted, _ = qs.delete()
         return deleted
 
     async def sync_full_cache(self, *, concurrency: int = 10) -> list[IntegrationRepositoryCacheEntry | BaseException]:
