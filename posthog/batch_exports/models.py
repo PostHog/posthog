@@ -1,3 +1,4 @@
+import typing
 import datetime as dt
 from datetime import timedelta
 from enum import IntEnum
@@ -196,10 +197,30 @@ class BatchExportRun(UUIDTModel):
     @property
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this model."""
+        parent = self.parent
+
+        if isinstance(parent, BatchExport):
+            return f"{parent.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+
+        if isinstance(parent, BatchExportOnDemand):
+            return (
+                f"{parent.id}-{self.data_interval_start:%Y-%m-%dT%H:%M:%S}Z-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+            )
+
+        typing.assert_never(parent)
+
+    @property
+    def parent(self) -> "BatchExport | BatchExportOnDemand":
+        """Get this run's parent batch export.
+
+        It is enforced by a check constraint that either a `BatchExport` or a
+        `BatchExportOnDemand` must be defined in this run, but we must communicate that
+        to the Python type checker too via this property.
+        """
         if self.batch_export is not None:
-            return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+            return self.batch_export
         if self.batch_export_on_demand is not None:
-            return f"{self.batch_export_on_demand.id}-{self.data_interval_start:%Y-%m-%dT%H:%M:%S}Z-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+            return self.batch_export_on_demand
 
         raise ValueError("One of batch export or batch export on demand must always be defined")
 
