@@ -202,6 +202,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            group.excludedProperties ?? null,
+            group.propertyAllowList ?? null,
         ],
         [
             group.type,
@@ -212,6 +214,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            group.excludedProperties,
+            group.propertyAllowList,
         ]
     )
 

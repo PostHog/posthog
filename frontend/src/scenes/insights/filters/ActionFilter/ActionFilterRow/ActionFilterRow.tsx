@@ -592,6 +592,28 @@ export function ActionFilterRow({
                                             if (!groupType) {
                                                 return
                                             }
+                                            if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                                                // Mirror the legacy commit path — DWH filters carry
+                                                // their column mapping (id_field / timestamp_field /
+                                                // distinct_id_field / aggregation_target_field) on
+                                                // `item`. Without forwarding these, funnel
+                                                // aggregation + timestamp resolution silently break.
+                                                const extraValues = Object.fromEntries(
+                                                    dataWarehousePopoverFields.map(({ key }) => [
+                                                        key,
+                                                        (item as Record<string, unknown> | null)?.[key],
+                                                    ])
+                                                )
+                                                updateFilter({
+                                                    type: groupType,
+                                                    id: changedValue ? String(changedValue) : null,
+                                                    name: item?.name ?? '',
+                                                    table_name: item?.name,
+                                                    index,
+                                                    ...extraValues,
+                                                })
+                                                return
+                                            }
                                             updateFilter({
                                                 type: groupType,
                                                 id: changedValue ? String(changedValue) : null,
