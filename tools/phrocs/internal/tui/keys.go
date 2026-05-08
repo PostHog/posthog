@@ -294,10 +294,11 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 }
 
 // updateProcKeys enables/disables start, stop, and restart bindings
-// based on the active process state. RestartAllFailed is global (operates
-// across the whole sidebar), but is gated on at-least-one failed proc so
-// the help footer hides it when there's nothing to do.
+// based on the active process state.
 func (m *Model) updateProcKeys() {
+	// RestartAllFailed is global (operates across the whole sidebar) and is
+	// gated on at-least-one failed proc so the hotkey is a no-op when
+	// there's nothing to do.
 	m.keys.RestartAllFailed.SetEnabled(m.hasFailedProc())
 
 	p := m.activeProc()
