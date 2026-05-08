@@ -368,6 +368,19 @@ jobs:
               run: |
                   cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
+            - name: Build Rust flags service
+              working-directory: rust
+              env:
+                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # We disable debug assertions because the codebase contains
+                  # debug_assert! checks that intentionally panic on data invariant
+                  # violations, which would crash the service mid-test-run.
+                  RUSTFLAGS: '-C debug-assertions=no'
+              run: cargo build -p feature-flags
+
+            - name: Download MaxMind Database
+              run: ./bin/download-mmdb
+
             - name: Start Docker services
               shell: bash
               env:
@@ -392,6 +405,41 @@ jobs:
                   # Then run Django migrations
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
+
+            - name: Start Rust flags service
+              working-directory: rust
+              env:
+                  BIND_HOST: '127.0.0.1'
+                  BIND_PORT: '3001'
+                  READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+                  WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+                  PERSONS_READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
+                  PERSONS_WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
+                  REDIS_URL: redis://localhost:6379/
+                  CACHE_TTL_SECONDS: '0'
+                  RUST_BACKTRACE: '1'
+              run: |
+                  ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
+                  RUST_FLAGS_PID=$!
+                  echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
+                  for i in {1..30}; do
+                      if ! kill -0 "$RUST_FLAGS_PID" 2>/dev/null; then
+                          echo "ERROR: Rust flags service exited unexpectedly"
+                          cat /tmp/rust-flags.log || true
+                          exit 1
+                      fi
+                      if curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                          echo "Rust flags service is ready"
+                          break
+                      fi
+                      echo "Waiting for Rust flags service... ($i/30)"
+                      sleep 2
+                  done
+                  if ! curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                      echo "ERROR: Rust flags service failed to start after 30 attempts"
+                      cat /tmp/rust-flags.log || true
+                      exit 1
+                  fi
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
@@ -454,6 +502,10 @@ jobs:
             - name: Show celery logs on failure
               if: failure()
               run: cat /tmp/celery.log || true
+
+            - name: Show Rust flags service logs on failure
+              if: failure()
+              run: cat /tmp/rust-flags.log || true
 
             - name: Show docker compose logs on failure
               if: failure()
