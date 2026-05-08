@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
@@ -51,12 +52,6 @@ export function copyRRWebWorkerFiles(absWorkingDir) {
     } catch (error) {
         console.warn('Could not copy rrweb map files:', error.message)
     }
-}
-
-/** Update the file's modified and accessed times to now. */
-async function touchFile(file) {
-    const now = new Date()
-    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -214,7 +209,7 @@ export const commonConfig = {
         },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
-                const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
@@ -556,11 +551,6 @@ export async function buildOrWatch(config) {
                 }
 
                 if (inputFiles.has(filePath)) {
-                    if (filePath.match(/\.tsx?$/)) {
-                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
-                        // in case any new utility classes are used. `touch`ing `base.scss` (or the file that imports tailwind.css) achieves this.
-                        await touchFile(path.resolve(absWorkingDir, '../common/tailwind/tailwind.css'))
-                    }
                     void debouncedBuild()
                 }
             })

@@ -49,3 +49,12 @@ declare module '@tiptap/react/menus' {
 declare module 'react-grid-layout/extras' {
     export * from 'react-grid-layout/dist/extras'
 }
+
+// `@tailwindcss/vite` only ships types via `package.json#exports`,
+// which `moduleResolution: "node"` doesn't read.
+declare module '@tailwindcss/vite' {
+    import type { Plugin } from 'vite'
+    type PluginOptions = { optimize?: boolean | { minify?: boolean } }
+    const tailwindcss: (opts?: PluginOptions) => Plugin[]
+    export default tailwindcss
+}
