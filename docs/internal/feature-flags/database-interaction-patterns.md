@@ -284,20 +284,25 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 
 ### Prometheus metrics
 
-| Metric                                  | Labels                 | Purpose                                                       |
-| --------------------------------------- | ---------------------- | ------------------------------------------------------------- |
-| `flags_db_connection_time`              | `pool`, `operation`    | Connection acquisition latency                                |
-| `flags_person_query_time`               | -                      | Person lookup query duration                                  |
-| `flags_definition_query_time`           | -                      | Flag definition query duration                                |
-| `flags_pool_utilization_ratio`          | `pool`                 | Pool utilization (0.0-1.0)                                    |
-| `flags_connection_hold_time_ms`         | `pool`, `operation`    | How long connections are held                                 |
-| `flags_hash_key_retries_total`          | `team_id`, `operation` | Retry counter                                                 |
-| `flags_flag_evaluation_error_total`     | `error_type`           | Error counter                                                 |
-| `db_connection_created_total`           | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse) |
-| `flags_db_connection_pool_size`         | `pool`                 | Total pool size (should equal active + idle)                  |
-| `flags_db_connection_pool_active_total` | `pool`                 | Active (in-use) connections                                   |
-| `flags_db_connection_pool_idle_total`   | `pool`                 | Idle (available) connections                                  |
-| `flags_db_connection_pool_max_total`    | `pool`                 | Configured maximum connections                                |
+| Metric                                  | Labels                 | Purpose                                                                |
+| --------------------------------------- | ---------------------- | ---------------------------------------------------------------------- |
+| `flags_db_connection_time`              | `pool`, `operation`    | Connection acquisition latency (sub-ms precision, bucket floor 0.05ms) |
+| `flags_person_query_time`               | -                      | Person lookup query duration                                           |
+| `flags_definition_query_time`           | -                      | Flag definition query duration                                         |
+| `flags_pool_utilization_ratio`          | `pool`                 | Pool utilization (0.0-1.0)                                             |
+| `flags_connection_hold_time_ms`         | `pool`, `operation`    | How long connections are held                                          |
+| `flags_hash_key_retries_total`          | `team_id`, `operation` | Retry counter                                                          |
+| `flags_flag_evaluation_error_total`     | `error_type`           | Error counter                                                          |
+| `db_connection_created_total`           | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse)          |
+| `flags_db_connection_pool_size`         | `pool`                 | Total pool size (should equal active + idle)                           |
+| `flags_db_connection_pool_active_total` | `pool`                 | Active (in-use) connections                                            |
+| `flags_db_connection_pool_idle_total`   | `pool`                 | Idle (available) connections                                           |
+| `flags_db_connection_pool_max_total`    | `pool`                 | Configured maximum connections                                         |
+| `flags_queue_time_ms`                   | `team_id`              | Request queue wait time (bucket ceiling 30000ms)                       |
+| `flags_pre_handler_time_ms`             | `team_id`              | Pre-handler work timing (UA parse, rate limit checks, token extract)   |
+| `flags_rate_limit_check_ms`             | `kind`                 | Rate limit check duration (`kind="ip"` or `kind="token"`)              |
+| `flags_token_extract_ms`                | -                      | Token extraction timing                                                |
+| `flags_concurrency_limit_wait_ms`       | -                      | Concurrency limit permit wait time (pod-level, no `team_id`)           |
 
 ### Example PromQL queries
 
@@ -388,3 +393,4 @@ WRITER_STATEMENT_TIMEOUT_MS=2000  # 2s for writes (should be fast)
 | `rust/feature-flags/src/config.rs`                    | Environment configuration                             |
 | `rust/feature-flags/src/flags/flag_matching_utils.rs` | Query patterns, retry logic                           |
 | `rust/feature-flags/src/metrics/consts.rs`            | Metric constants                                      |
+| `rust/feature-flags/src/metrics/buckets.rs`           | Per-metric histogram bucket overrides                 |

@@ -5,6 +5,8 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feedback
+import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -33,6 +35,8 @@ import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
 import hogqlSchema from './query/schema'
 import queryValidate from './query/validate'
+// Replay
+import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -78,10 +82,16 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
 
+    // Feedback
+    'agent-feedback': submitFeedback,
+
     // PostHog AI tools
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Replay
+    'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,

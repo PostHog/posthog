@@ -337,18 +337,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -654,18 +657,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -859,7 +865,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
@@ -870,15 +876,15 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })
@@ -931,7 +937,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
@@ -943,15 +949,15 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })

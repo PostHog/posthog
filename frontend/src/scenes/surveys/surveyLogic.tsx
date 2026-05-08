@@ -47,6 +47,7 @@ import {
     ChoiceQuestionProcessedResponses,
     ChoiceQuestionResponseData,
     ConsolidatedSurveyResults,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     HogFunctionType,
@@ -154,6 +155,32 @@ type TranslationFieldCheck<T extends string> = {
 
 const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
 const DRAFT_TRANSLATION_QUESTION_ID_PREFIX = '__draft_question_'
+const SURVEY_NOTIFICATION_LIST_LIMIT = 100
+
+function getSurveyIdsFromNotificationFilters(filters?: CyclotronJobFiltersType | null): Set<string> {
+    const surveyIds = new Set<string>()
+
+    for (const event of filters?.events ?? []) {
+        for (const property of event.properties ?? []) {
+            if (property.key !== SurveyEventProperties.SURVEY_ID) {
+                continue
+            }
+
+            const value = property.value
+            if (Array.isArray(value)) {
+                value.forEach((surveyId) => {
+                    if (typeof surveyId === 'string') {
+                        surveyIds.add(surveyId)
+                    }
+                })
+            } else if (typeof value === 'string') {
+                surveyIds.add(value)
+            }
+        }
+    }
+
+    return surveyIds
+}
 
 function getTranslationDraftQuestionId(question: SurveyQuestion, index: number): string {
     return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
@@ -241,6 +268,13 @@ const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: Prop
 }
 
 export type SurveyDemoData = ReturnType<typeof getDemoDataForSurvey>
+
+export enum SurveyTab {
+    SUMMARY = 'summary',
+    RESPONSES = 'responses',
+    NOTIFICATIONS = 'notifications',
+    HISTORY = 'history',
+}
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -596,6 +630,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setActiveTab: (tab: SurveyTab) => ({ tab }),
         setEditingLanguage: (language: string | null) => ({ language }),
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -1036,6 +1071,36 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
+        reusableSurveyNotifications: [
+            [] as HogFunctionType[],
+            {
+                loadReusableSurveyNotifications: async (): Promise<HogFunctionType[]> => {
+                    if (props.id === NEW_SURVEY.id) {
+                        return []
+                    }
+
+                    const response = await api.hogFunctions.list({
+                        filter_groups: [
+                            {
+                                events: [{ id: SurveyEventName.SENT, type: 'events' }],
+                            },
+                        ],
+                        types: ['destination'],
+                        limit: SURVEY_NOTIFICATION_LIST_LIMIT,
+                        full: true,
+                    })
+
+                    return response.results.filter((notification) => {
+                        if (notification.deleted) {
+                            return false
+                        }
+
+                        const surveyIds = getSurveyIdsFromNotificationFilters(notification.filters)
+                        return !surveyIds.has(props.id)
+                    })
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, cache, props }) => {
         const maybeCompleteResultsRequery = (): void => {
@@ -1437,6 +1502,12 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     reducers({
+        activeTab: [
+            SurveyTab.SUMMARY as SurveyTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         personNames: [
             {} as Record<string, string>,
             {
@@ -2956,6 +3027,16 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     urlToAction(({ actions, props, values }) => ({
         [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate }, { method }) => {
+            // Sync active tab from URL
+            const tabFromUrl = searchParams.tab
+            if (tabFromUrl && Object.values(SurveyTab).includes(tabFromUrl) && tabFromUrl !== values.activeTab) {
+                actions.setActiveTab(tabFromUrl as SurveyTab)
+            } else if (searchParams.activity && values.activeTab !== SurveyTab.HISTORY) {
+                actions.setActiveTab(SurveyTab.HISTORY)
+            } else if (!tabFromUrl && !searchParams.activity && values.activeTab !== SurveyTab.SUMMARY) {
+                actions.setActiveTab(SurveyTab.SUMMARY)
+            }
+
             // Preserve unsaved edits whenever we re-enter the same survey URL — covers
             // both explicit opt-in navigations (e.g. guided↔full editor switch) and
             // implicit re-entries like tab switching, which also dispatch a PUSH.
@@ -3033,6 +3114,16 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     actionToUrl(({ values }) => ({
+        setActiveTab: ({ tab }) => {
+            const searchParams = { ...router.values.searchParams }
+            if (tab === SurveyTab.SUMMARY) {
+                delete searchParams['tab']
+            } else {
+                searchParams['tab'] = tab
+            }
+            delete searchParams['activity']
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
         editingSurvey: ({ editing }) => {
             const searchParams = router.values.searchParams
             if (editing) {
@@ -3069,6 +3160,7 @@ export const surveyLogic = kea<surveyLogicType>([
         if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()
             actions.loadSurveyNotifications()
+            actions.loadReusableSurveyNotifications()
         }
         if (props.id === 'new' && !shouldPreserveLocalChanges) {
             actions.resetSurvey()

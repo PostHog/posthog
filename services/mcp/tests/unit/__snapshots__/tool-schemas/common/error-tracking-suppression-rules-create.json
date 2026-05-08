@@ -25,89 +25,94 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
-                                        "default": "exact",
-                                        "enum": [
-                                            "exact",
-                                            "is_not",
-                                            "icontains",
-                                            "not_icontains",
-                                            "regex",
-                                            "not_regex",
-                                            "gt",
-                                            "gte",
-                                            "lt",
-                                            "lte",
-                                            "is_set",
-                                            "is_not_set",
-                                            "is_date_exact",
-                                            "is_date_before",
-                                            "is_date_after",
-                                            "between",
-                                            "not_between",
-                                            "min",
-                                            "max",
-                                            "in",
-                                            "not_in",
-                                            "is_cleaned_path_exact",
-                                            "flag_evaluates_to",
-                                            "semver_eq",
-                                            "semver_neq",
-                                            "semver_gt",
-                                            "semver_gte",
-                                            "semver_lt",
-                                            "semver_lte",
-                                            "semver_tilde",
-                                            "semver_caret",
-                                            "semver_wildcard",
-                                            "icontains_multi",
-                                            "not_icontains_multi"
+                                        "anyOf": [
+                                            {
+                                                "enum": [
+                                                    "exact",
+                                                    "is_not",
+                                                    "icontains",
+                                                    "not_icontains",
+                                                    "regex",
+                                                    "not_regex",
+                                                    "gt",
+                                                    "gte",
+                                                    "lt",
+                                                    "lte",
+                                                    "is_set",
+                                                    "is_not_set",
+                                                    "is_date_exact",
+                                                    "is_date_before",
+                                                    "is_date_after",
+                                                    "between",
+                                                    "not_between",
+                                                    "min",
+                                                    "max",
+                                                    "in",
+                                                    "not_in",
+                                                    "is_cleaned_path_exact",
+                                                    "flag_evaluates_to",
+                                                    "semver_eq",
+                                                    "semver_neq",
+                                                    "semver_gt",
+                                                    "semver_gte",
+                                                    "semver_lt",
+                                                    "semver_lte",
+                                                    "semver_tilde",
+                                                    "semver_caret",
+                                                    "semver_wildcard",
+                                                    "icontains_multi",
+                                                    "not_icontains_multi"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
                                         ],
-                                        "type": "string"
+                                        "default": "exact"
                                     },
                                     "type": {
+                                        "const": "event",
                                         "default": "event",
                                         "description": "Event properties",
-                                        "enum": ["event"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key"],
@@ -126,7 +131,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -168,46 +174,43 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "person",
                                         "default": "person",
                                         "description": "Person properties",
-                                        "enum": ["person"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -227,7 +230,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -269,45 +273,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "element",
                                         "default": "element",
-                                        "enum": ["element"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -326,7 +327,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -368,45 +370,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "event_metadata",
                                         "default": "event_metadata",
-                                        "enum": ["event_metadata"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -425,7 +424,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -467,45 +467,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "session",
                                         "default": "session",
-                                        "enum": ["session"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -521,11 +518,12 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "key": {
+                                        "const": "id",
                                         "default": "id",
-                                        "enum": ["id"],
                                         "type": "string"
                                     },
                                     "label": {
@@ -536,51 +534,59 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
-                                        "default": "in",
-                                        "enum": [
-                                            "exact",
-                                            "is_not",
-                                            "icontains",
-                                            "not_icontains",
-                                            "regex",
-                                            "not_regex",
-                                            "gt",
-                                            "gte",
-                                            "lt",
-                                            "lte",
-                                            "is_set",
-                                            "is_not_set",
-                                            "is_date_exact",
-                                            "is_date_before",
-                                            "is_date_after",
-                                            "between",
-                                            "not_between",
-                                            "min",
-                                            "max",
-                                            "in",
-                                            "not_in",
-                                            "is_cleaned_path_exact",
-                                            "flag_evaluates_to",
-                                            "semver_eq",
-                                            "semver_neq",
-                                            "semver_gt",
-                                            "semver_gte",
-                                            "semver_lt",
-                                            "semver_lte",
-                                            "semver_tilde",
-                                            "semver_caret",
-                                            "semver_wildcard",
-                                            "icontains_multi",
-                                            "not_icontains_multi"
+                                        "anyOf": [
+                                            {
+                                                "enum": [
+                                                    "exact",
+                                                    "is_not",
+                                                    "icontains",
+                                                    "not_icontains",
+                                                    "regex",
+                                                    "not_regex",
+                                                    "gt",
+                                                    "gte",
+                                                    "lt",
+                                                    "lte",
+                                                    "is_set",
+                                                    "is_not_set",
+                                                    "is_date_exact",
+                                                    "is_date_before",
+                                                    "is_date_after",
+                                                    "between",
+                                                    "not_between",
+                                                    "min",
+                                                    "max",
+                                                    "in",
+                                                    "not_in",
+                                                    "is_cleaned_path_exact",
+                                                    "flag_evaluates_to",
+                                                    "semver_eq",
+                                                    "semver_neq",
+                                                    "semver_gt",
+                                                    "semver_gte",
+                                                    "semver_lt",
+                                                    "semver_lte",
+                                                    "semver_tilde",
+                                                    "semver_caret",
+                                                    "semver_wildcard",
+                                                    "icontains_multi",
+                                                    "not_icontains_multi"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
                                         ],
-                                        "type": "string"
+                                        "default": "in"
                                     },
                                     "type": {
+                                        "const": "cohort",
                                         "default": "cohort",
-                                        "enum": ["cohort"],
                                         "type": "string"
                                     },
                                     "value": {
@@ -611,7 +617,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -653,45 +660,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "recording",
                                         "default": "recording",
-                                        "enum": ["recording"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -710,7 +714,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -752,45 +757,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "log_entry",
                                         "default": "log_entry",
-                                        "enum": ["log_entry"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -812,7 +814,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "group_type_index": {
                                         "anyOf": [
@@ -822,7 +825,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "key": {
                                         "type": "string"
@@ -835,7 +839,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -877,45 +882,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "group",
                                         "default": "group",
-                                        "enum": ["group"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -934,7 +936,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -976,46 +979,43 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "feature",
                                         "default": "feature",
                                         "description": "Event property with \"$feature/\" prepended",
-                                        "enum": ["feature"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1035,18 +1035,19 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
+                                        "const": "flag_evaluates_to",
                                         "default": "flag_evaluates_to",
                                         "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
-                                        "enum": ["flag_evaluates_to"],
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "flag",
                                         "default": "flag",
                                         "description": "Feature flag dependency",
-                                        "enum": ["flag"],
                                         "type": "string"
                                     },
                                     "value": {
@@ -1077,48 +1078,46 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "type": {
+                                        "const": "hogql",
                                         "default": "hogql",
-                                        "enum": ["hogql"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key"],
@@ -1127,8 +1126,8 @@
                             {
                                 "properties": {
                                     "type": {
+                                        "const": "empty",
                                         "default": "empty",
-                                        "enum": ["empty"],
                                         "type": "string"
                                     }
                                 },
@@ -1147,7 +1146,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1189,45 +1189,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "data_warehouse",
                                         "default": "data_warehouse",
-                                        "enum": ["data_warehouse"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1246,7 +1243,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1288,45 +1286,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "data_warehouse_person_property",
                                         "default": "data_warehouse_person_property",
-                                        "enum": ["data_warehouse_person_property"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1345,7 +1340,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1387,45 +1383,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "error_tracking_issue",
                                         "default": "error_tracking_issue",
-                                        "enum": ["error_tracking_issue"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1444,7 +1437,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1492,38 +1486,35 @@
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator", "type"],
@@ -1542,7 +1533,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1590,38 +1582,35 @@
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator", "type"],
@@ -1640,7 +1629,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1682,45 +1672,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "revenue_analytics",
                                         "default": "revenue_analytics",
-                                        "enum": ["revenue_analytics"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1739,7 +1726,8 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     },
                                     "operator": {
                                         "enum": [
@@ -1781,45 +1769,42 @@
                                         "type": "string"
                                     },
                                     "type": {
+                                        "const": "workflow_variable",
                                         "default": "workflow_variable",
-                                        "enum": ["workflow_variable"],
                                         "type": "string"
                                     },
                                     "value": {
                                         "anyOf": [
                                             {
-                                                "anyOf": [
-                                                    {
-                                                        "items": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
                                                         },
-                                                        "type": "array"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "boolean"
-                                                    }
-                                                ]
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
                                             },
                                             {
                                                 "type": "null"
                                             }
-                                        ]
+                                        ],
+                                        "default": null
                                     }
                                 },
                                 "required": ["key", "operator"],

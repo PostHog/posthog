@@ -344,6 +344,7 @@ async def ensure_llm_single_session_summary(
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=inputs.extra_summary_context,
         product_context=inputs.product_context,
+        custom_tags=inputs.custom_tags,
     )
 
     _set_phase(progress, "preparing_video")
@@ -396,7 +397,7 @@ async def ensure_llm_single_session_summary(
         inactivity_periods=inactivity_periods,
     )
 
-    # Slice runs inside the guard so a failure still triggers Gemini file cleanup.
+    cleanup_done = False  # falls through to the `finally` if a3/a4 fails before early cleanup
     try:
         await temporalio.workflow.execute_activity(
             slice_session_data_for_segments_activity,
@@ -426,6 +427,15 @@ async def ensure_llm_single_session_summary(
         segment_tasks = [_analyze_segment_with_semaphore(segment_spec) for segment_spec in segment_specs]
         segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
 
+        # Release before consolidation — Gemini's 20 GB cap limits in-flight summaries.
+        await temporalio.workflow.execute_activity(
+            cleanup_gemini_file_activity,
+            args=(uploaded_video.gemini_file_name, inputs.session_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        cleanup_done = True
+
         raw_segments: list[VideoSegmentOutput] = []
         for result in segment_results:
             if isinstance(result, Exception):
@@ -454,17 +464,6 @@ async def ensure_llm_single_session_summary(
         # Storage is the canonical record (fatal on failure); embed/emit/tag are best-effort.
         _set_phase(progress, "saving_summary")
         problems = collect_session_problems(consolidated_analysis.segments)
-        logger.info(
-            "session problem signals pre-emission",
-            team_id=inputs.team_id,
-            session_id=inputs.session_id,
-            workflow_id=trace_id,
-            total_consolidated_segments=len(consolidated_analysis.segments),
-            problem_segment_count=len(problems),
-            problems=[p.model_dump(include={"problem_type", "start_time", "end_time"}) for p in problems[:30]],
-            will_run_emit_activity=bool(problems),
-            signals_type="session-summaries",
-        )
 
         embed_coro = temporalio.workflow.execute_activity(
             embed_and_store_segments_activity,
@@ -523,13 +522,15 @@ async def ensure_llm_single_session_summary(
         if isinstance(store_result, BaseException):
             raise store_result
     finally:
-        _set_phase(progress, "cleanup")
-        await temporalio.workflow.execute_activity(
-            cleanup_gemini_file_activity,
-            args=(uploaded_video.gemini_file_name, inputs.session_id),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        if not cleanup_done:
+            # Sweep reaps within ~5min if this also fails.
+            _set_phase(progress, "cleanup")
+            await temporalio.workflow.execute_activity(
+                cleanup_gemini_file_activity,
+                args=(uploaded_video.gemini_file_name, inputs.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
 
 async def _start_video_summary_workflow(
@@ -623,6 +624,7 @@ def _prepare_execution(
     model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
+    custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -654,6 +656,7 @@ def _prepare_execution(
         team_id=team.id,
         extra_summary_context=extra_summary_context,
         product_context=product_context,
+        custom_tags=custom_tags,
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
@@ -671,6 +674,7 @@ async def execute_summarize_session(
     model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
+    custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -696,6 +700,7 @@ async def execute_summarize_session(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         product_context=product_context,
+        custom_tags=custom_tags,
         local_reads_prod=local_reads_prod,
         video_based=video_based,
         trigger_session_id=trigger_session_id,
@@ -782,6 +787,7 @@ async def execute_summarize_session_video_stream(
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
+    custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     force_restart: bool = False,
 ) -> AsyncGenerator[str, None]:
@@ -818,6 +824,7 @@ async def execute_summarize_session_video_stream(
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=extra_summary_context,
         product_context=product_context,
+        custom_tags=custom_tags,
         local_reads_prod=local_reads_prod,
         video_based=True,
     )

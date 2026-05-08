@@ -257,7 +257,7 @@ def wait_for_parts_to_merge(
     partitions_def=daily_partitions,
     name="sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
     _do_backfill(
@@ -269,7 +269,7 @@ def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfil
     partitions_def=daily_partitions,
     name="sessions_v3_replay_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill_replay(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
     _do_backfill(
@@ -290,7 +290,7 @@ sessions_backfill_job = define_asset_job(
     name="sessions_v3_backfill_job",
     selection=["sessions_v3_backfill", "sessions_v3_replay_backfill"],
     config=sessions_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **CONCURRENCY_TAG},
 )
 
 
@@ -340,7 +340,7 @@ def _do_backfill(
                     if team_id_chunks > 1:
                         chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
                         context.log.info(
-                            f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                            f"Processing chunk {chunk_i}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
                         )
                     else:
                         chunk_where_clause = where_clause
@@ -356,7 +356,7 @@ def _do_backfill(
                     sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
 
                     if team_id_chunks > 1:
-                        context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+                        context.log.info(f"Completed chunk {chunk_i}/{team_id_chunks}")
 
             context.log.info(f"Completed backfill on shard {shard_num}")
 
@@ -414,7 +414,7 @@ EXPERIMENTAL_CONCURRENCY_TAG = {
     partitions_def=daily_partitions,
     name="experimental_sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **EXPERIMENTAL_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **EXPERIMENTAL_CONCURRENCY_TAG},
 )
 def experimental_sessions_v3_backfill(
     context: AssetExecutionContext, config: ExperimentalSessionsBackfillConfig
@@ -428,7 +428,7 @@ experimental_sessions_backfill_job = define_asset_job(
     name="experimental_sessions_v3_backfill_job",
     selection=["experimental_sessions_v3_backfill"],
     config=sessions_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **EXPERIMENTAL_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **EXPERIMENTAL_CONCURRENCY_TAG},
 )
 
 
@@ -548,7 +548,22 @@ def _is_too_many_parts_error(exc: Exception) -> bool:
     return f"error code {ErrorCodes.TOO_MANY_PARTS}" in error_str or "TOO_MANY_PARTS" in error_str
 
 
-def _execute_with_too_many_parts_retry(
+def _is_too_many_simultaneous_queries_error(exc: Exception) -> bool:
+    """Check if an exception is a ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES error."""
+    error_str = str(exc)
+    return (
+        f"error code {ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES}" in error_str
+        or "Code: 202." in error_str
+        or "TOO_MANY_SIMULTANEOUS_QUERIES" in error_str
+    )
+
+
+# Backoff before retrying after a TOO_MANY_SIMULTANEOUS_QUERIES error — gives the cluster
+# time to drain in-flight queries from other tenants before we resubmit.
+TOO_MANY_QUERIES_BACKOFF_SECONDS = 60
+
+
+def _execute_with_retries(
     context: AssetExecutionContext,
     config: ExperimentalSessionsBackfillConfig,
     client: Client,
@@ -558,28 +573,45 @@ def _execute_with_too_many_parts_retry(
     retry_state: dict[str, int],
     retry_description: str,
 ) -> None:
-    """Run the INSERT, retrying via the preflight wait on TOO_MANY_PARTS until the shared budget is spent."""
+    """Run the INSERT, retrying on transient ClickHouse overload errors until the shared budget is spent.
+
+    Handles two error classes that share a single retry budget:
+    - TOO_MANY_PARTS: returns to the preflight wait so we don't resubmit until parts have merged.
+    - TOO_MANY_SIMULTANEOUS_QUERIES: sleeps a fixed backoff so cluster query slots can free up.
+    """
     while True:
         try:
             sync_execute(sql, settings=settings_, sync_client=client)
             return
         except Exception as e:
-            if not _is_too_many_parts_error(e):
+            is_parts = _is_too_many_parts_error(e)
+            is_queries = _is_too_many_simultaneous_queries_error(e)
+            if not is_parts and not is_queries:
                 raise
+
+            error_label = "TOO_MANY_PARTS" if is_parts else "TOO_MANY_SIMULTANEOUS_QUERIES"
 
             retry_state["count"] += 1
             if retry_state["count"] > retry_state["max"]:
                 context.log.exception(
-                    f"TOO_MANY_PARTS retry budget exhausted ({retry_state['max']}) on {retry_description}; giving up"
+                    f"Retry budget exhausted ({retry_state['max']}) on {retry_description} after {error_label}; giving up"
                 )
                 raise
 
-            context.log.warning(
-                f"TOO_MANY_PARTS on {retry_description} "
-                f"(retry {retry_state['count']}/{retry_state['max']}), "
-                f"returning to preflight check and waiting for parts to merge: {e}"
-            )
-            wait_for_parts_to_merge(context, config, sync_client=client, table=table, use_cluster=False)
+            if is_parts:
+                context.log.warning(
+                    f"TOO_MANY_PARTS on {retry_description} "
+                    f"(retry {retry_state['count']}/{retry_state['max']}), "
+                    f"returning to preflight check and waiting for parts to merge: {e}"
+                )
+                wait_for_parts_to_merge(context, config, sync_client=client, table=table, use_cluster=False)
+            else:
+                context.log.warning(
+                    f"TOO_MANY_SIMULTANEOUS_QUERIES on {retry_description} "
+                    f"(retry {retry_state['count']}/{retry_state['max']}), "
+                    f"sleeping {TOO_MANY_QUERIES_BACKOFF_SECONDS}s before retrying: {e}"
+                )
+                time.sleep(TOO_MANY_QUERIES_BACKOFF_SECONDS)
 
 
 BACKFILL_PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -617,11 +649,9 @@ def _raise_failure(
 ) -> NoReturn:
     """Re-raise an exception as dagster.Failure with progress metadata."""
     if sub_chunk_i is not None:
-        description = (
-            f"Failed on sub-chunk {sub_chunk_i + 1}/{total_sub_chunks} of chunk {chunk_i + 1}/{num_chunks}: {exc}"
-        )
+        description = f"Failed on sub-chunk {sub_chunk_i}/{total_sub_chunks} of chunk {chunk_i}/{num_chunks}: {exc}"
     else:
-        description = f"Failed on chunk {chunk_i + 1}/{num_chunks}: {exc}"
+        description = f"Failed on chunk {chunk_i}/{num_chunks}: {exc}"
 
     metadata: dict[str, dagster.MetadataValue] = {
         "failed_chunk_index": dagster.MetadataValue.int(chunk_i),
@@ -708,7 +738,7 @@ def _do_experimental_backfill(
                 if num_chunks > 1:
                     chunk_condition = chunk_where_fn(chunk_i)
                     chunk_where_clause = f"({where_clause}) AND {chunk_condition}"
-                    context.log.info(f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_condition})")
+                    context.log.info(f"Processing chunk {chunk_i}/{num_chunks} ({chunk_condition})")
                 else:
                     chunk_where_clause = where_clause
 
@@ -720,7 +750,7 @@ def _do_experimental_backfill(
                 context.log.info(backfill_sql)
 
                 try:
-                    _execute_with_too_many_parts_retry(
+                    _execute_with_retries(
                         context,
                         config,
                         client,
@@ -728,14 +758,14 @@ def _do_experimental_backfill(
                         merged_settings,
                         target_table,
                         parts_retry_state,
-                        f"chunk {chunk_i + 1}/{num_chunks}",
+                        f"chunk {chunk_i}/{num_chunks}",
                     )
                 except Exception as e:
                     if not _is_oom_error(e):
                         _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
 
                     context.log.warning(
-                        f"OOM error on chunk {chunk_i + 1}/{num_chunks}, "
+                        f"OOM error on chunk {chunk_i}/{num_chunks}, "
                         f"retrying by splitting into {OOM_RETRY_SUB_CHUNKS} sub-chunks: {e}"
                     )
 
@@ -763,11 +793,11 @@ def _do_experimental_backfill(
                             include_session_timestamp=True,
                         )
                         context.log.info(
-                            f"Running sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
+                            f"Running sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{num_chunks}"
                         )
                         context.log.info(sub_sql)
                         try:
-                            _execute_with_too_many_parts_retry(
+                            _execute_with_retries(
                                 context,
                                 config,
                                 client,
@@ -775,7 +805,7 @@ def _do_experimental_backfill(
                                 merged_settings,
                                 target_table,
                                 parts_retry_state,
-                                f"chunk {chunk_i + 1}/{num_chunks} sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS}",
+                                f"chunk {chunk_i}/{num_chunks} sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS}",
                             )
                         except Exception as sub_e:
                             _raise_failure(
@@ -788,11 +818,11 @@ def _do_experimental_backfill(
                                 total_sub_chunks=OOM_RETRY_SUB_CHUNKS,
                             )
                         context.log.info(
-                            f"Completed sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
+                            f"Completed sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{num_chunks}"
                         )
 
                 if num_chunks > 1:
-                    context.log.info(f"Completed chunk {chunk_i + 1}/{num_chunks}")
+                    context.log.info(f"Completed chunk {chunk_i}/{num_chunks}")
 
                 _save_completed_chunk(asset_name, partition_key, chunk_i)
 

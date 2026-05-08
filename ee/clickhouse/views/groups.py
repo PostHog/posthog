@@ -1,9 +1,10 @@
+import json as _json
+import base64
 from collections import defaultdict
-from typing import Optional, cast
+from typing import Any, Literal, Optional, cast, overload
+from urllib.parse import urlencode
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 import structlog
@@ -15,7 +16,6 @@ from opentelemetry import trace
 from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.pagination import CursorPagination
 
 from posthog.schema import ProductKey
 
@@ -33,11 +33,13 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
-from posthog.models.group.util import create_group, raw_create_group_ch
+from posthog.models.group.util import create_group, get_group_by_key, list_groups, raw_create_group_ch, save_group
 from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
+    delete_group_type_mapping,
     invalidate_group_types_cache,
+    update_group_type_mapping_fields,
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
@@ -57,6 +59,22 @@ from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _encode_groups_cursor(created_at_us: int, group_id: int) -> str:
+    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_us, "i": group_id}).encode()).decode()
+
+
+def _decode_groups_cursor(cursor: str) -> tuple[int, int]:
+    try:
+        data = _json.loads(base64.urlsafe_b64decode(cursor))
+        raw_ts = int(data.get("c", 0))
+        group_id = int(data.get("i", 0))
+        if 0 < raw_ts < 1e15:
+            raw_ts *= 1000
+        return raw_ts, group_id
+    except Exception:
+        return 0, 0
 
 
 def detect_group_property_type(value):
@@ -121,7 +139,13 @@ class GroupsTypesViewSet(
             instance.team = self.team
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            fields: dict[str, Any] = {}
+            if "name_singular" in serializer.validated_data:
+                fields["name_singular"] = serializer.validated_data["name_singular"]
+            if "name_plural" in serializer.validated_data:
+                fields["name_plural"] = serializer.validated_data["name_plural"]
+            if fields:
+                update_group_type_mapping_fields(instance, fields=fields, operation="group_type_update_metadata")
 
         invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
@@ -142,13 +166,17 @@ class GroupsTypesViewSet(
             )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
+        update_group_type_mapping_fields(
+            group_type_mapping,
+            fields={"detail_dashboard_id": dashboard.id},
+            operation="group_type_create_detail_dashboard",
+        )
         group_type_mapping.detail_dashboard_id = dashboard.id
-        group_type_mapping.save()
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
     def perform_destroy(self, instance):
-        super().perform_destroy(instance)
+        delete_group_type_mapping(instance)
         invalidate_group_types_cache(self.team.project_id)
 
     @action(methods=["PUT"], detail=False)
@@ -160,15 +188,14 @@ class GroupsTypesViewSet(
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
+        update_group_type_mapping_fields(
+            group_type_mapping,
+            fields={"default_columns": request.data["default_columns"]},
+            operation="group_type_set_default_columns",
+        )
         group_type_mapping.default_columns = request.data["default_columns"]
-        group_type_mapping.save()
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
-
-
-class GroupCursorPagination(CursorPagination):
-    ordering = "-created_at"
-    page_size = 100
 
 
 class GroupSerializer(serializers.HyperlinkedModelSerializer):
@@ -201,7 +228,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
-    pagination_class = GroupCursorPagination
+    pagination_class = None
     serializer_classes = {
         "find": FindGroupSerializer,
         "default": GroupSerializer,
@@ -209,6 +236,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
+
+    @overload
+    def _safely_get_query_params(self, require_group_key: Literal[True]) -> tuple[str, str]: ...
+
+    @overload
+    def _safely_get_query_params(self, require_group_key: bool = ...) -> tuple[str, str | None]: ...
 
     def _safely_get_query_params(self, require_group_key: bool = False) -> tuple[str, str | None]:
         group_type_index = self.request.GET.get("group_type_index")
@@ -228,13 +261,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     def safely_get_object(self, queryset):
         group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
-
-        queryset = queryset.filter(
-            group_type_index=group_type_index,
-            group_key=group_key,
-        )
-
-        return get_object_or_404(queryset)
+        group = get_group_by_key(self.team.pk, int(group_type_index), group_key)
+        if group is None:
+            raise NotFound()
+        return group
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
         from posthog.models.group_type_mapping import get_group_types_for_project
@@ -292,15 +322,32 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 "search",
                 OpenApiTypes.STR,
                 description="Search the group name",
-                required=True,
+                required=False,
+            ),
+            OpenApiParameter(
+                "cursor",
+                OpenApiTypes.STR,
+                description="Pagination cursor returned in the `next` URL of a previous response",
+                required=False,
+            ),
+            OpenApiParameter(
+                "group_key",
+                OpenApiTypes.STR,
+                description="Filter groups whose key contains this string (case-insensitive)",
+                required=False,
             ),
         ]
     )
     def list(self, request, *args, **kwargs):
         """
-        List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
+        List all groups of a specific group type. You must pass ?group_type_index= in the URL.
+        To get a list of valid group types, call /api/:project_id/groups_types/.
+
+        Uses forward-only keyset pagination via the `cursor` parameter.
+        The `previous` field in the response envelope is always null.
         """
-        if not self.request.GET.get("group_type_index"):
+        group_type_index_str = self.request.GET.get("group_type_index")
+        if not group_type_index_str:
             raise ValidationError(
                 {
                     "group_type_index": [
@@ -308,19 +355,43 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                     ]
                 }
             )
-        queryset = self.filter_queryset(self.get_queryset())
+        try:
+            group_type_index = int(group_type_index_str)
+        except ValueError:
+            raise ValidationError({"group_type_index": ["A valid integer is required."]})
 
-        group_search = self.request.GET.get("search")
-        if group_search is not None:
-            queryset = queryset.filter(Q(group_properties__icontains=group_search) | Q(group_key__iexact=group_search))
+        group_search = self.request.GET.get("search", "")
+        group_key = self.request.GET.get("group_key", "")
 
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        cursor_created_at_us = 0
+        cursor_id = 0
+        cursor_param = self.request.GET.get("cursor")
+        if cursor_param:
+            cursor_created_at_us, cursor_id = _decode_groups_cursor(cursor_param)
 
-        serializer = self.get_serializer(queryset, many=True)
-        return response.Response(serializer.data)
+        result = list_groups(
+            team_id=self.team.pk,
+            group_type_index=group_type_index,
+            group_key_contains=group_key,
+            search=group_search,
+            cursor_created_at_us=cursor_created_at_us,
+            cursor_id=cursor_id,
+        )
+
+        serializer = self.get_serializer(result.groups, many=True)
+
+        next_url = None
+        if result.has_more and result.groups:
+            last = result.groups[-1]
+            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1_000_000), last.id)
+            params: dict[str, str | int] = {"group_type_index": group_type_index, "cursor": cursor}
+            if group_search:
+                params["search"] = group_search
+            if group_key:
+                params["group_key"] = group_key
+            next_url = request.build_absolute_uri(f"{request.path}?{urlencode(params)}")
+
+        return response.Response({"next": next_url, "previous": None, "results": serializer.data})
 
     @extend_schema(request=CreateGroupSerializer, responses={status.HTTP_201_CREATED: serializer_classes["default"]})
     def create(self, request, *args, **kwargs):
@@ -402,28 +473,27 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
-        _, group_key = self._safely_get_query_params(require_group_key=True)
-        try:
-            group = self.get_queryset().get(group_key=group_key)
-            if (
-                self._is_crm_enabled(cast(User, request.user))
-                and not ResourceNotebook.objects.filter(group=group.id).exists()
-            ):
-                try:
-                    self._create_notebook_for_group(group=group)
-                except IntegrityError as e:
-                    logger.exception(
-                        "Group notebook creation failed",
-                        group_key=group.group_key,
-                        group_type_index=group.group_type_index,
-                        team_id=self.team.pk,
-                        error=e,
-                    )
-
-            data = self.get_serializer(group).data
-            return response.Response(data)
-        except Group.DoesNotExist:
+        group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
+        group = get_group_by_key(self.team.pk, int(group_type_index), group_key)
+        if group is None:
             raise NotFound()
+        if (
+            self._is_crm_enabled(cast(User, request.user))
+            and not ResourceNotebook.objects.filter(group=group.id).exists()
+        ):
+            try:
+                self._create_notebook_for_group(group=group)
+            except IntegrityError as e:
+                logger.exception(
+                    "Group notebook creation failed",
+                    group_key=group.group_key,
+                    group_type_index=group.group_type_index,
+                    team_id=self.team.pk,
+                    error=e,
+                )
+
+        data = self.get_serializer(group).data
+        return response.Response(data)
 
     @extend_schema(
         parameters=[
@@ -454,7 +524,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_or_update = "update" if property_key in group.group_properties else "create"
             original_value = group.group_properties.get(property_key, None)
             group.group_properties[property_key] = property_value
-            group.save()
+            save_group(group, operation="group_update_property")
 
             create_property_definition(
                 team_id=self.team.pk,
@@ -537,7 +607,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
             original_value = group.group_properties[property_key]
             del group.group_properties[property_key]
-            group.save()
+            save_group(group, operation="group_delete_property")
 
             # Need to update ClickHouse too
             timestamp = timezone.now()

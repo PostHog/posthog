@@ -7,9 +7,12 @@ from parameterized import parameterized
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    clear_dashboard_from_group_type_mapping,
+    delete_group_type_mapping,
     get_group_types_for_project,
     get_group_types_for_projects,
     get_group_types_for_team,
+    update_group_type_mapping_fields,
 )
 from posthog.utils import safe_cache_delete
 
@@ -590,3 +593,261 @@ class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
         result = get_group_types_for_projects([10, 20])
 
         assert result == {10: [], 20: []}
+
+
+# ── Write helper tests ─────────────────────────────────────────────
+
+
+class TestUpdateGroupTypeMappingFields(SimpleTestCase):
+    def _make_instance(self):
+        instance = MagicMock()
+        instance.project_id = 1
+        instance.group_type_index = 0
+        return instance
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_success_does_not_call_orm_save(self, mock_get_client, mock_routing_counter):
+        mock_client = MagicMock()
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"name_singular": "Org", "name_plural": "Orgs"})
+
+        mock_client.update_group_type_mapping.assert_called_once()
+        req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert req.project_id == 1
+        assert req.group_type_index == 0
+        assert set(req.update_mask) == {"name_singular", "name_plural"}
+        assert req.name_singular == "Org"
+        assert req.name_plural == "Orgs"
+        instance.save.assert_not_called()
+        mock_routing_counter.labels.assert_called_with(
+            operation="group_type_update", source="personhog", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_client_none_falls_back_to_orm_save(self, mock_get_client, mock_routing_counter):
+        mock_get_client.return_value = None
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"name_singular": "Org"})
+
+        instance.save.assert_called_once()
+        mock_routing_counter.labels.assert_called_with(
+            operation="group_type_update", source="django_orm", client_name="posthog-django"
+        )
+
+    @parameterized.expand(
+        [
+            ("grpc_timeout", RuntimeError("grpc timeout")),
+            ("connection_error", ConnectionError("connection refused")),
+        ]
+    )
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_exception_falls_back_to_orm(
+        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
+    ):
+        mock_client = MagicMock()
+        mock_client.update_group_type_mapping.side_effect = exception
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"name_singular": "Org"})
+
+        instance.save.assert_called_once()
+        mock_errors_counter.labels.assert_called_once_with(
+            operation="group_type_update",
+            source="personhog",
+            error_type="grpc_error",
+            client_name="posthog-django",
+        )
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_orm_fallback_sets_fields_on_instance(self, mock_get_client, mock_routing_counter):
+        mock_get_client.return_value = None
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"name_singular": "Team", "default_columns": ["name"]})
+
+        assert instance.name_singular == "Team"
+        assert instance.default_columns == ["name"]
+        instance.save.assert_called_once()
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_detail_dashboard_id_sent_correctly(self, mock_get_client, mock_routing_counter):
+        mock_client = MagicMock()
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"detail_dashboard_id": 42})
+
+        req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert req.detail_dashboard_id == 42
+        assert "detail_dashboard_id" in req.update_mask
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_detail_dashboard_id_none_leaves_field_unset(self, mock_get_client, mock_routing_counter):
+        mock_client = MagicMock()
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"detail_dashboard_id": None})
+
+        req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert "detail_dashboard_id" in req.update_mask
+        assert req.detail_dashboard_id == 0
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_default_columns_json_encoded(self, mock_get_client, mock_routing_counter):
+        mock_client = MagicMock()
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        update_group_type_mapping_fields(instance, fields={"default_columns": ["name", "email"]})
+
+        req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert b'"name"' in req.default_columns
+        assert b'"email"' in req.default_columns
+
+
+class TestDeleteGroupTypeMapping(SimpleTestCase):
+    def _make_instance(self):
+        instance = MagicMock()
+        instance.project_id = 1
+        instance.group_type_index = 0
+        return instance
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_success_does_not_call_orm_delete(self, mock_get_client, mock_routing_counter):
+        mock_client = MagicMock()
+        mock_client.delete_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        delete_group_type_mapping(instance)
+
+        mock_client.delete_group_type_mapping.assert_called_once()
+        req = mock_client.delete_group_type_mapping.call_args[0][0]
+        assert req.project_id == 1
+        assert req.group_type_index == 0
+        instance.delete.assert_not_called()
+        mock_routing_counter.labels.assert_called_with(
+            operation="delete_group_type_mapping", source="personhog", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_client_none_falls_back_to_orm_delete(self, mock_get_client, mock_routing_counter):
+        mock_get_client.return_value = None
+
+        instance = self._make_instance()
+        delete_group_type_mapping(instance)
+
+        instance.delete.assert_called_once()
+        mock_routing_counter.labels.assert_called_with(
+            operation="delete_group_type_mapping", source="django_orm", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_exception_falls_back_to_orm_delete(
+        self, mock_get_client, mock_routing_counter, mock_errors_counter
+    ):
+        mock_client = MagicMock()
+        mock_client.delete_group_type_mapping.side_effect = RuntimeError("grpc timeout")
+        mock_get_client.return_value = mock_client
+
+        instance = self._make_instance()
+        delete_group_type_mapping(instance)
+
+        instance.delete.assert_called_once()
+        mock_errors_counter.labels.assert_called_once()
+
+
+class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_success_reads_then_updates(self, mock_get_client, mock_routing_counter, mock_invalidate):
+        mock_mapping = MagicMock()
+        mock_mapping.project_id = 1
+        mock_mapping.group_type_index = 0
+        mock_resp = MagicMock()
+        mock_resp.mapping = mock_mapping
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+
+        mock_client.get_group_type_mapping_by_dashboard_id.assert_called_once()
+        mock_client.update_group_type_mapping.assert_called_once()
+        update_req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert update_req.project_id == 1
+        assert update_req.group_type_index == 0
+        assert "detail_dashboard_id" in update_req.update_mask
+        assert update_req.detail_dashboard_id == 0
+        mock_invalidate.assert_called_once_with(1)
+
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_no_matching_mapping_skips_update(self, mock_get_client, mock_routing_counter, mock_invalidate):
+        mock_resp = MagicMock()
+        mock_resp.mapping = None
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp
+        mock_get_client.return_value = mock_client
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=999)
+
+        mock_client.update_group_type_mapping.assert_not_called()
+        mock_invalidate.assert_not_called()
+
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_objects, mock_invalidate):
+        mock_get_client.return_value = None
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42, project_id=1)
+
+        mock_objects.using.assert_called_once()
+        mock_invalidate.assert_called_once_with(1)
+        mock_routing_counter.labels.assert_called_with(
+            operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_exception_falls_back_to_orm(
+        self, mock_get_client, mock_routing_counter, mock_errors_counter, mock_objects
+    ):
+        mock_client = MagicMock()
+        mock_client.get_group_type_mapping_by_dashboard_id.side_effect = RuntimeError("grpc timeout")
+        mock_get_client.return_value = mock_client
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42, project_id=1)
+
+        mock_objects.using.assert_called_once()
+        mock_errors_counter.labels.assert_called_once()

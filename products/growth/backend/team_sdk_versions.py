@@ -15,7 +15,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.growth.backend.constants import SDK_CACHE_EXPIRY, SdkVersionEntry, team_sdk_versions_key
+from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY, SdkVersionEntry, team_sdk_versions_key
 from products.growth.dags.github_sdk_versions import SDK_TYPES
 
 default_logger: BoundLogger = structlog.get_logger(__name__)
@@ -103,7 +103,7 @@ def get_and_cache_team_sdk_versions(
         if sdk_versions is not None:
             payload = json.dumps(sdk_versions)
             cache_key = team_sdk_versions_key(team_id)
-            redis_client.setex(cache_key, SDK_CACHE_EXPIRY, payload)
+            redis_client.setex(cache_key, TEAM_SDK_CACHE_EXPIRY, payload)
             logger.info(f"[SDK Doctor] Team {team_id} SDK versions cached successfully")
 
             return sdk_versions

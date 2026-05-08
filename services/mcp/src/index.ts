@@ -13,9 +13,36 @@ import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
-import RAW_LANDING_HTML from './static/landing.html'
 
-const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
+function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
+    const mcpServerLog: Record<string, unknown> = {
+        ...(props.mcpAnalyticsProvider ? { mcpAnalyticsProvider: props.mcpAnalyticsProvider } : {}),
+        ...(props.mcpAnalyticsFlagKey ? { mcpAnalyticsFlagKey: props.mcpAnalyticsFlagKey } : {}),
+        ...(props.mcpAnalyticsFlagEnabled !== undefined
+            ? { mcpAnalyticsFlagEnabled: props.mcpAnalyticsFlagEnabled }
+            : {}),
+        ...(props.mcpAnalyticsFlagErrorName ? { mcpAnalyticsFlagErrorName: props.mcpAnalyticsFlagErrorName } : {}),
+        ...(props.mcpAnalyticsFlagErrorMessage
+            ? { mcpAnalyticsFlagErrorMessage: props.mcpAnalyticsFlagErrorMessage }
+            : {}),
+        ...(props.posthogMcpAnalyticsInitAction
+            ? { posthogMcpAnalyticsInitAction: props.posthogMcpAnalyticsInitAction }
+            : {}),
+        ...(props.posthogMcpAnalyticsInitReason
+            ? { posthogMcpAnalyticsInitReason: props.posthogMcpAnalyticsInitReason }
+            : {}),
+        ...(props.posthogMcpAnalyticsInitErrorName
+            ? { posthogMcpAnalyticsInitErrorName: props.posthogMcpAnalyticsInitErrorName }
+            : {}),
+        ...(props.posthogMcpAnalyticsInitErrorMessage
+            ? { posthogMcpAnalyticsInitErrorMessage: props.posthogMcpAnalyticsInitErrorMessage }
+            : {}),
+    }
+
+    if (Object.keys(mcpServerLog).length > 0) {
+        log.extend(mcpServerLog)
+    }
+}
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -153,9 +180,7 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(PARSED_LANDING_HTML, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-        })
+        return Response.redirect(MCP_DOCS_URL, 302)
     }
 
     // OpenAI ChatGPT App Directory domain verification
@@ -376,7 +401,16 @@ const handleRequest = async (
     }
 
     if (server !== null) {
-        return server.then(onThenErrorHandler).catch((error: Error) => onCatchErrorHandler(error, log, ctx))
+        return server
+            .then(async (response) => {
+                const handledResponse = await onThenErrorHandler(response)
+                extendMcpServerLog(log, ctx.props)
+                return handledResponse
+            })
+            .catch((error: Error) => {
+                extendMcpServerLog(log, ctx.props)
+                return onCatchErrorHandler(error, log, ctx)
+            })
     }
 
     log.extend({ error: 'route_not_found' })

@@ -3,17 +3,20 @@ from __future__ import annotations
 import os
 import time
 import atexit
+import signal
 import socket
 import asyncio
 import logging
 import threading
 import subprocess
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 
 import pytest
 
 from django.conf import settings
+
+from temporalio.testing import WorkflowEnvironment
 
 from posthog.temporal.common.worker import create_worker
 
@@ -51,6 +54,12 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     replicas. If a test ever needs a narrower whitelist it can set
     ``databases=...`` on its own marker — explicit kwargs win.
 
+    ``transaction=True`` is applied by default so ORM writes are committed and
+    visible to Temporal activities, which run on worker threads with their own
+    DB connections. Without this, ``get_task_processing_context`` raises
+    ``TaskRun matching query does not exist`` while the test transaction is
+    still open.
+
     Prepended via ``append=False`` so it beats the function-level
     ``@pytest.mark.django_db`` in pytest's ``iter_markers``/``get_closest_marker``
     resolution; otherwise the original (no-kwargs) marker is read first
@@ -71,11 +80,117 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             continue  # respect explicit per-test override
         args = existing.args if existing is not None else ()
         kwargs = {**(existing.kwargs if existing is not None else {}), "databases": list(SANDBOXED_EVAL_DATABASES)}
+        if "transaction" not in kwargs:
+            kwargs["transaction"] = True
         item.add_marker(pytest.mark.django_db(*args, **kwargs), append=False)
 
 
 # Sandbox container name prefix used by the eval harness (set in SandboxConfig.name)
 _EVAL_CONTAINER_PREFIX = "task-sandbox-"
+
+
+def _temporal_client_target(env: WorkflowEnvironment) -> tuple[str, str]:
+    config = env.client.config()
+    service_client = config["service_client"]
+    target_host = service_client.config.target_host
+    host, port = target_host.rsplit(":", maxsplit=1)
+    return host, port
+
+
+def _start_long_lived_subprocess(
+    *,
+    name: str,
+    port: int,
+    cmd: list[str],
+    cwd: Path,
+    env: dict[str, str],
+    log_prefix: str,
+    readiness_timeout: float = 30.0,
+) -> tuple[subprocess.Popen, Callable[[], None]]:
+    """Spawn a long-lived support service (LLM gateway, MCP server) for the eval session.
+
+    Three guarantees beyond a bare ``subprocess.Popen``:
+
+    * **Pre-flight port check** — refuses to start if ``port`` is already bound.
+      A previous session's stale process would otherwise pass our TCP-level
+      readiness check (we'd connect to the *old* process), and tests would
+      silently run against a gateway tied to a deleted test database.
+
+    * **Subprocess-aware readiness wait** — polls ``proc.poll()`` on every
+      iteration. If the subprocess died during startup (e.g. EADDRINUSE that
+      slipped past the pre-flight check, missing dependency, config error),
+      fails loudly with the captured returncode rather than waiting for the
+      TCP timeout.
+
+    * **Process-group cleanup on session exit** — ``start_new_session=True``
+      puts the child in its own process group, and an ``atexit`` hook sends
+      ``SIGTERM`` (then ``SIGKILL``) to the whole group. Mirrors the docker
+      container cleanup pattern in ``_cleanup_eval_containers``. Doesn't fire
+      on ``SIGKILL`` of pytest itself — but the next session's pre-flight
+      check will catch any leak with a specific ``lsof`` hint.
+    """
+    try:
+        pre_sock = socket.create_connection(("localhost", port), timeout=0.5)
+        pre_sock.close()
+        pytest.fail(
+            f"Port {port} is already in use — likely a stale {name} from a prior eval session. "
+            f"Find and kill it:\n  lsof -iTCP:{port} -sTCP:LISTEN"
+        )
+    except OSError:
+        pass  # port is free, proceed
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    def _stop() -> None:
+        if proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    atexit.register(_stop)
+
+    def _pipe_to_logger(pipe, level):
+        for line in iter(pipe.readline, b""):
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if text:
+                logger.log(level, "[%s] %s", log_prefix, text)
+        pipe.close()
+
+    threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
+    threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
+
+    deadline = time.monotonic() + readiness_timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            pytest.fail(
+                f"{name} subprocess exited with code {proc.returncode} during startup. "
+                f"Check the [{log_prefix}] WARNING lines above."
+            )
+        try:
+            sock = socket.create_connection(("localhost", port), timeout=1)
+            sock.close()
+            return proc, _stop
+        except OSError:
+            time.sleep(0.5)
+
+    _stop()
+    pytest.fail(f"{name} failed to start on port {port} within {readiness_timeout:.0f}s.")
 
 
 def _cleanup_eval_containers():
@@ -171,12 +286,47 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandbox_settings(_django_live_server, _llm_gateway):
+def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
+    """Start an isolated Temporal dev server for sandboxed eval workflows."""
+    loop = asyncio.new_event_loop()
+    temporal_namespace = settings.TEMPORAL_NAMESPACE
+    env: WorkflowEnvironment | None = None
+
+    try:
+        env = loop.run_until_complete(
+            WorkflowEnvironment.start_local(
+                namespace=temporal_namespace,
+                ip="127.0.0.1",
+                port=None,
+                dev_server_log_level="warn",
+            )
+        )
+        host, port = _temporal_client_target(env)
+        logger.info("Sandboxed eval Temporal server ready at %s:%s namespace=%s", host, port, temporal_namespace)
+
+        yield host, port, temporal_namespace
+    finally:
+        if env is not None:
+            logger.info("Shutting down sandboxed eval Temporal server")
+            loop.run_until_complete(env.shutdown())
+        loop.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sandbox_settings(
+    _django_live_server: object,
+    _llm_gateway: object,
+    _temporal_test_server: tuple[str, str, str],
+) -> Generator[None, None, None]:
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
     Docker sandbox containers. Points at the in-process Django live server
     which shares the test database.
+
+    Temporal is pointed at a per-session local dev server and task queue. That
+    keeps eval workflows away from any dev worker already polling the normal
+    tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
     flags so permission checks (TasksAccessPermission) and workflow guards pass.
@@ -188,6 +338,8 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
     # Docker containers reach the host via host.docker.internal
     docker_api_url = f"http://host.docker.internal:{DJANGO_LIVE_PORT}"
     docker_llm_gateway_url = f"http://host.docker.internal:{LLM_GATEWAY_PORT}"
+    temporal_host, temporal_port, temporal_namespace = _temporal_test_server
+    temporal_task_queue = f"sandboxed-evals-tasks-{os.getpid()}"
 
     import posthoganalytics
 
@@ -198,6 +350,12 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
             SANDBOX_MCP_URL=f"http://host.docker.internal:{MCP_PORT}/mcp",
+            TEMPORAL_HOST=temporal_host,
+            TEMPORAL_PORT=temporal_port,
+            TEMPORAL_NAMESPACE=temporal_namespace,
+            TEMPORAL_CLIENT_CERT=None,
+            TEMPORAL_CLIENT_KEY=None,
+            TASKS_TASK_QUEUE=temporal_task_queue,
         ),
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
@@ -380,8 +538,10 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
     }
 
     logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
-    proc = subprocess.Popen(
-        [
+    _, stop = _start_long_lived_subprocess(
+        name="LLM gateway",
+        port=LLM_GATEWAY_PORT,
+        cmd=[
             str(uvicorn_bin),
             "llm_gateway.main:app",
             "--host",
@@ -391,41 +551,13 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
         ],
         cwd=gateway_dir,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_prefix="llm-gateway",
     )
-
-    def _pipe_to_logger(pipe, level):
-        for line in iter(pipe.readline, b""):
-            text = line.decode("utf-8", errors="replace").rstrip()
-            if text:
-                logger.log(level, "[llm-gateway] %s", text)
-        pipe.close()
-
-    threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
-    threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            sock = socket.create_connection(("localhost", LLM_GATEWAY_PORT), timeout=1)
-            sock.close()
-            break
-        except OSError:
-            time.sleep(0.5)
-    else:
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.fail(f"LLM gateway failed to start on port {LLM_GATEWAY_PORT} within 30s.")
 
     logger.info("LLM gateway ready on port %d", LLM_GATEWAY_PORT)
     yield
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    stop()
     logger.info("LLM gateway stopped")
 
 
@@ -463,46 +595,19 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         var_args.extend(["--var", v])
 
     logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
-    proc = subprocess.Popen(
-        ["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+    _, stop = _start_long_lived_subprocess(
+        name="MCP server",
+        port=MCP_PORT,
+        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
         cwd=mcp_dir,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_prefix="mcp",
     )
-
-    # Stream subprocess output to logger in background threads
-    def _pipe_to_logger(pipe, level):
-        for line in iter(pipe.readline, b""):
-            text = line.decode("utf-8", errors="replace").rstrip()
-            if text:
-                logger.log(level, "[mcp] %s", text)
-        pipe.close()
-
-    threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
-    threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            sock = socket.create_connection(("localhost", MCP_PORT), timeout=1)
-            sock.close()
-            break
-        except OSError:
-            time.sleep(0.5)
-    else:
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.fail(f"MCP server failed to start on port {MCP_PORT} within 30s.")
 
     logger.info("MCP server ready on port %d", MCP_PORT)
     yield
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    stop()
     logger.info("MCP server stopped")
 
 

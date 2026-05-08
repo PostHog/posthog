@@ -11,18 +11,20 @@ import shutil
 import socket
 import functools
 import subprocess
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import click
-from hogli.cli import cli
+from hogli.manifest import get_manifest
 
 from . import keychain
 from .coder import (
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
+    GIT_SIGNING_KEY_SECRET,
     _fail,
     create_task,
     create_workspace,
@@ -34,6 +36,7 @@ from .coder import (
     ensure_tailscale_connected,
     ensure_tailscale_routes_accepted,
     extract_workspace_label,
+    get_coder_url,
     get_coder_user_info,
     get_default_git_identity,
     get_shared_users,
@@ -61,10 +64,13 @@ from .coder import (
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
+    upsert_user_secret,
+    user_secret_exists,
 )
 from .config import load_config, save_dotfiles_uri, save_git_identity
 
 _CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
+_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
 WORKSPACE_STATUS_COLORS = {
     "running": "green",
@@ -332,6 +338,126 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def _resolve_local_identity_agent_for_coder() -> str | None:
+    """Return the IdentityAgent ssh would use to connect to Coder workspaces, or ``None``.
+
+    Resolves against the deployment hostname so the engineer's existing
+    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through.
+    """
+    coder_host = urllib.parse.urlparse(get_coder_url()).hostname
+    if not coder_host:
+        return None
+    return _resolve_local_identity_agent(coder_host)
+
+
+def _resolve_local_signing_key() -> str | None:
+    """Return the engineer's ``git config user.signingkey``, normalized to a literal SSH public key string.
+
+    Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
+    string, the same with a ``key::`` prefix (used by tools like Secretive),
+    or a path to a public-key file. All are normalized here. Returns ``None``
+    when the value is unset or the referenced file can't be read.
+    """
+    result = subprocess.run(
+        ["git", "config", "--global", "--get", "user.signingkey"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    if not value:
+        return None
+    if value.startswith("key::"):
+        value = value.removeprefix("key::")
+    if value.startswith(("ssh-", "ecdsa-", "sk-")):
+        return value
+    try:
+        return Path(os.path.expanduser(value)).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def _resolve_local_identity_agent(host: str) -> str | None:
+    """Return the SSH agent socket ``ssh -G <host>`` would use to authenticate, or ``None`` when no specific agent is configured.
+
+    Treats ``none`` (signaling "no agent") and the literal placeholder
+    ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
+    agent" so callers can decide their own fallback.
+    """
+    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("identityagent "):
+            value = line[len("identityagent ") :].strip()
+            if value and value.lower() not in ("none", "ssh_auth_sock"):
+                return value
+            return None
+    return None
+
+
+def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
+    """Propagate the engineer's existing local commit-signing config into devboxes.
+
+    Reads ``git config user.signingkey`` (the public key the engineer already
+    signs locally with) and ``ssh -G <coder-host>``'s ``identityagent`` (the
+    SSH agent ssh would use for the connection, which is the agent that gets
+    forwarded). Pushes the public key to a Coder user secret and pins the
+    agent socket as the local IdentityAgent for Coder hosts. No menus, no
+    probing -- whatever the engineer has set up locally per the handbook is
+    what propagates.
+    """
+    already_set = user_secret_exists(GIT_SIGNING_KEY_SECRET)
+
+    if configure_git_signing is False:
+        if already_set:
+            click.echo("Using saved Git signing key.")
+            click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
+        else:
+            click.echo("Skipping Git commit signing setup.")
+        return
+
+    if configure_git_signing is None and already_set:
+        click.echo("Git signing: configured (commits inside devbox will be signed).")
+        click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
+        return
+
+    public_key = _resolve_local_signing_key()
+    if not public_key:
+        click.echo()
+        click.echo(click.style("Git commit signing (skipped)", bold=True))
+        click.echo("  `git config --global user.signingkey` is empty.")
+        click.echo(f"  Set up commit signing per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        click.echo("  Then re-run `hogli devbox:setup --configure-git-signing`.")
+        return
+
+    if public_key.startswith("ssh-rsa "):
+        click.echo()
+        click.echo(click.style("RSA signing keys are not allowed.", fg="red"))
+        click.echo(f"  Use ECDSA or Ed25519 per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        return
+
+    upsert_user_secret(GIT_SIGNING_KEY_SECRET, public_key, env_var=GIT_SIGNING_KEY_SECRET)
+
+    click.echo()
+    click.echo(click.style("Git commit signing", bold=True))
+    click.echo(f"  Pushed signing key from `git config user.signingkey`: {public_key}")
+    agent_socket = _resolve_local_identity_agent_for_coder()
+    if agent_socket:
+        click.echo(f"  IdentityAgent for Coder hosts (from your ssh config): {agent_socket}")
+    else:
+        click.echo("  No IdentityAgent detected for Coder hosts -- SSH agent forwarding will use")
+        click.echo(f"  whatever `$SSH_AUTH_SOCK` points to. Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+    click.echo()
+    click.echo(click.style("If you haven't already:", bold=True))
+    click.echo("  1. Open https://github.com/settings/ssh/new")
+    click.echo("  2. Set 'Key type' to 'Signing Key' (auth keys do not sign).")
+    click.echo("  3. Paste the key above.")
+    click.echo()
+    click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
+
+
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     """Optionally persist a dotfiles repo URL for new workspaces."""
     config = load_config()
@@ -370,13 +496,14 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
         click.echo("No dotfiles repo configured.")
 
 
-@cli.command(name="devbox", help="Show available devbox commands")
+@click.command(name="devbox", help="Show available devbox commands")
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
+    manifest_obj = get_manifest()
     commands = sorted(
-        (name, cmd.get_short_help_str() or "")
-        for name, cmd in cli.commands.items()
-        if name.startswith("devbox:") and not getattr(cmd, "hidden", False)
+        (name, (manifest_obj.get_command_config(name) or {}).get("description", ""))
+        for name in manifest_obj.get_all_commands()
+        if name.startswith("devbox:") and not manifest_obj.is_command_hidden(name)
     )
     click.echo("Available devbox commands:")
     click.echo()
@@ -413,7 +540,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
         click.echo("No token provided. Skipping.")
 
 
-@cli.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
+@click.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
 @click.option(
     "--configure-ssh/--skip-configure-ssh",
     default=None,
@@ -423,6 +550,11 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     "--configure-git-identity/--skip-configure-git-identity",
     default=None,
     help="Prompt for Git name/email defaults for new Coder workspaces",
+)
+@click.option(
+    "--configure-git-signing/--skip-configure-git-signing",
+    default=None,
+    help="Propagate your local git signing key into Coder devboxes (reads git config user.signingkey)",
 )
 @click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
@@ -439,6 +571,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
 def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
+    configure_git_signing: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
     verbose: bool,
@@ -449,14 +582,19 @@ def devbox_setup(
     ensure_coder_reachable()
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
-    maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
+    maybe_configure_ssh(
+        configure_ssh=configure_ssh,
+        identity_agent_socket=_resolve_local_identity_agent_for_coder(),
+        verbose=verbose,
+    )
     maybe_configure_git_identity(configure_git_identity)
+    maybe_configure_git_signing(configure_git_signing)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_token(configure_claude_setup)
     print_setup_summary()
 
 
-@cli.command(name="devbox:list", help="List your devboxes")
+@click.command(name="devbox:list", help="List your devboxes")
 def devbox_list() -> None:
     """List all workspaces belonging to the current user, plus shared workspaces."""
     ensure_runtime_ready()
@@ -496,7 +634,7 @@ def devbox_list() -> None:
             click.echo(f"  {label:<16} {', '.join(users)}")
 
 
-@cli.command(name="devbox:users", help="List Coder users (for devbox sharing)")
+@click.command(name="devbox:users", help="List Coder users (for devbox sharing)")
 def devbox_users() -> None:
     """List all active Coder users so you know who to share with."""
     ensure_runtime_ready()
@@ -538,7 +676,7 @@ def _hint_if_positional_looks_like_username(
         )
 
 
-@cli.command(name="devbox:share", help="Share your devbox with other users")
+@click.command(name="devbox:share", help="Share your devbox with other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
 @click.option("--role", type=click.Choice(["use", "admin"]), default="use", help="Access role to grant")
@@ -570,7 +708,7 @@ def devbox_share(
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 
 
-@cli.command(name="devbox:unshare", help="Revoke access to your devbox from other users")
+@click.command(name="devbox:unshare", help="Revoke access to your devbox from other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to revoke access from")
 def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
@@ -590,7 +728,7 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
 
 
-@cli.command(name="devbox:start", help="Start or create your remote devbox")
+@click.command(name="devbox:start", help="Start or create your remote devbox")
 @workspace_argument
 @click.option(
     "--disk",
@@ -642,7 +780,7 @@ def devbox_start(
     _print_connection_info(name)
 
 
-@cli.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
+@click.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_stop(workspace: str | None, verbose: bool) -> None:
@@ -661,7 +799,7 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
     click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
 
 
-@cli.command(name="devbox:restart", help="Restart your devbox")
+@click.command(name="devbox:restart", help="Restart your devbox")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_restart(workspace: str | None, verbose: bool) -> None:
@@ -675,7 +813,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     _print_connection_info(name)
 
 
-@cli.command(name="devbox:update", help="Update devbox to the latest template")
+@click.command(name="devbox:update", help="Update devbox to the latest template")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_update(workspace: str | None, verbose: bool) -> None:
@@ -696,7 +834,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     _print_connection_info(name)
 
 
-@cli.command(name="devbox:ssh", help="SSH into your devbox")
+@click.command(name="devbox:ssh", help="SSH into your devbox")
 @workspace_argument
 def devbox_ssh(workspace: str | None) -> None:
     """Open an SSH session to the devbox."""
@@ -705,7 +843,7 @@ def devbox_ssh(workspace: str | None) -> None:
     ssh_replace(name)
 
 
-@cli.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
+@click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
 @workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
@@ -733,7 +871,7 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) ->
         open_in_browser(name)
 
 
-@cli.command(name="devbox:logs", help="Tail devbox build and agent logs")
+@click.command(name="devbox:logs", help="Tail devbox build and agent logs")
 @workspace_argument
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
 def devbox_logs(workspace: str | None, follow: bool) -> None:
@@ -743,7 +881,7 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
     logs_replace(name, follow)
 
 
-@cli.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
+@click.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
 @click.argument("prompt", required=False)
 @click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
@@ -768,7 +906,7 @@ def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
     create_task(prompt, task_name=task_name, quiet=quiet)
 
 
-@cli.command(name="devbox:destroy", help="Destroy your devbox and its data")
+@click.command(name="devbox:destroy", help="Destroy your devbox and its data")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_destroy(workspace: str | None, verbose: bool) -> None:
@@ -789,7 +927,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
     click.echo("Destroyed.")
 
 
-@cli.command(name="devbox:status", help="Show devbox status")
+@click.command(name="devbox:status", help="Show devbox status")
 @workspace_argument
 def devbox_status(workspace: str | None) -> None:
     """Show the current state of the devbox."""
@@ -821,7 +959,7 @@ def devbox_status(workspace: str | None) -> None:
         _print_connection_info(name)
 
 
-@cli.command(name="devbox:forward", help="Forward PostHog UI to localhost")
+@click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
 @workspace_argument
 @click.option("--port", default=8010, type=int, help="Local port to forward to")
 def devbox_forward(workspace: str | None, port: int) -> None:
@@ -888,7 +1026,7 @@ def _rm_dir(label: str, path: Path) -> None:
         click.echo(f" warning: partial deletion ({e})")
 
 
-@cli.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
 @click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
 @click.option(
     "--cargo",

@@ -3,6 +3,7 @@ import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { escapeHogQLString } from '~/queries/utils'
 
 import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoaderLogicType'
 import { parsePartialJSON } from './utils'
@@ -36,11 +37,6 @@ function chunk<T>(arr: T[], size: number): T[][] {
         chunks.push(arr.slice(i, i + size))
     }
     return chunks
-}
-
-// Escape a trace ID for safe inlining into a single-quoted HogQL string.
-function escapeHogqlString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "''")
 }
 
 // "2026-04-11T19:20:55.828Z" → "2026-04-11 19:20:55" (ClickHouse toDateTime format, UTC).
@@ -192,41 +188,41 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                             // Inlining IDs + timestamps rather than using a values dict: we
                             // can't combine `{values}` with `{filters}`-style placeholders
                             // because parse_select eagerly resolves all placeholders against
-                            // the values dict before find_placeholders runs. Each ID is
-                            // escaped via escapeHogqlString.
-                            const idList = safe.map((s) => `'${escapeHogqlString(s.id)}'`).join(',')
+                            // the values dict before find_placeholders runs.
+                            // escapeHogQLString returns the value already wrapped in single quotes.
+                            const idList = safe.map((s) => escapeHogQLString(s.id)).join(',')
                             const query: HogQLQuery = {
                                 kind: NodeKind.HogQLQuery,
                                 query: `
                                     SELECT
-                                        properties.$ai_trace_id AS trace_id,
+                                        trace_id,
                                         anyIf(
-                                            substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
-                                                AND length(toString(properties.$ai_input_state)) > 0
+                                                AND length(input_state) > 0
                                         ) AS first_input,
                                         anyIf(
-                                            substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
-                                                AND length(toString(properties.$ai_output_state)) > 0
+                                                AND length(output_state) > 0
                                         ) AS last_output,
                                         argMinIf(
-                                            substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(input, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
-                                                AND length(toString(properties.$ai_input)) > 0
+                                                AND length(input) > 0
                                         ) AS first_input_fallback,
                                         argMaxIf(
-                                            substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
-                                                AND length(toString(properties.$ai_output_choices)) > 0
+                                                AND length(output_choices) > 0
                                         ) AS last_output_fallback
-                                    FROM events
+                                    FROM posthog.ai_events AS ai_events
                                     WHERE event IN ('$ai_trace', '$ai_generation')
                                       AND timestamp >= toDateTime('${fromStr}', 'UTC')
                                       AND timestamp <= toDateTime('${toStr}', 'UTC')
-                                      AND properties.$ai_trace_id IN (${idList})
+                                      AND trace_id IN (${idList})
                                     GROUP BY trace_id
                                 `,
                             }

@@ -288,11 +288,11 @@ class TestServiceFlagsCache(BaseTest):
         [
             # (is_remote_config, has_encrypted, should_include, description)
             (False, False, True, "regular_flag"),
-            (False, True, True, "encrypted_but_not_remote_config"),
+            (False, True, False, "encrypted_but_not_remote_config"),
             (True, False, True, "unencrypted_remote_config"),
             (True, True, False, "encrypted_remote_config"),
             (None, False, True, "null_remote_config_unencrypted"),
-            (None, True, True, "null_remote_config_encrypted"),
+            (None, True, False, "null_remote_config_encrypted"),
             (False, None, True, "regular_flag_null_encrypted"),
             (True, None, True, "remote_config_null_encrypted"),
             (None, None, True, "legacy_flag_both_null"),
@@ -301,8 +301,11 @@ class TestServiceFlagsCache(BaseTest):
     def test_filtering_matrix_for_service(self, is_remote_config, has_encrypted, should_include, desc):
         """Test filtering behavior for all combinations of is_remote_configuration and has_encrypted_payloads.
 
-        This parameterized test covers all 9 combinations including NULL values to ensure
-        legacy flags (created before these fields existed) are handled correctly.
+        Any flag with has_encrypted_payloads=True is excluded — these can only be
+        accessed via /remote_config. The model invariant (clean() + serializer
+        validation) guarantees True implies is_remote_configuration=True, but the
+        filter is intentionally strict to defend against invariant violations.
+        NULL has_encrypted_payloads is preserved (legacy flags pre-dating the field).
         """
         FeatureFlag.objects.create(
             team=self.team,
@@ -325,22 +328,18 @@ class TestServiceFlagsCache(BaseTest):
         [
             # (is_remote_config, has_encrypted, should_include, description)
             (False, False, True, "regular_flag"),
-            (False, True, True, "encrypted_but_not_remote_config"),
+            (False, True, False, "encrypted_but_not_remote_config"),
             (True, False, True, "unencrypted_remote_config"),
             (True, True, False, "encrypted_remote_config"),
             (None, False, True, "null_remote_config_unencrypted"),
-            (None, True, True, "null_remote_config_encrypted"),
+            (None, True, False, "null_remote_config_encrypted"),
             (False, None, True, "regular_flag_null_encrypted"),
             (True, None, True, "remote_config_null_encrypted"),
             (None, None, True, "legacy_flag_both_null"),
         ]
     )
     def test_filtering_matrix_for_teams_batch(self, is_remote_config, has_encrypted, should_include, desc):
-        """Test batch function filtering for all combinations of is_remote_configuration and has_encrypted_payloads.
-
-        This parameterized test covers all 9 combinations including NULL values to ensure
-        legacy flags (created before these fields existed) are handled correctly in batch loading.
-        """
+        """Mirrors test_filtering_matrix_for_service for the batch loader path."""
         FeatureFlag.objects.create(
             team=self.team,
             key=f"flag-{desc}",
@@ -1902,6 +1901,53 @@ class TestManagementCommands(BaseTest):
         # Mismatch result should include db_data for cache fix optimization
         self.assertIn("db_data", result)
         self.assertIsInstance(result["db_data"], dict)
+
+    @parameterized.expand(
+        [
+            (
+                "extra_key_in_cache_is_tolerated",
+                lambda flag: flag.__setitem__("legacy_field_that_no_longer_exists", True),
+                "match",
+                None,
+            ),
+            (
+                "missing_key_in_cache_still_flagged",
+                lambda flag: flag.pop("filters"),
+                "mismatch",
+                "filters",
+            ),
+        ]
+    )
+    def test_verify_handles_key_drift_between_cache_and_db(
+        self, _name, mutate_cached_flag, expected_status, expected_diff_field
+    ):
+        """The DB serialization is the source of truth: stale extras in the
+        cache must be ignored (otherwise a benign serializer field removal
+        rewrites every team's cache), but a key the DB has and the cache
+        doesn't is a real divergence and must still be flagged."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        assert len(cached_data["flags"]) == 1
+        mutate_cached_flag(cached_data["flags"][0])
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], expected_status)
+        if expected_diff_field is not None:
+            field_mismatches = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+            self.assertEqual(len(field_mismatches), 1)
+            self.assertIn(expected_diff_field, field_mismatches[0]["diff_fields"])
 
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""

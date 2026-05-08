@@ -224,8 +224,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 except ValueError:
                     pass
             elif assignee.startswith("role:"):
-                role_id = assignee[5:]
-                queryset = queryset.filter(assignment__role_id=role_id)
+                try:
+                    role_id = uuid.UUID(assignee[5:])
+                except (ValueError, AttributeError):
+                    pass
+                else:
+                    queryset = queryset.filter(assignment__role_id=role_id)
 
         date_from = self.request.query_params.get("date_from")
         if date_from and date_from != "all":
