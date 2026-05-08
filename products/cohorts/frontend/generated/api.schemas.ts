@@ -14,12 +14,6 @@ export const PropertyGroupOperatorApi = {
     Or: 'OR',
 } as const
 
-export type BehavioralFilterApiType = (typeof BehavioralFilterApiType)[keyof typeof BehavioralFilterApiType]
-
-export const BehavioralFilterApiType = {
-    Behavioral: 'behavioral',
-} as const
-
 export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
 
 export const EventPropFilterTypeEnumApi = {
@@ -31,104 +25,57 @@ export interface EventPropFilterApi {
     type: EventPropFilterTypeEnumApi
     key: string
     value: unknown
-    /** @nullable */
     operator?: string | null
 }
 
-export type HogQLFilterApiType = (typeof HogQLFilterApiType)[keyof typeof HogQLFilterApiType]
-
-export const HogQLFilterApiType = {
-    Hogql: 'hogql',
-} as const
-
 export interface HogQLFilterApi {
-    type: HogQLFilterApiType
+    type: 'hogql'
     key: string
-    value?: unknown | null
+    value?: unknown
 }
 
 export interface BehavioralFilterApi {
-    /** @nullable */
     bytecode?: unknown[] | null
-    /** @nullable */
     bytecode_error?: string | null
-    /** @nullable */
     conditionHash?: string | null
-    type: BehavioralFilterApiType
+    type: 'behavioral'
     key: string | number
     value: string
     event_type: string
-    /** @nullable */
     time_value?: number | null
-    /** @nullable */
     time_interval?: string | null
     negation?: boolean
-    /** @nullable */
     operator?: string | null
-    /** @nullable */
     operator_value?: number | null
-    /** @nullable */
     seq_time_interval?: string | null
-    /** @nullable */
     seq_time_value?: number | null
     seq_event?: string | number | null
-    /** @nullable */
     seq_event_type?: string | null
-    /** @nullable */
     total_periods?: number | null
-    /** @nullable */
     min_periods?: number | null
-    /** @nullable */
     event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
-    /** @nullable */
     explicit_datetime?: string | null
-    /** @nullable */
     explicit_datetime_to?: string | null
 }
 
-export type CohortFilterApiType = (typeof CohortFilterApiType)[keyof typeof CohortFilterApiType]
-
-export const CohortFilterApiType = {
-    Cohort: 'cohort',
-} as const
-
-export type CohortFilterApiKey = (typeof CohortFilterApiKey)[keyof typeof CohortFilterApiKey]
-
-export const CohortFilterApiKey = {
-    Id: 'id',
-} as const
-
 export interface CohortFilterApi {
-    /** @nullable */
     bytecode?: unknown[] | null
-    /** @nullable */
     bytecode_error?: string | null
-    /** @nullable */
     conditionHash?: string | null
-    type: CohortFilterApiType
-    key: CohortFilterApiKey
+    type: 'cohort'
+    key: 'id'
     value: number
     negation?: boolean
 }
 
-export type PersonFilterApiType = (typeof PersonFilterApiType)[keyof typeof PersonFilterApiType]
-
-export const PersonFilterApiType = {
-    Person: 'person',
-} as const
-
 export interface PersonFilterApi {
-    /** @nullable */
     bytecode?: unknown[] | null
-    /** @nullable */
     bytecode_error?: string | null
-    /** @nullable */
     conditionHash?: string | null
-    type: PersonFilterApiType
+    type: 'person'
     key: string
-    /** @nullable */
     operator?: string | null
-    value?: unknown | null
+    value?: unknown
     negation?: boolean
 }
 
@@ -173,14 +120,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -200,7 +143,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -232,7 +175,7 @@ export interface CohortApi {
     groups?: unknown
     deleted?: boolean
     filters?: CohortFiltersApi | null
-    query?: unknown | null
+    query?: unknown
     /** @nullable */
     readonly version: number | null
     /** @nullable */
@@ -253,12 +196,12 @@ export interface CohortApi {
     is_static?: boolean
     /** Type of cohort based on filter complexity
 
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
+  * `static` - static
+  * `person_property` - person_property
+  * `behavioral` - behavioral
+  * `realtime` - realtime
+  * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -285,7 +228,7 @@ export interface PatchedCohortApi {
     groups?: unknown
     deleted?: boolean
     filters?: CohortFiltersApi | null
-    query?: unknown | null
+    query?: unknown
     /** @nullable */
     readonly version?: number | null
     /** @nullable */
@@ -306,12 +249,12 @@ export interface PatchedCohortApi {
     is_static?: boolean
     /** Type of cohort based on filter complexity
 
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
+  * `static` - static
+  * `person_property` - person_property
+  * `behavioral` - behavioral
+  * `realtime` - realtime
+  * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]

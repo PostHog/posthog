@@ -7,6 +7,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricGauge, RetryPolicy
@@ -51,6 +52,7 @@ class CollectedBatch:
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
     raw = await sync_to_async(object_storage.read, thread_sensitive=False)(input.object_key)
     if raw is None:
@@ -244,6 +246,12 @@ class TeamSignalGroupingV2Workflow:
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingV2Input) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._paused_until = input.paused_until

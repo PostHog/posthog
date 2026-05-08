@@ -7,7 +7,7 @@ description: >
   what happened — who the user was, what they did, what errors occurred,
   and whether there are related error tracking issues. Replaces the manual
   chain of session-recording-get, persons-retrieve, execute-sql, and
-  error-tracking-issues-list.
+  query-error-tracking-issues-list.
 ---
 
 # Investigating a session recording
@@ -18,13 +18,13 @@ ask for each piece.
 
 ## Available tools
 
-| Tool                                  | Purpose                                          |
-| ------------------------------------- | ------------------------------------------------ |
-| `posthog:session-recording-get`       | Recording metadata (duration, counts, status)    |
-| `posthog:persons-retrieve`            | Person profile (properties, distinct IDs)        |
-| `posthog:execute-sql`                 | Query events, errors, and page views in session  |
-| `posthog:error-tracking-issues-list`  | Find error tracking issues linked to the session |
-| `posthog:session-recording-summarize` | AI-generated summary (slow, ~5 min, optional)    |
+| Tool                                       | Purpose                                          |
+| ------------------------------------------ | ------------------------------------------------ |
+| `posthog:session-recording-get`            | Recording metadata (duration, counts, status)    |
+| `posthog:persons-retrieve`                 | Person profile (properties, distinct IDs)        |
+| `posthog:execute-sql`                      | Query events, errors, and page views in session  |
+| `posthog:query-error-tracking-issues-list` | Find error tracking issues linked to the session |
+| `posthog:session-recording-summarize`      | AI-generated summary (slow, ~5 min, optional)    |
 
 ## Workflow
 
@@ -110,9 +110,9 @@ If fingerprints are found, search for the corresponding error tracking issues
 to provide links and status:
 
 ```json
-posthog:error-tracking-issues-list
+posthog:query-error-tracking-issues-list
 {
-  "search": "<exception_type or message>"
+  "searchQuery": "<exception_type or message>"
 }
 ```
 
