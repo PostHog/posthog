@@ -19,6 +19,7 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import LLMTrace, LLMTraceEvent
@@ -330,12 +331,14 @@ class TestConversationsList(ClickhouseTestMixin, APIBaseTest):
         ids = {row["id"] for row in response.json()["results"]}
         assert ids == {"t-orphan-target"}
 
-    def test_invalid_properties_payload_returns_400(self):
-        # Not a JSON array
-        response = self.client.get(self.URL + "?properties=not-json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # Valid JSON but not a list
-        response = self.client.get(self.URL + '?properties={"key":"value"}')
+    @parameterized.expand(
+        [
+            ("not_json", "not-json"),
+            ("json_object_not_list", '{"key":"value"}'),
+        ]
+    )
+    def test_invalid_properties_payload_returns_400(self, _name: str, payload: str) -> None:
+        response = self.client.get(self.URL + f"?properties={payload}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_other_team_is_isolated(self):
