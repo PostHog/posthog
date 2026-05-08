@@ -17,47 +17,54 @@ import { isShortId } from '@/tools/insights/utils'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
-// Maps query kinds to the productKey used by `_infer_query_tags` on the Python side.
-// Values mirror the frontend `ProductKey` enum (e.g. `session_replay`, not `replay`)
-// so attribution stays consistent with queries originating from the web app.
+// Subset of the frontend `ProductKey` enum (frontend/src/queries/schema/schema-general.ts)
+// that MCP query kinds map to. Typing the map values against this union catches typos
+// like `replay` vs `session_replay` at the TS build, and keeps attribution consistent
+// with queries originating from the web app.
+//
+// A drift guard test parses the canonical enum and asserts every value here exists there
+// — see services/mcp/tests/unit/inject-product-key.test.ts.
+export type MappedProductKey =
+    | 'product_analytics'
+    | 'error_tracking'
+    | 'llm_analytics'
+    | 'session_replay'
+    | 'experiments'
+
+// Maps the runtime `kind` string sent in the query body to the productKey consumed by
+// `_infer_query_tags` on the Python side. The keys here MUST be the runtime `kind`
+// literal — interface names like `AssistantTrendsActorsQuery` (which has runtime kind
+// `InsightActorsQuery`) silently miss and attribute to MCP. The coverage test in
+// inject-product-key.test.ts cross-references this against `query-wrappers.ts` so a
+// new `kind:` registration without a map entry fails CI.
 //
 // `null` means the kind is intentionally untagged — it falls through to the backend
-// `product=mcp` default. New product-specific query kinds must be added here; an entry
-// missing from this map silently attributes to MCP rather than the owning product.
-const QUERY_KIND_TO_PRODUCT_KEY: Record<string, string | null> = {
+// `product=mcp` default.
+export const QUERY_KIND_TO_PRODUCT_KEY: Record<string, MappedProductKey | null> = {
     // Product analytics
     TrendsQuery: 'product_analytics',
-    AssistantTrendsQuery: 'product_analytics',
-    AssistantTrendsActorsQuery: 'product_analytics',
     FunnelsQuery: 'product_analytics',
-    AssistantFunnelsQuery: 'product_analytics',
     RetentionQuery: 'product_analytics',
-    AssistantRetentionQuery: 'product_analytics',
     LifecycleQuery: 'product_analytics',
-    AssistantLifecycleQuery: 'product_analytics',
     PathsQuery: 'product_analytics',
-    AssistantPathsQuery: 'product_analytics',
     StickinessQuery: 'product_analytics',
-    AssistantStickinessQuery: 'product_analytics',
+    InsightActorsQuery: 'product_analytics',
     // Error tracking
     ErrorTrackingQuery: 'error_tracking',
     // LLM analytics
-    LLMTracesQuery: 'llm_analytics',
-    AssistantTracesQuery: 'llm_analytics',
-    AssistantTraceQuery: 'llm_analytics',
+    TracesQuery: 'llm_analytics',
+    TraceQuery: 'llm_analytics',
     // Session replay
     RecordingsQuery: 'session_replay',
-    SessionRecordingListQuery: 'session_replay',
     // Experiments
     ExperimentQuery: 'experiments',
     ExperimentExposureQuery: 'experiments',
     // Raw HogQL — no product tag; backend MCP default applies
     HogQLQuery: null,
     HogQLMetadata: null,
-    HogQLAstQuery: null,
 }
 
-function injectProductKey(query: Record<string, unknown>): Record<string, unknown> {
+export function injectProductKey(query: Record<string, unknown>): Record<string, unknown> {
     const kind = query?.kind as string | undefined
     if (!kind) {
         return query
