@@ -30,4 +30,12 @@ describe('feature-flags-test-evaluation-create schema', () => {
         const result = tool.schema.safeParse({ id: 1, person_id: 'b' })
         expect(result.success).toBe(true)
     })
+
+    it('accepts a string id and casts it to a number', () => {
+        const result = tool.schema.safeParse({ id: '42', distinct_id: 'a' })
+        expect(result.success).toBe(true)
+        if (result.success) {
+            expect(result.data.id).toBe(42)
+        }
+    })
 })

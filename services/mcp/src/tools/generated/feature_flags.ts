@@ -278,6 +278,7 @@ const featureFlagsStatusRetrieve = (): ToolBase<
 
 const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
     .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
     .superRefine(validateDistinctIdPersonIdExclusive)
 
 const featureFlagsTestEvaluationCreate = (): ToolBase<

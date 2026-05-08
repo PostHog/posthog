@@ -223,12 +223,15 @@ tools:
         annotations:
             readOnly: true
             destructive: false
-            idempotent: false
+            idempotent: true
         title: Test feature flag evaluation
         description: >
             Test how a feature flag evaluates for a specific user at an optional point in time.
             Provides detailed reasoning about why the flag matched or didn't match, including
             condition analysis and person properties used in evaluation.
+        param_overrides:
+            id:
+                cast: string-int
         validators:
             - validateDistinctIdPersonIdExclusive
     feature-flags-update:
