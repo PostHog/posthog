@@ -129,10 +129,12 @@ describe('ciRanges', () => {
         expect(upper).toEqual([5, 5, 5, 5])
     })
 
-    it('widens with lower confidence (e.g. 0.99 vs 0.5)', () => {
+    it('widens with higher confidence (0.99 vs 0.5)', () => {
         const values = [10, 12, 8, 14, 9, 11, 13]
         const narrow = ciRanges(values, 0.5)
         const wide = ciRanges(values, 0.99)
-        expect(wide[1][0] - wide[0][0]).toBeGreaterThan(narrow[1][0] - narrow[0][0])
+        for (let i = 0; i < values.length; i++) {
+            expect(wide[1][i] - wide[0][i]).toBeGreaterThan(narrow[1][i] - narrow[0][i])
+        }
     })
 })

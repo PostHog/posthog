@@ -58,8 +58,8 @@ describe('format helpers', () => {
             ['days suppress minutes/seconds', 90061, `1d${NBSP}1h`, undefined],
             ['negative', -90, `-1m${NBSP}30s`, undefined],
             ['negative forwards options', -90, '-1m', { maxUnits: 1 }],
-            ['secondsPrecision', 1.234, '1.2s', { secondsPrecision: 2 }],
-            ['secondsFixed', 1.234, '1.2s', { secondsFixed: 1 }],
+            ['secondsPrecision rounds to N significant figures', 12.5, '13s', { secondsPrecision: 2 }],
+            ['secondsFixed rounds to N fixed decimals', 12.5, '12.5s', { secondsFixed: 1 }],
             ['maxUnits 1 caps output', 3661, '1h', { maxUnits: 1 }],
             ['maxUnits 2 caps output', 3661, `1h${NBSP}1m`, { maxUnits: 2 }],
             ['string input parsed as number', '90', `1m${NBSP}30s`, undefined],
@@ -98,21 +98,13 @@ describe('format helpers', () => {
     })
 
     describe('formatCurrency', () => {
-        it('prefixes USD with $', () => {
-            expect(formatCurrency(1234, 'USD')).toBe('$1,234.00')
-        })
-
-        it('uses 2 fixed decimal places', () => {
-            expect(formatCurrency(1.5, 'USD')).toBe('$1.50')
-        })
-
         it.each([
-            ['EUR is prefixed in en-US locale', 'EUR'],
-            ['GBP', 'GBP'],
-            ['JPY', 'JPY'],
-        ])('%s renders without throwing', (_, currency) => {
-            expect(() => formatCurrency(1234, currency)).not.toThrow()
-            expect(formatCurrency(1234, currency)).toMatch(/1,234/)
+            ['USD prefixes with $', 1234, 'USD', '$1,234.00'],
+            ['always uses 2 fixed decimal places', 1.5, 'USD', '$1.50'],
+            ['EUR is prefixed in en-US locale', 1234, 'EUR', '€1,234.00'],
+            ['GBP is prefixed', 1234, 'GBP', '£1,234.00'],
+        ])('%s', (_, amount, currency, expected) => {
+            expect(formatCurrency(amount, currency)).toBe(expected)
         })
 
         it('throws for invalid currency code', () => {
