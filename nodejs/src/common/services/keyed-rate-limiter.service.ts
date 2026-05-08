@@ -5,8 +5,8 @@ import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
  *
  * The Redis key prefix is configurable so multiple independent limiters
  * (e.g. error tracking, future per-event-name limits) can share a Redis
- * without colliding. Built on the same `checkRateLimitV2` Lua command that
- * powers `HogRateLimiterService`.
+ * without colliding. Built on the `checkRateLimitV3` Lua command, which
+ * uses canonical check-first semantics (denied requests don't charge).
  *
  * Per-call bucket params (bucketSize / refillRate / ttlSeconds on the request)
  * are supported so the same service instance can run different limits for
@@ -95,7 +95,7 @@ export class KeyedRateLimiterService {
             { name: `keyed-rate-limiter:${this.config.name}`, failOpen: true },
             (pipeline) => {
                 requests.forEach((req) => {
-                    pipeline.checkRateLimitV2(...this.rateLimitArgs(req))
+                    pipeline.checkRateLimitV3(...this.rateLimitArgs(req))
                 })
             }
         )
@@ -109,12 +109,13 @@ export class KeyedRateLimiterService {
 
         return requests.map((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensAfter = tokenRes[1]?.[1] ?? bucketSizes[index]
+            const tokensBefore = Number(tokenRes[1]?.[0] ?? bucketSizes[index])
+            const tokensAfter = Number(tokenRes[1]?.[1] ?? bucketSizes[index])
             return [
                 req.id,
                 {
-                    tokens: Number(tokensAfter),
-                    isRateLimited: Number(tokensAfter) <= 0,
+                    tokens: tokensAfter,
+                    isRateLimited: tokensBefore < req.cost,
                 },
             ]
         })

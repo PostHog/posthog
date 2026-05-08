@@ -69,7 +69,7 @@ describe('KeyedRateLimiterService', () => {
         expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
 
         res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-        expect(res[0][1]).toEqual({ tokens: 0, isRateLimited: true })
+        expect(res[0][1]).toEqual({ tokens: 0, isRateLimited: false })
 
         res = await limiter.rateLimitMany([{ id: 'team-1', cost: 20 }])
         expect(res[0][1].isRateLimited).toBe(true)

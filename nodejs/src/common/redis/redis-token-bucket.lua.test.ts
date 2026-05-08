@@ -74,13 +74,18 @@ describe('redis-token-bucket lua', () => {
     ])('$command', ({ command, expectsRecovery }) => {
         it('refill=1.5/s cost=1 1req/s starting in overdraft — recovers (V3) or stays denied (V1/V2)', async () => {
             // Each tick we earn 1.5 tokens and spend 1 → net +0.5/tick.
-            // V3 banks the 0.5 across ticks and crosses zero after a few seconds.
-            // V1/V2 clamp every overdraft to -1 and throw the +0.5 away each tick.
+            // V1/V2 (charge-first) clamp every overdraft to -1 and throw the +0.5
+            // away each tick → wedged forever.
+            // V3 (check-first) refuses the initial cost=101 request without
+            // charging, so the bucket stays at 100 and serves cost=1 every tick.
             const key = `@posthog-test/lua-bucket/${command}/team-1`
             await deleteKeysWithPrefix(redis, key)
 
             const [, drained] = await callRateLimit(command, key, 101, 100, 1.5)
-            expect(drained).toBe(-1)
+            // V3 doesn't charge denied requests, so a cost > poolMax leaves the
+            // bucket untouched. V1/V2 charge speculatively and clamp to -1.
+            const expectedDrained = command === 'checkRateLimitV3' ? 100 : -1
+            expect(drained).toBe(expectedDrained)
 
             let lastTokens = drained
             for (let i = 0; i < 10; i++) {

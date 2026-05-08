@@ -62,12 +62,13 @@ redis.call('expire', key, expiry)
 return {tokensBefore, tokensAfter}
 `
 
-// V3: fixes the "wedged at -1 under sustained traffic" bug in V2 (see
-// keyed-rate-limiter.service.test.ts). Two changes vs V2:
-//   1. Real negative balance is preserved instead of clamped to -1, so a partial
-//      refill that didn't quite cover the cost still accumulates across calls.
-//   2. The negative side is floored at -poolMax (symmetric with the positive cap)
-//      so a single oversized cost can't wedge recovery for hours.
+// V3: canonical check-first token bucket. Denied requests don't charge cost,
+// so the balance can never go negative. Fixes V2's "wedge under sustained
+// traffic" bug at the root: V2 charged on denial and clamped to -1, throwing
+// away partial refills. V3 simply doesn't charge if it can't afford the cost,
+// so partial refills accumulate cleanly toward the next allowed request.
+// Callers derive `isRateLimited` from `tokensBefore < cost` rather than
+// looking at the sign of `tokensAfter`.
 const LUA_TOKEN_BUCKET_V3 = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
@@ -78,7 +79,12 @@ local expiry = ARGV[5]
 local before = redis.call('hget', key, 'ts')
 
 if before == false then
-  local tokensAfter = math.max(poolMax - cost, -poolMax)
+  local tokensAfter
+  if poolMax >= cost then
+    tokensAfter = poolMax - cost
+  else
+    tokensAfter = poolMax
+  end
   redis.call('hset', key, 'ts', now)
   redis.call('hset', key, 'pool', tokensAfter)
   redis.call('expire', key, expiry)
@@ -100,14 +106,15 @@ if currentTokens == false then
   currentTokens = poolMax
 end
 
-currentTokens = currentTokens + owedTokens
+currentTokens = math.min(currentTokens + owedTokens, poolMax)
 local tokensBefore = currentTokens
 
--- Symmetric clamp: cap the positive side at poolMax (otherwise idle gaps
--- compound credit forever), floor the negative side at -poolMax (otherwise
--- one giant cost makes recovery take eternity). Crucially, we do NOT clamp
--- to -1 on overdraft — that's what wedged V2 under sustained traffic.
-local tokensAfter = math.max(math.min(currentTokens - cost, poolMax), -poolMax)
+local tokensAfter
+if currentTokens >= cost then
+  tokensAfter = currentTokens - cost
+else
+  tokensAfter = currentTokens
+end
 
 redis.call('hset', key, 'pool', tokensAfter)
 redis.call('expire', key, expiry)
