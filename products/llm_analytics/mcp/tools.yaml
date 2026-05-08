@@ -14,6 +14,12 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
+    llm-analytics-conversations-list:
+        operation: llm_analytics_conversations_list
+        enabled: false
+    llm-analytics-conversations-retrieve:
+        operation: llm_analytics_conversations_retrieve
+        enabled: false
     llm-analytics-offline-evaluations-experiment-items-create:
         operation: llm_analytics_offline_evaluations_experiment_items_create
         enabled: false

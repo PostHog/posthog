@@ -155,3 +155,9 @@ tools:
     conversations-views-retrieve:
         operation: conversations_views_retrieve
         enabled: false
+    llm-analytics-conversations-list:
+        operation: llm_analytics_conversations_list
+        enabled: false
+    llm-analytics-conversations-retrieve:
+        operation: llm_analytics_conversations_retrieve
+        enabled: false

@@ -7654,30 +7654,30 @@ export namespace Schemas {
       /** Trace id corresponding to this turn. */
       trace_id: string;
       /**
-       * Trace name, if set on the `$ai_trace` event.
-       * @nullable
-       */
+         * Trace name, if set on the `$ai_trace` event.
+         * @nullable
+         */
       trace_name: string | null;
       /** Timestamp of the trace's first event. */
       created_at: string;
       /**
-       * Replay session id (`$session_id`) if present on any event; powers the 'Watch replay' link.
-       * @nullable
-       */
+         * Replay session id (`$session_id`) if present on any event; powers the 'Watch replay' link.
+         * @nullable
+         */
       session_id: string | null;
       /** New user / tool messages introduced in this turn (deduplicated against earlier turns). */
       user_messages: unknown[];
       /** Assistant output messages from the trace's last `$ai_generation` event. */
       assistant_messages: unknown[];
       /**
-       * Total cost of this turn's events.
-       * @nullable
-       */
+         * Total cost of this turn's events.
+         * @nullable
+         */
       total_cost: number | null;
       /**
-       * Total latency of this turn's events.
-       * @nullable
-       */
+         * Total latency of this turn's events.
+         * @nullable
+         */
       total_latency: number | null;
       /** Number of `$ai_is_error=true` events in the trace. */
       error_count: number;
@@ -7686,30 +7686,30 @@ export namespace Schemas {
     export interface ConversationDetailResponse {
       /** `session` for a multi-turn conversation, `trace` for a single-trace conversation.
 
-    * `session` - session
-    * `trace` - trace */
+      * `session` - session
+      * `trace` - trace */
       kind: ConversationKindEnum;
       /** Session id (kind=session) or trace id (kind=trace). */
       id: string;
       /**
-       * Preview of the first user message in the conversation.
-       * @nullable
-       */
+         * Preview of the first user message in the conversation.
+         * @nullable
+         */
       title: string | null;
       /**
-       * Distinct id of the user.
-       * @nullable
-       */
+         * Distinct id of the user.
+         * @nullable
+         */
       distinct_id: string | null;
       /**
-       * Sum of cost across all turns.
-       * @nullable
-       */
+         * Sum of cost across all turns.
+         * @nullable
+         */
       total_cost: number | null;
       /**
-       * Sum of latency across all turns.
-       * @nullable
-       */
+         * Sum of latency across all turns.
+         * @nullable
+         */
       total_latency: number | null;
       /** Turns in chronological order. */
       turns: ConversationTurn[];
@@ -7718,27 +7718,27 @@ export namespace Schemas {
     export interface ConversationListItem {
       /** `session` if grouped by `$ai_session_id`, `trace` for orphan traces without a session id.
 
-    * `session` - session
-    * `trace` - trace */
+      * `session` - session
+      * `trace` - trace */
       kind: ConversationKindEnum;
       /** Session id (when kind=session) or trace id (when kind=trace). */
       id: string;
       /**
-       * Preview of the first user message in the conversation.
-       * @nullable
-       */
+         * Preview of the first user message in the conversation.
+         * @nullable
+         */
       title: string | null;
       /** Number of traces (≈ chat turns) in the conversation. */
       turns: number;
       /**
-       * Distinct id of the user.
-       * @nullable
-       */
+         * Distinct id of the user.
+         * @nullable
+         */
       distinct_id: string | null;
       /**
-       * Sum of `$ai_total_cost_usd` across all generation/embedding events.
-       * @nullable
-       */
+         * Sum of `$ai_total_cost_usd` across all generation/embedding events.
+         * @nullable
+         */
       total_cost: number | null;
       /** Timestamp of the earliest event in the conversation. */
       first_seen: string;

@@ -541,8 +541,8 @@ export const ConversationKindEnumApi = {
 export interface ConversationListItemApi {
     /** `session` if grouped by `$ai_session_id`, `trace` for orphan traces without a session id.
 
-* `session` - session
-* `trace` - trace */
+  * `session` - session
+  * `trace` - trace */
     kind: ConversationKindEnumApi
     /** Session id (when kind=session) or trace id (when kind=trace). */
     id: string
@@ -612,8 +612,8 @@ export interface ConversationTurnApi {
 export interface ConversationDetailResponseApi {
     /** `session` for a multi-turn conversation, `trace` for a single-trace conversation.
 
-* `session` - session
-* `trace` - trace */
+  * `session` - session
+  * `trace` - trace */
     kind: ConversationKindEnumApi
     /** Session id (kind=session) or trace id (kind=trace). */
     id: string
