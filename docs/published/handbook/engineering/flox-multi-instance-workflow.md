@@ -397,17 +397,19 @@ git worktree prune
 For a complete one-time setup, run:
 
 ```bash
-# For zsh users
+# For zsh users (replace ~/dev/posthog/posthog with your repo path)
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc && \
 source ~/.zshrc && \
+cd ~/dev/posthog/posthog && \
 flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 
-# For bash users
+# For bash users (replace ~/dev/posthog/posthog with your repo path)
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook bash)"' >> ~/.bashrc && \
 source ~/.bashrc && \
+cd ~/dev/posthog/posthog && \
 flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 ```

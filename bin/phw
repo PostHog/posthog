@@ -2,16 +2,9 @@
 # PostHog Worktree wrapper function installer
 # Source this file in your shell profile to use the phw function
 
-# Get the directory of this script when being sourced
-_phw_script_dir=""
-if [ -n "${BASH_SOURCE[0]:-}" ]; then
-    _phw_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-elif [ -n "${ZSH_VERSION:-}" ]; then
-    _phw_script_dir="$(cd "$(dirname "$0")" && pwd)"
-fi
-
-# Source utility functions for consistent error handling
-source "$_phw_script_dir/helpers/_utils.sh" 2>/dev/null || {
+# phw is sourced from the flox activate hook, so $FLOX_ENV_PROJECT points
+# to the repo root that owns this script.
+source "$FLOX_ENV_PROJECT/bin/helpers/_utils.sh" 2>/dev/null || {
     # Fallback error function if utils not available
     error() { echo "Error: $*" >&2; }
     fatal() { error "$*"; return 1; }
@@ -53,7 +46,7 @@ _switch_to_worktree() {
 }
 
 phw() {
-    local script_path="${_phw_script_dir}/posthog-worktree"
+    local script_path="$FLOX_ENV_PROJECT/bin/posthog-worktree"
     local command="$1"
     local branch="$2"
     
