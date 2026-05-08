@@ -1748,7 +1748,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
                 component: <SidebarAutoSuggestSetting />,
-                flag: 'AI_FIRST',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
             },
             {

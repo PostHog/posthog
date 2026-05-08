@@ -14,9 +14,19 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { DetailFilters } from './DetailFilters'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters, availableFiltersLoading, showMoreFilters, activeAdvancedFiltersCount } =
-        useValues(advancedActivityLogsLogic)
+    const {
+        filters,
+        availableFilters,
+        availableFiltersLoading,
+        showMoreFilters,
+        activeAdvancedFiltersCount,
+        isOrganizationView,
+        teamsById,
+    } = useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
+    const projectOptions = Object.entries(teamsById)
+        .map(([id, name]) => ({ key: id, label: name as string }))
+        .sort((a, b) => a.label.localeCompare(b.label))
 
     return (
         <div className="flex flex-col gap-4 pt-4">
@@ -34,6 +44,29 @@ export const BasicFiltersTab = (): JSX.Element => {
                         className="h-[24px] flex items-center"
                     />
                 </div>
+
+                {isOrganizationView && (
+                    <div className="flex flex-col gap-1">
+                        <label className="block text-sm font-medium mb-1">Project</label>
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            value={(filters.team_ids ?? []).map(String)}
+                            onChange={(values) =>
+                                setFilters({
+                                    team_ids: values.map((v) => parseInt(v, 10)).filter((v) => !Number.isNaN(v)),
+                                })
+                            }
+                            options={projectOptions}
+                            placeholder="All projects"
+                            allowCustomValues={false}
+                            data-attr="audit-logs-project-filter"
+                            size="small"
+                            className="min-w-50"
+                        />
+                    </div>
+                )}
 
                 <div className="flex flex-col gap-1">
                     <label className="block text-sm font-medium mb-1">User</label>

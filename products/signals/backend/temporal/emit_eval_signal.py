@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import structlog
 import temporalio
+import posthoganalytics
 import temporalio.workflow
 from pydantic import BaseModel, Field
 from temporalio.common import RetryPolicy
@@ -110,6 +111,7 @@ async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalS
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def emit_eval_signal_activity(inputs: EmitEvalSignalInputs) -> None:
     def _is_eval_enabled() -> Team | None:
         """Check SignalSourceConfig and return Team if this eval is enabled, else None."""
@@ -184,6 +186,12 @@ class EmitEvalSignalWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: EmitEvalSignalInputs) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", inputs.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(inputs)
+
+    async def _run_impl(self, inputs: EmitEvalSignalInputs) -> None:
         await temporalio.workflow.execute_activity(
             emit_eval_signal_activity,
             inputs,

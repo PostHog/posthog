@@ -237,6 +237,20 @@ impl storage::GroupStorage for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn list_groups(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key_contains: &str,
+        _search: &str,
+        _cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        _cursor_id: i64,
+        _limit: i32,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
+        Err(self.error.clone())
+    }
+
     async fn get_group_type_mappings_by_team_id(
         &self,
         _team_id: i64,
@@ -558,6 +572,20 @@ impl storage::GroupStorage for SuccessStorage {
         _consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
         Ok(Vec::new())
+    }
+
+    async fn list_groups(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key_contains: &str,
+        _search: &str,
+        _cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        _cursor_id: i64,
+        _limit: i32,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
+        Ok((Vec::new(), false))
     }
 
     async fn get_group_type_mappings_by_team_id(
@@ -955,6 +983,21 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
         self.record(consistency);
         Ok(Vec::new())
+    }
+
+    async fn list_groups(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key_contains: &str,
+        _search: &str,
+        _cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        _cursor_id: i64,
+        _limit: i32,
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
+        self.record(consistency);
+        Ok((Vec::new(), false))
     }
 
     async fn create_group(

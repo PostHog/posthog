@@ -181,3 +181,23 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+
+    query-lifecycle-actors:
+        schema_ref: AssistantLifecycleActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: List persons in a lifecycle bucket
+        description_file: ./prompts/query-lifecycle-actors.md
+        system_prompt_hint: List persons in a lifecycle bucket (new/returning/resurrecting/dormant) for a given day
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
