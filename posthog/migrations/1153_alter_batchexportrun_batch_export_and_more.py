@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1151_cimd_followup_hardening"),
+        ("posthog", "1152_fix_device_bucketing_persist_across_auth"),
     ]
 
     operations = [
