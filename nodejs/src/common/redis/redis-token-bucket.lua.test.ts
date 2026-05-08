@@ -46,13 +46,19 @@ describe('redis-token-bucket lua', () => {
         jest.clearAllMocks()
     })
 
-    const callRateLimit = async (
-        command: CommandName,
-        key: string,
-        cost: number,
-        poolMax: number,
+    const callRateLimit = async ({
+        command,
+        key,
+        cost,
+        poolMax,
+        fillRate,
+    }: {
+        command: CommandName
+        key: string
+        cost: number
+        poolMax: number
         fillRate: number
-    ): Promise<[number, number]> => {
+    }): Promise<[number, number]> => {
         const result = await redis.useClient({ name: 'lua-test' }, async (client) => {
             // V1's typing claims `Promise<number>` but the underlying Lua is identical
             // to V2 and returns [tokensBefore, tokensAfter]. V3 returns strings to
@@ -81,7 +87,7 @@ describe('redis-token-bucket lua', () => {
             const key = `@posthog-test/lua-bucket/${command}/team-1`
             await deleteKeysWithPrefix(redis, key)
 
-            const [, drained] = await callRateLimit(command, key, 101, 100, 1.5)
+            const [, drained] = await callRateLimit({ command, key, cost: 101, poolMax: 100, fillRate: 1.5 })
             // V3 doesn't charge denied requests, so a cost > poolMax leaves the
             // bucket untouched. V1/V2 charge speculatively and clamp to -1.
             const expectedDrained = command === 'checkRateLimitV3' ? 100 : -1
@@ -90,7 +96,7 @@ describe('redis-token-bucket lua', () => {
             let lastTokens = drained
             for (let i = 0; i < 10; i++) {
                 advanceTime(1000)
-                const [, tokens] = await callRateLimit(command, key, 1, 100, 1.5)
+                const [, tokens] = await callRateLimit({ command, key, cost: 1, poolMax: 100, fillRate: 1.5 })
                 lastTokens = tokens
             }
 
