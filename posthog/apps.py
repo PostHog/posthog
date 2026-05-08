@@ -165,12 +165,12 @@ class PostHogConfig(AppConfig):
 
         # Don't use lazy loading in tests and migrations
         if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
-            # Wrap the existing _registry rather than overwriting it: Django's
-            # `AdminConfig.ready()` runs autodiscover before us and any
-            # third-party app or product that uses `@admin.register(Model)`
-            # has already populated the dict. `LazyAdminRegistry()` (no
-            # args) would discard those entries; the dict-copy constructor
-            # preserves them and only adds lazy-load semantics on top.
+            # Wrap the existing _registry rather than overwriting it. With
+            # `SimpleAdminConfig` the dict is normally empty here (Django's
+            # autodiscover is deferred to inside `register_all_admin()`), but
+            # a third-party `AppConfig.ready()` could populate it before
+            # `PostHogConfig.ready()` runs. The dict-copy constructor preserves
+            # any such entries and only adds lazy-load semantics on top.
             admin.site._registry = LazyAdminRegistry(admin.site._registry)
 
         # Install the OAuth sidebar regrouping override eagerly. It must wrap
