@@ -96,7 +96,7 @@ def increment_errors(error_type: str, *, provider: str | None = None) -> None:
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return
-    attrs: dict[str, str] = {"error_type": error_type}
+    attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
     if provider is not None:
         attrs["provider"] = provider
     meter = get_metric_meter(attrs)
