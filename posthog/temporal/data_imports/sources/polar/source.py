@@ -72,10 +72,8 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         try:
-            if validate_polar_credentials(config.polar_api_key, schema_name):
-                return True, None
-            else:
-                return False, "Invalid Polar Organization Access Token"
+            validate_polar_credentials(config.polar_api_key, schema_name)
+            return True, None
         except PolarPermissionError as e:
             return False, f"Polar Organization Access Token lacks permissions: {e}"
         except Exception as e:

@@ -130,17 +130,20 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
 
     # When called per-schema (the incremental_fields action), a 403 should surface
     # immediately so the wizard can show "missing permissions for <endpoint>".
-    # When called at source-create (no table_name), a 403 only means the probe
-    # endpoint's scope is missing — the user may legitimately only have scopes for
-    # a subset of endpoints. Accept the token as authentic and defer per-endpoint
-    # scope checks to the per-schema action / first sync.
+    # When called at source-create (no table_name), the user may legitimately have
+    # scopes for only a subset of endpoints, so we accept any single non-403
+    # response as proof of a usable token. Per-endpoint scope checks are deferred
+    # to the per-schema action / first sync. We do require ≥1 readable endpoint —
+    # a token that 403s on every endpoint has no usable scope and would create a
+    # source guaranteed to fail on first sync.
     if table_name and table_name in ENDPOINTS:
         is_create_probe = False
         endpoints_to_check: list[str] = [table_name]
     else:
         is_create_probe = True
-        endpoints_to_check = [ENDPOINTS[0]]
+        endpoints_to_check = list(ENDPOINTS)
 
+    forbidden: list[str] = []
     for endpoint in endpoints_to_check:
         response = polar_request(
             session,
@@ -151,8 +154,12 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         )
         if response.status_code == 403:
             if is_create_probe:
+                forbidden.append(endpoint)
                 continue
             raise PolarPermissionError(f"Missing permissions for {endpoint}")
         response.raise_for_status()
+
+    if is_create_probe and len(forbidden) == len(endpoints_to_check):
+        raise PolarPermissionError(f"token has no readable scope for any supported endpoint ({', '.join(forbidden)})")
 
     return True
