@@ -3,7 +3,15 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../config/config'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
-import { RRWebEventSource, RRWebEventType, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
+import {
+    MouseInteractions,
+    RRWebEventSource,
+    RRWebEventType,
+    hrefFrom,
+    isClick,
+    isKeypress,
+    isMouseActivity,
+} from '../rrweb-types'
 
 const POSTHOG_NETWORK_PLUGIN = 'posthog/network@1'
 const RRWEB_NETWORK_PLUGIN = 'rrweb/network@1'
@@ -12,6 +20,34 @@ const POSTHOG_NETWORK_DURATION_KEY = 39
 const POSTHOG_NETWORK_STATUS_KEY = 21
 
 export const MAX_UNIQUE_VALUES = 1000
+
+export const LONG_IDLE_GAP_MS = 30_000
+
+export const SELECTION_COPY_WINDOW_MS = 2_000
+
+/**
+ * Allowlist of path tokens we count when they appear in a navigation URL's path.
+ * Order is part of the public contract — it maps 1:1 to {@link FeatureEndResult.pathTokenCounts}
+ * and the corresponding ClickHouse columns. Only append; do not reorder.
+ */
+export const PATH_TOKEN_ALLOWLIST = [
+    'login',
+    'signup',
+    'checkout',
+    'cart',
+    'billing',
+    'settings',
+    'account',
+    'error',
+    '404',
+    'admin',
+    'dashboard',
+    'onboarding',
+    'cancel',
+    'refund',
+] as const
+
+export type PathToken = (typeof PATH_TOKEN_ALLOWLIST)[number]
 
 export const md5Hex = (s: string): string => crypto.createHash('md5').update(s).digest('hex')
 
@@ -24,6 +60,7 @@ interface RRWebEventData {
         x?: number
         y?: number
         id?: number
+        text?: string
         positions?: Array<{ x: number; y: number; id: number; timeOffset: number }>
         plugin?: string
         payload?: {
@@ -52,14 +89,25 @@ interface RRWebEventData {
  *   - mouse_activity_count
  *   - rage_click_count
  *   - dead_click_count
+ *   - backspace_count
  *   - scroll_event_count
+ *   - scroll_to_top_count
  *   - quick_back_count
  *   - page_visit_count
+ *   - long_idle_gap_count
  *   - console_error_count
  *   - console_error_after_click_count
+ *   - console_warn_count
  *   - network_request_count
  *   - network_failed_request_count
+ *   - network_4xx_count
+ *   - network_5xx_count
+ *   - mutation_count
+ *   - viewport_resize_count
+ *   - touch_event_count
  *   - text_selection_count
+ *   - selection_copy_count
+ *   - {token}_path_visit_count
  *
  * Max aggregates:
  *   - max_idle_gap_ms
@@ -78,9 +126,10 @@ interface RRWebEventData {
  *   - Mouse direction change rate: mouse_direction_change_count / mouse_distance_traveled
  *
  * Set-based metrics:
- *   - Unique click targets:   uniqExactMerge(unique_click_target_count)
- *   - Unique URLs visited:    uniqExactMerge(unique_url_count) — visited_urls are md5-hashed at the source
- *   - Page revisit count:     page_visit_count - uniqExactMerge(unique_url_count)
+ *   - Unique click targets:    uniqExactMerge(unique_click_target_count)
+ *   - Unique form fields:      uniqExactMerge(unique_form_field_count) — distinct Input source target ids
+ *   - Unique URLs visited:     uniqExactMerge(unique_url_count) — visited_urls are md5-hashed at the source
+ *   - Page revisit count:      page_visit_count - uniqExactMerge(unique_url_count)
  *
  * All sets are capped at MAX_UNIQUE_VALUES per batch to bound payload size < 50 KB.
  */
@@ -110,6 +159,7 @@ export interface FeatureEndResult {
     totalScrollMagnitude: number
     scrollDirectionReversalCount: number
     rapidScrollReversalCount: number
+    scrollToTopCount: number
 
     // Click frustration features
     clickCount: number
@@ -117,28 +167,41 @@ export interface FeatureEndResult {
     mouseActivityCount: number
     rageClickCount: number
     deadClickCount: number
+    backspaceCount: number
 
     // Inter-action timing sufficient statistics
     interActionGapCount: number
     interActionGapSumMs: number
     interActionGapSumOfSquaresMs: number
     maxIdleGapMs: number
+    longIdleGapCount: number
 
     // Navigation features
     quickBackCount: number
     pageVisitCount: number
     visitedUrls: string[]
+    pathTokenCounts: Record<PathToken, number>
 
     // Error features
     consoleErrorCount: number
     consoleErrorAfterClickCount: number
+    consoleWarnCount: number
 
     // Network features
     networkRequestCount: number
     networkFailedRequestCount: number
+    network4xxCount: number
+    network5xxCount: number
     networkRequestDurationSum: number
     networkRequestDurationSumOfSquares: number
     networkRequestDurationCount: number
+
+    // DOM/viewport
+    mutationCount: number
+    viewportResizeCount: number
+
+    // Touch
+    touchEventCount: number
 
     // Scroll depth
     maxScrollY: number
@@ -146,9 +209,15 @@ export interface FeatureEndResult {
     // Click target diversity
     clickTargetIds: number[]
 
+    // Form interaction diversity
+    formFieldIds: number[]
+
     // Text selection
     textSelectionCount: number
+    selectionCopyCount: number
 }
+
+const TOUCH_INTERACTION_TYPES: number[] = [MouseInteractions.TouchStart, MouseInteractions.TouchEnd]
 
 /**
  * Extracts aggregate features from session recording events for ML scoring.
@@ -187,6 +256,7 @@ export class SessionFeatureRecorder {
     private totalScrollMagnitude = 0
     private scrollDirectionReversalCount = 0
     private rapidScrollReversalCount = 0
+    private scrollToTopCount = 0
     private lastScrollDirection: 'up' | 'down' | null = null
     private lastScrollTimestamp: number | null = null
     private lastScrollY: number | null = null
@@ -195,6 +265,7 @@ export class SessionFeatureRecorder {
     // Click frustration features
     private rageClickCount = 0
     private deadClickCount = 0
+    private backspaceCount = 0
     private lastClickTimestamp: number | null = null
     private lastClickX: number | null = null
     private lastClickY: number | null = null
@@ -207,6 +278,7 @@ export class SessionFeatureRecorder {
     private interActionGapSumMs = 0
     private interActionGapSumOfSquaresMs = 0
     private maxIdleGapMs = 0
+    private longIdleGapCount = 0
 
     // Navigation features
     private quickBackCount = 0
@@ -214,18 +286,29 @@ export class SessionFeatureRecorder {
     private visitedUrls: Set<string> = new Set()
     private lastNavigationTimestamp: number | null = null
     private lastNavigationUrl: string | null = null
+    private pathTokenCounts: Record<PathToken, number> = SessionFeatureRecorder.emptyPathTokenCounts()
 
     // Error features
     private consoleErrorCount = 0
     private consoleErrorAfterClickCount = 0
+    private consoleWarnCount = 0
     private lastUserActionTimestamp: number | null = null
 
     // Network features
     private networkRequestCount = 0
     private networkFailedRequestCount = 0
+    private network4xxCount = 0
+    private network5xxCount = 0
     private networkRequestDurationSum = 0
     private networkRequestDurationSumOfSquares = 0
     private networkRequestDurationCount = 0
+
+    // DOM/viewport
+    private mutationCount = 0
+    private viewportResizeCount = 0
+
+    // Touch
+    private touchEventCount = 0
 
     // Scroll depth
     private maxScrollY = 0
@@ -233,8 +316,17 @@ export class SessionFeatureRecorder {
     // Click target diversity
     private clickTargetIds: Set<number> = new Set()
 
+    // Form interaction diversity
+    private formFieldIds: Set<number> = new Set()
+
+    // Per-element last input length for backspace heuristic.
+    // Bounded by MAX_UNIQUE_VALUES to keep memory cost predictable.
+    private inputTextLengths: Map<number, number> = new Map()
+
     // Text selection
     private textSelectionCount = 0
+    private selectionCopyCount = 0
+    private lastSelectionTimestamp: number | null = null
 
     constructor(
         public readonly sessionId: string,
@@ -242,6 +334,14 @@ export class SessionFeatureRecorder {
         public readonly batchId: string
     ) {
         this._run = this.shouldRun(sessionId)
+    }
+
+    private static emptyPathTokenCounts(): Record<PathToken, number> {
+        const counts = {} as Record<PathToken, number>
+        for (const token of PATH_TOKEN_ALLOWLIST) {
+            counts[token] = 0
+        }
+        return counts
     }
 
     public recordMessage(message: ParsedMessageData): void {
@@ -292,12 +392,15 @@ export class SessionFeatureRecorder {
         this.trackMousePosition(e)
         this.trackScroll(e)
         this.trackClicks(event, e)
-        this.trackKeypress(event, e.timestamp)
+        this.trackKeypress(event, e)
         this.trackInterActionTiming(event, e.timestamp)
         this.trackNavigation(event, e.timestamp)
-        this.trackConsoleErrors(e)
+        this.trackConsoleLogs(e)
         this.trackNetworkRequests(e)
         this.trackTextSelection(e)
+        this.trackMutation(e)
+        this.trackViewportResize(e)
+        this.trackTouchEvent(e)
 
         if (isMouseActivity(event)) {
             this.mouseActivityCount++
@@ -386,6 +489,10 @@ export class SessionFeatureRecorder {
         const deltaY = scrollY - this.lastScrollY
         this.totalScrollMagnitude += Math.abs(deltaY)
 
+        if (this.lastScrollY > 0 && scrollY === 0) {
+            this.scrollToTopCount++
+        }
+
         if (deltaY !== 0) {
             const direction: 'up' | 'down' = deltaY < 0 ? 'up' : 'down'
             if (this.lastScrollDirection !== null && direction !== this.lastScrollDirection) {
@@ -456,12 +563,38 @@ export class SessionFeatureRecorder {
         this.lastClickY = clickY ?? null
     }
 
-    private trackKeypress(event: SnapshotEvent, timestamp: number): void {
+    private trackKeypress(event: SnapshotEvent, e: RRWebEventData): void {
         if (!isKeypress(event)) {
             return
         }
         this.keypressCount++
-        this.lastUserActionTimestamp = timestamp
+        this.lastUserActionTimestamp = e.timestamp
+
+        const targetId = e.data?.id
+        if (targetId !== undefined) {
+            if (this.formFieldIds.size < MAX_UNIQUE_VALUES) {
+                this.formFieldIds.add(targetId)
+            }
+
+            const text = e.data?.text
+            if (typeof text === 'string') {
+                const previousLength = this.inputTextLengths.get(targetId)
+                if (previousLength !== undefined && text.length < previousLength) {
+                    this.backspaceCount += previousLength - text.length
+                }
+                if (this.inputTextLengths.size < MAX_UNIQUE_VALUES || this.inputTextLengths.has(targetId)) {
+                    this.inputTextLengths.set(targetId, text.length)
+                }
+            }
+        }
+
+        if (
+            this.lastSelectionTimestamp !== null &&
+            e.timestamp - this.lastSelectionTimestamp <= SELECTION_COPY_WINDOW_MS
+        ) {
+            this.selectionCopyCount++
+            this.lastSelectionTimestamp = null
+        }
     }
 
     private trackInterActionTiming(event: SnapshotEvent, timestamp: number): void {
@@ -477,6 +610,9 @@ export class SessionFeatureRecorder {
                 this.interActionGapSumOfSquaresMs += gap * gap
                 if (gap > this.maxIdleGapMs) {
                     this.maxIdleGapMs = gap
+                }
+                if (gap > LONG_IDLE_GAP_MS) {
+                    this.longIdleGapCount++
                 }
             }
         }
@@ -494,6 +630,7 @@ export class SessionFeatureRecorder {
             this.visitedUrls.add(md5Hex(eventUrl))
         }
         this.urlChangedSinceLastClick = true
+        this.recordPathTokens(eventUrl)
 
         if (
             this.lastNavigationUrl !== null &&
@@ -507,22 +644,45 @@ export class SessionFeatureRecorder {
         this.lastNavigationTimestamp = timestamp
     }
 
-    private trackConsoleErrors(e: RRWebEventData): void {
-        if (e.type !== RRWebEventType.Plugin) {
+    private recordPathTokens(url: string): void {
+        const path = pathFromUrl(url)
+        if (path === null) {
             return
         }
-        if (e.data?.plugin !== 'rrweb/console@1' || e.data?.payload?.level !== 'error') {
+        const segments = path
+            .toLowerCase()
+            .split('/')
+            .filter((s) => s.length > 0)
+        if (segments.length === 0) {
             return
         }
+        const seen = new Set<PathToken>()
+        for (const segment of segments) {
+            for (const token of PATH_TOKEN_ALLOWLIST) {
+                if (segment === token && !seen.has(token)) {
+                    this.pathTokenCounts[token]++
+                    seen.add(token)
+                }
+            }
+        }
+    }
 
-        this.consoleErrorCount++
-        if (this.lastUserActionTimestamp === null) {
+    private trackConsoleLogs(e: RRWebEventData): void {
+        if (e.type !== RRWebEventType.Plugin || e.data?.plugin !== 'rrweb/console@1') {
             return
         }
-
-        const timeSinceAction = e.timestamp - this.lastUserActionTimestamp
-        if (timeSinceAction >= 0 && timeSinceAction < 5000) {
-            this.consoleErrorAfterClickCount++
+        const level = e.data?.payload?.level
+        if (level === 'error') {
+            this.consoleErrorCount++
+            if (this.lastUserActionTimestamp === null) {
+                return
+            }
+            const timeSinceAction = e.timestamp - this.lastUserActionTimestamp
+            if (timeSinceAction >= 0 && timeSinceAction < 5000) {
+                this.consoleErrorAfterClickCount++
+            }
+        } else if (level === 'warn') {
+            this.consoleWarnCount++
         }
     }
 
@@ -555,8 +715,16 @@ export class SessionFeatureRecorder {
     private processNetworkRequest(duration: unknown, status: unknown): void {
         this.networkRequestCount++
 
-        if (typeof status === 'number' && status >= 400) {
-            this.networkFailedRequestCount++
+        if (typeof status === 'number') {
+            if (status >= 400 && status < 500) {
+                this.network4xxCount++
+                this.networkFailedRequestCount++
+            } else if (status >= 500 && status < 600) {
+                this.network5xxCount++
+                this.networkFailedRequestCount++
+            } else if (status >= 600) {
+                this.networkFailedRequestCount++
+            }
         }
 
         if (typeof duration === 'number' && duration > 0) {
@@ -571,6 +739,37 @@ export class SessionFeatureRecorder {
             return
         }
         this.textSelectionCount++
+        this.lastSelectionTimestamp = e.timestamp
+    }
+
+    private trackMutation(e: RRWebEventData): void {
+        if (e.type !== RRWebEventType.IncrementalSnapshot || e.data?.source !== RRWebEventSource.Mutation) {
+            return
+        }
+        this.mutationCount++
+    }
+
+    private trackViewportResize(e: RRWebEventData): void {
+        if (e.type !== RRWebEventType.IncrementalSnapshot || e.data?.source !== RRWebEventSource.ViewportResize) {
+            return
+        }
+        this.viewportResizeCount++
+    }
+
+    private trackTouchEvent(e: RRWebEventData): void {
+        if (e.type !== RRWebEventType.IncrementalSnapshot) {
+            return
+        }
+        if (e.data?.source === RRWebEventSource.TouchMove) {
+            this.touchEventCount++
+            return
+        }
+        if (
+            e.data?.source === RRWebEventSource.MouseInteraction &&
+            TOUCH_INTERACTION_TYPES.includes(e.data?.type ?? -1)
+        ) {
+            this.touchEventCount++
+        }
     }
 
     public get distinctId(): string {
@@ -612,36 +811,64 @@ export class SessionFeatureRecorder {
             totalScrollMagnitude: this.totalScrollMagnitude,
             scrollDirectionReversalCount: this.scrollDirectionReversalCount,
             rapidScrollReversalCount: this.rapidScrollReversalCount,
+            scrollToTopCount: this.scrollToTopCount,
 
             clickCount: this.clickCount,
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             rageClickCount: this.rageClickCount,
             deadClickCount: this.deadClickCount,
+            backspaceCount: this.backspaceCount,
 
             interActionGapCount: this.interActionGapCount,
             interActionGapSumMs: this.interActionGapSumMs,
             interActionGapSumOfSquaresMs: this.interActionGapSumOfSquaresMs,
             maxIdleGapMs: this.maxIdleGapMs,
+            longIdleGapCount: this.longIdleGapCount,
 
             quickBackCount: this.quickBackCount,
             pageVisitCount: this.pageVisitCount,
             visitedUrls: Array.from(this.visitedUrls),
+            pathTokenCounts: this.pathTokenCounts,
 
             consoleErrorCount: this.consoleErrorCount,
             consoleErrorAfterClickCount: this.consoleErrorAfterClickCount,
+            consoleWarnCount: this.consoleWarnCount,
 
             networkRequestCount: this.networkRequestCount,
             networkFailedRequestCount: this.networkFailedRequestCount,
+            network4xxCount: this.network4xxCount,
+            network5xxCount: this.network5xxCount,
             networkRequestDurationSum: this.networkRequestDurationSum,
             networkRequestDurationSumOfSquares: this.networkRequestDurationSumOfSquares,
             networkRequestDurationCount: this.networkRequestDurationCount,
 
+            mutationCount: this.mutationCount,
+            viewportResizeCount: this.viewportResizeCount,
+            touchEventCount: this.touchEventCount,
+
             maxScrollY: this.maxScrollY,
 
             clickTargetIds: Array.from(this.clickTargetIds),
+            formFieldIds: Array.from(this.formFieldIds),
 
             textSelectionCount: this.textSelectionCount,
+            selectionCopyCount: this.selectionCopyCount,
         }
+    }
+}
+
+const pathFromUrl = (url: string): string | null => {
+    try {
+        return new URL(url).pathname
+    } catch {
+        const trimmed = url.trim()
+        if (trimmed.startsWith('/')) {
+            const queryIdx = trimmed.indexOf('?')
+            const hashIdx = trimmed.indexOf('#')
+            const end = [queryIdx, hashIdx].filter((i) => i >= 0).reduce((a, b) => Math.min(a, b), trimmed.length)
+            return trimmed.slice(0, end)
+        }
+        return null
     }
 }
