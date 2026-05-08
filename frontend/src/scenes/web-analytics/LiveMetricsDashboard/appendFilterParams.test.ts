@@ -1,5 +1,5 @@
 import { WebAnalyticsPropertyFilter } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { appendFilterParams } from './liveWebAnalyticsMetricsLogic'
 
@@ -39,33 +39,38 @@ describe('appendFilterParams', () => {
                 '$referring_domain=twitter.com',
             ],
         },
-    ])('$label', ({ filters, expected }) => {
-        const url = new URL('https://example.com/events')
-        appendFilterParams(url, filters)
-        expect(url.searchParams.getAll('property')).toEqual(expected)
-    })
-
-    it('skips filters that use a non-Exact operator', () => {
-        const url = new URL('https://example.com/events')
-        appendFilterParams(url, [
-            { type: PropertyFilterType.Event, key: '$host', value: 'foo', operator: PropertyOperator.IsNot },
-        ])
-        expect(url.searchParams.getAll('property')).toEqual([])
-    })
-
-    it('skips null entries within an array value', () => {
-        const url = new URL('https://example.com/events')
-        appendFilterParams(url, [
-            { type: PropertyFilterType.Event, key: '$host', value: [null, 'bar'], operator: PropertyOperator.Exact },
-        ])
-        expect(url.searchParams.getAll('property')).toEqual(['$host=bar'])
-    })
-
-    it('preserves existing query params on the URL', () => {
-        const url = new URL('https://example.com/events?columns=$pathname&geo=true')
-        appendFilterParams(url, [filter('$host', 'example.com')])
-        expect(url.searchParams.get('columns')).toEqual('$pathname')
-        expect(url.searchParams.get('geo')).toEqual('true')
-        expect(url.searchParams.getAll('property')).toEqual(['$host=example.com'])
+        {
+            label: 'skips filters that use a non-Exact operator',
+            filters: [
+                { type: PropertyFilterType.Event, key: '$host', value: 'foo', operator: PropertyOperator.IsNot },
+            ] as WebAnalyticsPropertyFilter[],
+            expected: [],
+        },
+        {
+            label: 'skips null entries within an array value',
+            filters: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$host',
+                    value: [null, 'bar'] as unknown as PropertyFilterBaseValue[],
+                    operator: PropertyOperator.Exact,
+                } as WebAnalyticsPropertyFilter,
+            ],
+            expected: ['$host=bar'],
+        },
+        {
+            label: 'preserves existing query params on the URL',
+            url: 'https://example.com/events?columns=$pathname&geo=true',
+            filters: [filter('$host', 'example.com')],
+            expected: ['$host=example.com'],
+            preservedParams: { columns: '$pathname', geo: 'true' },
+        },
+    ])('$label', ({ filters, expected, url, preservedParams }) => {
+        const u = new URL(url ?? 'https://example.com/events')
+        appendFilterParams(u, filters)
+        expect(u.searchParams.getAll('property')).toEqual(expected)
+        for (const [key, value] of Object.entries(preservedParams ?? {})) {
+            expect(u.searchParams.get(key)).toEqual(value)
+        }
     })
 })

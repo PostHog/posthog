@@ -74,7 +74,7 @@ const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
 const LiveDashboardFilterRow = (): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { topReferrers } = useValues(liveWebAnalyticsMetricsLogic)
-    const { countryFilter, referrerFilter, deviceTypeFilter, domainFilter } = useValues(webAnalyticsLogic)
+    const { countryFilter, referrerFilter, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
     const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter } = useActions(webAnalyticsLogic)
 
     const showDomainFilter = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER]
@@ -93,7 +93,7 @@ const LiveDashboardFilterRow = (): JSX.Element | null => {
     }
 
     const referrerSuggestions = topReferrers.map((r: { referrer: string }) => r.referrer).filter(Boolean)
-    const hasDomainFilter = showDomainFilter && !!domainFilter && domainFilter !== 'all'
+    const hasDomainFilter = showDomainFilter && !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const hasFilters = !!(countryFilter || referrerFilter || deviceTypeFilter || hasDomainFilter)
 
     return (
