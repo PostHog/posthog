@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconExternal, IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
@@ -23,6 +22,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         loadPreviousPage,
         loadOptOutPersons,
         setShowAddOptOutModal,
+        setNewOptOutIdentifier,
         addOptOut,
     } = useActions(logic)
     const {
@@ -33,8 +33,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         currentPage,
         showAddOptOutModal,
         addOptOutLoading,
+        newOptOutIdentifier,
     } = useValues(logic)
-    const [newOptOutIdentifier, setNewOptOutIdentifier] = useState('')
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -181,20 +181,11 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
 
             <LemonModal
                 isOpen={showAddOptOutModal}
-                onClose={() => {
-                    setShowAddOptOutModal(false)
-                    setNewOptOutIdentifier('')
-                }}
+                onClose={() => setShowAddOptOutModal(false)}
                 title={`Add opt-out${category?.name ? ` for ${category.name}` : ''}`}
                 footer={
                     <>
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                setShowAddOptOutModal(false)
-                                setNewOptOutIdentifier('')
-                            }}
-                        >
+                        <LemonButton type="secondary" onClick={() => setShowAddOptOutModal(false)}>
                             Cancel
                         </LemonButton>
                         <LemonButton

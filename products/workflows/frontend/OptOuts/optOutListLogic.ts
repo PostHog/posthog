@@ -35,6 +35,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
         loadNextPage: true,
         loadPreviousPage: true,
         setShowAddOptOutModal: (show: boolean) => ({ show }),
+        setNewOptOutIdentifier: (identifier: string) => ({ identifier }),
     }),
     reducers({
         personsModalOpen: [
@@ -81,6 +82,14 @@ export const optOutListLogic = kea<optOutListLogicType>([
             {
                 setShowAddOptOutModal: (_, { show }) => show,
                 addOptOutSuccess: () => false,
+            },
+        ],
+        newOptOutIdentifier: [
+            '',
+            {
+                setNewOptOutIdentifier: (_, { identifier }) => identifier,
+                addOptOutSuccess: () => '',
+                setShowAddOptOutModal: (state, { show }) => (show ? state : ''),
             },
         ],
     }),
