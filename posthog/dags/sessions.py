@@ -257,7 +257,7 @@ def wait_for_parts_to_merge(
     partitions_def=daily_partitions,
     name="sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
     _do_backfill(
@@ -269,7 +269,7 @@ def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfil
     partitions_def=daily_partitions,
     name="sessions_v3_replay_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill_replay(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
     _do_backfill(
@@ -290,7 +290,7 @@ sessions_backfill_job = define_asset_job(
     name="sessions_v3_backfill_job",
     selection=["sessions_v3_backfill", "sessions_v3_replay_backfill"],
     config=sessions_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **CONCURRENCY_TAG},
 )
 
 
@@ -414,7 +414,7 @@ EXPERIMENTAL_CONCURRENCY_TAG = {
     partitions_def=daily_partitions,
     name="experimental_sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **EXPERIMENTAL_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **EXPERIMENTAL_CONCURRENCY_TAG},
 )
 def experimental_sessions_v3_backfill(
     context: AssetExecutionContext, config: ExperimentalSessionsBackfillConfig
@@ -428,7 +428,7 @@ experimental_sessions_backfill_job = define_asset_job(
     name="experimental_sessions_v3_backfill_job",
     selection=["experimental_sessions_v3_backfill"],
     config=sessions_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **EXPERIMENTAL_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value, **EXPERIMENTAL_CONCURRENCY_TAG},
 )
 
 
