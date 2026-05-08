@@ -235,7 +235,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return key_with_source[0] if key_with_source is not None else None
 
     @classmethod
-    @transaction.atomic
     def validate_key(cls, personal_api_key_with_source):
         from posthog.models import PersonalAPIKey
 
@@ -263,12 +262,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
 
-        # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
-        # that the key is valid in some mode, and we do check for all modes one by one.
+        # Upgrade the key if it's not in the latest mode. We've already verified the key is valid
+        # in some mode above. Only this branch needs an atomic block — wrapping the read-only
+        # fast path was forcing every authenticated request to pay a BEGIN/COMMIT round-trip.
         if mode_used != "sha256":
-            key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
-            key_to_update.secure_value = hash_key_value(personal_api_key)
-            key_to_update.save(update_fields=["secure_value"])
+            with transaction.atomic():
+                key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
+                key_to_update.secure_value = hash_key_value(personal_api_key)
+                key_to_update.save(update_fields=["secure_value"])
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
