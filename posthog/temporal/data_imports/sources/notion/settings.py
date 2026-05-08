@@ -8,7 +8,12 @@ NOTION_API_URL = "https://api.notion.com/v1"
 # Pinned per Notion's API versioning model — the same version must be sent on every
 # request. Bumping this is a deliberate API-level migration, so we keep it as a constant
 # rather than reading it from env. https://developers.notion.com/reference/versioning
-NOTION_API_VERSION = "2022-06-28"
+#
+# `2025-09-03` introduced data sources: each Notion database now contains 1+ data
+# sources (the queryable row collections). `/v1/databases/{id}/query` was replaced by
+# `/v1/data_sources/{id}/query` and `/v1/search` filter `"database"` was replaced by
+# `"data_source"`. Pages and users endpoints are unaffected.
+NOTION_API_VERSION = "2026-03-11"
 # Notion's documented maximum for `page_size` across endpoints that accept it.
 NOTION_DEFAULT_PAGE_SIZE = 100
 
@@ -16,10 +21,10 @@ ID = "id"
 CREATED_TIME = "created_time"
 LAST_EDITED_TIME = "last_edited_time"
 
-# Endpoint name for the dynamic per-database row tables. Real schema names are
-# `database_rows__{database_id_no_hyphens}` — this prefix lets the source dispatcher
-# tell row schemas apart from the static ones.
-DATABASE_ROWS_PREFIX = "database_rows__"
+# Endpoint name for the dynamic per-data-source row tables. Real schema names are
+# `data_source_rows__{data_source_id_no_hyphens}` — this prefix lets the source
+# dispatcher tell row schemas apart from the static ones.
+DATA_SOURCE_ROWS_PREFIX = "data_source_rows__"
 
 INCREMENTAL_DATETIME_FIELDS: list[IncrementalField] = [
     {
@@ -43,8 +48,8 @@ class NotionEndpointConfig:
     partition_keys: list[str] | None = field(default_factory=lambda: [CREATED_TIME])
 
 
-# Static endpoints shared by every Notion source instance. Database-row tables are
-# discovered at runtime from `/v1/search?filter=database` and configured per-database.
+# Static endpoints shared by every Notion source instance. Data-source row tables are
+# discovered at runtime from `/v1/search?filter=data_source` and configured per-data-source.
 NOTION_STATIC_ENDPOINTS: dict[str, NotionEndpointConfig] = {
     "users": NotionEndpointConfig(
         incremental_fields=[],
@@ -55,7 +60,7 @@ NOTION_STATIC_ENDPOINTS: dict[str, NotionEndpointConfig] = {
     "pages": NotionEndpointConfig(
         incremental_fields=INCREMENTAL_DATETIME_FIELDS,
     ),
-    "databases": NotionEndpointConfig(
+    "data_sources": NotionEndpointConfig(
         incremental_fields=INCREMENTAL_DATETIME_FIELDS,
     ),
 }
@@ -63,17 +68,17 @@ NOTION_STATIC_ENDPOINTS: dict[str, NotionEndpointConfig] = {
 STATIC_ENDPOINTS = tuple(NOTION_STATIC_ENDPOINTS.keys())
 
 
-def database_rows_endpoint_config() -> NotionEndpointConfig:
-    """Per-database row table — incremental on last_edited_time, partitioned by created_time."""
+def data_source_rows_endpoint_config() -> NotionEndpointConfig:
+    """Per-data-source row table — incremental on last_edited_time, partitioned by created_time."""
     return NotionEndpointConfig(
         incremental_fields=INCREMENTAL_DATETIME_FIELDS,
     )
 
 
-def database_rows_schema_name(database_id: str) -> str:
-    """Build a stable schema name for a Notion database's row table.
+def data_source_rows_schema_name(data_source_id: str) -> str:
+    """Build a stable schema name for a Notion data source's row table.
 
-    Notion database IDs are UUIDs (with or without hyphens). We strip hyphens to keep the
-    schema name SQL-friendly while still uniquely identifying the source database.
+    Notion data source IDs are UUIDs (with or without hyphens). We strip hyphens to keep
+    the schema name SQL-friendly while still uniquely identifying the source.
     """
-    return f"{DATABASE_ROWS_PREFIX}{database_id.replace('-', '')}"
+    return f"{DATA_SOURCE_ROWS_PREFIX}{data_source_id.replace('-', '')}"

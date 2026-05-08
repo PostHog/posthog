@@ -742,7 +742,7 @@ class OauthIntegration:
                 },
                 headers={
                     "Content-Type": "application/json",
-                    "Notion-Version": "2022-06-28",
+                    "Notion-Version": "2026-03-11",
                 },
             )
         elif kind == "stripe":

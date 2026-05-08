@@ -16,7 +16,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import NotionSourceConfig
 from posthog.temporal.data_imports.sources.notion.notion import (
     NotionResumeConfig,
-    _list_databases,
+    _list_data_sources,
     notion_source,
     validate_credentials as validate_notion_credentials,
 )
@@ -24,7 +24,7 @@ from posthog.temporal.data_imports.sources.notion.settings import (
     INCREMENTAL_DATETIME_FIELDS,
     NOTION_STATIC_ENDPOINTS,
     STATIC_ENDPOINTS,
-    database_rows_schema_name,
+    data_source_rows_schema_name,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -41,7 +41,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         return SourceConfig(
             name=SchemaExternalDataSourceType.NOTION,
             label="Notion",
-            caption="Connect a Notion workspace to sync users, pages, databases, and database rows.",
+            caption="Connect a Notion workspace to sync users, pages, data sources, and data source rows.",
             iconPath="/static/services/notion.png",
             releaseStatus="alpha",
             featureFlag="dwh-notion",
@@ -88,7 +88,9 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         schemas: list[SourceSchema] = [
             SourceSchema(
                 name=endpoint,
-                label=endpoint.capitalize(),
+                # Render `data_sources` as "Data sources" — straight `.capitalize()` keeps
+                # the underscore (`Data_sources`) which looks ugly in the UI.
+                label=endpoint.replace("_", " ").capitalize(),
                 supports_incremental=bool(NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=bool(NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields),
                 incremental_fields=NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields,
@@ -96,16 +98,17 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
             for endpoint in STATIC_ENDPOINTS
         ]
 
-        # Database row tables are discovered live — one warehouse table per Notion database.
-        # If the API call fails (revoked token, network blip), fall back to the static
-        # schemas so the UI still surfaces something rather than erroring entirely.
+        # Data source row tables are discovered live — one warehouse table per Notion data
+        # source (each Notion database hosts one or more data sources). If the API call fails
+        # (revoked token, network blip), fall back to the static schemas so the UI still
+        # surfaces something rather than erroring entirely.
         try:
             access_token = self._get_access_token(config, team_id)
-            for database_id, title in _list_databases(access_token):
+            for data_source_id, title in _list_data_sources(access_token):
                 schemas.append(
                     SourceSchema(
-                        name=database_rows_schema_name(database_id),
-                        label=title or "Untitled database",
+                        name=data_source_rows_schema_name(data_source_id),
+                        label=title or "Untitled data source",
                         supports_incremental=True,
                         supports_append=True,
                         incremental_fields=INCREMENTAL_DATETIME_FIELDS,

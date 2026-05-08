@@ -10,12 +10,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.notion.settings import (
-    DATABASE_ROWS_PREFIX,
+    DATA_SOURCE_ROWS_PREFIX,
     NOTION_API_URL,
     NOTION_API_VERSION,
     NOTION_DEFAULT_PAGE_SIZE,
     NOTION_STATIC_ENDPOINTS,
-    database_rows_endpoint_config,
+    data_source_rows_endpoint_config,
 )
 
 
@@ -103,14 +103,14 @@ def _paginate(
 ) -> Generator[list[dict[str, Any]], None, None]:
     """Cursor-paginate a Notion endpoint that uses `start_cursor` / `next_cursor` / `has_more`.
 
-    Notion's POST endpoints (`/search`, `/databases/{id}/query`) accept the cursor and
+    Notion's POST endpoints (`/search`, `/data_sources/{id}/query`) accept the cursor and
     page_size in the JSON body. The GET `/users` endpoint accepts them as query params,
     so for those we pass `body=None` and the caller adds the params to `url`.
     """
     request_body: dict[str, Any] = dict(body) if body else {}
     request_body["page_size"] = NOTION_DEFAULT_PAGE_SIZE
     if incremental_filter is not None:
-        # `/databases/{id}/query` accepts a `filter` field — let the caller wire it in.
+        # `/data_sources/{id}/query` accepts a `filter` field — let the caller wire it in.
         request_body["filter"] = incremental_filter
 
     resume_config = resumable_source_manager.load_state()
@@ -144,7 +144,7 @@ def _paginate(
 
 
 # ---------------------------------------------------------------------------
-# Notion property flattening for database rows
+# Notion property flattening for data source rows
 # ---------------------------------------------------------------------------
 
 
@@ -203,7 +203,7 @@ def _flatten_property(prop: dict[str, Any]) -> Any:
     return None
 
 
-def _flatten_database_row(row: dict[str, Any]) -> dict[str, Any]:
+def _flatten_row(row: dict[str, Any]) -> dict[str, Any]:
     properties = row.get("properties") or {}
     flattened: dict[str, Any] = {
         "id": row.get("id"),
@@ -264,16 +264,16 @@ def _fetch_search(
             yield [item for item in batch if (item.get("last_edited_time") or "") > last_edited_gte]
 
 
-def _fetch_database_rows(
+def _fetch_data_source_rows(
     sess: requests.Session,
-    database_id: str,
+    data_source_id: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     last_edited_gte: str | None,
 ) -> Generator[list[dict[str, Any]], None, None]:
     incremental_filter: dict[str, Any] | None = None
     if last_edited_gte is not None:
-        # `/databases/{id}/query` supports server-side filtering by last_edited_time.
+        # `/data_sources/{id}/query` supports server-side filtering by last_edited_time.
         incremental_filter = {
             "timestamp": "last_edited_time",
             "last_edited_time": {"after": last_edited_gte},
@@ -282,13 +282,13 @@ def _fetch_database_rows(
     for batch in _paginate(
         sess=sess,
         method="POST",
-        url=f"{NOTION_API_URL}/databases/{database_id}/query",
+        url=f"{NOTION_API_URL}/data_sources/{data_source_id}/query",
         body=None,
         logger=logger,
         resumable_source_manager=resumable_source_manager,
         incremental_filter=incremental_filter,
     ):
-        yield [_flatten_database_row(row) for row in batch]
+        yield [_flatten_row(row) for row in batch]
 
 
 def _extract_title(item: dict[str, Any]) -> str | None:
@@ -300,13 +300,18 @@ def _extract_title(item: dict[str, Any]) -> str | None:
     return text or None
 
 
-def _list_databases(access_token: str) -> list[tuple[str, str | None]]:
-    """One-shot helper for schema discovery — returns (id, title) for every database the integration can see."""
+def _list_data_sources(access_token: str) -> list[tuple[str, str | None]]:
+    """One-shot helper for schema discovery — returns (id, title) for every data source the integration can see.
+
+    Each Notion database can host one or more data sources (the queryable row collections).
+    `/v1/search` with `filter.value="data_source"` returns data source objects directly,
+    so we don't need to enumerate databases first and then fetch their data sources.
+    """
     sess = _make_session(access_token)
     try:
-        databases: list[tuple[str, str | None]] = []
+        data_sources: list[tuple[str, str | None]] = []
         body: dict[str, Any] = {
-            "filter": {"property": "object", "value": "database"},
+            "filter": {"property": "object", "value": "data_source"},
             "page_size": NOTION_DEFAULT_PAGE_SIZE,
         }
         while True:
@@ -314,14 +319,14 @@ def _list_databases(access_token: str) -> list[tuple[str, str | None]]:
             response.raise_for_status()
             payload = response.json()
             for item in payload.get("results", []):
-                db_id = item.get("id")
-                if db_id:
-                    databases.append((db_id, _extract_title(item)))
+                ds_id = item.get("id")
+                if ds_id:
+                    data_sources.append((ds_id, _extract_title(item)))
             if not payload.get("has_more"):
-                return databases
+                return data_sources
             next_cursor = payload.get("next_cursor")
             if not next_cursor:
-                return databases
+                return data_sources
             body["start_cursor"] = next_cursor
     finally:
         sess.close()
@@ -340,11 +345,11 @@ def notion_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any | None = None,
 ) -> SourceResponse:
-    """Build a SourceResponse for a single Notion endpoint or per-database row table."""
-    is_db_rows = endpoint_name.startswith(DATABASE_ROWS_PREFIX)
+    """Build a SourceResponse for a single Notion endpoint or per-data-source row table."""
+    is_ds_rows = endpoint_name.startswith(DATA_SOURCE_ROWS_PREFIX)
 
-    if is_db_rows:
-        endpoint_config = database_rows_endpoint_config()
+    if is_ds_rows:
+        endpoint_config = data_source_rows_endpoint_config()
     else:
         endpoint_config = NOTION_STATIC_ENDPOINTS.get(endpoint_name)  # type: ignore[assignment]
         if endpoint_config is None:
@@ -362,13 +367,15 @@ def notion_source(
                 yield from _fetch_users(sess, logger, resumable_source_manager)
             elif endpoint_name == "pages":
                 yield from _fetch_search(sess, "page", logger, resumable_source_manager, last_edited_gte)
-            elif endpoint_name == "databases":
-                yield from _fetch_search(sess, "database", logger, resumable_source_manager, last_edited_gte)
-            elif is_db_rows:
-                # Reverse the schema_name → database_id mapping. `database_rows__<hex32>` only
-                # encodes the hyphenless ID; Notion accepts both hyphenated and hyphenless IDs.
-                database_id = endpoint_name[len(DATABASE_ROWS_PREFIX) :]
-                yield from _fetch_database_rows(sess, database_id, logger, resumable_source_manager, last_edited_gte)
+            elif endpoint_name == "data_sources":
+                yield from _fetch_search(sess, "data_source", logger, resumable_source_manager, last_edited_gte)
+            elif is_ds_rows:
+                # Reverse the schema_name → data_source_id mapping. `data_source_rows__<hex32>`
+                # only encodes the hyphenless ID; Notion accepts both hyphenated and hyphenless IDs.
+                data_source_id = endpoint_name[len(DATA_SOURCE_ROWS_PREFIX) :]
+                yield from _fetch_data_source_rows(
+                    sess, data_source_id, logger, resumable_source_manager, last_edited_gte
+                )
             else:
                 raise ValueError(f"Unknown Notion endpoint: {endpoint_name}")
         finally:

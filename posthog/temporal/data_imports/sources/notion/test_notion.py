@@ -9,13 +9,13 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.notion.notion import (
     NotionResumeConfig,
-    _flatten_database_row,
     _flatten_property,
+    _flatten_row,
     _paginate,
     notion_source,
     validate_credentials,
 )
-from posthog.temporal.data_imports.sources.notion.settings import NOTION_API_URL, database_rows_schema_name
+from posthog.temporal.data_imports.sources.notion.settings import NOTION_API_URL, data_source_rows_schema_name
 
 
 def _make_response(results: list[dict[str, Any]], has_more: bool, next_cursor: str | None) -> MagicMock:
@@ -182,9 +182,9 @@ class TestNotionSource:
         assert pages == [[page_keep]]
 
     @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
-    def test_database_rows_endpoint_uses_server_side_filter_and_flattens(self, mock_make_session: MagicMock) -> None:
-        # `/databases/{id}/query` supports a server-side last_edited_time filter — verify it's
-        # set on the request body, and that the rows come back flattened.
+    def test_data_source_rows_endpoint_uses_server_side_filter_and_flattens(self, mock_make_session: MagicMock) -> None:
+        # `/data_sources/{id}/query` supports a server-side last_edited_time filter — verify
+        # it's set on the request body, and that the rows come back flattened.
         session = MagicMock()
         row = {
             "id": "row-1",
@@ -208,7 +208,7 @@ class TestNotionSource:
         manager = _make_resumable_manager()
         logger = MagicMock()
 
-        schema_name = database_rows_schema_name("dbid-1234")
+        schema_name = data_source_rows_schema_name("dsid-1234")
         response = notion_source(
             access_token="tok",
             endpoint_name=schema_name,
@@ -284,7 +284,7 @@ class TestFlattenProperty:
         assert _flatten_property(prop) == expected
 
 
-class TestFlattenDatabaseRow:
+class TestFlattenRow:
     def test_preserves_top_level_fields_and_raw_properties(self) -> None:
         row = {
             "id": "abc",
@@ -293,10 +293,10 @@ class TestFlattenDatabaseRow:
             "last_edited_time": "2026-02-01T00:00:00Z",
             "archived": False,
             "url": "https://www.notion.so/abc",
-            "parent": {"type": "database_id"},
+            "parent": {"type": "data_source_id"},
             "properties": {"Name": {"type": "title", "title": [{"plain_text": "x"}]}},
         }
-        flat = _flatten_database_row(row)
+        flat = _flatten_row(row)
         assert flat["id"] == "abc"
         assert flat["Name"] == "x"
         assert flat["_raw_properties"] == row["properties"]
