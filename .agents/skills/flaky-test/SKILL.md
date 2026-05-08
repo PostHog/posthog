@@ -4,12 +4,13 @@ description: >
   Triages a single failing test on a PostHog PR's CI run when it might be flaky
   or unrelated to the user's changes. Use when the user pastes a GitHub Actions
   run URL on their PR and asks to look at a failing test, invokes /flaky-test,
-  or asks "is this CI failure mine?". Determines whether the failure is caused
-  by the PR's diff (then stop and report), or unrelated (then open a draft fix
-  PR off master, resolve the owning team via CODEOWNERS / the feature ownership
-  handbook, and resolve the corresponding Slack sub-team handle by listing
-  user groups via the Slack MCP — never hardcoded, never guessed). Never posts
-  to Slack itself — returns suggested reply text the user can paste.
+  or asks "is this CI failure mine?". Decides whether the failure is caused by
+  the PR's diff (then say so and stop) or unrelated (then identify the owning
+  team via CODEOWNERS / the feature ownership handbook, resolve the Slack
+  sub-team handle by listing user groups via the Slack MCP — never hardcoded,
+  never guessed — and return suggested Slack reply text). Never opens a fix PR
+  and never posts to Slack — both require explicit follow-up authorization
+  from the user.
 ---
 
 # Triaging flaky / unrelated test failures on PostHog PRs
@@ -31,15 +32,14 @@ ID identifies the specific failing job within the workflow run.
 After inspecting the failure, every run produces _exactly one_ of these:
 
 1. **PR-caused** — tell the user the failure is theirs, with a one-sentence
-   explanation. Stop. Do not open a fix PR. Do not tag a team.
-2. **Unrelated, fixable** — open a draft fix PR off `master` (NOT off the
-   user's branch). Identify the owning team. Return suggested Slack reply
-   text linking the fix PR and tagging the team.
-3. **Unrelated, not fixable in one PR** — don't open a PR. Identify the
-   owning team. Return suggested Slack reply text summarizing the failure
-   and tagging the team for triage.
+   explanation. Stop. Do not tag a team.
+2. **Unrelated** — identify the owning team and return suggested Slack reply
+   text that tags them.
 
 Always _return_ suggested Slack reply text — never post to Slack yourself.
+Never open a fix PR — opening one requires explicit follow-up authorization
+from the user, even when the cause is obvious. Stop after returning the
+reply text and let the user decide.
 
 ## Workflow
 
@@ -79,51 +79,15 @@ likely PR-caused — but pre-existing flakes can also surface on a single PR
 purely by chance, so weigh this signal against the diff analysis above.
 
 If PR-caused → STOP. Tell the user, point to the suspect commit / file, and
-exit without further action.
+exit without further action. Do not tag a team — pinging a team for a
+PR-caused failure is noise.
 
-### Step 3 (unrelated only): Try to fix
-
-Read the failing test and surrounding code to understand the root cause.
-Common patterns:
-
-- _Race / timing_: missing `await`, fixture ordering, time-based assertion,
-  test depending on a shared resource without isolation.
-- _State leakage_: a sibling test left state that this one depends on not
-  existing, or vice versa. Look for class-level or module-level fixtures
-  that aren't reset per-test.
-- _Snapshot drift_: visual or string snapshot that needs regenerating after
-  a legitimate change on master that the failing test forgot to keep up
-  with.
-- _Infra / runner_: no local repro is possible; treat per
-  `debugging-ci-failures` and skip to the "not fixable in one PR" branch.
-
-If the cause is clear and small, write the fix on a **new branch off
-`master`** (not off the user's PR branch — the fix is independent and
-shouldn't depend on the user's diff). Commit, push, and open as draft per
-repo conventions:
-
-```bash
-git fetch origin master
-git checkout -B posthog-code/fix-flaky-<short-name> origin/master
-# ... make the fix ...
-git push -u origin HEAD
-gh pr create --draft --base master --title "fix(<scope>): ..." --body "..."
-```
-
-Use the `posthog-code/` branch prefix and follow conventional commits per
-[CLAUDE.md](../../../CLAUDE.md). Keep the fix minimal — don't bundle
-drive-by cleanups.
-
-If the fix needs more than one PR (cross-cutting refactor, deeper
-investigation, ambiguous root cause), don't open a PR. Capture what you
-learned for the team handoff in step 4.
-
-### Step 4: Resolve the owning team — twice
+### Step 3: Resolve the owning team — twice
 
 You need _two_ identifiers and they are not interchangeable:
 
-- a **GitHub team handle** like `@PostHog/team-product-analytics`, used in
-  PR review requests
+- a **GitHub team handle** like `@PostHog/team-product-analytics`, used
+  internally to resolve ownership
 - a **Slack handle** for the corresponding user group, used in the Slack
   reply
 
@@ -131,7 +95,7 @@ A GitHub team handle pasted into Slack does not ping anyone. Always resolve
 the Slack handle separately. Do **not** hardcode a github-team-to-slack
 mapping inside this skill or guess based on naming similarity.
 
-#### 4a. GitHub team via CODEOWNERS / handbook
+#### 3a. GitHub team via CODEOWNERS / handbook
 
 Look up CODEOWNERS for the failing test's path:
 
@@ -149,14 +113,14 @@ of truth (`WebFetch` it, search for the directory or feature name).
 The output of this step is a _team identity_ — the GitHub handle if
 CODEOWNERS gave one, otherwise the team's name as written in the handbook
 (e.g. "Product analytics", "Replay", "Pipeline"). That identity is the
-input to step 4b.
+input to step 3b.
 
-#### 4b. Slack handle via the Slack MCP
+#### 3b. Slack handle via the Slack MCP
 
 The harness should expose a Slack MCP server with user-group / sub-team
 listing tools (typical names: `slack_get_user_groups`,
 `slack_user_groups_list`, `list_user_groups`, `usergroups.list`). List
-all user groups, then match the team identity from 4a against:
+all user groups, then match the team identity from 3a against:
 
 - the user group's `handle` (e.g. `team-replay`)
 - the user group's `name` / display name
@@ -182,44 +146,41 @@ its `handle`. A bare `@team-replay` in skill output text does not ping —
 only the `<!subteam^...>` form does.
 
 If no Slack MCP is available, or no user group plausibly matches, do not
-guess a handle — fall through to the "owning team unclear" reply template
-and ask the user to fill in the right handle.
+guess a handle — fall through to the "Slack handle unresolved" reply
+template and ask the user to fill in the right handle.
 
-### Step 5: Compose the Slack reply
+### Step 4: Compose the Slack reply
 
 Return suggested reply text for the user to paste into Slack. Don't post
 it yourself. Templates (substitute the resolved Slack sub-team mention into
 `<slack-team-mention>`):
 
-**Unrelated, fix PR opened:**
+**Unrelated, owning team resolved:**
 
 > Failure on `<test-path>::<test-name>` looks unrelated to your PR — the
-> test exercises `<area>` which your diff doesn't touch. I opened
-> <https://github.com/PostHog/posthog/pull/><n> with a likely fix. cc
-> <slack-team-mention> — please review.
-
-**Unrelated, not a one-PR fix:**
-
-> Failure on `<test-path>::<test-name>` looks unrelated to your PR but
-> isn't a one-PR fix — root cause appears to be `<short summary>`. cc
-> <slack-team-mention> — flagging for triage.
+> test exercises `<area>` which your diff doesn't touch. Suspected cause:
+> `<short summary>`. cc <slack-team-mention> — flagging for triage.
 
 **Unrelated, Slack handle unresolved:**
 
-> Failure on `<test-path>::<test-name>` looks unrelated to your PR. I
-> believe the owning team is `<team identity from 4a>` (per
-> CODEOWNERS / feature-ownership handbook), but I couldn't resolve the
-> Slack handle — could you tag them?
+> Failure on `<test-path>::<test-name>` looks unrelated to your PR.
+> Suspected cause: `<short summary>`. I believe the owning team is
+> `<team identity from 3a>` (per CODEOWNERS / feature-ownership handbook),
+> but I couldn't resolve the Slack handle — could you tag them?
+
+If the user later asks you to attempt a fix, defer to whichever skill or
+workflow they invoke for that next step — opening a fix PR is out of scope
+for this skill.
 
 ## Safety rules
 
 Inherit all safety rules from `debugging-ci-failures`. In addition:
 
-- Never push to or modify the user's PR branch. Fixes go on a brand-new
-  branch off `master`.
-- Always open fix PRs as **draft**.
-- Keep fix PRs minimal and scoped to the failing test's root cause. No
-  drive-by cleanups, no scope creep.
+- Never open a fix PR. Even when the root cause is obvious and the fix is
+  one line, opening a PR requires explicit follow-up authorization from
+  the user. Describe what the fix would look like in the suggested Slack
+  reply if helpful, but stop short of making it.
+- Never push to, modify, or otherwise touch the user's PR branch.
 - Never post to Slack — return suggested reply text only.
 - Never hardcode or guess a Slack handle. The team-to-Slack mapping must
   always be resolved at run time via the Slack MCP. If no Slack MCP is
@@ -228,7 +189,7 @@ Inherit all safety rules from `debugging-ci-failures`. In addition:
 - Do not rerun CI, accept snapshots, or modify `.github/workflows/`
   without explicit approval.
 - If you can't confidently determine PR-caused vs unrelated, say so and
-  ask for human input — don't guess and open a PR you're unsure about.
+  ask for human input — don't guess.
 
 ## Reporting shape
 
@@ -238,8 +199,7 @@ Always respond with:
    `debugging-ci-failures`.
 2. PR-caused decision with a one-sentence reason.
 3. If unrelated:
-   - link to the fix PR (if you opened one), or the reason no PR is
-     possible
+   - the suspected root cause (one short sentence)
    - the GitHub team handle / feature-handbook team name (or "unknown")
    - the resolved Slack sub-team mention (or "unresolved" — never guessed)
    - the suggested Slack reply text, ready to copy-paste
