@@ -13,6 +13,7 @@ import {
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveQueryParams,
 } from '@/generated/persons/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -66,7 +67,10 @@ const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema,
     },
 })
 
-const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true })
+const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true }).extend({
+    limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
+})
 
 const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonRecordList>> => ({
     name: 'persons-list',
