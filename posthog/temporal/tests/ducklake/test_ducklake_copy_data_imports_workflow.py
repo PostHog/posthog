@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+from collections.abc import Sequence
 
 import pytest
 from unittest.mock import MagicMock
@@ -39,19 +40,22 @@ class _FakeColumn:
 
 
 class _FakeVerificationCursor:
-    def __init__(self, description) -> None:
+    def __init__(self, description: Sequence[object] | None) -> None:
         self.description = description
 
-    def fetchall(self):
+    def fetchone(self) -> tuple[object, ...] | None:
+        raise AssertionError("schema fetching should use cursor.description")
+
+    def fetchall(self) -> list[tuple[object, ...]]:
         raise AssertionError("schema fetching should use cursor.description")
 
 
 class _FakeVerificationConnection:
-    def __init__(self, description) -> None:
+    def __init__(self, description: Sequence[object] | None) -> None:
         self.description = description
-        self.calls: list[tuple[str, list[str] | None]] = []
+        self.calls: list[tuple[str, Sequence[object] | None]] = []
 
-    def execute(self, query: str, params: list[str] | None = None):
+    def execute(self, query: str, params: Sequence[object] | None = None) -> _FakeVerificationCursor:
         self.calls.append((query, params))
         return _FakeVerificationCursor(self.description)
 
