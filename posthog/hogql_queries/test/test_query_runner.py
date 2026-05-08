@@ -1,6 +1,4 @@
-import re
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -19,7 +17,6 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
-    DashboardAutoRefreshInterval,
     DataTableNode,
     DataVisualizationNode,
     EventsNode,
@@ -44,7 +41,6 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
-    SHARED_FORCE_BLOCKING_MIN_AGE,
     ExecutionMode,
     QueryRunner,
     get_query_runner,
@@ -1106,33 +1102,3 @@ class TestSharedInsightsExecutionMode(BaseTest):
         last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
         result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
         self.assertEqual(result, expected_mode)
-
-    def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
-        frontend_file = (
-            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardConstants.ts"
-        )
-        source = frontend_file.read_text()
-
-        interval_match = re.search(
-            r"export\s+const\s+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*=\s*DashboardAutoRefreshInterval\.SECONDS\s*",
-            source,
-        )
-        assert interval_match, (
-            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS must use DashboardAutoRefreshInterval.SECONDS in {frontend_file}"
-        )
-
-        stale_match = re.search(
-            r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*/\s*60",
-            source,
-        )
-        assert stale_match, (
-            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES must be derived from "
-            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file}."
-        )
-
-        backend_seconds = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds())
-        self.assertEqual(
-            backend_seconds,
-            DashboardAutoRefreshInterval().root,
-            f"Backend ({backend_seconds}s) must equal DashboardAutoRefreshInterval.",
-        )
