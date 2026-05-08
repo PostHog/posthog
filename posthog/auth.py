@@ -206,6 +206,10 @@ def _read_personal_api_key_lookup_cache_ttl_seconds() -> int:
 
 
 PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS = _read_personal_api_key_lookup_cache_ttl_seconds()
+# Set TTL <= 0 to disable the cache entirely (kill switch). Otherwise TTLCache requires ttl > 0,
+# so we floor at 1s for the cache instance — but `validate_key` checks the raw TTL value before
+# touching the cache, so a 0/negative configuration genuinely bypasses the cache rather than
+# falling back to a 1-second cache window.
 PERSONAL_API_KEY_LOOKUP_CACHE: TTLCache[str, "PersonalAPIKey"] = TTLCache(
     maxsize=10_000,
     ttl=max(PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS, 1),
@@ -306,16 +310,18 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         personal_api_key, source = personal_api_key_with_source
 
+        cache_enabled = PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS > 0
         cache_key = _personal_api_key_cache_key(personal_api_key)
-        with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
-            cached = PERSONAL_API_KEY_LOOKUP_CACHE.get(cache_key)
-        if cached is not None:
-            PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="hit").inc()
-            if source == cls.SOURCE_QUERY_STRING:
-                # Mirror the cold-path increment so query-string usage isn't undercounted on cache hits.
-                PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(cached.user.uuid).inc()
-            return cached
-        PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="miss").inc()
+        if cache_enabled:
+            with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
+                cached = PERSONAL_API_KEY_LOOKUP_CACHE.get(cache_key)
+            if cached is not None:
+                PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="hit").inc()
+                if source == cls.SOURCE_QUERY_STRING:
+                    # Mirror the cold-path increment so query-string usage isn't undercounted on cache hits.
+                    PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(cached.user.uuid).inc()
+                return cached
+            PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="miss").inc()
 
         personal_api_key_object = None
         mode_used = None
@@ -350,8 +356,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 key_to_update.secure_value = hash_key_value(personal_api_key)
                 key_to_update.save(update_fields=["secure_value"])
 
-        with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
-            PERSONAL_API_KEY_LOOKUP_CACHE[cache_key] = personal_api_key_object
+        if cache_enabled:
+            with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
+                PERSONAL_API_KEY_LOOKUP_CACHE[cache_key] = personal_api_key_object
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()

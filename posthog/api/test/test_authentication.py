@@ -1878,6 +1878,27 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
         assert _personal_api_key_cache_key(key_self) not in PERSONAL_API_KEY_LOOKUP_CACHE
         assert _personal_api_key_cache_key(key_other) in PERSONAL_API_KEY_LOOKUP_CACHE
 
+    def test_ttl_zero_disables_the_cache_entirely(self):
+        # Kill switch: PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS=0 must bypass the cache rather
+        # than fall through to a 1-second window.
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        with patch("posthog.auth.PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS", 0):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert _personal_api_key_cache_key(personal_api_key) not in PERSONAL_API_KEY_LOOKUP_CACHE
+
     def test_user_save_unrelated_to_is_active_does_not_drop_cache(self):
         from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
 
