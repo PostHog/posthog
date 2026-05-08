@@ -65,8 +65,7 @@ async def eval_surveys(
                 "Create a draft popover survey named '[sandboxed] NPS Survey' with description "
                 "'Net Promoter Score survey'. Add one NPS rating question: "
                 "'How likely are you to recommend us to a friend or colleague?' with lower label "
-                "'Not likely at all' and upper label 'Extremely likely'. Do not launch it. "
-                "Return the created survey ID in your final answer."
+                "'Not likely at all' and upper label 'Extremely likely'. Do not launch it."
             ),
             expected_survey={
                 "name": "[sandboxed] NPS Survey",
@@ -90,7 +89,7 @@ async def eval_surveys(
             prompt=(
                 "Create and launch a popover survey named '[sandboxed] CSAT Survey' with description "
                 "'Customer satisfaction survey'. It should ask one CSAT rating question: "
-                "'How satisfied are you with our product?' Return the created survey ID in your final answer."
+                "'How satisfied are you with our product?'"
             ),
             expected_survey={
                 "name": "[sandboxed] CSAT Survey",
@@ -113,7 +112,7 @@ async def eval_surveys(
                 "Create a draft popover survey named '[sandboxed] NPS with Follow-up' with description "
                 "'NPS survey with optional follow-up question'. Add two questions in this order: an NPS rating "
                 "question 'How likely are you to recommend us?' and an optional open-text follow-up "
-                "'What could we improve?'. Return the created survey ID in your final answer."
+                "'What could we improve?'."
             ),
             expected_survey={
                 "name": "[sandboxed] NPS with Follow-up",
@@ -141,8 +140,7 @@ async def eval_surveys(
                 "Create a draft popover PMF survey named '[sandboxed] PMF Survey' with description "
                 "'Product-market fit survey'. Ask one single-choice question: "
                 "'How would you feel if you could no longer use our product?' with choices "
-                "'Very disappointed', 'Somewhat disappointed', and 'Not disappointed'. "
-                "Return the created survey ID in your final answer."
+                "'Very disappointed', 'Somewhat disappointed', and 'Not disappointed'."
             ),
             expected_survey={
                 "name": "[sandboxed] PMF Survey",
@@ -164,7 +162,7 @@ async def eval_surveys(
                 "Create a draft popover survey named '[sandboxed] Checkout Feedback' with description "
                 "'Feedback for new checkout flow users'. Ask one open-text question: "
                 "'How was your checkout experience?' Link it to the existing feature flag with key "
-                "'new-checkout-flow'. Return the created survey ID in your final answer."
+                "'new-checkout-flow'."
             ),
             expected_survey={
                 "name": "[sandboxed] Checkout Feedback",
@@ -187,8 +185,7 @@ async def eval_surveys(
                 "Create a draft popover survey named '[sandboxed] A/B Test Treatment Survey' with description "
                 "'Survey for users in treatment variant'. Ask one CSAT rating question: "
                 "'How do you like the new design?' Link it to the existing feature flag with key "
-                "'ab-test-experiment' and target only users in the 'treatment' variant. "
-                "Return the created survey ID in your final answer."
+                "'ab-test-experiment' and target only users in the 'treatment' variant."
             ),
             expected_survey={
                 "name": "[sandboxed] A/B Test Treatment Survey",
@@ -214,7 +211,7 @@ async def eval_surveys(
                 "Create a draft popover survey named '[sandboxed] Pricing Page Feedback' with description "
                 "'Feedback from pricing page visitors'. Ask one single-choice question: "
                 "'Is our pricing clear?' with choices 'Yes, very clear', 'Somewhat clear', and "
-                "'Not clear at all'. Target URLs containing '/pricing'. Return the created survey ID in your final answer."
+                "'Not clear at all'. Target URLs containing '/pricing'."
             ),
             expected_survey={
                 "name": "[sandboxed] Pricing Page Feedback",
@@ -236,8 +233,7 @@ async def eval_surveys(
             prompt=(
                 "Create a draft popover survey named '[sandboxed] Feature Usage Survey' with description "
                 "'Survey about feature usage'. Ask one multiple-choice question: 'Which features do you use most?' "
-                "with choices 'Dashboard', 'Insights', 'Session Replay', 'Feature Flags', and 'Experiments'. "
-                "Return the created survey ID in your final answer."
+                "with choices 'Dashboard', 'Insights', 'Session Replay', 'Feature Flags', and 'Experiments'."
             ),
             expected_survey={
                 "name": "[sandboxed] Feature Usage Survey",
@@ -258,7 +254,7 @@ async def eval_surveys(
             prompt=(
                 "Create a draft widget survey named '[sandboxed] Widget Feedback' with description "
                 "'Widget-based feedback survey'. Ask one open-text question: "
-                "'What do you think of our product?' Return the created survey ID in your final answer."
+                "'What do you think of our product?'"
             ),
             expected_survey={
                 "name": "[sandboxed] Widget Feedback",
@@ -277,8 +273,7 @@ async def eval_surveys(
             name="survey_empty_questions_allowed",
             prompt=(
                 "Create a draft popover survey named '[sandboxed] Empty Questions Survey' with description "
-                "'Survey with no questions'. Use an empty questions list and do not add a placeholder question. "
-                "Return the created survey ID in your final answer."
+                "'Survey with no questions'. Use an empty questions list and do not add a placeholder question."
             ),
             expected_survey={
                 "name": "[sandboxed] Empty Questions Survey",
