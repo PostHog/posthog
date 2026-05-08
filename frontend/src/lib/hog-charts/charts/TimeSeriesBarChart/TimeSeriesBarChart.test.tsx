@@ -245,22 +245,20 @@ describe('TimeSeriesBarChart', () => {
             expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
         })
 
-        it('formats value labels as percentages when barLayout=percent and no formatter is given', () => {
-            const series: Series[] = [
-                { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25] },
-            ]
+        it('formats value labels as percentages when yAxis.format=percentage_scaled with 0-1 data', () => {
             const { chart } = renderHogChart(
                 <TimeSeriesBarChart
-                    series={series}
+                    series={[{ key: 'a', label: 'A', data: [0.1, 0.2, 0.3] }]}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ barLayout: 'percent', valueLabels: true }}
+                    config={{
+                        barLayout: 'percent',
+                        yAxis: { format: 'percentage_scaled' },
+                        valueLabels: true,
+                    }}
                 />
             )
-            const labels = chart.valueLabels().map((l) => l.text)
-            expect(labels.length).toBeGreaterThan(0)
-            expect(labels.every((t) => t.endsWith('%'))).toBe(true)
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['10%', '20%', '30%'])
         })
     })
 
