@@ -7,8 +7,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
+from products.tasks.backend.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -139,6 +140,19 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
+        event_stream_ingest_enabled = ctx.sandbox_event_ingest_enabled
+        event_ingest_token: str | None = None
+        if event_stream_ingest_enabled:
+            try:
+                task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
+                event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            except Exception as e:
+                raise SandboxExecutionError(
+                    "Failed to create sandbox event ingest token",
+                    {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
+                    cause=e,
+                )
+
         mcp_configs = get_sandbox_ph_mcp_configs(
             token=access_token,
             project_id=ctx.team_id,
@@ -197,6 +211,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 reasoning_effort=ctx.reasoning_effort,
                 mcp_configs=mcp_configs or None,
                 allowed_domains=ctx.allowed_domains,
+                event_ingest_token=event_ingest_token,
             )
 
             # Mark startup-time token issuance so follow-ups within the next
@@ -234,4 +249,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")
 
-        return StartAgentServerOutput(sandbox_url=sandbox_url, connect_token=connect_token)
+        return StartAgentServerOutput(
+            sandbox_url=sandbox_url,
+            connect_token=connect_token,
+        )
