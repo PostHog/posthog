@@ -17,6 +17,8 @@ from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -189,9 +191,11 @@ class SessionAuthentication(authentication.SessionAuthentication):
 # on key/user mutation if you need an instant invalidation hook):
 #   - the key being deleted or its `secure_value` rotated
 #   - `scopes`, `scoped_teams`, `scoped_organizations` changes on the key
-#   - `user.is_active` flipping to False (cold-path's `user__is_active=True` filter is bypassed
-#     within the cache window — accept this latency or call `clear()` from your deactivation flow)
 #   - `user.current_team_id` changes (affects `tag_queries(team_id=...)` attribution, not authz)
+#
+# `user.is_active` flipping to False is invalidated immediately on the originating pod via the
+# `post_save` signal handler below. Other pods catch up within TTL — Django signals don't cross
+# the process boundary, so cross-pod consistency is bounded by TTL rather than instant.
 def _read_personal_api_key_lookup_cache_ttl_seconds() -> int:
     raw = os.environ.get("PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS", "60")
     try:
@@ -216,6 +220,22 @@ PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER = Counter(
 
 def _personal_api_key_cache_key(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@receiver(post_save, sender=User)
+def _invalidate_personal_api_key_cache_on_user_deactivation(sender, instance, update_fields=None, **kwargs):
+    """When a user is deactivated, drop any cached PersonalAPIKey entries that reference them so
+    the originating pod stops accepting their bearer tokens immediately rather than waiting for
+    the TTL to expire. Other pods catch up within TTL — Django signals are in-process only."""
+    if update_fields is not None and "is_active" not in update_fields:
+        return
+    if instance.is_active:
+        return
+    user_id = instance.pk
+    with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
+        stale_keys = [k for k, v in PERSONAL_API_KEY_LOOKUP_CACHE.items() if v.user_id == user_id]
+        for k in stale_keys:
+            PERSONAL_API_KEY_LOOKUP_CACHE.pop(k, None)
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):

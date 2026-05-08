@@ -1813,6 +1813,97 @@ class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
         select_related_spy.assert_called()
         assert _personal_api_key_cache_key(personal_api_key) in PERSONAL_API_KEY_LOOKUP_CACHE
 
+    def test_user_deactivation_invalidates_cached_entries_for_that_user(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        first = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert first.status_code == status.HTTP_200_OK
+        cache_key = _personal_api_key_cache_key(personal_api_key)
+        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        # Deactivating the user fires the post_save signal which drops the cache entry on the
+        # originating pod, so the next request goes through the cold path and the
+        # `user__is_active=True` filter rejects it.
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        assert cache_key not in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        second = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_user_deactivation_only_invalidates_that_users_cache_entries(self):
+        from posthog.auth import (
+            PERSONAL_API_KEY_LOOKUP_CACHE,
+            PersonalAPIKeyAuthentication,
+            _personal_api_key_cache_key,
+        )
+
+        # Two users, one cached PAT each. Deactivating user A must not affect user B's cache.
+        # Use validate_key directly to populate the cache so we don't need to set up team
+        # membership for the second user.
+        other_user = User.objects.create_user(email="other@example.com", password="abc12345", first_name="Other")
+
+        key_self = generate_random_token_personal()
+        key_other = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="self", user=self.user, secure_value=hash_key_value(key_self), scopes=["*"])
+        PersonalAPIKey.objects.create(
+            label="other", user=other_user, secure_value=hash_key_value(key_other), scopes=["*"]
+        )
+
+        auth = PersonalAPIKeyAuthentication()
+        auth.validate_key((key_self, "header"))
+        auth.validate_key((key_other, "header"))
+
+        assert _personal_api_key_cache_key(key_self) in PERSONAL_API_KEY_LOOKUP_CACHE
+        assert _personal_api_key_cache_key(key_other) in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        assert _personal_api_key_cache_key(key_self) not in PERSONAL_API_KEY_LOOKUP_CACHE
+        assert _personal_api_key_cache_key(key_other) in PERSONAL_API_KEY_LOOKUP_CACHE
+
+    def test_user_save_unrelated_to_is_active_does_not_drop_cache(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        first = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert first.status_code == status.HTTP_200_OK
+        cache_key = _personal_api_key_cache_key(personal_api_key)
+        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        # Saving the user with `update_fields` excluding is_active must not drop the cache entry —
+        # otherwise every routine user-profile mutation invalidates auth.
+        self.user.first_name = "Updated"
+        self.user.save(update_fields=["first_name"])
+
+        assert cache_key in PERSONAL_API_KEY_LOOKUP_CACHE
+
     def test_different_tokens_do_not_collide_in_cache(self):
         from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
 
