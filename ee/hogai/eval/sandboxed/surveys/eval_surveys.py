@@ -26,7 +26,6 @@ from ee.hogai.eval.sandboxed.seeders.survey import seed_survey_feature_flags
 from ee.hogai.eval.sandboxed.surveys.scorers import (
     SURVEY_FORBIDDEN_WRITE_TOOLS,
     SurveyCreateOutcome,
-    SurveyCreateRejected,
     SurveyCreateReturnedId,
     SurveyCreateSchemaAlignment,
     SurveyIdInFinalMessage,
@@ -274,16 +273,19 @@ async def eval_surveys(
                 ],
             },
         ),
-        SandboxedEvalCase(
-            name="survey_empty_questions_rejected",
+        _survey_case(
+            name="survey_empty_questions_allowed",
             prompt=(
-                "Use the survey-create MCP tool to try to create a survey named '[sandboxed] Invalid Survey' "
-                "with description 'Survey with no questions' and an empty questions list. Do not add a placeholder "
-                "question. Report the tool error in your final answer."
+                "Create a draft popover survey named '[sandboxed] Empty Questions Survey' with description "
+                "'Survey with no questions'. Use an empty questions list and do not add a placeholder question. "
+                "Return the created survey ID in your final answer."
             ),
-            expected={
-                "survey_created": {"should_create": False},
-                "survey_create_rejected": {"questions": []},
+            expected_survey={
+                "name": "[sandboxed] Empty Questions Survey",
+                "description": "Survey with no questions",
+                "type": "popover",
+                "should_launch": False,
+                "questions": [],
             },
         ),
     ]
@@ -301,7 +303,6 @@ async def eval_surveys(
             SurveyCreateReturnedId(),
             SurveyCreateSchemaAlignment(),
             SurveyIdInFinalMessage(),
-            SurveyCreateRejected(),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,

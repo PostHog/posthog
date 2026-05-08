@@ -126,25 +126,72 @@ def _decode_json(value: str) -> Any:
         return None
 
 
+def _looks_like_error_message(value: str) -> bool:
+    value_lower = value.lower()
+    return (
+        "validation" in value_lower
+        or "required" in value_lower
+        or "bad request" in value_lower
+        or "not allowed" in value_lower
+        or "does not exist" in value_lower
+        or re.search(r"\berror\b", value_lower) is not None
+    )
+
+
+def _decoded_payload_has_error(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key in ("is_error", "isError"):
+            is_error = value.get(key)
+            if isinstance(is_error, bool) and is_error:
+                return True
+
+        for key in ("error", "errors"):
+            error_value = value.get(key)
+            if error_value:
+                return True
+
+        for key in ("detail", "message"):
+            message = value.get(key)
+            if isinstance(message, str) and _looks_like_error_message(message):
+                return True
+
+        content = value.get("content")
+        if isinstance(content, str):
+            decoded_content = _decode_json(content)
+            if decoded_content is not None:
+                return _decoded_payload_has_error(decoded_content)
+            return _looks_like_error_message(content)
+
+        if isinstance(content, list):
+            return _decoded_payload_has_error(content)
+
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    decoded_text = _decode_json(text)
+                    if decoded_text is not None and _decoded_payload_has_error(decoded_text):
+                        return True
+                    if _looks_like_error_message(text):
+                        return True
+                if _decoded_payload_has_error(item):
+                    return True
+            elif isinstance(item, str) and _looks_like_error_message(item):
+                return True
+
+    return False
+
+
 def _survey_create_experienced_error(call: ToolCall) -> bool:
     if call.is_error:
         return True
 
     decoded = _decode_json(call.output)
-    if isinstance(decoded, dict):
-        for key in ("is_error", "isError"):
-            value = decoded.get(key)
-            if isinstance(value, bool) and value:
-                return True
+    if decoded is not None:
+        return _decoded_payload_has_error(decoded)
 
-        for key in ("error", "errors"):
-            value = decoded.get(key)
-            if value:
-                return True
-
-    output_lower = call.output.lower()
-    has_error_word = any(word in output_lower for word in ("error", "invalid", "required", "validation"))
-    return has_error_word and "question" in output_lower
+    return _looks_like_error_message(call.output)
 
 
 def _strip_analytics(payload: dict[str, Any]) -> dict[str, Any]:
