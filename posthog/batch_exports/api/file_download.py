@@ -111,12 +111,12 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         data_interval_start = validated_data.pop("data_interval_start")
         data_interval_end = validated_data.pop("data_interval_end")
 
-        if validated_data["model"] == "events":
-            if (include := validated_data.pop("include", None)) is not None:
-                config["include_events"] = include
+        model = validated_data["model"]
+        if (include := validated_data.pop("include", None)) is not None and model == "events":
+            config["include_events"] = include
 
-            if (exclude := validated_data.pop("exclude", None)) is not None:
-                config["exclude_events"] = exclude
+        if (exclude := validated_data.pop("exclude", None)) is not None and model == "events":
+            config["exclude_events"] = exclude
 
         destination = BatchExportDestination(type=BatchExportDestination.Destination.FILE_DOWNLOAD, config=config)
         batch_export = BatchExportOnDemand(team_id=team_id, destination=destination, **validated_data)
