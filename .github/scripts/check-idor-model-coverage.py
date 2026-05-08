@@ -357,7 +357,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
             if not isinstance(field, ForeignKey):
                 continue
 
-            related_model_name = field.related_model.__name__
+            # ForeignKey.related_model can be the string "self" for
+            # self-referencing relations; we only care about Team / Organization
+            # / User FKs, so treat self-references as a non-match and skip.
+            related_model = field.related_model
+            if isinstance(related_model, str):
+                continue
+            related_model_name = related_model.__name__
 
             if related_model_name == "Team":
                 has_team_fk = True
@@ -705,11 +711,14 @@ def main() -> int:
 
     if has_errors:
         print("\n❌ FAILED: Some models need attention.")
-        print("\nTo fix:")
+        print("\nTo fix IDOR semgrep gaps:")
         print("  1. Add the missing models to .semgrep/rules/idor-team-scoped-models.yaml")
         print("  2. Or add them to EXCLUDED_MODELS in this script if they don't need IDOR protection")
         print("  3. For unscoped models: add team_id, or add to LEGITIMATELY_UNSCOPED / NEEDS_TEAM_ID")
-        print("  4. For new fail-closed gaps: inherit TeamScopedRootMixin / ProductTeamModel")
+        print("To fix fail-closed manager gaps:")
+        print("  4. New main-DB models: inherit TeamScopedRootMixin")
+        print("  5. New separate-DB models: inherit ProductTeamModel")
+        print("  See posthog/models/scoping/README.md for the contract.")
         return 1
 
     if has_warnings:
