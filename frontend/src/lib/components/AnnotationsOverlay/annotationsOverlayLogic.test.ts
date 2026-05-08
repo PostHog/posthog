@@ -903,5 +903,97 @@ describe('annotationsOverlayLogic', () => {
                 }
             }
         })
+
+        // Compare-against-previous bar charts mount one overlay with two tracks. Each annotation
+        // routes to the track whose date range contains it; if none does, it's filtered.
+        const PREVIOUS_TRACK_DATES = ['2022-08-09', '2022-08-10', '2022-08-11', '2022-08-12']
+        const CURRENT_TRACK_DATES = ['2022-08-16', '2022-08-17', '2022-08-18', '2022-08-19']
+
+        it('routes annotations to current and previous tracks by date_marker', async () => {
+            useInsightMocks('day')
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: CURRENT_TRACK_DATES,
+                ticks: CURRENT_TRACK_DATES.map((_, i) => ({ value: i })),
+                previousDates: PREVIOUS_TRACK_DATES,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+
+            const badges = logic.values.annotationBadgeDataIndices as Array<{
+                dateKey: string
+                dataIndex: number
+                trackIndex: number
+            }>
+            const byDateKey = Object.fromEntries(
+                badges.map((b) => [b.dateKey, { dataIndex: b.dataIndex, trackIndex: b.trackIndex }])
+            )
+
+            // Aug 10 falls inside PREVIOUS_TRACK_DATES (Aug 9..Aug 12), dataIndex 1 within that track.
+            expect(byDateKey['2022-08-10 00:00:00+0000']).toEqual({ dataIndex: 1, trackIndex: 1 })
+            // Aug 11 is also in the previous track, dataIndex 2.
+            expect(byDateKey['2022-08-11 00:00:00+0000']).toEqual({ dataIndex: 2, trackIndex: 1 })
+            // Aug 17 falls inside CURRENT_TRACK_DATES (Aug 16..Aug 19), dataIndex 1.
+            expect(byDateKey['2022-08-17 00:00:00+0000']).toEqual({ dataIndex: 1, trackIndex: 0 })
+        })
+
+        it('only emits badges for dates within one of the tracks', async () => {
+            useInsightMocks('day')
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: CURRENT_TRACK_DATES,
+                ticks: CURRENT_TRACK_DATES.map((_, i) => ({ value: i })),
+                previousDates: PREVIOUS_TRACK_DATES,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+
+            const badges = logic.values.annotationBadgeDataIndices as Array<{
+                dateKey: string
+                trackIndex: number
+            }>
+            // The fixture only has annotations on Aug 10, Aug 11, and Aug 17 within these ranges.
+            const emittedDateKeys = badges.map((b) => b.dateKey).sort()
+            expect(emittedDateKeys).toEqual([
+                '2022-08-10 00:00:00+0000',
+                '2022-08-11 00:00:00+0000',
+                '2022-08-17 00:00:00+0000',
+            ])
+        })
+
+        it('treats empty previousDates as no second track', async () => {
+            useInsightMocks('day')
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: ['2022-08-09', '2022-08-10', '2022-08-11'],
+                ticks: [{ value: 0 }, { value: 1 }, { value: 2 }],
+                previousDates: [],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+
+            const badges = logic.values.annotationBadgeDataIndices as Array<{
+                dateKey: string
+                trackIndex: number
+            }>
+            // Annotations in the primary range still emit; all sit on track 0.
+            expect(badges.length).toBeGreaterThan(0)
+            expect(badges.every((b) => b.trackIndex === 0)).toBe(true)
+        })
     })
 })
