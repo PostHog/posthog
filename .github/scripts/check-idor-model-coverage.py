@@ -573,10 +573,11 @@ def check_fail_closed_baseline(
     print(f"  Current:  {len(current)} models")
 
     if new_violations:
-        models_list = ", ".join(sorted(new_violations))
+        sorted_violations = sorted(new_violations)
+        models_list = ", ".join(sorted_violations)
         print(f"::error::New team-scoped models without TeamScopedManager: {models_list}")
         print(f"\n  ❌ ERROR: {len(new_violations)} new model(s) with team_id but not fail-closed:")
-        for model in sorted(new_violations):
+        for model in sorted_violations:
             print(f"     - {model}")
         print("\n  New main-DB models should inherit TeamScopedRootMixin.")
         print("  New separate-DB models should inherit ProductTeamModel.")
