@@ -231,8 +231,11 @@ export interface YAxisScale {
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
-    /** Maps a label to an x pixel coordinate. */
-    x: (label: string) => number | undefined
+    /** Maps a label to an x pixel coordinate. For chart types where data points
+     *  for the same label live at different x positions (e.g. grouped bar charts
+     *  in compare-against-previous mode), pass `seriesKey` to anchor on a specific
+     *  series. Falls back to the band/point center when omitted or unknown. */
+    x: (label: string, seriesKey?: string) => number | undefined
     /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
     /** Returns tick values for the default (left) y-axis. */

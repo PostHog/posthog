@@ -192,13 +192,29 @@ def count_direct_orm_queries(path: Path) -> int:
 
     Accepts a single file or a directory (package of ViewSet files).
     """
-    total = 0
-    for f in _collect_py_files(path):
+    return len(find_direct_orm_queries(path))
+
+
+def find_direct_orm_queries(path: Path) -> list[str]:
+    """Return file:line strings for every .objects attribute access under path.
+
+    Same approximation caveats as count_direct_orm_queries — may include non-ORM uses.
+    """
+    locations: list[str] = []
+    files = _collect_py_files(path)
+    base = path if path.is_dir() else path.parent
+    for f in files:
         tree = ast_parse_safe(f)
         if not tree:
             continue
-        total += sum(1 for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr == "objects")
-    return total
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "objects":
+                try:
+                    rel = f.relative_to(base)
+                except ValueError:
+                    rel = f
+                locations.append(f"{rel}:{node.lineno}")
+    return locations
 
 
 def get_cross_product_internal_imports(product_dir: Path, product_name: str) -> list[str]:
