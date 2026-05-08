@@ -101,7 +101,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        return TRACE_SPANS_LIST_SETTINGS
+        return TRACE_SPANS_LIST_SETTINGS()
 
 
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
