@@ -200,9 +200,10 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
                 await copyToClipboard(payload, 'reviews')
                 breakpoint()
             } catch (error) {
-                if (!isBreakpoint(error)) {
-                    lemonToast.error('Copy failed!')
+                if (error instanceof Error && isBreakpoint(error)) {
+                    return
                 }
+                lemonToast.error('Copy failed!')
             }
         },
     })),
