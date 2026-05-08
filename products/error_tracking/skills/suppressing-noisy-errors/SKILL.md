@@ -52,6 +52,7 @@ Suppression is **not** the right tool when:
 | `posthog:execute-sql`                             | Pre-create volume estimate (count + distinct users) for the chosen filter |
 | `posthog:error-tracking-suppression-rules-list`   | Check existing suppression rules                                          |
 | `posthog:error-tracking-suppression-rules-create` | Create the suppression rule                                               |
+| `posthog:error-tracking-issues-partial-update`    | Hide past data via issue status without dropping events at ingestion      |
 
 ## Workflow
 
@@ -116,29 +117,32 @@ The `error-tracking-suppression-rules-create` tool description warns explicitly:
 do **not** create match-all rules and do **not** create overly broad rules.
 Match on the most specific property combination you can:
 
-| Noise pattern                       | Recommended filter                                                                                                                                                                                           |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Browser extension errors            | `$exception_sources icontains "chrome-extension://"`                                                                                                                                                         |
-| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` (the message is specific; a type filter is optional)                                                                                                     |
-| Cross-origin "Script error."        | `$exception_values icontains "Script error."` AND `$exception_types regex '"Error"'`                                                                                                                         |
-| Bot user agents                     | `$raw_user_agent regex "(HeadlessChrome\|bot\|crawler\|spider)"` (case-insensitive — `$user_agent` works too, but the raw header is more reliable for crawler markers since parsers can normalize them away) |
-| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND a type filter via `icontains` or `regex`                                                                                                                |
+| Noise pattern                       | Recommended filter                                                                                                                                                                                                                                         |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chrome extension errors             | `$exception_sources icontains "chrome-extension://"`                                                                                                                                                                                                       |
+| Firefox extension errors            | `$exception_sources icontains "moz-extension://"`                                                                                                                                                                                                          |
+| Safari extension errors             | `$exception_sources icontains "safari-extension://"`                                                                                                                                                                                                       |
+| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` (the message is specific; a type filter is optional)                                                                                                                                                   |
+| Cross-origin "Script error."        | `$exception_values icontains "Script error."` AND `$exception_types exact "Error"`                                                                                                                                                                         |
+| Bot user agents                     | `$raw_user_agent regex "(?i)(HeadlessChrome\|bot\|crawler\|spider)"` (note the `(?i)` flag — `regex` is case-sensitive by default; `$user_agent` also works but the raw header is more reliable for crawler markers since parsers can normalize them away) |
+| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND a type filter (e.g. `$exception_types exact "TypeError"`)                                                                                                                                             |
 
 The canonical exception properties (`$exception_types`, `$exception_values`,
-`$exception_sources`, `$exception_functions`) are arrays at capture time but
-are materialized as JSON-encoded strings in ClickHouse — the stored column
-literal for a TypeError is `["TypeError"]`, not `TypeError`. That changes
-which operators work:
+`$exception_sources`, `$exception_functions`) are arrays at capture time. The
+property filter compiler [special-cases them](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py#L904) — it parses the
+JSON-materialized column and wraps the filter in
+`arrayExists(v -> ..., JSONExtract(...))`, so all the standard operators
+(`exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`) work
+against individual elements with the bare value: `exact "TypeError"`, not
+`exact '["TypeError"]'` or `regex '"TypeError"'`.
 
-- `icontains` and `regex` work — they substring/match against the JSON literal
-  (`icontains "TypeError"` becomes `ILIKE '%TypeError%'`).
-- `exact` and `is_not` do **not** work for matching individual elements:
-  `exact "TypeError"` compiles to `column = 'TypeError'` and never matches
-  `["TypeError"]`. Use `regex '"TypeError"'` (with quotes inside the pattern)
-  when you need exact-element precision — it scopes to the JSON-quoted token.
-- The singular forms (`$exception_type`, `$exception_message`) and
-  `$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
-  filtering on them produces a rule that silently never matches.
+The singular forms (`$exception_type`, `$exception_message`) and
+`$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
+filtering on them produces a rule that silently never matches.
+
+Note that the `regex` operator on suppression and grouping rules compiles to
+the HogVM `Operation::Regex`, which is **case-sensitive**. Use the `(?i)`
+inline flag for case-insensitive matching (e.g. `(?i)headlesschrome`).
 
 Whenever possible, AND together two or more conditions — type plus message, or
 message plus URL pattern — so the rule is specific to the real noise.
@@ -178,7 +182,7 @@ posthog:error-tracking-suppression-rules-create
       {
         "type": "event",
         "key": "$exception_types",
-        "operator": "icontains",
+        "operator": "exact",
         "value": "Error"
       },
       {
@@ -189,9 +193,12 @@ posthog:error-tracking-suppression-rules-create
       }
     ]
   },
-  "sampling_rate": 1
+  "sampling_rate": 0.95
 }
 ```
+
+Start at `0.95` (drop 95%, keep 5% as sentinel data) so you can confirm the
+rule isn't catching real errors before tightening to `1.0`.
 
 ### Step 6 — Watch the rule for 24-48h
 
@@ -201,8 +208,11 @@ After creating the rule:
   step 5; should drop to near zero)
 - Watch related active issues — if their volume drops in the same window, the
   rule was scoped correctly
-- If a related real issue's volume drops too (false-positive), disable the rule
-  immediately and tighten the filter
+- If a related real issue's volume drops too (false-positive), ask the user to
+  disable the rule via **Project settings → Error tracking → Suppression rules**
+  immediately and tighten the filter before re-creating it. The MCP tools to
+  edit or delete a rule (`error-tracking-suppression-rules-partial-update`,
+  `-destroy`) are not enabled — the agent has no way to recover programmatically.
 
 If you see signs of false positives (a real issue going quiet at the same time
 the rule was created), prefer disabling the rule over deleting it — that
