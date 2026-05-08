@@ -19627,7 +19627,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `BACKFILL` - Backfill
+     * * `PENDING` - Pending
+    * `BACKFILL` - Backfill
     * `READY` - Ready
     * `ERROR` - Error
      */
@@ -19635,6 +19636,7 @@ export namespace Schemas {
 
 
     export const MaterializedColumnSlotStateEnum = {
+      Pending: 'PENDING',
       Backfill: 'BACKFILL',
       Ready: 'READY',
       Error: 'ERROR',
@@ -19645,18 +19647,24 @@ export namespace Schemas {
       team: number;
       property_definition: string;
       readonly property_definition_details: PropertyDefinition;
-      property_type: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index: number;
+      slot_index?: number | null;
+      /**
+         * @minimum 0
+         * @maximum 32767
+         * @nullable
+         */
+      compaction_target_slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at: string;
@@ -26380,18 +26388,24 @@ export namespace Schemas {
       team?: number;
       property_definition?: string;
       readonly property_definition_details?: PropertyDefinition;
-      property_type?: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index?: number;
+      slot_index?: number | null;
+      /**
+         * @minimum 0
+         * @maximum 32767
+         * @nullable
+         */
+      compaction_target_slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at?: string;
