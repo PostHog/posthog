@@ -29,26 +29,6 @@ FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
 LOGGER = structlog.get_logger(__name__)
 
 
-class FileDownloadEventsRequestSerializer(serializers.Serializer):
-    """Typed configuration for the events model."""
-
-    model = serializers.ChoiceField(choices=["events"])
-    include = serializers.ListField(child=serializers.CharField(), required=False)
-    exclude = serializers.ListField(child=serializers.CharField(), required=False)
-
-
-class FileDownloadPersonsRequestSerializer(serializers.Serializer):
-    """Typed configuration for the persons model."""
-
-    model = serializers.ChoiceField(choices=["persons"])
-
-
-class FileDownloadSessionsRequestSerializer(serializers.Serializer):
-    """Typed configuration for the sessions model."""
-
-    model = serializers.ChoiceField(choices=["sessions"])
-
-
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     """Typed configuration for a FileDownload batch-export destination."""
 
@@ -66,6 +46,35 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Split download into multiple files of at most this size in MB",
     )
+
+
+class FileDownloadEventsRequestSerializer(serializers.Serializer):
+    """Typed configuration for the events model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["events"])
+    include = serializers.ListField(child=serializers.CharField(), required=False)
+    exclude = serializers.ListField(child=serializers.CharField(), required=False)
+    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
+    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
+
+
+class FileDownloadPersonsRequestSerializer(serializers.Serializer):
+    """Typed configuration for the persons model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["persons"])
+    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
+    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
+
+
+class FileDownloadSessionsRequestSerializer(serializers.Serializer):
+    """Typed configuration for the sessions model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["sessions"])
+    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
+    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
 
 
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
