@@ -67,7 +67,10 @@ posthog:query-error-tracking-issue-events
 
 Use `verbosity: "raw"` only if the truncated stack hides the answer. The tool
 defaults to `onlyAppFrames: true`, which strips vendor frames; flip to `false`
-when the bug appears to live in a third-party library.
+when the bug appears to live in a third-party library — or when the response
+comes back with `stacktrace.type: "resolved"` but no frames at all (common for
+minified bundles where every frame looks vendor-y to the resolver, e.g. React
+production builds).
 
 For the earliest sample, narrow `dateRange.date_from` to a window around the
 issue's `first_seen` and call again. If recent and earliest events look
@@ -117,36 +120,68 @@ Repeat with `properties.$browser`, `properties.$os`, `properties.$current_url`,
 ### Step 4 — Check feature flag exposure
 
 If the user suspects an experiment or rollout, check whether affected users had
-a flag enabled when the error fired. The `$active_feature_flags` array on the
-exception event captures flags evaluated at capture time:
+a flag enabled when the error fired.
+
+To enumerate which flags were evaluated on affected users, parse the
+`$active_feature_flags` property — it is materialized as a JSON-encoded string in
+ClickHouse, so `arrayJoin(properties.$active_feature_flags)` directly will fail;
+`JSONExtract` is the working pattern:
 
 ```sql
 posthog:execute-sql
 SELECT
-    arrayJoin(properties.$active_feature_flags) AS flag,
+    arrayJoin(JSONExtract(toString(properties.$active_feature_flags), 'Array(String)')) AS flag,
     count() AS occurrences,
     uniq(person_id) AS users
 FROM events
 WHERE event = '$exception'
     AND properties.$exception_issue_id = '<issue_id>'
     AND timestamp > now() - INTERVAL 14 DAY
+    AND notEmpty(toString(properties.$active_feature_flags))
 GROUP BY flag
 ORDER BY occurrences DESC
 LIMIT 20
 ```
 
-Compare to the project's overall flag exposure in the same window.
-Disproportionate representation of one flag suggests the flag is involved in
-the cause — not a guarantee, but a strong hypothesis.
+Caveat: every event captures every evaluated flag key, so this enumeration often
+returns identical counts across flags and **doesn't tell you which flag
+correlates with the error** — only which were on the user. To actually test a
+hypothesis, query the per-flag value column `properties.$feature/<flag-key>`,
+which carries the evaluated value (`true`/`false`/variant name):
+
+```sql
+SELECT
+    properties.`$feature/my-flag-key` AS variant,
+    count() AS occurrences,
+    uniq(person_id) AS users
+FROM events
+WHERE event = '$exception'
+    AND properties.$exception_issue_id = '<issue_id>'
+    AND timestamp > now() - INTERVAL 14 DAY
+GROUP BY variant
+ORDER BY occurrences DESC
+```
+
+Compare the variant split here to the project's overall exposure on the same
+flag in the same window. Disproportionate representation of one variant
+suggests the flag is involved in the cause — not a guarantee, but a strong
+hypothesis.
 
 ### Step 5 — Find a representative replay
 
-Hand off to `finding-replay-for-issue` rather than picking blindly. That skill
-ranks linked sessions by activity score, duration, and journey completeness so
-the user lands on the recording most likely to show the cause.
+Hand off to `finding-replay-for-issue` when picking the _best_ session matters —
+popular issues link hundreds of recordings, mostly short crash fragments or
+idle-tab sessions, and that skill applies the duration / active-time / recency
+ranking that finds the one most likely to show the cause. Hand off too when the
+user asks for "a replay" without specifying which.
 
-If `finding-replay-for-issue` returns nothing, mention that session replay may
-not be enabled for the affected users — useful context, not a failure.
+Skip the hand-off and pull a recording inline via `query-session-recordings-list`
+with `session_ids` from the sample exception events you already fetched in step 2
+when only a handful of sessions are linked, the user already named a specific
+session, or any working example will do (e.g. proving the error reproduces).
+
+If neither path returns a recording, mention that session replay may not be
+enabled for the affected users — useful context, not a failure.
 
 ### Step 6 — Synthesize
 
