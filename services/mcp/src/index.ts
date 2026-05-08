@@ -201,6 +201,15 @@ const handleRequest = async (
         })
     }
 
+    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
+    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
+    // routes these to the asset binding before the Worker runs, but
+    // `wrangler dev` invokes the Worker first — without this short-circuit,
+    // the OAuth gate below 401s the request before assets get a chance.
+    if (url.pathname.startsWith('/ui-apps/')) {
+        return env.ASSETS.fetch(request)
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)
