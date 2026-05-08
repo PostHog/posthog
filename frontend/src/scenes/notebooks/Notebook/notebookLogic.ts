@@ -1112,7 +1112,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             try {
                 const sourceTitle = values.notebook.title || 'Untitled'
-                const newTitle = `${sourceTitle} (unsaved changes)`
+                const newTitle = `${sourceTitle} (copy)`
                 const created = await api.notebooks.create({
                     content: updateContentHeading(values.staleConflict.localContent, newTitle),
                     text_content: values.staleConflict.localText,
