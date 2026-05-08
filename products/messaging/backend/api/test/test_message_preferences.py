@@ -334,3 +334,117 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["identifier"], "user1@example.com")
+
+    def test_add_opt_out_global_creates_record(self):
+        """Manual opt-out without a category creates a global marketing opt-out."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "manual@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["identifier"], "manual@example.com")
+        self.assertEqual(data["preferences"], {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value})
+
+        recipient = MessageRecipientPreference.objects.get(team=self.team, identifier="manual@example.com")
+        self.assertEqual(
+            recipient.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID),
+            PreferenceStatus.OPTED_OUT,
+        )
+        self.assertEqual(recipient.created_by, self.user)
+
+    def test_add_opt_out_for_specific_category(self):
+        """Manual opt-out with a category key only opts out of that category."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "manual@example.com", "category_key": self.category.key},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        recipient = MessageRecipientPreference.objects.get(team=self.team, identifier="manual@example.com")
+        self.assertEqual(recipient.get_preference(str(self.category.id)), PreferenceStatus.OPTED_OUT)
+        self.assertEqual(
+            recipient.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID),
+            PreferenceStatus.NO_PREFERENCE,
+        )
+
+    def test_add_opt_out_trims_whitespace(self):
+        """Identifier whitespace is trimmed before storage."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "  spaced@example.com  "},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            MessageRecipientPreference.objects.filter(team=self.team, identifier="spaced@example.com").exists()
+        )
+
+    def test_add_opt_out_existing_recipient_is_updated(self):
+        """Existing recipients are updated rather than duplicated."""
+        existing = MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="manual@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_IN.value},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "manual@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            MessageRecipientPreference.objects.filter(team=self.team, identifier="manual@example.com").count(),
+            1,
+        )
+
+        existing.refresh_from_db()
+        self.assertEqual(
+            existing.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID),
+            PreferenceStatus.OPTED_OUT,
+        )
+        self.assertEqual(existing.get_preference(str(self.category.id)), PreferenceStatus.OPTED_IN)
+
+    def test_add_opt_out_missing_identifier_returns_400(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "   "},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("identifier", response.json())
+
+    def test_add_opt_out_unknown_category_returns_404(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "manual@example.com", "category_key": "does-not-exist"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"], "Category not found")
+        self.assertFalse(
+            MessageRecipientPreference.objects.filter(team=self.team, identifier="manual@example.com").exists()
+        )
+
+    def test_add_opt_out_team_isolation(self):
+        """A category from another team cannot be referenced when adding an opt-out."""
+        other_team = self.organization.teams.create(name="Other Team")
+        other_category = MessageCategory.objects.create(
+            team=other_team,
+            key="other_only",
+            name="Other only",
+            description="",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            {"identifier": "manual@example.com", "category_key": other_category.key},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(
+            MessageRecipientPreference.objects.filter(team=self.team, identifier="manual@example.com").exists()
+        )

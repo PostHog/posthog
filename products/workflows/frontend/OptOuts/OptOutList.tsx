@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight, IconExternal, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconExternal, IconPlus, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -15,10 +15,27 @@ import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage, loadOptOutPersons } =
-        useActions(logic)
-    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading, currentPage } =
-        useValues(logic)
+    const {
+        setSelectedIdentifier,
+        openPreferencesPage,
+        loadNextPage,
+        loadPreviousPage,
+        loadOptOutPersons,
+        openAddOptOutModal,
+        closeAddOptOutModal,
+        setAddOptOutIdentifier,
+        submitAddOptOut,
+    } = useActions(logic)
+    const {
+        selectedIdentifier,
+        optOutPersons,
+        optOutPersonsLoading,
+        preferencesUrlLoading,
+        currentPage,
+        addOptOutModalOpen,
+        addOptOutIdentifier,
+        addOptOutSubmitting,
+    } = useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -83,9 +100,20 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
     const showingStart = (currentPage - 1) * 20 + 1
     const showingEnd = Math.min(currentPage * 20, optOutPersons.count)
 
+    const addOptOutTitle = category?.name ? `Add opt-out for ${category.name}` : 'Add opt-out'
+
     return (
         <>
-            <div className="flex justify-end mb-2 mt-[-3rem]">
+            <div className="flex justify-end gap-2 mb-2 mt-[-3rem]">
+                <LemonButton
+                    icon={<IconPlus />}
+                    size="small"
+                    type="secondary"
+                    onClick={openAddOptOutModal}
+                    data-attr="add-opt-out-button"
+                >
+                    Add opt-out
+                </LemonButton>
                 <LemonButton
                     icon={<IconRefresh />}
                     size="small"
@@ -153,6 +181,43 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                         />
                     </div>
                 )}
+            </LemonModal>
+
+            <LemonModal
+                isOpen={addOptOutModalOpen}
+                onClose={closeAddOptOutModal}
+                title={addOptOutTitle}
+                description={
+                    category?.name
+                        ? `The recipient will be opted out of "${category.name}".`
+                        : 'The recipient will be opted out of all marketing communications.'
+                }
+                footer={
+                    <div className="flex gap-2 justify-end">
+                        <LemonButton type="secondary" onClick={closeAddOptOutModal} disabledReason={undefined}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={submitAddOptOut}
+                            loading={addOptOutSubmitting}
+                            disabledReason={!addOptOutIdentifier.trim() ? 'Enter an email or identifier' : undefined}
+                            data-attr="add-opt-out-submit"
+                        >
+                            Add opt-out
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <LemonInput
+                    type="email"
+                    autoFocus
+                    placeholder="recipient@example.com"
+                    value={addOptOutIdentifier}
+                    onChange={setAddOptOutIdentifier}
+                    onPressEnter={submitAddOptOut}
+                    data-attr="add-opt-out-input"
+                />
             </LemonModal>
         </>
     )

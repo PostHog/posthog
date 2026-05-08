@@ -6106,6 +6106,14 @@ const api = {
                 })
                 .get()
         },
+        async addMessageOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
+            return await new ApiRequest().messagingPreferencesOptOuts().create({
+                data: {
+                    identifier,
+                    category_key: categoryKey,
+                },
+            })
+        },
     },
     hogFlows: {
         async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {

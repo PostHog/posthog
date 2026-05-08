@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -34,6 +34,10 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setCurrentPage: (page: number) => ({ page }),
         loadNextPage: true,
         loadPreviousPage: true,
+        openAddOptOutModal: true,
+        closeAddOptOutModal: true,
+        setAddOptOutIdentifier: (identifier: string) => ({ identifier }),
+        submitAddOptOut: true,
     }),
     reducers({
         personsModalOpen: [
@@ -75,6 +79,28 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 loadPreviousPageSuccess: (state) => Math.max(1, state - 1),
             },
         ],
+        addOptOutModalOpen: [
+            false,
+            {
+                openAddOptOutModal: () => true,
+                closeAddOptOutModal: () => false,
+            },
+        ],
+        addOptOutIdentifier: [
+            '',
+            {
+                setAddOptOutIdentifier: (_, { identifier }) => identifier,
+                openAddOptOutModal: () => '',
+                closeAddOptOutModal: () => '',
+            },
+        ],
+        addOptOutSubmitting: [
+            false,
+            {
+                submitAddOptOut: () => true,
+                closeAddOptOutModal: () => false,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         optOutPersons: {
@@ -107,6 +133,27 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     return values.optOutPersons
                 }
             },
+        },
+    })),
+    listeners(({ actions, props, values }) => ({
+        submitAddOptOut: async () => {
+            const identifier = values.addOptOutIdentifier.trim()
+            if (!identifier) {
+                lemonToast.error('Please enter an email or identifier')
+                actions.closeAddOptOutModal()
+                return
+            }
+            try {
+                await api.messaging.addMessageOptOut(identifier, props.category?.key)
+                lemonToast.success(`Added ${identifier} to the opt-out list`)
+                actions.closeAddOptOutModal()
+                actions.loadOptOutPersons()
+            } catch (error: any) {
+                const detail =
+                    error?.data?.identifier?.[0] || error?.data?.error || error?.message || 'Failed to add opt-out'
+                lemonToast.error(detail)
+                actions.closeAddOptOutModal()
+            }
         },
     })),
     afterMount(({ props, actions }) => {

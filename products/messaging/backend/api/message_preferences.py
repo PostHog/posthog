@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -22,9 +23,11 @@ class OptOutsPagination(PageNumberPagination):
 
 
 class MessagePreferencesSerializer(serializers.ModelSerializer):
-    identifier = serializers.CharField()
-    updated_at = serializers.DateTimeField()
-    preferences = serializers.JSONField()
+    identifier = serializers.CharField(help_text="The recipient identifier (typically an email address).")
+    updated_at = serializers.DateTimeField(help_text="When the recipient's preferences were last updated.")
+    preferences = serializers.JSONField(
+        help_text="Map of message category id (or '$all' for the global marketing opt-out) to OPTED_IN/OPTED_OUT/NO_PREFERENCE.",
+    )
 
     class Meta:
         model = MessageRecipientPreference
@@ -41,6 +44,27 @@ class MessagePreferencesSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
         ]
+
+
+class AddOptOutSerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text="The recipient identifier (typically an email address) to opt out.",
+    )
+    category_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "Optional message category key. If omitted, the recipient is opted out of all marketing communications."
+        ),
+    )
+
+    def validate_identifier(self, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("Identifier is required.")
+        return cleaned
 
 
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -80,6 +104,38 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Fallback if pagination fails for some reason
         serializer = MessagePreferencesSerializer(opt_outs, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=AddOptOutSerializer,
+        responses={201: MessagePreferencesSerializer},
+    )
+    @opt_outs.mapping.post
+    def add_opt_out(self, request, **kwargs):
+        """Manually opt an identifier out of a category (or all marketing communications if no category is given)."""
+        serializer = AddOptOutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        identifier = serializer.validated_data["identifier"]
+        category_key = serializer.validated_data.get("category_key")
+
+        if category_key:
+            try:
+                category = MessageCategory.objects.get(key=category_key, team_id=self.team_id)
+            except MessageCategory.DoesNotExist:
+                return Response({"error": "Category not found"}, status=404)
+            category_id: str = str(category.id)
+        else:
+            category_id = ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+
+        recipient = MessageRecipientPreference.get_or_create_for_identifier(
+            team_id=self.team_id,
+            identifier=identifier,
+        )
+        if recipient.created_by_id is None and request.user.is_authenticated:
+            recipient.created_by = request.user
+            recipient.save(update_fields=["created_by"])
+        recipient.set_preference(category_id, PreferenceStatus.OPTED_OUT)
+
+        return Response(MessagePreferencesSerializer(recipient).data, status=201)
 
     @action(detail=False, methods=["get"])
     def webhook_url(self, request, **kwargs):
