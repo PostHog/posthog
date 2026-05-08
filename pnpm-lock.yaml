@@ -1019,9 +1019,6 @@ importers:
       liquidjs:
         specifier: ^10.25.2
         version: 10.25.2
-      lodash.debounce:
-        specifier: ^4.0.8
-        version: 4.0.8
       lodash.difference:
         specifier: ^4.5.0
         version: 4.5.0
@@ -1230,9 +1227,6 @@ importers:
       '@types/jest-image-snapshot':
         specifier: ^6.1.0
         version: 6.1.0
-      '@types/lodash.debounce':
-        specifier: ^4.0.9
-        version: 4.0.9
       '@types/lodash.difference':
         specifier: ^4.5.9
         version: 4.5.9
@@ -12156,9 +12150,6 @@ packages:
 
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
-
-  '@types/lodash.debounce@4.0.9':
-    resolution: {integrity: sha512-Ma5JcgTREwpLRwMM+XwBR7DaWe96nC38uCBDFKZWbNKD+osjVzdpnUSwBcqCptrp16sSOLBAUb50Car5I0TCsQ==}
 
   '@types/lodash.difference@4.5.9':
     resolution: {integrity: sha512-MNlajcjtwzLpXk+cw38UkBvEXJNEPhULgS8A4EHwtUwT7f7yFH/SFKD0iw5Rfilwh60yJIgFo0vsMr7xsa5+aw==}
@@ -36156,10 +36147,6 @@ snapshots:
   '@types/libsodium-wrappers@0.7.14': {}
 
   '@types/linkify-it@5.0.0': {}
-
-  '@types/lodash.debounce@4.0.9':
-    dependencies:
-      '@types/lodash': 4.17.13
 
   '@types/lodash.difference@4.5.9':
     dependencies:
