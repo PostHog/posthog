@@ -15,12 +15,13 @@ import { useCallback } from 'react'
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 export type GetLocalOverride = (groupType: TaxonomicFilterGroupType) => TaxonomicDefinitionTypes[] | undefined
 

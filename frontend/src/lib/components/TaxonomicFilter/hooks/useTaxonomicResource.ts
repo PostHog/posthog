@@ -142,19 +142,25 @@ export function useTaxonomicResource<T>(
             return () => {
                 entry.subscribers.delete(notifyChange)
                 if (entry.subscribers.size === 0) {
-                    // Abort any in-flight request the last consumer cared
-                    // about — without subscribers, no one's listening to
-                    // the result anyway.
+                    // Tear the entry down unconditionally on last unsub:
+                    //   1. Abort any in-flight request — no one is
+                    //      listening, so completing it is wasted work.
+                    //   2. Mark `abort` / `inflight` cleared synchronously
+                    //      so when the in-flight promise eventually
+                    //      rejects, `execute()`'s catch handler sees a
+                    //      stale controller (`entry.abort !== abort`) and
+                    //      skips its side-effects — keeps the dead entry
+                    //      from re-poisoning a fresh subscribe.
+                    //   3. Delete the cache entry. Long-lived sessions
+                    //      with many distinct search queries (each its
+                    //      own hash) used to leak `data` for the page
+                    //      lifetime; re-mount with the same key just
+                    //      re-fetches. Cost is bounded by `staleTime` UX
+                    //      rather than permanent memory growth.
                     entry.abort?.abort()
-                    // Drop the entry once it's settled and unobserved.
-                    // Otherwise long-lived sessions with many distinct
-                    // search queries (each its own hash) leak `data` for
-                    // the lifetime of the page. Re-mount with the same
-                    // key just re-fetches; the cost is bounded by
-                    // `staleTime` UX rather than permanent memory growth.
-                    if (!entry.inflight) {
-                        cache.delete(hash)
-                    }
+                    entry.abort = undefined
+                    entry.inflight = undefined
+                    cache.delete(hash)
                 }
             }
         },

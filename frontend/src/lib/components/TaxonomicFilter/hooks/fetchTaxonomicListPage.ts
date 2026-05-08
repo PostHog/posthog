@@ -67,9 +67,9 @@ export async function fetchTaxonomicListPage({
     const primaryUrl = useScoped ? group.scopedEndpoint! : remoteEndpoint
 
     const [primary, expandedCount] = await Promise.all([
-        api.get(combineUrl(primaryUrl, baseParams).url),
+        api.get(combineUrl(primaryUrl, baseParams).url, { signal }),
         useScoped
-            ? api.get(combineUrl(remoteEndpoint, { ...baseParams, limit: 1, offset: 0 }).url)
+            ? api.get(combineUrl(remoteEndpoint, { ...baseParams, limit: 1, offset: 0 }).url, { signal })
             : Promise.resolve(null),
     ])
 

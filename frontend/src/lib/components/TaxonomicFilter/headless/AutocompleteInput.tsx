@@ -1251,7 +1251,7 @@ export function useTaxonomicAutocompleteCategories(): TaxonomicAutocompleteCateg
             needsMoreSearchCharacters: ctx.needsMoreByType[group.type],
         }))
         return [all, ...groupCats]
-    }, [ctx.category, ctx.visibleGroups, ctx.setCategory, ctx.itemsByType, ctx.loadingByType, ctx.needsMoreByType])
+    }, [ctx.category, ctx.visibleGroups, ctx.setCategory, ctx.itemsByType, ctx.loadingByType, ctx.needsMoreByType, ctx])
 }
 
 /** Read raw Root state from any descendant (open/setOpen, selected, search, …). */

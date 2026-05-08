@@ -127,24 +127,14 @@ function DialogBody({
      * Consumers can override with `<DialogBody render={<div />}>` for
      * a plain non-scrolling body, or `<DialogBody render={<ScrollArea
      * scrollShadows={false} />}>` to tweak the scroll-area config.
+     *
+     * `useRender` is called unconditionally — when no consumer render
+     * is provided we substitute a `<ScrollArea>` template so the hooks
+     * order stays stable (eslint-plugin-react-hooks would flag a
+     * conditional call otherwise, since `useRender` starts with `use`).
      */
-    if (render === undefined) {
-        // `useRender.ComponentProps<'div'>` widens `ref` to `LegacyRef`
-        // which clashes with ScrollArea's stricter `RefObject` typing.
-        // Cast through `unknown` — runtime-wise the spread is fine
-        // (ScrollArea forwards standard div props to its Root), the
-        // mismatch is only on the legacy string-ref slot we don't use.
-        const scrollAreaProps = props as unknown as React.ComponentProps<typeof ScrollArea>
-        return (
-            <ScrollArea
-                data-slot="dialog-body"
-                className={cn('quill-dialog__body', className)}
-                {...scrollAreaProps}
-            >
-                {children}
-            </ScrollArea>
-        )
-    }
+    const effectiveRender =
+        render ?? <ScrollArea data-slot="dialog-body" className={cn('quill-dialog__body', className)} />
     return useRender({
         defaultTagName: 'div',
         props: mergeProps<'div'>(
@@ -154,7 +144,7 @@ function DialogBody({
             } as Omit<React.ComponentProps<'div'>, 'ref'>,
             props
         ),
-        render,
+        render: effectiveRender,
         state: { slot: 'dialog-body' },
     })
 }

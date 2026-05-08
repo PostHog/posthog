@@ -6,9 +6,9 @@
  */
 import { Separator } from '@posthog/quill'
 
-import { ActionStepType, ActionType } from '~/types'
-
 import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopover/utils'
+
+import { ActionStepType, ActionType } from '~/types'
 
 import { TaxonomicDefinitionTypes } from '../../types'
 
@@ -47,7 +47,12 @@ function MatchGroup({ index, step }: { index: number; step: ActionStepType }): J
     if (step.text) {
         conditions.push(
             <li key="text">
-                Text {step.text_matching === 'regex' ? 'matches regex' : step.text_matching === 'exact' ? 'equals' : 'contains'}{' '}
+                Text{' '}
+                {step.text_matching === 'regex'
+                    ? 'matches regex'
+                    : step.text_matching === 'exact'
+                      ? 'equals'
+                      : 'contains'}{' '}
                 <Mono>{step.text}</Mono>
             </li>
         )
@@ -55,7 +60,12 @@ function MatchGroup({ index, step }: { index: number; step: ActionStepType }): J
     if (step.href) {
         conditions.push(
             <li key="href">
-                Href {step.href_matching === 'regex' ? 'matches regex' : step.href_matching === 'exact' ? 'equals' : 'contains'}{' '}
+                Href{' '}
+                {step.href_matching === 'regex'
+                    ? 'matches regex'
+                    : step.href_matching === 'exact'
+                      ? 'equals'
+                      : 'contains'}{' '}
                 <Mono>{step.href}</Mono>
             </li>
         )
@@ -63,7 +73,12 @@ function MatchGroup({ index, step }: { index: number; step: ActionStepType }): J
     if (step.url) {
         conditions.push(
             <li key="url">
-                URL {step.url_matching === 'regex' ? 'matches regex' : step.url_matching === 'exact' ? 'equals' : 'contains'}{' '}
+                URL{' '}
+                {step.url_matching === 'regex'
+                    ? 'matches regex'
+                    : step.url_matching === 'exact'
+                      ? 'equals'
+                      : 'contains'}{' '}
                 <Mono>{step.url}</Mono>
             </li>
         )
