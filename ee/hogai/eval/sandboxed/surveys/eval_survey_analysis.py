@@ -20,7 +20,6 @@ import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
-from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot
 from ee.hogai.eval.sandboxed.seeders.survey_analysis import SurveyAnalysisSeed, build_survey_analysis_setup
 from ee.hogai.eval.sandboxed.surveys.scorers import (
@@ -342,7 +341,6 @@ async def eval_survey_analysis(sandboxed_demo_data, pytestconfig, posthog_client
                 required={SURVEY_RESPONSE_TOOL_NAME},
                 name="attempted_execute_sql_for_responses",
             ),
-            SkillLoaded("querying-posthog-data", name="querying_posthog_data_skill_loaded"),
             SurveyIdUsed(),
             SurveyResponseRetrieval(),
             SurveyAnalysisAnswerAlignment(),
