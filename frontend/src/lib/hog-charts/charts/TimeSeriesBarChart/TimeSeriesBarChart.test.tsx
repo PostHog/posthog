@@ -1,8 +1,6 @@
-import { cleanup } from '@testing-library/react'
-
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import { renderHogChart } from '../../testing'
 import { TimeSeriesBarChart } from './TimeSeriesBarChart'
 
 const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
@@ -10,20 +8,6 @@ const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
 describe('TimeSeriesBarChart', () => {
-    let teardownJsdom: () => void
-    let teardownRaf: () => void
-
-    beforeEach(() => {
-        teardownJsdom = setupJsdom()
-        teardownRaf = setupSyncRaf()
-    })
-
-    afterEach(() => {
-        teardownRaf()
-        teardownJsdom()
-        cleanup()
-    })
-
     describe('config.xAxis', () => {
         it('hides x-axis ticks when xAxis.hide is true', () => {
             const { chart } = renderHogChart(
