@@ -56,6 +56,8 @@ from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
 
+logger = structlog.get_logger(__name__)
+
 ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
@@ -88,7 +90,7 @@ class AllowIPMiddleware:
             try:
                 self.ip_networks.append(ip_network(block, strict=False))
             except ValueError:
-                structlog.get_logger(__name__).warning("allow_ip_middleware.invalid_cidr_block_skipped", block=block)
+                logger.warning("allow_ip_middleware.invalid_cidr_block_skipped", block=block)
 
         if settings.TRUSTED_PROXIES:
             self.trusted_proxies = [item.strip() for item in settings.TRUSTED_PROXIES.split(",")]
