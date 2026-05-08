@@ -133,8 +133,7 @@ function DialogBody({
      * order stays stable (eslint-plugin-react-hooks would flag a
      * conditional call otherwise, since `useRender` starts with `use`).
      */
-    const effectiveRender =
-        render ?? <ScrollArea data-slot="dialog-body" className={cn('quill-dialog__body', className)} />
+    const effectiveRender = render ?? <ScrollArea data-slot="dialog-body" />
     return useRender({
         defaultTagName: 'div',
         props: mergeProps<'div'>(
