@@ -71,21 +71,44 @@ class TestNotionSource:
         with pytest.raises(Exception, match="notion api down"):
             NotionSource().get_schemas(config=NotionSourceConfig(notion_integration_id=1), team_id=1)
 
+    @patch("posthog.temporal.data_imports.sources.notion.source._list_data_sources")
     @patch.object(NotionSource, "_get_access_token")
-    def test_get_schemas_filters_by_names(self, mock_get_token: MagicMock) -> None:
+    def test_get_schemas_skips_data_source_discovery_for_static_only_names(
+        self, mock_get_token: MagicMock, mock_list_data_sources: MagicMock
+    ) -> None:
+        # When the caller (e.g. the `incremental_fields` API endpoint) only asks about
+        # static schemas, we shouldn't hit the Notion API at all.
         mock_get_token.return_value = "tok"
-        # Force discovery to no-op so we only see the static schemas.
-        with patch(
-            "posthog.temporal.data_imports.sources.notion.source._list_data_sources",
-            return_value=[],
-        ):
-            schemas = NotionSource().get_schemas(
-                config=NotionSourceConfig(notion_integration_id=1),
-                team_id=1,
-                names=["pages"],
-            )
+
+        schemas = NotionSource().get_schemas(
+            config=NotionSourceConfig(notion_integration_id=1),
+            team_id=1,
+            names=["pages"],
+        )
 
         assert [s.name for s in schemas] == ["pages"]
+        mock_list_data_sources.assert_not_called()
+        mock_get_token.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.notion.source._list_data_sources")
+    @patch.object(NotionSource, "_get_access_token")
+    def test_get_schemas_runs_data_source_discovery_when_dynamic_name_requested(
+        self, mock_get_token: MagicMock, mock_list_data_sources: MagicMock
+    ) -> None:
+        # If the caller asks about a `data_source_rows__*` schema, we still need to
+        # enumerate data sources so we know which ones exist and what their titles are.
+        mock_get_token.return_value = "tok"
+        mock_list_data_sources.return_value = [("ds-id-aaa", "Engineering tasks")]
+
+        target = data_source_rows_schema_name("ds-id-aaa")
+        schemas = NotionSource().get_schemas(
+            config=NotionSourceConfig(notion_integration_id=1),
+            team_id=1,
+            names=[target],
+        )
+
+        assert [s.name for s in schemas] == [target]
+        mock_list_data_sources.assert_called_once()
 
     @patch("posthog.temporal.data_imports.sources.notion.source.validate_notion_credentials")
     @patch.object(NotionSource, "_get_access_token")

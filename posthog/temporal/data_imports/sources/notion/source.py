@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.notion.notion import (
     validate_credentials as validate_notion_credentials,
 )
 from posthog.temporal.data_imports.sources.notion.settings import (
+    DATA_SOURCE_ROWS_PREFIX,
     INCREMENTAL_DATETIME_FIELDS,
     NOTION_STATIC_ENDPOINTS,
     STATIC_ENDPOINTS,
@@ -99,17 +100,23 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         # source (each Notion database hosts one or more data sources). Let API failures
         # propagate so the user sees the real error (revoked token, missing scope, Notion
         # outage) instead of silently getting back only the static schemas.
-        access_token = self._get_access_token(config, team_id)
-        for data_source_id, title in _list_data_sources(access_token):
-            schemas.append(
-                SourceSchema(
-                    name=data_source_rows_schema_name(data_source_id),
-                    label=title or "Untitled data source",
-                    supports_incremental=True,
-                    supports_append=True,
-                    incremental_fields=INCREMENTAL_DATETIME_FIELDS,
+        #
+        # When the caller filters by `names` and asks only about static schemas, skip the
+        # Notion API call entirely — the per-schema lookup endpoint (`incremental_fields`)
+        # passes a single name at a time, so this avoids a round trip on every static-schema
+        # config edit.
+        if names is None or any(n.startswith(DATA_SOURCE_ROWS_PREFIX) for n in names):
+            access_token = self._get_access_token(config, team_id)
+            for data_source_id, title in _list_data_sources(access_token):
+                schemas.append(
+                    SourceSchema(
+                        name=data_source_rows_schema_name(data_source_id),
+                        label=title or "Untitled data source",
+                        supports_incremental=True,
+                        supports_append=True,
+                        incremental_fields=INCREMENTAL_DATETIME_FIELDS,
+                    )
                 )
-            )
 
         if names is not None:
             names_set = set(names)
