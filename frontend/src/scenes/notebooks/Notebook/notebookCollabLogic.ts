@@ -4,10 +4,8 @@ import { Step } from '@tiptap/pm/transform'
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
-import { TTEditor } from 'lib/components/RichContentEditor/types'
+import { JSONContent, TTEditor } from 'lib/components/RichContentEditor/types'
 import { uuid } from 'lib/utils'
 
 import type { notebookCollabLogicType } from './notebookCollabLogicType'
@@ -41,6 +39,7 @@ export type RemoteStep = {
  * Idempotent step apply. The same step may arrive via SSE *and* via the 409
  * conflict body on a concurrent save; whichever lands first wins, the second
  * skips by version. Presence is always propagated so the caret stays in sync.
+ * Throws if the step itself can't be applied — caller decides how to surface it.
  */
 export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
     const expected = getVersion(editor.state) + 1
@@ -66,20 +65,15 @@ export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
         return
     }
 
-    try {
-        const step = Step.fromJSON(editor.state.schema, remote.step)
-        let tr = receiveTransaction(editor.state, [step], [remote.clientId], {
-            mapSelectionBackward: true,
-        })
-        const meta = presenceMeta()
-        if (meta) {
-            tr = tr.setMeta(REMOTE_PRESENCE_META, meta)
-        }
-        editor.view.dispatch(tr)
-    } catch (e) {
-        posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })
-        lemonToast.error('Failed to sync notebook changes. Please reload the page.')
+    const step = Step.fromJSON(editor.state.schema, remote.step)
+    let tr = receiveTransaction(editor.state, [step], [remote.clientId], {
+        mapSelectionBackward: true,
+    })
+    const meta = presenceMeta()
+    if (meta) {
+        tr = tr.setMeta(REMOTE_PRESENCE_META, meta)
     }
+    editor.view.dispatch(tr)
 }
 
 export const notebookCollabLogic = kea<notebookCollabLogicType>([
@@ -94,6 +88,8 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         ackLocalSteps: (steps: Record<string, any>[], clientID: string) => ({ steps, clientID }),
         /** Apply steps received from SSE or a 409 body. Idempotent by version. */
         applyRemoteSteps: (steps: RemoteStep[]) => ({ steps }),
+        /** Bubbles up to notebookLogic when receiveTransaction throws — the conflict modal opens. */
+        rebaseFailed: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) => params,
         connectStream: true,
         disconnectStream: true,
     }),
@@ -145,11 +141,19 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
             if (!editor) {
                 return
             }
+            const localContent = editor.getJSON()
+            const localText = editor.getText()
             for (const remote of steps) {
                 if (remote.clientId === values.clientID) {
                     continue
                 }
-                applyRemoteStep(editor, remote)
+                try {
+                    applyRemoteStep(editor, remote)
+                } catch (e) {
+                    posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })
+                    actions.rebaseFailed({ serverContent: editor.getJSON(), localContent, localText })
+                    return
+                }
             }
         },
 
@@ -182,16 +186,23 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 if (!editor) {
                     return
                 }
-                applyRemoteStep(editor, {
-                    step: parsed.step,
-                    clientId: parsed.client_id,
-                    version,
-                    presence: {
-                        userId: parsed.user_id,
-                        userName: parsed.user_name,
-                        head: parsed.cursor_head,
-                    },
-                })
+                const localContent = editor.getJSON()
+                const localText = editor.getText()
+                try {
+                    applyRemoteStep(editor, {
+                        step: parsed.step,
+                        clientId: parsed.client_id,
+                        version,
+                        presence: {
+                            userId: parsed.user_id,
+                            userName: parsed.user_name,
+                            head: parsed.cursor_head,
+                        },
+                    })
+                } catch (e) {
+                    posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })
+                    actions.rebaseFailed({ serverContent: editor.getJSON(), localContent, localText })
+                }
             }
 
             const onError = (error: any): void => {

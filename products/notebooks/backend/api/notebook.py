@@ -775,8 +775,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
         if result.status == "stale":
+            # Stream was trimmed (MAXLEN/TTL). Carry the fresh content so the client
+            # can show side-by-side previews in the conflict modal.
+            notebook.refresh_from_db()
             return Response(
-                {"code": "conflict_stale", "detail": "Reload the notebook."},
+                {"code": "conflict_stale", "content": notebook.content},
                 status=410,
             )
 

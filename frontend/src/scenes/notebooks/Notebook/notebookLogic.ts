@@ -168,7 +168,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }),
             ['setItemContext', 'maybeLoadComments', 'setSelectedComment', 'setCommentContexts'],
             notebookCollabLogic({ shortId: props.shortId }),
-            ['ackLocalSteps', 'applyRemoteSteps'],
+            ['ackLocalSteps', 'applyRemoteSteps', 'rebaseFailed'],
         ],
     })),
     actions({
@@ -225,15 +225,11 @@ export const notebookLogic = kea<notebookLogicType>([
         openShareModal: true,
         closeShareModal: true,
         setAccessDeniedToNotebook: true,
-        showStaleConflict: (params: {
-            serverContent: JSONContent
-            serverText: string
-            localContent: JSONContent
-            localText: string
-        }) => params,
+        showStaleConflict: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) =>
+            params,
         dismissStaleConflict: true,
         discardLocalChanges: true,
-        forceSaveLocalChanges: true,
+        copyUnsavedToNewNotebook: true,
     }),
     reducers(({ props }) => ({
         isShareModalOpen: [
@@ -281,7 +277,6 @@ export const notebookLogic = kea<notebookLogicType>([
         staleConflict: [
             null as {
                 serverContent: JSONContent
-                serverText: string
                 localContent: JSONContent
                 localText: string
             } | null,
@@ -456,8 +451,9 @@ export const notebookLogic = kea<notebookLogicType>([
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.steps) {
-                                // Apply the missed range (deduped by version against SSE), then retry
-                                // PM-collab rebases our pending steps against the new state
+                                // PM-collab rebases our pending steps over the missed range.
+                                // If receiveTransaction throws, `rebaseFailed` opens the modal;
+                                // silent step drops (range eliminated) are tolerated.
                                 const steps = error.data.steps as Record<string, any>[]
                                 const clientIds = error.data.client_ids as string[]
                                 const serverVersion = error.data.version as number
@@ -469,6 +465,9 @@ export const notebookLogic = kea<notebookLogicType>([
                                         version: firstMissedVersion + i,
                                     }))
                                 )
+                                if (values.staleConflict) {
+                                    return values.notebook
+                                }
                                 actions.saveNotebook({
                                     content: values.editor?.getJSON() ?? notebook.content,
                                     title: notebook.title,
@@ -476,19 +475,18 @@ export const notebookLogic = kea<notebookLogicType>([
                                 return values.notebook
                             }
                             if (error.status === 410) {
-                                // Don't wipe local content. Surface the divergence in a modal so the
-                                // user can choose to discard or overwrite — their typing is preserved.
-                                try {
-                                    const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
-                                    actions.showStaleConflict({
-                                        serverContent: fresh.content ?? {},
-                                        serverText: fresh.text_content ?? '',
-                                        localContent: values.editor?.getJSON() ?? notebook.content,
-                                        localText: values.editor?.getText() ?? '',
-                                    })
-                                } catch {
-                                    lemonToast.error('Could not sync changes. Please reload.')
-                                }
+                                // Server is past us in a way collab can't bridge (stream trimmed,
+                                // or out-of-band Postgres write). 410 carries fresh content; the
+                                // modal shows side-by-side previews so the user can copy any
+                                // unsaved text into a new notebook before discarding.
+                                const fresh = error.data?.content
+                                    ? error.data
+                                    : await api.notebooks.get(values.notebook.short_id, undefined, {})
+                                actions.showStaleConflict({
+                                    serverContent: fresh.content ?? {},
+                                    localContent: values.editor?.getJSON() ?? notebook.content ?? {},
+                                    localText: values.editor?.getText() ?? '',
+                                })
                                 return values.notebook
                             }
                             throw error
@@ -1100,27 +1098,33 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.loadNotebook()
         },
 
-        forceSaveLocalChanges: async () => {
-            // Overwrite server with the user's local content via the legacy PATCH endpoint —
-            // it accepts a version-locked PATCH, so we fetch the latest version first and
-            // bump from there. This bypasses the collab step buffer entirely.
+        rebaseFailed: ({ serverContent, localContent, localText }) => {
+            // PM-collab couldn't apply a remote step; the modal lets the user copy or discard.
+            actions.showStaleConflict({ serverContent, localContent, localText })
+        },
+
+        copyUnsavedToNewNotebook: async () => {
+            // Stash the user's unsaved edits in a fresh notebook so nothing is lost. Then
+            // dismiss the modal and reload the original — same end state as discarding,
+            // but with the orphaned content preserved at a separate URL the user can return to.
             if (!values.notebook || !values.staleConflict) {
                 return
             }
             try {
-                const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
-                await api.notebooks.update(values.notebook.short_id, {
-                    version: fresh.version,
-                    content: values.staleConflict.localContent,
+                const sourceTitle = values.notebook.title || 'Untitled'
+                const newTitle = `${sourceTitle} (unsaved changes)`
+                const created = await api.notebooks.create({
+                    content: updateContentHeading(values.staleConflict.localContent, newTitle),
                     text_content: values.staleConflict.localText,
-                    title: values.notebook.title,
+                    title: newTitle,
                 })
+                lemonToast.success('Saved your unsaved changes to a new notebook.')
                 actions.dismissStaleConflict()
                 actions.clearLocalContent()
                 actions.loadNotebook()
-                lemonToast.success('Your changes were saved.')
+                await openNotebook(created.short_id, NotebookTarget.Scene)
             } catch {
-                lemonToast.error('Could not save your changes.')
+                lemonToast.error('Could not copy your changes to a new notebook.')
             }
         },
 

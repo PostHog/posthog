@@ -163,12 +163,14 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
 
         response = self._collab_save(
             notebook,
-            version=0,
+            version=notebook["version"],
             steps=[{"stepType": "replace", "from": 0, "to": 0}],
         )
         assert response.status_code == status.HTTP_410_GONE
         data = response.json()
         assert data["code"] == "conflict_stale"
+        # Carries fresh content so the client can populate the modal preview without a GET.
+        assert data["content"] == SAMPLE_DOC
 
 
 # Keep the SSE generator lifetime tiny so tests terminate deterministically.

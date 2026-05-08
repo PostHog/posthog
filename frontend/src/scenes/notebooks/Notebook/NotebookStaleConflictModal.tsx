@@ -7,7 +7,7 @@ import { NotebookPreview } from './NotebookPreview'
 
 export function NotebookStaleConflictModal(): JSX.Element | null {
     const { staleConflict } = useValues(notebookLogic)
-    const { dismissStaleConflict, discardLocalChanges, forceSaveLocalChanges } = useActions(notebookLogic)
+    const { dismissStaleConflict, discardLocalChanges, copyUnsavedToNewNotebook } = useActions(notebookLogic)
 
     if (!staleConflict) {
         return null
@@ -18,14 +18,14 @@ export function NotebookStaleConflictModal(): JSX.Element | null {
             isOpen
             onClose={dismissStaleConflict}
             title="We couldn't sync your changes"
-            description="The notebook has changed too much since you started typing. We can't merge your changes automatically."
+            description="The notebook has changed too much since you started typing. We can't reconcile the changes automatically."
             footer={
                 <>
                     <LemonButton type="secondary" onClick={discardLocalChanges}>
-                        Discard my changes
+                        Discard unsaved changes and reload
                     </LemonButton>
-                    <LemonButton type="primary" status="danger" onClick={forceSaveLocalChanges}>
-                        Save anyway
+                    <LemonButton type="primary" onClick={copyUnsavedToNewNotebook}>
+                        Copy unsaved version to a new notebook
                     </LemonButton>
                 </>
             }
