@@ -96,30 +96,6 @@ def parse_shard_timings(logs: str) -> dict[str, float]:
     return shard_durations
 
 
-def compute_package_weights(
-    shard_durations: dict[str, float],
-) -> dict[str, int]:
-    """Distribute shard duration proportionally among packages.
-
-    Uses a simple heuristic: packages are weighted equally within a shard,
-    then scaled so the sum matches the observed duration. This gives a
-    reasonable starting point that the bin-packer can work with.
-
-    For better accuracy, we also parse per-test-binary timing from the logs.
-    """
-    package_weights: dict[str, float] = {}
-
-    for shard_key, duration in shard_durations.items():
-        packages = shard_key.split()
-        # Equal distribution as baseline
-        per_pkg = duration / len(packages)
-        for pkg in packages:
-            package_weights[pkg] = per_pkg
-
-    # Round to integers
-    return {pkg: max(1, round(w)) for pkg, w in sorted(package_weights.items())}
-
-
 def parse_detailed_timings(logs: str) -> dict[str, float]:
     """Parse per-package durations from cargo test output.
 
@@ -289,15 +265,10 @@ def main():
         print(f"\nAnalyzing run {run_id}...")
         logs = get_run_logs(run_id)
 
-        # Try detailed parsing first
         weights = parse_detailed_timings(logs)
         if not weights:
-            # Fallback to simple shard-level parsing
-            shard_durations = parse_shard_timings(logs)
-            if not shard_durations:
-                print(f"  WARNING: Could not parse timings from run {run_id}")
-                continue
-            weights = compute_package_weights(shard_durations)
+            print(f"  WARNING: Could not parse timings from run {run_id}")
+            continue
 
         print(f"  Parsed {len(weights)} packages, total weight: {sum(weights.values()):.0f}s")
         all_weights.append(weights)
