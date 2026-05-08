@@ -74,7 +74,7 @@ operations = [
     run_sql_with_exceptions(
         _alter_sharded(),
         node_roles=[NodeRole.AUX],
-        sharded=True,
+        sharded=False,
         is_alter_on_replicated_table=True,
     ),
     # 3. Drop and recreate the Distributed read/write tables. They have no data
