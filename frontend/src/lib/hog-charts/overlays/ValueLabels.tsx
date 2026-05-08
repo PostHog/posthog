@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import { resolveYScaleForSeries } from '../core/types'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
@@ -22,14 +23,6 @@ const LABEL_BORDER = 2
 const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
 
-let measureCtx: CanvasRenderingContext2D | null = null
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-    if (!measureCtx) {
-        measureCtx = document.createElement('canvas').getContext('2d')
-    }
-    return measureCtx
-}
-
 interface Candidate {
     key: string
     seriesIndex: number
@@ -39,11 +32,6 @@ interface Candidate {
     width: number
     color: string
     above: boolean
-}
-
-function resolveYScale(s: { yAxisId?: string }, scales: ChartScales): (value: number) => number {
-    const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-    return scales.yAxes?.[axisId]?.scale ?? scales.y
 }
 
 function defaultLocaleFormatter(v: number): string {
@@ -88,7 +76,7 @@ function pushCandidate(
 }
 
 function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
-    const ctx = getMeasureCtx()
+    const ctx = getTextMeasureCtx()
     if (ctx) {
         ctx.font = LABEL_FONT
     }
@@ -129,7 +117,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         return out
     }
     const topSeries = visible[visible.length - 1]
-    const yScale = resolveYScale(topSeries, scales)
+    const yScale = resolveYScaleForSeries(scales, topSeries)
     const topColor = topSeries.color
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
@@ -167,7 +155,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
             continue
         }
-        const yScale = resolveYScale(s, scales)
+        const yScale = resolveYScaleForSeries(scales, s)
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {

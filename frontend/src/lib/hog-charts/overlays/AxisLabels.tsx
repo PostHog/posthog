@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
+import { getTextMeasureCtx, LABEL_FONT } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
@@ -16,26 +17,7 @@ interface AxisLabelsProps {
     labelToCoord?: (label: string) => number | undefined
 }
 
-export const LABEL_FONT =
-    '12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_PADDING = 20
-
-let measureCtx: CanvasRenderingContext2D | null = null
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-    if (!measureCtx) {
-        measureCtx = document.createElement('canvas').getContext('2d')
-    }
-    return measureCtx
-}
-
-export function measureLabelWidth(text: string, font: string = LABEL_FONT): number {
-    const ctx = getMeasureCtx()
-    if (!ctx) {
-        return text.length * 7
-    }
-    ctx.font = font
-    return ctx.measureText(text).width
-}
 
 export function computeVisibleXLabels(
     labels: string[],
@@ -59,7 +41,7 @@ export function computeVisibleXLabels(
         return []
     }
 
-    const ctx = getMeasureCtx()
+    const ctx = getTextMeasureCtx()
     if (!ctx) {
         return candidates
     }
@@ -88,6 +70,78 @@ const TICK_STYLE_BASE: React.CSSProperties = {
     fontSize: 12,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
+}
+
+/** Distance in CSS pixels between the plot edge and the start of the tick label. */
+const TICK_GAP = 8
+
+interface ChartBox {
+    width: number
+    plotLeft: number
+    plotTop: number
+    plotWidth: number
+    plotHeight: number
+}
+
+/** Tick label sitting alongside a y-axis. `side` picks which axis: `left` anchors to the
+ *  right of the plot's left edge; `right` anchors to the left of the plot's right edge. */
+function YTickLabel({
+    y,
+    side,
+    box,
+    text,
+    color,
+    dataAttr,
+}: {
+    y: number
+    side: 'left' | 'right'
+    box: ChartBox
+    text: string
+    color: string
+    dataAttr: string
+}): React.ReactElement {
+    const edge =
+        side === 'left'
+            ? { right: box.width - box.plotLeft + TICK_GAP }
+            : { left: box.plotLeft + box.plotWidth + TICK_GAP }
+    return (
+        <div
+            data-attr={dataAttr}
+            style={{ ...TICK_STYLE_BASE, ...edge, top: y, transform: 'translateY(-50%)', color }}
+        >
+            {text}
+        </div>
+    )
+}
+
+/** Tick label sitting under the x-axis (the chart's bottom edge). */
+function XTickLabel({
+    x,
+    box,
+    text,
+    color,
+    dataAttr,
+}: {
+    x: number
+    box: ChartBox
+    text: string
+    color: string
+    dataAttr: string
+}): React.ReactElement {
+    return (
+        <div
+            data-attr={dataAttr}
+            style={{
+                ...TICK_STYLE_BASE,
+                left: x,
+                top: box.plotTop + box.plotHeight + TICK_GAP,
+                transform: 'translateX(-50%)',
+                color,
+            }}
+        >
+            {text}
+        </div>
+    )
 }
 
 export function AxisLabels({
@@ -136,19 +190,15 @@ export function AxisLabels({
                             return null
                         }
                         return (
-                            <div
+                            <YTickLabel
                                 key={`y-cat-${i}`}
-                                data-attr="hog-chart-axis-tick-y"
-                                style={{
-                                    ...TICK_STYLE_BASE,
-                                    right: dimensions.width - dimensions.plotLeft + 8,
-                                    top: y,
-                                    transform: 'translateY(-50%)',
-                                    color: axisColor,
-                                }}
-                            >
-                                {text}
-                            </div>
+                                y={y}
+                                side="left"
+                                box={dimensions}
+                                text={text}
+                                color={axisColor}
+                                dataAttr="hog-chart-axis-tick-y"
+                            />
                         )
                     })}
                 {!hideXAxis &&
@@ -159,19 +209,14 @@ export function AxisLabels({
                         }
                         const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
                         return (
-                            <div
+                            <XTickLabel
                                 key={`x-val-${tick}`}
-                                data-attr="hog-chart-axis-tick-x"
-                                style={{
-                                    ...TICK_STYLE_BASE,
-                                    left: x,
-                                    top: dimensions.plotTop + dimensions.plotHeight + 8,
-                                    transform: 'translateX(-50%)',
-                                    color: axisColor,
-                                }}
-                            >
-                                {label}
-                            </div>
+                                x={x}
+                                box={dimensions}
+                                text={label}
+                                color={axisColor}
+                                dataAttr="hog-chart-axis-tick-x"
+                            />
                         )
                     })}
             </>
@@ -188,19 +233,15 @@ export function AxisLabels({
                     }
                     const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
                     return (
-                        <div
+                        <YTickLabel
                             key={`y-${tick}`}
-                            data-attr="hog-chart-axis-tick-y"
-                            style={{
-                                ...TICK_STYLE_BASE,
-                                right: dimensions.width - dimensions.plotLeft + 8,
-                                top: y,
-                                transform: 'translateY(-50%)',
-                                color: axisColor,
-                            }}
-                        >
-                            {label}
-                        </div>
+                            y={y}
+                            side="left"
+                            box={dimensions}
+                            text={label}
+                            color={axisColor}
+                            dataAttr="hog-chart-axis-tick-y"
+                        />
                     )
                 })}
 
@@ -213,36 +254,27 @@ export function AxisLabels({
                     }
                     const label = rightFormatter ? rightFormatter(tick) : String(tick)
                     return (
-                        <div
+                        <YTickLabel
                             key={`yr-${tick}`}
-                            data-attr="hog-chart-axis-tick-yr"
-                            style={{
-                                ...TICK_STYLE_BASE,
-                                left: dimensions.plotLeft + dimensions.plotWidth + 8,
-                                top: y,
-                                transform: 'translateY(-50%)',
-                                color: axisColor,
-                            }}
-                        >
-                            {label}
-                        </div>
+                            y={y}
+                            side="right"
+                            box={dimensions}
+                            text={label}
+                            color={axisColor}
+                            dataAttr="hog-chart-axis-tick-yr"
+                        />
                     )
                 })}
 
             {visibleXLabels.map(({ index, text, x }) => (
-                <div
+                <XTickLabel
                     key={`x-${index}`}
-                    data-attr="hog-chart-axis-tick-x"
-                    style={{
-                        ...TICK_STYLE_BASE,
-                        left: x,
-                        top: dimensions.plotTop + dimensions.plotHeight + 8,
-                        transform: 'translateX(-50%)',
-                        color: axisColor,
-                    }}
-                >
-                    {text}
-                </div>
+                    x={x}
+                    box={dimensions}
+                    text={text}
+                    color={axisColor}
+                    dataAttr="hog-chart-axis-tick-x"
+                />
             ))}
         </>
     )

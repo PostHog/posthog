@@ -17,6 +17,11 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
+import {
+    resolveValueLabelsConfig,
+    useSeriesWithValueLabelAllowlist,
+    type ValueLabelsConfig,
+} from '../utils/use-value-labels'
 import { LineChart } from '../LineChart'
 import {
     useDerivedSeries,
@@ -25,11 +30,7 @@ import {
     type TrendLineConfig,
 } from './utils/use-derived-series'
 
-export interface ValueLabelsConfig {
-    seriesKeys?: string[]
-    formatter?: (value: number) => string
-}
-
+export type { ValueLabelsConfig }
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
@@ -63,16 +64,6 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueLabels']): ValueLabelsConfig | null {
-    if (valueLabels === undefined || valueLabels === false) {
-        return null
-    }
-    if (valueLabels === true) {
-        return {}
-    }
-    return valueLabels
-}
-
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
@@ -102,21 +93,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const yTickFormatter = useYTickFormatter(yAxis)
 
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-
-    // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
-    // without re-running the transform on every render.
-    const seriesKeysSignature = valueLabelsConfig?.seriesKeys?.join(' ')
-    const seriesAfterValueLabels = useMemo(() => {
-        const seriesKeys = valueLabelsConfig?.seriesKeys
-        if (!seriesKeys) {
-            return series
-        }
-        const allowed = new Set(seriesKeys)
-        return series.map((s) =>
-            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, valueLabel: false } }
-        )
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [series, seriesKeysSignature])
+    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(series, valueLabelsConfig?.seriesKeys)
 
     const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
         confidenceIntervals,
