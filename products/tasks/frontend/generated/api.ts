@@ -639,8 +639,8 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, close, permission_response, and set_config_option commands.
- * @summary Send command to agent server
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
     projectId: string,

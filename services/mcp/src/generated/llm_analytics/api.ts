@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 51 enabled ops
+ * PostHog API - MCP 56 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -829,6 +829,216 @@ export const LlmAnalyticsReviewQueuesDestroyParams = /* @__PURE__ */ zod.object(
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsScoreDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsScoreDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    archived: zod.boolean().optional().describe('Filter by archived state.'),
+    kind: zod.string().optional().describe('Filter by scorer kind.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
+    search: zod.string().optional().describe('Search scorers by name or description.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
+    description: zod.string().nullish().describe('Optional human-readable description.'),
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean')
+        .describe(
+            'Scorer kind. This cannot be changed after creation.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean'
+        ),
+    archived: zod
+        .boolean()
+        .default(llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault)
+        .describe('New scorers are always created as active.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax)
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax)
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+            }),
+            zod.object({
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .describe('Initial immutable scorer configuration.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
+
+export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Updated scorer name.'),
+    description: zod.string().nullish().describe('Updated scorer description.'),
+    archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax)
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax)
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+            }),
+            zod.object({
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .describe('Next immutable scorer configuration.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
         ),
 })
 

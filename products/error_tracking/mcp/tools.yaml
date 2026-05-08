@@ -16,7 +16,8 @@ ui_apps:
         view_prop: issue
     error-issue-list:
         type: list
-        detail_tool: error-tracking-issues-retrieve
+        detail_tool: query-error-tracking-issue
+        detail_args: '{ issueId: item.id }'
         click_prop: onIssueClick
 tools:
     error-tracking-assignment-rules-create:
@@ -154,7 +155,7 @@ tools:
         enabled: false
     error-tracking-issues-list:
         operation: error_tracking_issues_list
-        enabled: true
+        enabled: false
         scopes:
             - error_tracking:read
         annotations:
@@ -205,7 +206,7 @@ tools:
         ui_app: error-issue
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
-        enabled: true
+        enabled: false
         scopes:
             - error_tracking:read
         annotations:
@@ -420,27 +421,3 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-wrappers:
-    query-error-tracking-issues:
-        schema_ref: AssistantErrorTrackingQuery
-        enabled: true
-        scopes:
-            - error_tracking:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Query error tracking issues
-        description_file: ./prompts/query-error-tracking-issues.md
-        system_prompt_hint: Error filtering and aggregation (error-tracking category)
-        ui_resource_uri: ui://posthog/error-issue-list.html
-        property_defaults:
-            limit: 50
-            orderBy: occurrences
-            volumeResolution: 1
-            dateRange:
-                date_from: -7d
-            filterTestAccounts: true
-            status: active
-            orderDirection: DESC
-        url_prefix: /error_tracking

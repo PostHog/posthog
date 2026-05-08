@@ -25,7 +25,6 @@ pub const POSTHOG_REQUEST_TIMESTAMP: &str = "PostHog-Request-Timestamp";
 // Standard header names are inlined as &str because HeaderName::as_str() isn't const.
 // They correspond to header::AUTHORIZATION, header::CONTENT_TYPE, header::USER_AGENT.
 pub(super) const REQUIRED_HEADERS: &[&str] = &[
-    "authorization",
     POSTHOG_SDK_INFO,
     POSTHOG_ATTEMPT,
     POSTHOG_REQUEST_ID,

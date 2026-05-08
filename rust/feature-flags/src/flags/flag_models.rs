@@ -216,8 +216,8 @@ pub enum BucketingIdentifier {
 /// follow the expand-and-contract pattern. Golden fixture contract test:
 ///   cargo test -p feature-flags test_hypercache_contract
 ///
-/// Note: Python also emits `has_encrypted_payloads`, which Rust intentionally
-/// ignores (serde drops unknown fields).
+/// Encrypted-payload flags are excluded at the Python query layer, so this struct
+/// has no field for `has_encrypted_payloads`.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: FeatureFlagId,

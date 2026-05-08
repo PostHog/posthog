@@ -2412,9 +2412,11 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.62
   '''
-  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id"
+     FROM "ee_single_session_summary"
+     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.63

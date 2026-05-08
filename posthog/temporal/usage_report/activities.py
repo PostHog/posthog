@@ -8,6 +8,7 @@ elsewhere so these stay easy to read and mock in tests.
 
 import json
 import time
+import asyncio
 from typing import Any
 
 from django.conf import settings
@@ -16,13 +17,16 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
-from posthog.tasks.usage_report import build_org_reports, get_instance_metadata
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.usage_report.aggregator import (
     batched,
     build_manifest,
+    build_org_reports,
     filter_org_reports,
+    filter_orgs_with_usage,
+    get_org_user_counts,
     iter_chunk_lines,
     load_all_data,
     sort_org_reports,
@@ -35,8 +39,8 @@ from posthog.temporal.usage_report.storage import (
     delete_keys,
     manifest_key,
     queries_key,
-    streamed_jsonl_gzip_writer,
     write_json,
+    write_jsonl_chunk_gzip,
 )
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
@@ -50,7 +54,7 @@ from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
-CHUNK_SIZE_ORGS = 10_000
+CHUNK_SIZE_ORGS = 50_000
 SQS_POINTER_VERSION = 2
 
 # Separate SQS queue for v2 messages so the existing per-org `usage_reports`
@@ -70,7 +74,11 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     async with Heartbeater():
         spec = QUERY_INDEX[inputs.query_name]
 
-        @database_sync_to_async
+        # Use the pooled variant so concurrent query activities on the same
+        # worker actually run in parallel. The default thread_sensitive=True
+        # serializes everything onto a single shared thread, defeating the
+        # bounded fan-out in the workflow.
+        @database_sync_to_async_pool
         def run() -> Any:
             # Snapshot specs ignore the period (they read current state);
             # period specs filter on (begin, end). The signature is enforced
@@ -106,7 +114,11 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
 
         @database_sync_to_async
         def aggregate_per_org() -> dict[str, Any]:
-            org_reports = build_org_reports(all_data, inputs.ctx.period_start)
+            # Bulk-fetch membership counts once instead of letting the org
+            # builder issue a Postgres count() per organization. See
+            # `aggregator.build_org_reports` for the rationale.
+            org_user_counts = get_org_user_counts()
+            org_reports = build_org_reports(all_data, inputs.ctx.period_start, org_user_counts)
             org_reports = filter_org_reports(org_reports, inputs.ctx.organization_ids)
             return org_reports
 
@@ -122,23 +134,34 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
         # counts) used by customer.io segmentation and emits the
         # "organization usage report" event consumed for internal analytics.
 
-        sorted_reports = sort_org_reports(org_reports)
-        chunk_keys: list[str] = []
-        total_orgs_with_usage = 0
+        total_orgs = len(org_reports)
+        orgs_with_usage = filter_orgs_with_usage(org_reports)
+        total_orgs_with_usage = len(orgs_with_usage)
 
-        for index, batch in enumerate(batched(sorted_reports, CHUNK_SIZE_ORGS)):
-            key = chunk_key(inputs.ctx, index)
-            async with streamed_jsonl_gzip_writer(key) as writer:
-                for line, has_usage in iter_chunk_lines(batch, instance_metadata):
-                    writer.write(line)
-                    if has_usage:
-                        total_orgs_with_usage += 1
-            chunk_keys.append(key)
+        sorted_reports = sort_org_reports(orgs_with_usage)
+        batches = list(enumerate(batched(sorted_reports, CHUNK_SIZE_ORGS)))
+        chunk_keys: list[str] = [chunk_key(inputs.ctx, index) for index, _ in batches]
+
+        # Each chunk is an independent S3 object, so fan the encode+gzip+PUT
+        # out across the thread pool. `thread_sensitive=False` opts out of
+        # the shared-thread default so the PUTs run concurrently — boto3
+        # releases the GIL during the network call, so they genuinely
+        # overlap on the wire. Using `asyncio.TaskGroup` (over
+        # `asyncio.gather`) means a single failed upload doesn't cancel
+        # in-flight peer uploads mid-PUT; the group waits for every
+        # started task to finish or fail before re-raising, so Temporal
+        # retries from a clean state.
+        def write_chunk(key: str, batch: list[Any]) -> None:
+            write_jsonl_chunk_gzip(key, iter_chunk_lines(batch, instance_metadata))
+
+        async with asyncio.TaskGroup() as tg:
+            for index, batch in batches:
+                tg.create_task(sync_to_async(write_chunk, thread_sensitive=False)(chunk_keys[index], batch))
 
         manifest = build_manifest(
             inputs.ctx,
             chunk_keys=chunk_keys,
-            total_orgs=len(org_reports),
+            total_orgs=total_orgs,
             total_orgs_with_usage=total_orgs_with_usage,
             region=get_instance_region() or "",
             version=SQS_POINTER_VERSION,
@@ -149,7 +172,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
         return AggregateResult(
             chunk_keys=chunk_keys,
             manifest_key=m_key,
-            total_orgs=len(org_reports),
+            total_orgs=total_orgs,
             total_orgs_with_usage=total_orgs_with_usage,
         )
 

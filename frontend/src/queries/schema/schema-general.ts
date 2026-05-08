@@ -1239,6 +1239,10 @@ interface DataTableNodeViewProps {
     showSavedFilters?: boolean
     /** Show table views feature for this table (requires uniqueKey) */
     showTableViews?: boolean
+    /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start,
+     *  session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed
+     *  in the column header menu only on EventsQuery / ActorsQuery sources. */
+    showAbsoluteTime?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -5977,6 +5981,10 @@ export interface MarketingIntegrationConfigType {
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+export enum DashboardAutoRefreshInterval {
+    SECONDS = 1800,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'

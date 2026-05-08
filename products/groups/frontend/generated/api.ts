@@ -17,7 +17,6 @@ import type {
     GroupsListParams,
     GroupsRelatedRetrieveParams,
     GroupsUpdatePropertyCreateParams,
-    PaginatedGroupListApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -54,14 +53,18 @@ export const getGroupsListUrl = (projectId: string, params: GroupsListParams) =>
 }
 
 /**
- * List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
+ * List all groups of a specific group type. You must pass ?group_type_index= in the URL.
+To get a list of valid group types, call /api/:project_id/groups_types/.
+
+Uses forward-only keyset pagination via the `cursor` parameter.
+The `previous` field in the response envelope is always null.
  */
 export const groupsList = async (
     projectId: string,
     params: GroupsListParams,
     options?: RequestInit
-): Promise<PaginatedGroupListApi> => {
-    return apiMutator<PaginatedGroupListApi>(getGroupsListUrl(projectId, params), {
+): Promise<GroupApi[]> => {
+    return apiMutator<GroupApi[]>(getGroupsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

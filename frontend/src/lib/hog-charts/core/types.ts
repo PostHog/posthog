@@ -99,6 +99,8 @@ export interface TooltipContext<Meta = unknown> {
     seriesData: { series: Series<Meta>; value: number; color: string }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
+    /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
+    hoverPosition: { x: number; y: number } | null
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
     canvasBounds: DOMRect
     /** Whether the tooltip is pinned (clicked). When pinned, the tooltip stays visible
@@ -200,6 +202,8 @@ export interface ChartDrawArgs {
     labels: string[]
     /** Index of the currently hovered data point, or -1. */
     hoverIndex: number
+    /** Cursor position in canvas pixels, or `null` for non-hover redraws (static layer / post-mouseleave). */
+    hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
 }
@@ -227,8 +231,11 @@ export interface YAxisScale {
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
-    /** Maps a label to an x pixel coordinate. */
-    x: (label: string) => number | undefined
+    /** Maps a label to an x pixel coordinate. For chart types where data points
+     *  for the same label live at different x positions (e.g. grouped bar charts
+     *  in compare-against-previous mode), pass `seriesKey` to anchor on a specific
+     *  series. Falls back to the band/point center when omitted or unknown. */
+    x: (label: string, seriesKey?: string) => number | undefined
     /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
     /** Returns tick values for the default (left) y-axis. */
