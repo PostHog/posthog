@@ -11,11 +11,13 @@ _TRACE_SPANS_LIST_SETTINGS = HogQLGlobalSettings(
     read_overflow_mode=None,
 )
 
+
 def TRACE_SPANS_LIST_SETTINGS() -> HogQLGlobalSettings:  # noqa: N802
     return _TRACE_SPANS_LIST_SETTINGS.model_copy()
 
+
 # Volume sparkline: projection-friendly; still cap cost defensively.
-TRACE_SPANS_SPARKLINE_SETTINGS = HogQLGlobalSettings(
+_TRACE_SPANS_SPARKLINE_SETTINGS = HogQLGlobalSettings(
     allow_experimental_object_type=False,
     allow_experimental_join_condition=False,
     transform_null_in=False,
@@ -24,8 +26,13 @@ TRACE_SPANS_SPARKLINE_SETTINGS = HogQLGlobalSettings(
     read_overflow_mode="throw",
 )
 
+
+def TRACE_SPANS_SPARKLINE_SETTINGS() -> HogQLGlobalSettings:  # noqa: N802
+    return _TRACE_SPANS_SPARKLINE_SETTINGS.model_copy()
+
+
 # Latency heatmap: no projection today; strict caps.
-TRACE_SPANS_HEATMAP_SETTINGS = HogQLGlobalSettings(
+_TRACE_SPANS_HEATMAP_SETTINGS = HogQLGlobalSettings(
     allow_experimental_object_type=False,
     allow_experimental_join_condition=False,
     transform_null_in=False,
@@ -33,3 +40,7 @@ TRACE_SPANS_HEATMAP_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=2_000_000_000,
     read_overflow_mode="throw",
 )
+
+
+def TRACE_SPANS_HEATMAP_SETTINGS() -> HogQLGlobalSettings:  # noqa: N802
+    return _TRACE_SPANS_HEATMAP_SETTINGS.model_copy()
