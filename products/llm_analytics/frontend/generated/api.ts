@@ -13,6 +13,8 @@ import type {
     BatchCheckResponseApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    ConversationDetailResponseApi,
+    ConversationListResponseApi,
     DatasetApi,
     DatasetItemApi,
     DatasetItemsListParams,
@@ -42,6 +44,8 @@ import type {
     LlmAnalyticsClusteringConfigRetrieve200,
     LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
     LlmAnalyticsClusteringJobsListParams,
+    LlmAnalyticsConversationsListParams,
+    LlmAnalyticsConversationsRetrieveParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
     LlmAnalyticsModelsRetrieveParams,
@@ -469,6 +473,68 @@ export const llmAnalyticsClusteringRunsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(clusteringRunRequestApi),
+    })
+}
+
+export const getLlmAnalyticsConversationsListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsConversationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/conversations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/conversations/`
+}
+
+export const llmAnalyticsConversationsList = async (
+    projectId: string,
+    params?: LlmAnalyticsConversationsListParams,
+    options?: RequestInit
+): Promise<ConversationListResponseApi> => {
+    return apiMutator<ConversationListResponseApi>(getLlmAnalyticsConversationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsConversationsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: LlmAnalyticsConversationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/conversations/${id}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/conversations/${id}/`
+}
+
+export const llmAnalyticsConversationsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: LlmAnalyticsConversationsRetrieveParams,
+    options?: RequestInit
+): Promise<ConversationDetailResponseApi> => {
+    return apiMutator<ConversationDetailResponseApi>(getLlmAnalyticsConversationsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

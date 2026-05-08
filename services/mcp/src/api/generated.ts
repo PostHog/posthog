@@ -9414,6 +9414,119 @@ export namespace Schemas {
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
     }
 
+    /**
+     * * `session` - session
+    * `trace` - trace
+     */
+    export type ConversationKindEnum = typeof ConversationKindEnum[keyof typeof ConversationKindEnum];
+
+
+    export const ConversationKindEnum = {
+      Session: 'session',
+      Trace: 'trace',
+    } as const;
+
+    export interface ConversationTurn {
+      /** Trace id corresponding to this turn. */
+      trace_id: string;
+      /**
+       * Trace name, if set on the `$ai_trace` event.
+       * @nullable
+       */
+      trace_name: string | null;
+      /** Timestamp of the trace's first event. */
+      created_at: string;
+      /**
+       * Replay session id (`$session_id`) if present on any event; powers the 'Watch replay' link.
+       * @nullable
+       */
+      session_id: string | null;
+      /** New user / tool messages introduced in this turn (deduplicated against earlier turns). */
+      user_messages: unknown[];
+      /** Assistant output messages from the trace's last `$ai_generation` event. */
+      assistant_messages: unknown[];
+      /**
+       * Total cost of this turn's events.
+       * @nullable
+       */
+      total_cost: number | null;
+      /**
+       * Total latency of this turn's events.
+       * @nullable
+       */
+      total_latency: number | null;
+      /** Number of `$ai_is_error=true` events in the trace. */
+      error_count: number;
+    }
+
+    export interface ConversationDetailResponse {
+      /** `session` for a multi-turn conversation, `trace` for a single-trace conversation.
+
+    * `session` - session
+    * `trace` - trace */
+      kind: ConversationKindEnum;
+      /** Session id (kind=session) or trace id (kind=trace). */
+      id: string;
+      /**
+       * Preview of the first user message in the conversation.
+       * @nullable
+       */
+      title: string | null;
+      /**
+       * Distinct id of the user.
+       * @nullable
+       */
+      distinct_id: string | null;
+      /**
+       * Sum of cost across all turns.
+       * @nullable
+       */
+      total_cost: number | null;
+      /**
+       * Sum of latency across all turns.
+       * @nullable
+       */
+      total_latency: number | null;
+      /** Turns in chronological order. */
+      turns: ConversationTurn[];
+    }
+
+    export interface ConversationListItem {
+      /** `session` if grouped by `$ai_session_id`, `trace` for orphan traces without a session id.
+
+    * `session` - session
+    * `trace` - trace */
+      kind: ConversationKindEnum;
+      /** Session id (when kind=session) or trace id (when kind=trace). */
+      id: string;
+      /**
+       * Preview of the first user message in the conversation.
+       * @nullable
+       */
+      title: string | null;
+      /** Number of traces (≈ chat turns) in the conversation. */
+      turns: number;
+      /**
+       * Distinct id of the user.
+       * @nullable
+       */
+      distinct_id: string | null;
+      /**
+       * Sum of `$ai_total_cost_usd` across all generation/embedding events.
+       * @nullable
+       */
+      total_cost: number | null;
+      /** Timestamp of the earliest event in the conversation. */
+      first_seen: string;
+      /** Timestamp of the latest event in the conversation. */
+      last_seen: string;
+    }
+
+    export interface ConversationListResponse {
+      /** Conversations matching the filters, sorted by `last_seen` descending. */
+      results: ConversationListItem[];
+    }
+
     export interface ConversationMinimal {
       readonly id: string;
       readonly status: ConversationStatus;
@@ -24589,6 +24702,8 @@ export namespace Schemas {
       previous?: string | null;
       results: Comment[];
     }
+
+    export type PaginatedConversationListResponseList = ConversationListResponse;
 
     export interface PaginatedConversationMinimalList {
       count: number;
@@ -42771,6 +42886,50 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type LlmAnalyticsConversationsListParams = {
+    /**
+     * Start of date range, e.g. -1h or -7d.
+     */
+    date_from?: string;
+    /**
+     * End of date range; null for now.
+     */
+    date_to?: string;
+    /**
+     * Apply the team's test-account filters.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Include traces without `$ai_session_id` as single-turn conversations.
+     */
+    include_orphan_traces?: boolean;
+    /**
+     * Max rows per kind (capped at 200).
+     */
+    limit?: number;
+    /**
+     * JSON-encoded list of HogQL `AnyPropertyFilter` objects (event/person/cohort/HogQL).
+     */
+    properties?: string;
+    };
+
+    export type LlmAnalyticsConversationsRetrieveParams = {
+    /**
+     * Start of date range; defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * End of date range; null for now.
+     */
+    date_to?: string;
+    /**
+     * Either `session` (default) or `trace`. Determines whether `pk` is a session id or a trace id.
+     */
+    kind?: string;
+    };
+
+    export type LlmAnalyticsConversationsRetrieve404 = { [key: string]: unknown };
 
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**
