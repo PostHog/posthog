@@ -490,12 +490,21 @@ environment_batch_exports_router, legacy_project_batch_exports_router = (
         r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"file_download_batch_exports",
+    file_download.FileDownloadBatchExportOnDemandViewSet,
+    "environment_file_download_batch_exports",
+    ["team_id"],
+)
+
 environment_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "environment_batch_export_runs", ["team_id", "batch_export_id"]
 )
 legacy_project_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
 )
+
 environment_batch_exports_router.register(
     r"backfills",
     batch_exports.BatchExportBackfillViewSet,

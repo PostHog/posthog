@@ -28,7 +28,13 @@ from temporalio.client import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.batch_exports.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -835,14 +841,14 @@ async def start_batch_export_workflow(
 
 
 def start_file_download_batch_export(
-    batch_export: BatchExport,
+    batch_export: BatchExportOnDemand,
     workflow_id: str,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
-    file_format: str = "Parquet",
-    max_file_size_mb: int = 0,
+    format: str = "Parquet",
+    max_size_mb: int = 0,
 ) -> None:
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
@@ -851,8 +857,8 @@ def start_file_download_batch_export(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         compression=compression,
-        file_format=file_format,
-        max_file_size_mb=max_file_size_mb,
+        file_format=format,
+        max_file_size_mb=max_size_mb,
     )
     temporal = sync_connect()
 
@@ -1234,6 +1240,7 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    on_demand: bool = False
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
