@@ -43,7 +43,7 @@ export function buildActiveEnvironmentContextPrompt(
         const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
         lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
-    return `### Active environment\n\nAll tool calls and queries are scoped to this environment.\n\n${lines.join('\n')}`
+    return `### Active environment\n\nAll tool calls and queries default to this environment; you can switch projects or organizations at any time.\n\n${lines.join('\n')}`
 }
 
 export interface ToolInfo {
