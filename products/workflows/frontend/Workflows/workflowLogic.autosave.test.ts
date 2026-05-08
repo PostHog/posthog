@@ -211,27 +211,15 @@ describe('workflowLogic auto-save', () => {
         })
     })
 
-    describe('beforeUnmount', () => {
-        it('flushes pending changes when the logic unmounts', async () => {
+    describe('navigation guard', () => {
+        it('does not fire save on unmount (no silent flush)', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
-            logic.actions.setWorkflowValue('name', 'Unflushed edit')
-            expect(logic.values.workflowChanged).toBe(true)
-
-            logic.unmount()
-
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(updateCalls).toBe(1)
-        })
-
-        it('does not flush when there are no changes', async () => {
-            initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            logic.actions.setWorkflowValue('name', 'Unsaved edit')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
 
             logic.unmount()
             await new Promise((resolve) => setTimeout(resolve, 0))
