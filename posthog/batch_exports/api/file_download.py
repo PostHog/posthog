@@ -248,6 +248,7 @@ class FileDownloadBatchExportOnDemandViewSet(
                     "Completed": RetrieveCompletedOutputSerializer,
                     "Failed": RetrieveFailedOutputSerializer,
                     "FailedRetryable": RetrieveFailedOutputSerializer,
+                    "FailedBilling": RetrieveFailedOutputSerializer,
                     "TimedOut": RetrieveFailedOutputSerializer,
                     "Terminated": RetrieveFailedOutputSerializer,
                 },
