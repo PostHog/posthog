@@ -259,10 +259,10 @@ class FileDownloadBatchExportOnDemandViewSet(
         if batch_export_run.latest_error is not None:
             error["error"] = batch_export_run.latest_error
 
-        status = batch_export_run.status
+        run_status = batch_export_run.status
 
         files = {}
-        if batch_export_run.status == BatchExportRun.Status.COMPLETED:
+        if run_status == BatchExportRun.Status.COMPLETED:
             if batch_export_run.batch_export_on_demand is None:
                 raise RuntimeError("Batch export on demand must be defined on this run")
 
@@ -278,11 +278,11 @@ class FileDownloadBatchExportOnDemandViewSet(
                 # There is currently a small delay between the run being set to completed
                 # and the file downloads being generated, so we account for that and keep
                 # showing running status.
-                status = BatchExportRun.Status.RUNNING
+                run_status = BatchExportRun.Status.RUNNING
             else:
                 files["files"] = [str(id) for id in ids]
 
-        return response.Response({"status": status, **files, **error})
+        return response.Response({"status": run_status, **files, **error})
 
     @action(
         methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]
