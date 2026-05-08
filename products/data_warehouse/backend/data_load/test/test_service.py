@@ -7,7 +7,10 @@ import pytest
 
 import pytest_asyncio
 from asgiref.sync import async_to_sync, sync_to_async
-from temporalio.client import Client as TemporalClient
+from temporalio.client import (
+    Client as TemporalClient,
+    ScheduleActionStartWorkflow,
+)
 from temporalio.service import RPCError
 
 from posthog.models import Organization, Team
@@ -211,10 +214,12 @@ class TestDiscoverSchemasSchedule:
     @pytest.mark.asyncio
     async def test_schedule_targets_discover_schemas_workflow(self, external_data_source) -> None:
         schedule = get_discover_schemas_schedule(external_data_source)
-        assert schedule.action.workflow == "discover-schemas"
-        assert schedule.action.id == _get_discover_schemas_schedule_id(str(external_data_source.id))
+        action = schedule.action
+        assert isinstance(action, ScheduleActionStartWorkflow)
+        assert action.workflow == "discover-schemas"
+        assert action.id == _get_discover_schemas_schedule_id(str(external_data_source.id))
         # Inputs are passed as a single positional dict matching SyncNewSchemasActivityInputs.
-        assert schedule.action.args[0] == {
+        assert action.args[0] == {
             "source_id": str(external_data_source.id),
             "team_id": external_data_source.team_id,
         }
