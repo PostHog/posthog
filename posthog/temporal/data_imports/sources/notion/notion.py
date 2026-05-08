@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_sessi
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.notion.settings import (
     DATA_SOURCE_ROWS_PREFIX,
+    LAST_EDITED_TIME,
     NOTION_API_URL,
     NOTION_API_VERSION,
     NOTION_DEFAULT_PAGE_SIZE,
@@ -249,6 +250,7 @@ def _fetch_search(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     last_edited_gte: str | None,
+    incremental_field: str,
 ) -> Generator[list[dict[str, Any]], None, None]:
     body: dict[str, Any] = {"filter": {"property": "object", "value": object_filter}}
     for batch in _paginate(
@@ -259,11 +261,12 @@ def _fetch_search(
         logger=logger,
         resumable_source_manager=resumable_source_manager,
     ):
-        # `/search` does not support server-side time filtering, so we filter client-side.
+        # `/search` does not support server-side time filtering, so we filter client-side
+        # using whichever timestamp field the user picked as the incremental cursor.
         if last_edited_gte is None:
             yield batch
         else:
-            yield [item for item in batch if (item.get("last_edited_time") or "") > last_edited_gte]
+            yield [item for item in batch if (item.get(incremental_field) or "") > last_edited_gte]
 
 
 def _fetch_data_source_rows(
@@ -272,13 +275,16 @@ def _fetch_data_source_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     last_edited_gte: str | None,
+    incremental_field: str,
 ) -> Generator[list[dict[str, Any]], None, None]:
     incremental_filter: dict[str, Any] | None = None
     if last_edited_gte is not None:
-        # `/data_sources/{id}/query` supports server-side filtering by last_edited_time.
+        # `/data_sources/{id}/query` supports server-side filtering on the row timestamp
+        # the user picked as the incremental cursor (Notion accepts created_time or
+        # last_edited_time here).
         incremental_filter = {
-            "timestamp": "last_edited_time",
-            "last_edited_time": {"after": last_edited_gte},
+            "timestamp": incremental_field,
+            incremental_field: {"after": last_edited_gte},
         }
 
     for batch in _paginate(
@@ -360,6 +366,7 @@ def notion_source(
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any | None = None,
+    incremental_field: str | None = None,
 ) -> SourceResponse:
     """Build a SourceResponse for a single Notion endpoint or per-data-source row table."""
     is_ds_rows = endpoint_name.startswith(DATA_SOURCE_ROWS_PREFIX)
@@ -376,21 +383,27 @@ def notion_source(
         last_edited_gte = str(db_incremental_field_last_value)
         logger.debug(f"Notion: incremental sync for {endpoint_name} since {last_edited_gte}")
 
+    # Fall back to `last_edited_time` when the caller doesn't tell us which field the user
+    # picked. That's also the only entry currently in `INCREMENTAL_DATETIME_FIELDS`, so the
+    # fallback matches today's UI in practice — but if anyone extends that list, this code
+    # honors whatever field the user actually selected without further changes.
+    field = incremental_field or LAST_EDITED_TIME
+
     def get_rows() -> Generator[list[dict[str, Any]], None, None]:
         sess = _make_session(access_token)
         try:
             if endpoint_name == "users":
                 yield from _fetch_users(sess, logger, resumable_source_manager)
             elif endpoint_name == "pages":
-                yield from _fetch_search(sess, "page", logger, resumable_source_manager, last_edited_gte)
+                yield from _fetch_search(sess, "page", logger, resumable_source_manager, last_edited_gte, field)
             elif endpoint_name == "data_sources":
-                yield from _fetch_search(sess, "data_source", logger, resumable_source_manager, last_edited_gte)
+                yield from _fetch_search(sess, "data_source", logger, resumable_source_manager, last_edited_gte, field)
             elif is_ds_rows:
                 # Reverse the schema_name → data_source_id mapping. `data_source_rows__<hex32>`
                 # only encodes the hyphenless ID; Notion accepts both hyphenated and hyphenless IDs.
                 data_source_id = endpoint_name[len(DATA_SOURCE_ROWS_PREFIX) :]
                 yield from _fetch_data_source_rows(
-                    sess, data_source_id, logger, resumable_source_manager, last_edited_gte
+                    sess, data_source_id, logger, resumable_source_manager, last_edited_gte, field
                 )
             else:
                 raise ValueError(f"Unknown Notion endpoint: {endpoint_name}")

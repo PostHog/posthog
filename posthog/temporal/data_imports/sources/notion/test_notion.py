@@ -245,6 +245,35 @@ class TestNotionSource:
                 resumable_source_manager=manager,
             )
 
+    @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
+    def test_data_source_rows_filter_uses_user_selected_incremental_field(self, mock_make_session: MagicMock) -> None:
+        # The user-selected incremental field flows into both the `timestamp` filter type
+        # and the matching key — not just `last_edited_time`. INCREMENTAL_DATETIME_FIELDS
+        # only exposes `last_edited_time` today, but Notion's API also accepts
+        # `created_time`, so we'd silently use the wrong field if this regressed.
+        session = MagicMock()
+        snapshots = _capture_post_calls(session, [_make_response([], False, None)])
+        mock_make_session.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        response = notion_source(
+            access_token="tok",
+            endpoint_name=data_source_rows_schema_name("dsid-1234"),
+            logger=logger,
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-02-01T00:00:00Z",
+            incremental_field="created_time",
+        )
+        list(cast(Iterable[Any], response.items()))
+
+        assert snapshots[0]["filter"] == {
+            "timestamp": "created_time",
+            "created_time": {"after": "2026-02-01T00:00:00Z"},
+        }
+
     def test_source_response_metadata_for_pages(self) -> None:
         manager = _make_resumable_manager()
         logger = MagicMock()
