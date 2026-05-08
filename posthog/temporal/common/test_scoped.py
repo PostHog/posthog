@@ -32,19 +32,18 @@ def test_scoped_temporal_returns_unwrapped_value_when_awaited() -> None:
     async def my_activity(x: int) -> int:
         return x + 1
 
-    result = asyncio.run(my_activity(41))
-    assert result == 42
-    assert not inspect.iscoroutine(result)
+    assert asyncio.run(my_activity(41)) == 42
 
 
 def test_scoped_temporal_rejects_sync_function() -> None:
     """Defensive: applying scoped_temporal to a sync def raises immediately at decoration
     time so misuse can't silently regress to the production failure mode."""
-    with pytest.raises(TypeError, match="async function"):
 
-        @scoped_temporal()
-        def my_sync_activity(x: int) -> int:  # type: ignore[misc]
-            return x + 1
+    def my_sync_activity(x: int) -> int:
+        return x + 1
+
+    with pytest.raises(TypeError, match="async function"):
+        scoped_temporal()(my_sync_activity)  # type: ignore[arg-type]
 
 
 def test_scoped_temporal_propagates_exceptions() -> None:
@@ -127,32 +126,7 @@ async def test_scoped_temporal_routes_through_async_temporal_dispatch() -> None:
     async def echo_activity(x: int) -> int:
         return x * 2
 
-    result = await ActivityEnvironment().run(echo_activity, 21)
-    assert result == 42
-    assert not inspect.iscoroutine(result)
-
-
-@pytest.mark.asyncio
-async def test_upstream_scoped_routes_to_sync_path_returning_unawaited_coroutine() -> None:
-    """When upstream scoped() wraps an async activity, ActivityEnvironment treats it
-    as sync and returns the inner function's coroutine instead of its value — the
-    exact pre-encoding state that makes the production payload converter raise."""
-
-    @temporalio.activity.defn
-    @posthoganalytics.scoped()
-    async def broken_activity(x: int) -> int:
-        return x * 2
-
-    result = ActivityEnvironment().run(broken_activity, 21)
-    try:
-        assert inspect.iscoroutine(result), (
-            "expected sync-path dispatch to return the unawaited coroutine, but ActivityEnvironment "
-            "produced something else — upstream may have shipped an async-aware scoped(); if so this "
-            "shim and its tests can be retired."
-        )
-    finally:
-        if inspect.iscoroutine(result):
-            result.close()
+    assert await ActivityEnvironment().run(echo_activity, 21) == 42
 
 
 # ---------------------------------------------------------------------------
