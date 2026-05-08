@@ -8,7 +8,7 @@ Only available when DEBUG=True, since it requires Django and a database.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 _cached_team: Any = None
@@ -18,8 +18,10 @@ _cached_team: Any = None
 # runner instead of via freezegun: freezegun monkey-patches `datetime.datetime`
 # process-globally, which is not thread-safe and corrupts unrelated workers
 # (Temporal activities, Django request handlers) running in the same process.
-FROZEN_TIME = "2025-12-10T00:00:00"
-_FROZEN_DATETIME = datetime.fromisoformat(FROZEN_TIME)
+# Tz-aware UTC so QueryDateRange.now_with_timezone (which calls .astimezone)
+# produces output that doesn't depend on the build machine's local timezone.
+FROZEN_TIME = "2025-12-10T00:00:00+00:00"
+_FROZEN_DATETIME = datetime.fromisoformat(FROZEN_TIME).astimezone(UTC)
 
 
 def _pin_runner_now(runner: Any, now: datetime) -> None:

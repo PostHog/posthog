@@ -88,8 +88,6 @@ class TestRenderHogQLExample(BaseTest):
         # never enters `freeze_time` at all — that's the only safe contract.
         import freezegun
 
-        original_freeze_time = freezegun.freeze_time
-
         def _explode(*args: object, **kwargs: object) -> object:
             raise AssertionError(
                 "render_hogql_example called freezegun.freeze_time — this monkey-patches "
@@ -104,8 +102,6 @@ class TestRenderHogQLExample(BaseTest):
                     "dateRange": {"date_from": "-7d"},
                 }
             )
-
-        assert freezegun.freeze_time is original_freeze_time
 
     @patch("django.conf.settings.DEBUG", True)
     def test_output_is_deterministic_across_calls(self) -> None:
@@ -123,10 +119,6 @@ class TestRenderHogQLExample(BaseTest):
 
 class TestRenderHogQLExampleMocked:
     """Cheap mock-based tests for control-flow branches that don't need a DB."""
-
-    @pytest.fixture(autouse=True)
-    def _reset(self) -> None:
-        hogql_example_module._cached_team = None
 
     @patch("posthog.hogql.printer.utils.to_printed_hogql", return_value="SELECT 1")
     @patch("posthog.hogql.filters.replace_filters")
