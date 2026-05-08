@@ -106,12 +106,7 @@ describe('InstructionsFormatter', () => {
             const withFeedback = formatter.buildV2Instructions(fullCtx)
             expect(withFeedback).toContain('### Sharing feedback on this MCP server')
 
-            const featureFlagCases: Array<Record<string, boolean> | undefined> = [
-                undefined,
-                { 'mcp-feedback-tool': false },
-                {},
-            ]
-            for (const featureFlags of featureFlagCases) {
+            for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
                 const result = formatter.buildV2Instructions({ ...fullCtx, featureFlags })
                 expect(result).not.toContain('### Sharing feedback on this MCP server')
             }
