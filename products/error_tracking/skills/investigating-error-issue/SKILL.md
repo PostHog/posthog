@@ -84,19 +84,19 @@ Breakdowns aren't a typed tool — drop into `execute-sql`. Run only the
 breakdowns the issue's shape suggests; each one costs a query and clutters the
 synthesis.
 
-| Sparkline shape   | First breakdown to try                                            |
-| ----------------- | ----------------------------------------------------------------- |
-| Spike from zero   | By release / SDK version — almost always a deploy regression      |
-| Steady-state high | By browser / OS — rendering or platform-specific bug              |
-| Ramp              | By geography or feature flag — gradual rollout exposure           |
-| Bursts then quiet | By time of day or `$current_url` — scheduled job or specific page |
+| Sparkline shape   | First breakdown to try                                              |
+| ----------------- | ------------------------------------------------------------------- |
+| Spike from zero   | By SDK version (`$lib_version`) — almost always a deploy regression |
+| Steady-state high | By browser / OS — rendering or platform-specific bug                |
+| Ramp              | By geography or feature flag — gradual rollout exposure             |
+| Bursts then quiet | By time of day or `$current_url` — scheduled job or specific page   |
 
-Example (release):
+Example (SDK version — works on virtually every event):
 
 ```sql
 posthog:execute-sql
 SELECT
-    properties.$release AS release,
+    properties.$lib_version AS lib_version,
     count() AS occurrences,
     uniq(person_id) AS users,
     min(timestamp) AS first_seen,
@@ -105,17 +105,22 @@ FROM events
 WHERE event = '$exception'
     AND properties.$exception_issue_id = '<issue_id>'
     AND timestamp > now() - INTERVAL 30 DAY
-GROUP BY release
+GROUP BY lib_version
 ORDER BY occurrences DESC
 LIMIT 20
 ```
 
-If `first_seen` for one release is much later than the issue's overall
-`first_seen`, that release introduced (or worsened) the bug — strong root-cause
-signal.
+If `first_seen` for one version is much later than the issue's overall
+`first_seen`, that SDK version (or whatever app shipped with it) introduced
+or worsened the bug — strong root-cause signal.
+
+When the SDK is configured to publish explicit release metadata, it lands in
+`$exception_releases` — a JSON dict keyed by release ID, managed by cymbal.
+Empty on most events; useful only when the SDK is set up to populate it. There
+is no top-level `$release` property.
 
 Repeat with `properties.$browser`, `properties.$os`, `properties.$current_url`,
-`properties.$lib_version`, or any feature flag the project tags errors with.
+or any feature flag the project tags errors with.
 
 ### Step 4 — Check feature flag exposure
 
@@ -203,8 +208,10 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - `properties.$exception_issue_id` is the canonical join key from events to an
   issue. The fingerprint also works but the issue ID is stable across
   fingerprint splits and merges.
-- Some breakdowns return `null` heavily — `$release` requires the SDK to be
-  configured to set it. If it's mostly null, fall back to `$lib_version`.
+- For a "what version introduced this?" breakdown, use `$lib_version` (set on
+  ~100% of events). Explicit release metadata lives in `$exception_releases`
+  (a JSON dict the SDK only fills when configured) — there is no top-level
+  `$release` property.
 - If the issue spans more than 30 days, widen the date range explicitly.
   Defaults often truncate the original `first_seen` event off the breakdown.
 - Don't propose a fix in the synthesis unless the cause is obvious from the
