@@ -1,6 +1,3 @@
-// Importing from d3 submodules instead of the meta `d3` package — keeps the
-// dependency surface narrow so consumers (e.g. MCP UI apps) don't have to pull
-// in every d3 module to bundle hog-charts.
 import { scaleBand, scaleLinear, scaleLog, scalePoint } from 'd3-scale'
 import type { ScaleBand, ScaleLinear, ScaleLogarithmic, ScalePoint } from 'd3-scale'
 import { stack, stackOffsetExpand } from 'd3-shape'
