@@ -15,6 +15,7 @@ from posthog.models.organization import Organization
 
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
     _get_org_id_batches,
+    _is_user_targeted_for_digest,
     _run_wa_digest_batch,
     _send_digest_for_user,
     _send_test_digest,
@@ -331,11 +332,6 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
 class TestGetOrgIdBatches(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.flag_patcher = patch(
-            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         self.kill_switch_patcher = patch(
             "products.web_analytics.backend.temporal.weekly_digest.activities.get_kill_switch_level",
         )
@@ -355,7 +351,6 @@ class TestGetOrgIdBatches(APIBaseTest):
         self.close_conn_patcher.stop()
         self.email_available_patcher.stop()
         self.kill_switch_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     def test_returns_empty_list_when_kill_switch_active(self):
@@ -552,3 +547,38 @@ class TestRunWaDigestBatch(APIBaseTest):
         assert totals.orgs_processed == 1
         assert totals.emails_sent == 1
         assert totals.emails_skipped_optout == 1
+
+
+class TestIsUserTargetedForDigest(APIBaseTest):
+    def test_returns_true_when_flag_evaluates_true(self):
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as mock_flag:
+            assert _is_user_targeted_for_digest(self.user, str(self.organization.id)) is True
+
+        kwargs = mock_flag.call_args.kwargs
+        assert kwargs["only_evaluate_locally"] is False
+        assert kwargs["groups"] == {"organization": str(self.organization.id)}
+        assert kwargs["distinct_id"] == str(self.user.distinct_id)
+
+    def test_returns_false_when_flag_evaluates_false(self):
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            assert _is_user_targeted_for_digest(self.user, str(self.organization.id)) is False
+
+    def test_fails_closed_on_flag_service_error(self):
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("decide endpoint timeout"),
+        ):
+            assert _is_user_targeted_for_digest(self.user, str(self.organization.id)) is False
+
+    def test_returns_false_when_flag_evaluator_returns_none(self):
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+            return_value=None,
+        ):
+            assert _is_user_targeted_for_digest(self.user, str(self.organization.id)) is False

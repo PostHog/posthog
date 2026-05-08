@@ -113,7 +113,7 @@ export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')
 
 export function serializeError(error: unknown): Record<string, unknown> | unknown {
     if (error instanceof Error) {
-        return { name: error.name, message: error.message }
+        return { name: error.name, message: error.message, stack: error.stack }
     }
     return error
 }

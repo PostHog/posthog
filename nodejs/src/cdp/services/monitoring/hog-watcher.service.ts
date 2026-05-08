@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
@@ -30,6 +31,10 @@ export interface HogWatcherConfig {
     stateLockTtl: number
     observeResultsBufferTimeMs: number
     observeResultsBufferMaxResults: number
+    // When true, dispatches the token-bucket pipeline call to checkRateLimitV3
+    // (optimized lua: HMGET, multi-field HSET, conditional EXPIRE refresh).
+    // Default: V2.
+    useV3?: boolean
 }
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
@@ -96,6 +101,7 @@ export class HogWatcherService {
     } | null = null
 
     private redisReader: RedisV2
+    private rateLimiter: KeyedRateLimiterService
 
     constructor(
         private teamManager: TeamManager,
@@ -104,6 +110,17 @@ export class HogWatcherService {
         redisReader?: RedisV2
     ) {
         this.redisReader = redisReader ?? redis
+        // Token-bucket rate limiter — `name: 'hog-watcher-2'` produces the same
+        // Redis key prefix this service has used historically (matches BASE_REDIS_KEY).
+        this.rateLimiter = new KeyedRateLimiterService(
+            {
+                name: 'hog-watcher-2',
+                bucketSize: this.config.bucketSize,
+                refillRate: this.config.refillRate,
+                ttlSeconds: this.config.ttl,
+            },
+            this.redis
+        )
         this.costsMapping = {
             hog: {
                 lowerBound: this.config.hogCostTimingLowerMs,
@@ -161,19 +178,6 @@ export class HogWatcherService {
                 previous_state: HogWatcherState[previousState], // Convert numeric state to readable string
             })
         }
-    }
-
-    private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
-        const nowSeconds = Math.round(Date.now() / 1000)
-
-        return [
-            `${REDIS_KEY_TOKENS}/${id}`,
-            nowSeconds,
-            cost,
-            this.config.bucketSize,
-            this.config.refillRate,
-            this.config.ttl,
-        ] as const
     }
 
     public calculateNewState(tokens: number): HogWatcherState {
@@ -441,19 +445,21 @@ export class HogWatcherService {
                 return { states, locks }
             })
 
-        const [stateRes, tokenRes] = await Promise.all([
+        const useV3 = this.config.useV3 ?? false
+        const requests = functionCostEntries.map((fc) => ({ id: fc.functionId, cost: fc.cost }))
+        const [stateRes, rateLimitRes] = await Promise.all([
             readStates(this.redisReader).catch((err) => {
                 logger.warn('🔀', '[HogWatcher] reader readStatesForObserve failed, falling back to writer', { err })
                 return readStates(this.redis)
             }),
-            this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
-                for (const functionCost of functionCostEntries) {
-                    pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
-                }
-            }),
+            // Mirror path uses rateLimitGrouped (V3 lua, optimized + coalesced if any
+            // dups slip through); primary keeps rateLimitMany (V2). Inputs are already
+            // unique per functionId so coalescing is a no-op shape-wise — V3 lua is
+            // the actual change here.
+            useV3 ? this.rateLimiter.rateLimitGrouped(requests) : this.rateLimiter.rateLimitMany(requests),
         ])
 
-        if (!stateRes || !tokenRes) {
+        if (!stateRes) {
             return
         }
 
@@ -461,11 +467,9 @@ export class HogWatcherService {
 
         // Calculate all those that have changed state
         functionCostEntries.map((functionCost, index) => {
-            const tokenResult = tokenRes[index]
-
+            const limit = rateLimitRes[index]?.[1]
             const currentState: HogWatcherState = Number(stateRes.states[index] ?? HogWatcherState.healthy)
-            // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
-            const tokens = Number(tokenResult?.[1]?.[1] ?? this.config.bucketSize)
+            const tokens = Number(limit?.tokens ?? this.config.bucketSize)
             const newState = this.calculateNewState(tokens)
 
             if (currentState !== newState) {

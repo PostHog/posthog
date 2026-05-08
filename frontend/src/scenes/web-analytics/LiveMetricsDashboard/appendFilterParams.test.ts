@@ -11,39 +11,38 @@ const filter = (key: string, value: string | string[]): WebAnalyticsPropertyFilt
 })
 
 describe('appendFilterParams', () => {
-    it('appends nothing when the filter list is empty', () => {
+    it.each([
+        { label: 'empty list appends nothing', filters: [] as WebAnalyticsPropertyFilter[], expected: [] },
+        {
+            label: 'scalar filter appends a single property entry',
+            filters: [filter('$host', 'example.com')],
+            expected: ['$host=example.com'],
+        },
+        {
+            label: 'array value appends one entry per element',
+            filters: [filter('$device_type', ['Mobile', 'Tablet'])],
+            expected: ['$device_type=Mobile', '$device_type=Tablet'],
+        },
+        {
+            label: 'mixed list appends one entry per filter',
+            filters: [
+                filter('$host', 'example.com'),
+                filter('$geoip_country_code', 'US'),
+                filter('$device_type', ['Mobile', 'Tablet']),
+                filter('$referring_domain', 'twitter.com'),
+            ],
+            expected: [
+                '$host=example.com',
+                '$geoip_country_code=US',
+                '$device_type=Mobile',
+                '$device_type=Tablet',
+                '$referring_domain=twitter.com',
+            ],
+        },
+    ])('$label', ({ filters, expected }) => {
         const url = new URL('https://example.com/events')
-        appendFilterParams(url, [])
-        expect(url.searchParams.getAll('property')).toEqual([])
-    })
-
-    it('appends a single property=key=value entry for a scalar filter', () => {
-        const url = new URL('https://example.com/events')
-        appendFilterParams(url, [filter('$host', 'example.com')])
-        expect(url.searchParams.getAll('property')).toEqual(['$host=example.com'])
-    })
-
-    it('appends repeated property entries for array values (Mobile -> [Mobile, Tablet])', () => {
-        const url = new URL('https://example.com/events')
-        appendFilterParams(url, [filter('$device_type', ['Mobile', 'Tablet'])])
-        expect(url.searchParams.getAll('property')).toEqual(['$device_type=Mobile', '$device_type=Tablet'])
-    })
-
-    it('appends one entry per filter for a mixed list', () => {
-        const url = new URL('https://example.com/events')
-        appendFilterParams(url, [
-            filter('$host', 'example.com'),
-            filter('$geoip_country_code', 'US'),
-            filter('$device_type', ['Mobile', 'Tablet']),
-            filter('$referring_domain', 'twitter.com'),
-        ])
-        expect(url.searchParams.getAll('property')).toEqual([
-            '$host=example.com',
-            '$geoip_country_code=US',
-            '$device_type=Mobile',
-            '$device_type=Tablet',
-            '$referring_domain=twitter.com',
-        ])
+        appendFilterParams(url, filters)
+        expect(url.searchParams.getAll('property')).toEqual(expected)
     })
 
     it('skips filters that use a non-Exact operator', () => {

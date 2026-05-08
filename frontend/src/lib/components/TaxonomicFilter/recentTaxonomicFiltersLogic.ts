@@ -31,6 +31,12 @@ export interface RecentTaxonomicFilter {
 export interface RecentItemContext {
     sourceGroupType: TaxonomicFilterGroupType
     sourceGroupName: string
+    /**
+     * Canonical value the entry was recorded under (e.g. `action.id`,
+     * `event.name`). Lets consumers resolve the underlying definition
+     * when the recorded source group is a META group (Suggested filters)
+     * or otherwise unavailable.
+     */
     sourceValue: TaxonomicFilterValue
     teamId?: number
     propertyFilter?: AnyPropertyFilter

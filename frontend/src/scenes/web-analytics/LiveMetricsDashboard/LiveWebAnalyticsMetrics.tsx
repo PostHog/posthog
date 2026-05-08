@@ -74,7 +74,7 @@ const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
 const LiveDashboardFilterRow = (): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { topReferrers } = useValues(liveWebAnalyticsMetricsLogic)
-    const { countryFilter, referrerFilter, deviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { countryFilter, referrerFilter, deviceTypeFilter, domainFilter } = useValues(webAnalyticsLogic)
     const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter } = useActions(webAnalyticsLogic)
 
     const showDomainFilter = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER]
@@ -93,7 +93,8 @@ const LiveDashboardFilterRow = (): JSX.Element | null => {
     }
 
     const referrerSuggestions = topReferrers.map((r: { referrer: string }) => r.referrer).filter(Boolean)
-    const hasFilters = !!(countryFilter || referrerFilter || deviceTypeFilter)
+    const hasDomainFilter = showDomainFilter && !!domainFilter && domainFilter !== 'all'
+    const hasFilters = !!(countryFilter || referrerFilter || deviceTypeFilter || hasDomainFilter)
 
     return (
         <div className="mb-4 flex flex-wrap items-center gap-2">

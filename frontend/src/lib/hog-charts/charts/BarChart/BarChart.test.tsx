@@ -1,8 +1,9 @@
-import { waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { renderHogChart } from '../../testing'
+import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
@@ -204,6 +205,40 @@ describe('BarChart', () => {
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
+        })
+
+        it.each<[string, BarChartConfig]>([
+            ['grouped', { barLayout: 'grouped' } as BarChartConfig],
+            ['stacked', { barLayout: 'stacked' } as BarChartConfig],
+        ])('%s layout suppresses tooltip in the gap between band groups', async (_name, config) => {
+            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
+            // d3.scaleBand with paddingInner=0.2 and paddingOuter=0.1 yields step = plotWidth / 3
+            // for 3 labels. Bands occupy [0.1*step, 0.9*step], [1.1*step, 1.9*step], [2.1*step, 2.9*step]
+            // — so x = plotLeft + 1.0*step is centred in the between-group gap.
+            const d3Step = dimensions.plotWidth / LABELS.length
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + d3Step,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
+            expect(tooltipEl?.textContent ?? '').toBe('')
+        })
+
+        it('grouped layout still narrows when the cursor is above every bar (value-axis miss)', async () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />
+            )
+            // Same x as `hoverAtIndex(1)` (which lands inside `b`'s sub-band) but a y above
+            // every bar's top. Without the band-axis-only hit-test this would fail per-bar
+            // intersection and fall back to highlighting both `a` and `b`.
+            const step = dimensions.plotWidth / (LABELS.length - 1)
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1,
+                clientY: dimensions.plotTop + 1,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
         })
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {

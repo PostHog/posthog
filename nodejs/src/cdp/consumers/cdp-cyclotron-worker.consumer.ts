@@ -12,6 +12,7 @@ import {
     CyclotronJobQueueKind,
 } from '../types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
+import { mirrorCall } from '../utils/mirror-call'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 /**
@@ -153,7 +154,12 @@ export class CdpCyclotronWorker<
     @instrumented({ key: 'cdpConsumer.backgroundTask.hogWatcherObserve', timeoutMs: 10_000, sendException: false })
     private async observeResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
-            await this.hogWatcher.observeResults(invocationResults)
+            await Promise.all([
+                this.hogWatcher.observeResults(invocationResults),
+                mirrorCall('hog-watcher.observeResults', () =>
+                    this.hogWatcherMirror?.observeResults(invocationResults)
+                ),
+            ])
         } catch (err: any) {
             captureException(err)
             logger.error('Error observing results', { err })

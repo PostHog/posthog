@@ -22,6 +22,19 @@ Two additional Signals workflows also exist but are not part of the main report 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
 - `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
 
+### Activity decoration
+
+Every async Signals Temporal activity is decorated with `@scoped_temporal()` from `posthog/temporal/common/scoped.py` (not upstream `@posthoganalytics.scoped()`). It scopes `posthoganalytics.tag()` calls to the activity invocation and auto-captures uncaught exceptions into PostHog error tracking with the workflow's tags attached. The upstream decorator wraps `async def` in a sync wrapper, breaking Temporal's `iscoroutinefunction` dispatch — the worker returns the unawaited coroutine and crashes on JSON encoding. `scoped_temporal()` is the async-aware equivalent (sync helpers can keep using upstream `@posthoganalytics.scoped()`).
+
+```python
+from posthog.temporal.common.scoped import scoped_temporal
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def my_activity(input: ...) -> ...:
+    ...
+```
+
 ### Signal Ingestion Pipeline (v2)
 
 The v1 `TeamSignalGroupingWorkflow` buffered raw `EmitSignalInputs` in memory and carried them over on `continue_as_new`. Under higher signal volume the `continue_as_new` payload could grow too large. The v2 pipeline fixes that by flushing buffered signals to object storage and passing only lightweight object keys between workflows.

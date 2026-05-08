@@ -353,8 +353,9 @@ def _resolve_local_identity_agent_for_coder() -> str | None:
 def _resolve_local_signing_key() -> str | None:
     """Return the engineer's ``git config user.signingkey``, normalized to a literal SSH public key string.
 
-    Git accepts two formats: a literal ``ssh-... / ecdsa-... / sk-...`` string
-    or a path to a public-key file. Both are normalized here. Returns ``None``
+    Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
+    string, the same with a ``key::`` prefix (used by tools like Secretive),
+    or a path to a public-key file. All are normalized here. Returns ``None``
     when the value is unset or the referenced file can't be read.
     """
     result = subprocess.run(
@@ -367,6 +368,8 @@ def _resolve_local_signing_key() -> str | None:
     value = result.stdout.strip()
     if not value:
         return None
+    if value.startswith("key::"):
+        value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
     try:

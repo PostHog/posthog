@@ -10,6 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type { AppMetricsResponseApi, AppMetricsTotalsResponseApi } from './api.schemas'
 
+export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/event_filter/metrics/`
+}
+
 /**
  * Single event filter per team.
 GET  /event_filter/ — returns the config (or null if not yet created)
@@ -17,10 +21,6 @@ POST /event_filter/ — creates or updates the config (upsert)
 GET  /event_filter/metrics/ — time-series metrics
 GET  /event_filter/metrics/totals/ — aggregate totals
  */
-export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/`
-}
-
 export const eventFilterMetricsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -31,6 +31,10 @@ export const eventFilterMetricsRetrieve = async (
     })
 }
 
+export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/event_filter/metrics/totals/`
+}
+
 /**
  * Single event filter per team.
 GET  /event_filter/ — returns the config (or null if not yet created)
@@ -38,10 +42,6 @@ POST /event_filter/ — creates or updates the config (upsert)
 GET  /event_filter/metrics/ — time-series metrics
 GET  /event_filter/metrics/totals/ — aggregate totals
  */
-export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/totals/`
-}
-
 export const eventFilterMetricsTotalsRetrieve = async (
     projectId: string,
     options?: RequestInit

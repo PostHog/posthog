@@ -768,7 +768,20 @@ tools:
             Rate-limited.
     llma-skill-archive:
         operation: llm_skills_name_archive_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Archive skill
+        description: >
+            Archive every active version of an agent skill by name. This hides the skill from default lists and cannot
+            be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.
+        param_overrides:
+            skill_name:
+                description: The kebab-case name of the skill to archive.
     llma-skill-create:
         operation: llm_skills_create
         enabled: true
@@ -958,13 +971,52 @@ tools:
         requires_ai_consent: true
     llma-tagger-create:
         operation: taggers_create
-        enabled: false
+        enabled: true
+        scopes:
+            - tagger:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: tags/{id}
+        title: Create tagger
+        description: >
+            Create an LLM analytics tagger that automatically adds custom tags to $ai_generation events. For tagger_type
+            "llm", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description);
+            optionally set min_tags and max_tags. For tagger_type "hog", provide tagger_config.source Hog code that
+            returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a
+            whitelist. Use enabled=false while drafting, then update the tagger from the UI.
     llma-tagger-list:
         operation: taggers_list
-        enabled: false
+        enabled: true
+        scopes:
+            - tagger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: tags/{id}
+        list: true
+        title: List taggers
+        description: >
+            List LLM analytics taggers for the current project. Supports filtering by enabled status, id__in, search,
+            and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model
+            configuration, creator, and timestamps.
     llma-tagger-test-hog:
         operation: taggers_test_hog_create
-        enabled: false
+        enabled: true
+        scopes:
+            - tagger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: false
+        title: Test Hog tagger code
+        description: >
+            Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should
+            return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
+            tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
+            reasoning, and any execution error for each sampled event.
     llma-text-repr-create:
         operation: llm_analytics_text_repr_create
         enabled: false

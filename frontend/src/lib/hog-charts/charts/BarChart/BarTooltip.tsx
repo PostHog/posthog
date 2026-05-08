@@ -23,16 +23,21 @@ export function BarTooltip<Meta>({
     topStackedKeyByAxis,
     layout,
     isHorizontal,
-}: BarTooltipProps<Meta>): React.ReactElement {
+}: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales } = useChartLayout()
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
-    const narrowed =
-        layout === 'grouped' && d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0
-            ? narrowSeriesByCursor(ctx, d3Scales, layout, isHorizontal, stackedData, topStackedKeyByAxis)
-            : ctx
-    return <>{userTooltip ? userTooltip(narrowed) : DefaultTooltip(narrowed)}</>
+    if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
+        const narrowed = narrowSeriesByCursor(ctx, d3Scales, layout, isHorizontal, stackedData, topStackedKeyByAxis)
+        if (!narrowed) {
+            return null
+        }
+        return <>{userTooltip ? userTooltip(narrowed) : DefaultTooltip(narrowed)}</>
+    }
+    return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
 }
 
+/** Returns null when the cursor is in a gap (no bar under it on the band axis) so the
+ *  tooltip frame doesn't render around an empty body. */
 function narrowSeriesByCursor<Meta>(
     ctx: TooltipContext<Meta>,
     scales: BarScaleSet,
@@ -40,7 +45,7 @@ function narrowSeriesByCursor<Meta>(
     isHorizontal: boolean,
     stackedData: Map<string, StackedBand> | undefined,
     topStackedKeyByAxis: Map<string, string>
-): TooltipContext<Meta> {
+): TooltipContext<Meta> | null {
     const cursor = ctx.hoverPosition
     if (!cursor) {
         return ctx
@@ -57,7 +62,7 @@ function narrowSeriesByCursor<Meta>(
         topStackedKeyByAxis,
     })
     if (hits.size === 0) {
-        return ctx
+        return null
     }
     return { ...ctx, seriesData: ctx.seriesData.filter((entry) => hits.has(entry.series.key)) }
 }

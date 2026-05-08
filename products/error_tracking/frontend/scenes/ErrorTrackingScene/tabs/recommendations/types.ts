@@ -3,11 +3,14 @@ import { HogFunctionSubTemplateIdType } from '~/types'
 
 export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues'
 
+export type ErrorTrackingRecommendationStatus = 'ready' | 'computing'
+
 export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknown> = Record<string, unknown>> {
     id: string
     type: ErrorTrackingRecommendationType
     meta: TMeta
     completed: boolean
+    status: ErrorTrackingRecommendationStatus
     computed_at: string | null
     dismissed_at: string | null
     created_at: string

@@ -257,6 +257,11 @@ tools:
             - basic
             - format
             - refresh
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
         response:
             include:
                 - id

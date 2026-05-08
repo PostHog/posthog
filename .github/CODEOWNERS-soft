@@ -115,6 +115,8 @@ products/metrics/** @PostHog/logs
 # Error Tracking - owned by @PostHog/team-error-tracking
 products/error_tracking/backend/** @PostHog/team-error-tracking
 products/error_tracking/frontend/** @PostHog/team-error-tracking
+products/error_tracking/mcp/** @PostHog/team-error-tracking
+products/error_tracking/skills/** @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
 
