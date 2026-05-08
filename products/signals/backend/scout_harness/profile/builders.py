@@ -5,14 +5,20 @@ private function so individual sources can be added, swapped, or stubbed out wit
 touching the orchestration. Output is a plain dict that the tools layer wraps into a
 `SignalProjectProfile.payload`.
 
-Sections split into two camps. Capability / configured (sticky) — `project_context`,
+Sections fall into three layers. **Capability / configured (sticky)** — `project_context`,
 `products_in_use`, `product_intents`, `integrations`, `external_data_sources`,
-`signal_source_configs`. Activity / recent — `existing_inbox_reports`, `recent_dashboards`,
-`popular_insights`, `top_events`, `recent_activity`. The capability layer answers "what's
-turned on"; the activity layer answers "what's actually happening now and what's been
-edited lately." Future per-entity active-inventory readers (surveys, feature flags,
-experiments) would extend the activity layer with concrete lists for the entity types
-that are most often the subject of an investigation.
+`signal_source_configs`. Answers "what's turned on." **Aggregated recency** —
+`recent_activity` (per-scope counts off the activity log, cross-cutting orientation
+across every entity type). **Per-entity recent inventory** — `recent_dashboards`,
+`recent_surveys`, `recent_feature_flags`, `recent_experiments`, `recent_alerts`,
+`recent_hog_functions`, `recent_hog_flows`, `recent_notebooks`, `recent_cohorts`,
+`recent_actions`, plus `top_events` and `existing_inbox_reports`. Light shape per
+entity: counts + 5 most-recently-modified items with name + status + timestamp. The
+agent gets MCP tools (`surveys-get-all`, `feature-flag-get-all`, `experiment-list`,
+`insights-trending-retrieve`, etc.) for deep drilldowns; the profile only orients.
+
+Per-entity ordering picks `updated_at` / `last_modified_at` where available, falling
+back to `created_at` for entities that don't track modifications (cohorts, alerts).
 """
 
 from __future__ import annotations
@@ -21,22 +27,36 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, Max
+from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.insight import Insight
+from posthog.models.alert import AlertConfiguration
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
+# `products.experiments` ships a facade (api.py + contracts.py) but the contract is
+# not yet enforced by CI (no `backend:contract-check` script in package.json). The
+# facade exposes `create_experiment` but no list/query helpers, so the read-only
+# orientation reader here imports the model directly. When experiments isolation is
+# enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
+from products.experiments.backend.models.experiment import Experiment
+from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +64,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v4"
+INVENTORY_SOURCE_VERSION = "v5"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -53,11 +73,15 @@ TOP_EVENTS_LOOKBACK_DAYS = 7
 TOP_EVENTS_RECENT_DAYS = 1
 TOP_EVENTS_LIMIT = 50
 
-# Dashboard / insight surfacing limits. Both are bounded by name-only orientation —
-# the agent can `dashboard-get` / `insight-get` on a specific id once the profile
-# tells it what's worth pulling.
+# Dashboard recency limit. Bounded by name-only orientation — the agent can
+# `dashboard-get` on a specific id once the profile tells it what's worth pulling.
 RECENT_DASHBOARDS_LIMIT = 20
-POPULAR_INSIGHTS_LIMIT = 20
+
+# Per-entity recency lists are deliberately short. The profile orients the agent
+# ("here are the 5 most-recently-touched X — does this team look active in this
+# area?"); the agent calls the per-entity MCP list tools for the long tail when
+# something looks worth investigating.
+RECENT_ENTITY_LIMIT = 5
 
 # Recent activity window — 14d captures weekly cadence (sprints, weekly reviews) and
 # bi-weekly iterations without drowning in stale edits. 20 distinct scopes is more
@@ -84,9 +108,17 @@ def build_inventory(team: Team) -> dict[str, Any]:
         "external_data_sources": _external_data_sources(team),
         "signal_source_configs": _signal_source_configs(team),
         "existing_inbox_reports": _existing_inbox_reports(team),
-        "recent_dashboards": _recent_dashboards(team),
-        "popular_insights": _popular_insights(team),
         "recent_activity": _recent_activity(team),
+        "recent_dashboards": _recent_dashboards(team),
+        "recent_surveys": _recent_surveys(team),
+        "recent_feature_flags": _recent_feature_flags(team),
+        "recent_experiments": _recent_experiments(team),
+        "recent_alerts": _recent_alerts(team),
+        "recent_hog_functions": _recent_hog_functions(team),
+        "recent_hog_flows": _recent_hog_flows(team),
+        "recent_notebooks": _recent_notebooks(team),
+        "recent_cohorts": _recent_cohorts(team),
+        "recent_actions": _recent_actions(team),
         "top_events": _top_events(team),
     }
 
@@ -240,39 +272,286 @@ def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
     ]
 
 
-def _popular_insights(team: Team) -> list[dict[str, Any]]:
-    """Insights ranked by distinct viewer count, with the most-recent-view as tiebreaker.
+def _recent_surveys(team: Team) -> dict[str, Any]:
+    """Surveys orientation — total + active count, plus the 5 most recently modified.
 
-    `viewer_count` is `COUNT(DISTINCT user_id)` from the `InsightViewed` table — a real
-    popularity signal (how many separate humans have ever opened this insight), not a
-    raw view total. Ties broken by `last_viewed_at` so a popular-and-fresh insight beats
-    a popular-and-stale one.
+    "Active" means not archived and either not yet ended or scheduled with no end date —
+    matches what the agent thinks of as a "live survey." `start_date IS NULL` ones
+    (drafts) count as not-active. Sort by `updated_at` so freshly-edited surveys
+    surface first; falls through to creation recency for never-edited rows.
 
-    Insights with zero viewer rows are filtered out — they exist but no one has ever
-    looked at them, which isn't useful orientation.
+    `type` carries the survey-mode hint (popover/widget/external/api) the surveys
+    specialist scout cares about; agents pull full question shape via `survey-get`.
     """
-    rows = (
-        Insight.objects.filter(team=team, deleted=False)
-        .annotate(
-            viewer_count=Count("insightviewed__user", distinct=True),
-            last_viewed_at=Max("insightviewed__last_viewed_at"),
+    qs = Survey.objects.filter(team=team)
+    total = qs.count()
+    active = (
+        qs.filter(
+            archived=False,
+            start_date__isnull=False,
         )
-        .filter(viewer_count__gt=0)
-        .order_by("-viewer_count", "-last_viewed_at")[:POPULAR_INSIGHTS_LIMIT]
-        .values("short_id", "name", "derived_name", "viewer_count", "last_viewed_at", "last_modified_at")
+        .filter(Q(end_date__isnull=True) | Q(end_date__gt=timezone.now()))
+        .count()
     )
-    return [
-        {
-            "short_id": row["short_id"],
-            # `name` is human-set; `derived_name` is auto-generated from the query.
-            # Surface name when set, otherwise the derived one — same fallback the UI uses.
-            "name": (row["name"] or row["derived_name"] or "").strip(),
-            "viewer_count": row["viewer_count"],
-            "last_viewed_at": row["last_viewed_at"].isoformat() if row["last_viewed_at"] else None,
-            "last_modified_at": row["last_modified_at"].isoformat() if row["last_modified_at"] else None,
-        }
-        for row in rows
-    ]
+    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values(
+        "id", "name", "type", "archived", "start_date", "end_date", "updated_at"
+    )
+    return {
+        "total_count": total,
+        "active_count": active,
+        "recent": [
+            {
+                "id": str(row["id"]),
+                "name": row["name"] or "",
+                "type": row["type"],
+                "status": _survey_status(row),
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _survey_status(row: dict[str, Any]) -> str:
+    """Derive a single-word survey status from archive flag + start/end dates."""
+    if row["archived"]:
+        return "archived"
+    if row["start_date"] is None:
+        return "draft"
+    if row["end_date"] is not None and row["end_date"] <= timezone.now():
+        return "stopped"
+    return "running"
+
+
+def _recent_feature_flags(team: Team) -> dict[str, Any]:
+    """Feature flag orientation — total + active count, plus 5 most-recently-modified.
+
+    `active` is the model's own boolean ("is this flag currently evaluating?"); it
+    answers "could a user be hitting this code path?" — which is the question worth
+    distinguishing from "does this flag exist?" Sort by `updated_at`, which captures
+    both creation and rollout-percentage changes.
+    """
+    qs = FeatureFlag.objects.filter(team=team, deleted=False)
+    total = qs.count()
+    active = qs.filter(active=True).count()
+    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "key", "name", "active", "updated_at")
+    return {
+        "total_count": total,
+        "active_count": active,
+        "recent": [
+            {
+                "id": row["id"],
+                "key": row["key"],
+                # `name` is the human-set description; falls back to key when blank
+                # (matches the dashboards / insights pattern of "show whichever is set").
+                "name": (row["name"] or "").strip() or row["key"],
+                "active": row["active"],
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _recent_experiments(team: Team) -> dict[str, Any]:
+    """Experiment orientation — total + currently-running, plus 5 most-recently-modified.
+
+    "Running" means `start_date` set + no `end_date` + not archived/deleted; matches
+    the model's own `is_running` property. `feature_flag_key` is the cross-ref the
+    agent uses to correlate experiments with the `recent_feature_flags` section.
+    """
+    qs = Experiment.objects.filter(team=team).filter(Q(deleted=False) | Q(deleted__isnull=True))
+    total = qs.count()
+    running = qs.filter(archived=False, start_date__isnull=False, end_date__isnull=True).count()
+    recent = qs.select_related("feature_flag").order_by("-updated_at")[:RECENT_ENTITY_LIMIT]
+    return {
+        "total_count": total,
+        "running_count": running,
+        "recent": [
+            {
+                "id": exp.id,
+                "name": exp.name,
+                "status": _experiment_status(exp),
+                "feature_flag_key": exp.feature_flag.key if exp.feature_flag_id else None,
+                "updated_at": exp.updated_at.isoformat() if exp.updated_at else None,
+            }
+            for exp in recent
+        ],
+    }
+
+
+def _experiment_status(exp: Experiment) -> str:
+    """Derive single-word experiment status from archive/start/end fields."""
+    if exp.archived:
+        return "archived"
+    if exp.start_date is None:
+        return "draft"
+    if exp.end_date is not None:
+        return "stopped"
+    return "running"
+
+
+def _recent_alerts(team: Team) -> dict[str, Any]:
+    """Insight alert orientation — total + currently-enabled, plus 5 most-recently-created.
+
+    `AlertConfiguration` carries `created_at` from `CreatedMetaFields` but no
+    `updated_at` — sorting by creation recency surfaces newly-configured alerts,
+    which is the high-signal moment (someone setting up an alert today is actively
+    monitoring something).
+    """
+    qs = AlertConfiguration.objects.filter(team=team)
+    total = qs.count()
+    enabled = qs.filter(enabled=True).count()
+    recent = qs.order_by("-created_at")[:RECENT_ENTITY_LIMIT].values(
+        "id", "name", "enabled", "state", "calculation_interval", "insight_id", "created_at"
+    )
+    return {
+        "total_count": total,
+        "enabled_count": enabled,
+        "recent": [
+            {
+                "id": str(row["id"]),
+                "name": row["name"] or "",
+                "enabled": row["enabled"],
+                "state": row["state"],
+                "calculation_interval": row["calculation_interval"],
+                "insight_id": row["insight_id"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _recent_hog_functions(team: Team) -> dict[str, Any]:
+    """Hog function orientation — total + enabled, plus 5 most-recently-modified.
+
+    `type` discriminates destinations vs transformations vs site apps — the agent
+    pattern-matches on it to decide whether activity is "data plumbing" or "user
+    surface" work.
+    """
+    qs = HogFunction.objects.filter(team=team, deleted=False)
+    total = qs.count()
+    enabled = qs.filter(enabled=True).count()
+    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values(
+        "id", "name", "type", "kind", "enabled", "updated_at"
+    )
+    return {
+        "total_count": total,
+        "enabled_count": enabled,
+        "recent": [
+            {
+                "id": str(row["id"]),
+                "name": row["name"] or "",
+                "type": row["type"],
+                "kind": row["kind"],
+                "enabled": row["enabled"],
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _recent_hog_flows(team: Team) -> dict[str, Any]:
+    """Hog flow (workflow) orientation — total + non-archived, plus 5 most-recent.
+
+    HogFlow's `status` enum carries the flow's lifecycle state directly; we surface
+    it as-is so the agent can distinguish drafts from active flows.
+    """
+    qs = HogFlow.objects.filter(team=team)
+    total = qs.count()
+    active = qs.exclude(status="archived").count()
+    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "status", "updated_at")
+    return {
+        "total_count": total,
+        "active_count": active,
+        "recent": [
+            {
+                "id": str(row["id"]),
+                "name": row["name"] or "",
+                "status": row["status"],
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _recent_notebooks(team: Team) -> dict[str, Any]:
+    """Notebook orientation — total + 5 most-recently-modified.
+
+    Notebooks don't really have an "active" state; they exist or are deleted. The
+    activity-log mockup against project 2 showed Notebook as the highest-velocity
+    scope (405 edits in 14d), so this section is high-signal even at small recent-
+    list size.
+    """
+    qs = Notebook.objects.filter(team=team, deleted=False)
+    total = qs.count()
+    recent = qs.order_by("-last_modified_at")[:RECENT_ENTITY_LIMIT].values("short_id", "title", "last_modified_at")
+    return {
+        "total_count": total,
+        "recent": [
+            {
+                "short_id": row["short_id"],
+                "title": (row["title"] or "").strip(),
+                "last_modified_at": row["last_modified_at"].isoformat() if row["last_modified_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _recent_cohorts(team: Team) -> dict[str, Any]:
+    """Cohort orientation — total + 5 most-recently-created.
+
+    Cohorts have no `updated_at` field — the "creation" event is the high-signal
+    moment (someone defining a new audience for analysis or targeting). Sort by
+    `created_at` to surface fresh cohorts. `is_static` lets the agent distinguish
+    one-shot snapshots from dynamic-filter cohorts; `count` is the membership size
+    when last calculated (NULL if never calculated).
+    """
+    qs = Cohort.objects.filter(team=team, deleted=False)
+    total = qs.count()
+    recent = qs.order_by(F("created_at").desc(nulls_last=True))[:RECENT_ENTITY_LIMIT].values(
+        "id", "name", "is_static", "count", "created_at"
+    )
+    return {
+        "total_count": total,
+        "recent": [
+            {
+                "id": row["id"],
+                "name": (row["name"] or "").strip(),
+                "is_static": row["is_static"],
+                "count": row["count"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _recent_actions(team: Team) -> dict[str, Any]:
+    """Action orientation — total + 5 most-recently-modified.
+
+    Actions tag patterns of events; creating one is intentional ("I want to track
+    this user behavior as a named thing"). Sort by `updated_at` so both new actions
+    and edits to step definitions surface.
+    """
+    qs = Action.objects.filter(team=team, deleted=False)
+    total = qs.count()
+    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "updated_at")
+    return {
+        "total_count": total,
+        "recent": [
+            {
+                "id": row["id"],
+                "name": (row["name"] or "").strip(),
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in recent
+        ],
+    }
 
 
 def _recent_activity(team: Team) -> dict[str, Any]:

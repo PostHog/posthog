@@ -12,25 +12,41 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.insight import Insight, InsightViewed
+from posthog.models.alert import AlertConfiguration
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.experiments.backend.models.experiment import Experiment
+from products.notebooks.backend.models import Notebook
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
     _existing_inbox_reports,
     _external_data_sources,
     _integrations,
-    _popular_insights,
     _product_intents,
     _products_in_use,
     _project_context,
+    _recent_actions,
     _recent_activity,
+    _recent_alerts,
+    _recent_cohorts,
     _recent_dashboards,
+    _recent_experiments,
+    _recent_feature_flags,
+    _recent_hog_flows,
+    _recent_hog_functions,
+    _recent_notebooks,
+    _recent_surveys,
     _signal_source_configs,
 )
 from products.signals.backend.scout_harness.tools.profile import (
@@ -39,6 +55,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     get_project_profile,
 )
 from products.signals.backend.models import SignalProjectProfile, SignalReport, SignalSourceConfig
+from products.surveys.backend.models import Survey
 
 
 class TestProjectContext(BaseTest):
@@ -221,52 +238,258 @@ class TestRecentDashboards(BaseTest):
         assert result == []
 
 
-class TestPopularInsights(BaseTest):
-    def test_orders_by_distinct_viewer_count_desc(self) -> None:
-        # Two insights with distinct viewers; popular has more.
-        popular = Insight.objects.create(team=self.team, name="popular")
-        niche = Insight.objects.create(team=self.team, name="niche")
-        u1 = self._create_user("u1@example.com")
-        u2 = self._create_user("u2@example.com")
-        u3 = self._create_user("u3@example.com")
-        # 3 viewers on `popular`, 1 on `niche`.
-        for user in (u1, u2, u3):
-            InsightViewed.objects.create(team=self.team, user=user, insight=popular, last_viewed_at=timezone.now())
-        InsightViewed.objects.create(team=self.team, user=u1, insight=niche, last_viewed_at=timezone.now())
-        result = _popular_insights(self.team)
-        assert [r["name"] for r in result] == ["popular", "niche"]
-        assert result[0]["viewer_count"] == 3
-        assert result[1]["viewer_count"] == 1
+class TestRecentSurveys(BaseTest):
+    def test_caps_at_recent_entity_limit_and_orders_by_updated_at(self) -> None:
+        for i in range(7):
+            Survey.objects.create(team=self.team, name=f"s{i}", type=Survey.SurveyType.POPOVER)
+        result = _recent_surveys(self.team)
+        assert result["total_count"] == 7
+        assert len(result["recent"]) == 5  # RECENT_ENTITY_LIMIT
 
-    def test_excludes_never_viewed_insights(self) -> None:
-        # An insight with no `InsightViewed` rows is filtered out — useless orientation.
-        seen = Insight.objects.create(team=self.team, name="seen")
-        Insight.objects.create(team=self.team, name="unseen")
-        u1 = self._create_user("u1@example.com")
-        InsightViewed.objects.create(team=self.team, user=u1, insight=seen, last_viewed_at=timezone.now())
-        result = _popular_insights(self.team)
-        assert [r["name"] for r in result] == ["seen"]
+    def test_active_count_excludes_drafts_stopped_and_archived(self) -> None:
+        # Only `running` should count as active. Draft = no start_date; stopped = end_date in past.
+        now = timezone.now()
+        Survey.objects.create(team=self.team, name="running", type="popover", start_date=now - timedelta(days=1))
+        Survey.objects.create(
+            team=self.team,
+            name="stopped",
+            type="popover",
+            start_date=now - timedelta(days=2),
+            end_date=now - timedelta(hours=1),
+        )
+        Survey.objects.create(team=self.team, name="draft", type="popover")
+        Survey.objects.create(team=self.team, name="archived", type="popover", start_date=now, archived=True)
+        result = _recent_surveys(self.team)
+        assert result["total_count"] == 4
+        assert result["active_count"] == 1
 
-    def test_falls_back_to_derived_name_when_name_blank(self) -> None:
-        insight = Insight.objects.create(team=self.team, name=None, derived_name="Auto-named")
-        u1 = self._create_user("u1@example.com")
-        InsightViewed.objects.create(team=self.team, user=u1, insight=insight, last_viewed_at=timezone.now())
-        result = _popular_insights(self.team)
-        assert result[0]["name"] == "Auto-named"
+    def test_status_field_derivation(self) -> None:
+        now = timezone.now()
+        Survey.objects.create(team=self.team, name="r", type="popover", start_date=now - timedelta(days=1))
+        Survey.objects.create(team=self.team, name="d", type="popover")
+        Survey.objects.create(
+            team=self.team,
+            name="s",
+            type="popover",
+            start_date=now - timedelta(days=2),
+            end_date=now - timedelta(hours=1),
+        )
+        Survey.objects.create(team=self.team, name="a", type="popover", archived=True)
+        result = _recent_surveys(self.team)
+        statuses = {row["name"]: row["status"] for row in result["recent"]}
+        assert statuses == {"r": "running", "d": "draft", "s": "stopped", "a": "archived"}
 
-    def test_excludes_deleted_insights(self) -> None:
-        live = Insight.objects.create(team=self.team, name="live")
-        deleted = Insight.objects.create(team=self.team, name="dead", deleted=True)
-        u1 = self._create_user("u1@example.com")
-        for ins in (live, deleted):
-            InsightViewed.objects.create(team=self.team, user=u1, insight=ins, last_viewed_at=timezone.now())
-        result = _popular_insights(self.team)
-        assert [r["name"] for r in result] == ["live"]
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        Survey.objects.create(team=other, name="x", type="popover")
+        result = _recent_surveys(self.team)
+        assert result == {"total_count": 0, "active_count": 0, "recent": []}
 
-    def _create_user(self, email: str):
-        from posthog.models.user import User
 
-        return User.objects.create(email=email, distinct_id=email)
+class TestRecentFeatureFlags(BaseTest):
+    def test_total_active_counts_and_recent_ordering(self) -> None:
+        FeatureFlag.objects.create(team=self.team, key="a", name="A", active=True, created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="b", name="B", active=False, created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="c", name="C", active=True, deleted=True, created_by=self.user)
+        result = _recent_feature_flags(self.team)
+        # `c` is soft-deleted — excluded from total.
+        assert result["total_count"] == 2
+        assert result["active_count"] == 1
+        keys = {row["key"] for row in result["recent"]}
+        assert keys == {"a", "b"}
+
+    def test_falls_back_to_key_when_name_blank(self) -> None:
+        FeatureFlag.objects.create(team=self.team, key="my-flag", name="", active=True, created_by=self.user)
+        result = _recent_feature_flags(self.team)
+        assert result["recent"][0]["name"] == "my-flag"
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        FeatureFlag.objects.create(team=other, key="x", name="X", active=True, created_by=self.user)
+        result = _recent_feature_flags(self.team)
+        assert result["total_count"] == 0
+
+
+class TestRecentExperiments(BaseTest):
+    def _flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(team=self.team, key=key, name=key, active=True, created_by=self.user)
+
+    def test_running_count_only_counts_started_unfinished_unarchived(self) -> None:
+        now = timezone.now()
+        Experiment.objects.create(
+            team=self.team, name="running", feature_flag=self._flag("ff-r"), start_date=now - timedelta(days=1)
+        )
+        Experiment.objects.create(team=self.team, name="draft", feature_flag=self._flag("ff-d"))
+        Experiment.objects.create(
+            team=self.team,
+            name="stopped",
+            feature_flag=self._flag("ff-s"),
+            start_date=now - timedelta(days=10),
+            end_date=now - timedelta(days=1),
+        )
+        Experiment.objects.create(
+            team=self.team, name="archived", feature_flag=self._flag("ff-a"), start_date=now, archived=True
+        )
+        result = _recent_experiments(self.team)
+        assert result["total_count"] == 4
+        assert result["running_count"] == 1
+        statuses = {row["name"]: row["status"] for row in result["recent"]}
+        assert statuses == {
+            "running": "running",
+            "draft": "draft",
+            "stopped": "stopped",
+            "archived": "archived",
+        }
+
+    def test_carries_feature_flag_key_for_cross_reference(self) -> None:
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=self._flag("my-exp-flag"))
+        result = _recent_experiments(self.team)
+        assert result["recent"][0]["feature_flag_key"] == "my-exp-flag"
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        Experiment.objects.create(
+            team=other, name="x", feature_flag=FeatureFlag.objects.create(team=other, key="o", created_by=self.user)
+        )
+        result = _recent_experiments(self.team)
+        assert result["total_count"] == 0
+
+
+class TestRecentAlerts(BaseTest):
+    def _insight(self, name: str = "i") -> Insight:
+        return Insight.objects.create(team=self.team, name=name)
+
+    def test_total_and_enabled_counts(self) -> None:
+        AlertConfiguration.objects.create(team=self.team, insight=self._insight("a"), name="on", enabled=True)
+        AlertConfiguration.objects.create(team=self.team, insight=self._insight("b"), name="off", enabled=False)
+        result = _recent_alerts(self.team)
+        assert result["total_count"] == 2
+        assert result["enabled_count"] == 1
+
+    def test_orders_by_created_at_desc(self) -> None:
+        # AlertConfiguration has no `updated_at` (CreatedMetaFields only) — sort uses
+        # created_at, which captures the high-signal "alert was newly configured" moment.
+        first = AlertConfiguration.objects.create(team=self.team, insight=self._insight("a"), name="first")
+        AlertConfiguration.objects.filter(id=first.id).update(created_at=timezone.now() - timedelta(days=2))
+        AlertConfiguration.objects.create(team=self.team, insight=self._insight("b"), name="second")
+        result = _recent_alerts(self.team)
+        assert [r["name"] for r in result["recent"]] == ["second", "first"]
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        AlertConfiguration.objects.create(team=other, insight=Insight.objects.create(team=other, name="i"), name="x")
+        result = _recent_alerts(self.team)
+        assert result["total_count"] == 0
+
+
+class TestRecentHogFunctions(BaseTest):
+    def test_total_enabled_counts_and_excludes_deleted(self) -> None:
+        HogFunction.objects.create(team=self.team, name="a", enabled=True, type="destination", hog="")
+        HogFunction.objects.create(team=self.team, name="b", enabled=False, type="transformation", hog="")
+        HogFunction.objects.create(team=self.team, name="c", enabled=True, type="destination", deleted=True, hog="")
+        result = _recent_hog_functions(self.team)
+        assert result["total_count"] == 2
+        assert result["enabled_count"] == 1
+
+    def test_carries_type_and_kind_for_orientation(self) -> None:
+        HogFunction.objects.create(
+            team=self.team, name="dest", enabled=True, type="destination", kind="webhook", hog=""
+        )
+        result = _recent_hog_functions(self.team)
+        row = result["recent"][0]
+        assert row["type"] == "destination"
+        assert row["kind"] == "webhook"
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        HogFunction.objects.create(team=other, name="x", enabled=True, type="destination", hog="")
+        result = _recent_hog_functions(self.team)
+        assert result["total_count"] == 0
+
+
+class TestRecentHogFlows(BaseTest):
+    def test_total_active_counts_excludes_archived(self) -> None:
+        HogFlow.objects.create(team=self.team, name="draft", status="draft")
+        HogFlow.objects.create(team=self.team, name="active", status="active")
+        HogFlow.objects.create(team=self.team, name="archived", status="archived")
+        result = _recent_hog_flows(self.team)
+        assert result["total_count"] == 3
+        assert result["active_count"] == 2  # everything except archived
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        HogFlow.objects.create(team=other, name="x", status="active")
+        result = _recent_hog_flows(self.team)
+        assert result["total_count"] == 0
+
+
+class TestRecentNotebooks(BaseTest):
+    def test_orders_by_last_modified_at_desc_and_caps_at_limit(self) -> None:
+        for i in range(7):
+            Notebook.objects.create(team=self.team, title=f"n{i}")
+        result = _recent_notebooks(self.team)
+        assert result["total_count"] == 7
+        assert len(result["recent"]) == 5
+
+    def test_excludes_deleted(self) -> None:
+        Notebook.objects.create(team=self.team, title="live")
+        Notebook.objects.create(team=self.team, title="gone", deleted=True)
+        result = _recent_notebooks(self.team)
+        assert result["total_count"] == 1
+        assert result["recent"][0]["title"] == "live"
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        Notebook.objects.create(team=other, title="x")
+        result = _recent_notebooks(self.team)
+        assert result == {"total_count": 0, "recent": []}
+
+
+class TestRecentCohorts(BaseTest):
+    def test_orders_by_created_at_desc(self) -> None:
+        old = Cohort.objects.create(team=self.team, name="old", created_by=self.user)
+        Cohort.objects.filter(id=old.id).update(created_at=timezone.now() - timedelta(days=3))
+        Cohort.objects.create(team=self.team, name="new", created_by=self.user)
+        result = _recent_cohorts(self.team)
+        assert [r["name"] for r in result["recent"]] == ["new", "old"]
+
+    def test_carries_is_static_and_count(self) -> None:
+        Cohort.objects.create(team=self.team, name="static", is_static=True, count=42, created_by=self.user)
+        result = _recent_cohorts(self.team)
+        row = result["recent"][0]
+        assert row["is_static"] is True
+        assert row["count"] == 42
+
+    def test_excludes_deleted_and_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        Cohort.objects.create(team=self.team, name="kept", created_by=self.user)
+        Cohort.objects.create(team=self.team, name="gone", deleted=True, created_by=self.user)
+        Cohort.objects.create(team=other, name="other-team", created_by=self.user)
+        result = _recent_cohorts(self.team)
+        assert result["total_count"] == 1
+        assert result["recent"][0]["name"] == "kept"
+
+
+class TestRecentActions(BaseTest):
+    def test_orders_by_updated_at_desc(self) -> None:
+        a = Action.objects.create(team=self.team, name="a", created_by=self.user)
+        Action.objects.filter(id=a.id).update(updated_at=timezone.now() - timedelta(days=1))
+        Action.objects.create(team=self.team, name="b", created_by=self.user)
+        result = _recent_actions(self.team)
+        assert [r["name"] for r in result["recent"]] == ["b", "a"]
+
+    def test_excludes_deleted(self) -> None:
+        Action.objects.create(team=self.team, name="kept", created_by=self.user)
+        Action.objects.create(team=self.team, name="gone", deleted=True, created_by=self.user)
+        result = _recent_actions(self.team)
+        assert result["total_count"] == 1
+        assert result["recent"][0]["name"] == "kept"
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        Action.objects.create(team=other, name="x", created_by=self.user)
+        result = _recent_actions(self.team)
+        assert result["total_count"] == 0
 
 
 class TestRecentActivity(BaseTest):
@@ -373,9 +596,17 @@ class TestBuildInventory(BaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
-            "recent_dashboards",
-            "popular_insights",
             "recent_activity",
+            "recent_dashboards",
+            "recent_surveys",
+            "recent_feature_flags",
+            "recent_experiments",
+            "recent_alerts",
+            "recent_hog_functions",
+            "recent_hog_flows",
+            "recent_notebooks",
+            "recent_cohorts",
+            "recent_actions",
             "top_events",
         }
 
