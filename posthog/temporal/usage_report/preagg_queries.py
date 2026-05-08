@@ -43,33 +43,18 @@ from datetime import datetime
 
 from retry import retry
 
-from posthog.schema import AIEventType
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.logging.timing import timed_log
 from posthog.models.usage_report_events_preagg.sql import USAGE_REPORT_EVENTS_PREAGG_TABLE
-from posthog.tasks.usage_report import CH_BILLING_SETTINGS, QUERY_RETRIES, QUERY_RETRY_BACKOFF, QUERY_RETRY_DELAY
-
-# Mirrored from `posthog.tasks.usage_report.AI_EVENTS` so the preagg
-# versions stay in lockstep with the legacy filter without depending on
-# private module state.
-_AI_EVENTS: list[str] = [event.value for event in AIEventType]
-
-# Same exclusion list as the legacy
-# `get_teams_with_billable_*_event_count_in_period` queries — keep the
-# two in sync. AI events are billed separately via
-# `teams_with_ai_event_count_in_period`; `$exception` is excluded during
-# the beta; survey/feature-flag bookkeeping events are not billable.
-_BILLABLE_EXCLUDED_EVENTS: list[str] = [
-    "$feature_flag_called",
-    "survey sent",
-    "survey shown",
-    "survey dismissed",
-    "$exception",
-    *_AI_EVENTS,
-]
+from posthog.tasks.usage_report import (
+    BILLABLE_EXCLUDED_EVENTS,
+    CH_BILLING_SETTINGS,
+    QUERY_RETRIES,
+    QUERY_RETRY_BACKOFF,
+    QUERY_RETRY_DELAY,
+)
 
 # Source-key list for the multi-output `all_event_metrics` spec. Order
 # is irrelevant; the dict keys are looked up by name.
@@ -120,7 +105,7 @@ def get_teams_with_billable_event_count_in_period_from_preagg(
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             _billable_count_query(),
-            {"begin": begin, "end": end, "excluded_events": _BILLABLE_EXCLUDED_EVENTS},
+            {"begin": begin, "end": end, "excluded_events": BILLABLE_EXCLUDED_EVENTS},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
         )
@@ -134,7 +119,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period_from_preagg(
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             _billable_count_query("AND person_mode IN ('full', 'force_upgrade')"),
-            {"begin": begin, "end": end, "excluded_events": _BILLABLE_EXCLUDED_EVENTS},
+            {"begin": begin, "end": end, "excluded_events": BILLABLE_EXCLUDED_EVENTS},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
         )
