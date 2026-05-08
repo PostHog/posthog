@@ -426,7 +426,7 @@ class CHQueries:
             **get_mcp_properties(request),
         )
 
-        start = time.perf_counter() if is_api_request else None
+        start = time.perf_counter()
 
         try:
             response: HttpResponse = self.get_response(request)
@@ -436,10 +436,14 @@ class CHQueries:
                     "http_api_request_response",
                     tags={"id": route_id, "status_code": response.status_code},
                 )
-                assert start is not None
                 API_REQUESTS_LATENCY_SECONDS.labels(
+                    # Three-step fallback: DRF viewset name first (api:viewset-action),
+                    # Django URL name next, view function name as last resort. Bounded
+                    # by URLconf so cardinality stays safe.
                     view=route.view_name or route.url_name or route.func.__name__,
                     method=request.method or "",
+                    # Read after get_response so view code that calls tag_queries(source=...)
+                    # wins — matches access_method semantics, where DRF auth tags during dispatch.
                     source=get_query_tag_value("source") or "",
                     access_method=get_query_tag_value("access_method") or "",
                 ).observe(time.perf_counter() - start)

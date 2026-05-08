@@ -1891,7 +1891,6 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
 
 @parameterized.expand(
     [
-        # api/ paths emit the histogram
         ("api_path_emits", "/api/projects/@current/query/", True),
         ("api_capture_excluded", "/api/projects/@current/capture/", False),
         ("non_api_path_excluded", "/login", False),
@@ -1925,10 +1924,8 @@ def test_chqueries_middleware_api_latency_histogram_scope(name, path, should_emi
 
 @parameterized.expand(
     [
-        # populates source from user-agent tagging done inside CHQueries
         ("source_mcp", "posthog/mcp-server v1", None, "mcp", ""),
         ("source_web", "Mozilla/5.0", None, "web", ""),
-        # populates access_method from auth-time tagging that happens during get_response
         ("access_method_personal_api_key", "Mozilla/5.0", "personal_api_key", "web", "personal_api_key"),
         ("access_method_oauth", "Mozilla/5.0", "oauth", "web", "oauth"),
     ]
