@@ -864,13 +864,13 @@ async def execute_summarize_session_video_stream(
     will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
 
     if will_start_fresh_run:
-        cap_decision = await database_sync_to_async(check_only, thread_sensitive=False)(team.id)
+        cap_decision = await database_sync_to_async(check_only, thread_sensitive=False)(team.pk)
         if not cap_decision.allowed:
             posthoganalytics.capture(
                 distinct_id=user.distinct_id,
                 event="replay summary quota blocked",
                 properties={
-                    "team_id": team.id,
+                    "team_id": team.pk,
                     "used": cap_decision.used,
                     "cap": cap_decision.cap,
                     "source": "dock",
@@ -903,11 +903,11 @@ async def execute_summarize_session_video_stream(
         # the previous run) — charge the per-team monthly cost backstop. Wrapped
         # so a Redis blip can't fail a user request already going to the LLM.
         try:
-            await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.id, 1)
+            await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.pk, 1)
         except Exception as e:
             logger.warning(
                 "video summary cap consume failed (best-effort)",
-                team_id=team.id,
+                team_id=team.pk,
                 session_id=session_id,
                 error=str(e),
                 signals_type="session-summaries",
