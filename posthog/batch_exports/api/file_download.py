@@ -266,21 +266,22 @@ class FileDownloadBatchExportOnDemandViewSet(
             if batch_export_run.batch_export_on_demand is None:
                 raise RuntimeError("Batch export on demand must be defined on this run")
 
-            ids = (
-                BatchExportFileDownload.objects.filter(
+            ids = [
+                str(id)
+                for id in BatchExportFileDownload.objects.filter(
                     batch_export_run=batch_export_run, team=batch_export_run.batch_export_on_demand.team
                 )
                 .order_by("key")
                 .values_list("id", flat=True)
-            )
+            ]
 
-            if not ids.exists():
+            if not ids:
                 # There is currently a small delay between the run being set to completed
                 # and the file downloads being generated, so we account for that and keep
                 # showing running status.
                 run_status = BatchExportRun.Status.RUNNING
             else:
-                files["files"] = [str(id) for id in ids]
+                files["files"] = ids
 
         return response.Response({"status": run_status, **files, **error})
 
