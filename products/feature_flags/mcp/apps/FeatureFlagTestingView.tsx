@@ -129,9 +129,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                     <Card key={index}>
                                         <Stack gap="xs">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">
-                                                    Condition #{condition.index + 1}
-                                                </span>
+                                                <span className="text-sm font-medium">Condition</span>
                                                 <Badge variant={condition.matched ? 'success' : 'danger'} size="sm">
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
