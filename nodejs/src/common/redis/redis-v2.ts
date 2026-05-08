@@ -13,7 +13,7 @@ type WithCheckRateLimit<T, TV2, TV3> = {
     /**
      * V3 returns balances as strings (`[tokensBefore, tokensAfter]`) so fractional
      * tokens survive — Redis truncates Lua numbers to integers on the wire. Callers
-     * must `parseFloat` the values.
+     * should convert the values with `Number(...)` or `parseFloat(...)`.
      */
     checkRateLimitV3: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV3
 }
