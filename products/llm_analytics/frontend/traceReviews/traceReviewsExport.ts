@@ -75,9 +75,9 @@ export async function fetchAllReviewsForExport(
 }
 
 export function formatReviewsForClipboard(reviews: TraceReview[], format: ReviewClipboardFormat): string {
-    const rows = getReviewClipboardRows(reviews)
+    // JSON keeps the nested API shape; CSV/TSV flatten to mirror rest_framework_csv on the server.
     if (format === 'json') {
-        return JSON.stringify(rows, null, 4)
+        return JSON.stringify(reviews, null, 4)
     }
-    return Papa.unparse(rows, format === 'tsv' ? { delimiter: '\t' } : undefined)
+    return Papa.unparse(getReviewClipboardRows(reviews), format === 'tsv' ? { delimiter: '\t' } : undefined)
 }

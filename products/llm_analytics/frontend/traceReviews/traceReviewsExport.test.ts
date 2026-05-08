@@ -229,13 +229,15 @@ describe('traceReviewsExport', () => {
             }
         )
 
-        it('formats JSON as a pretty-printed string and skips Papa.unparse', () => {
+        it('formats JSON as the nested API shape, not the flattened CSV shape', () => {
             const payload = formatReviewsForClipboard([baseReview], 'json')
 
             expect(mockPapaUnparse).not.toHaveBeenCalled()
             const parsed = JSON.parse(payload)
             expect(Array.isArray(parsed)).toBe(true)
-            expect(parsed[0].trace_id).toBe('trace-abc')
+            expect(parsed[0]).toEqual(baseReview)
+            expect(parsed[0].scores[0].id).toBe('score-1')
+            expect(parsed[0].created_by.email).toBe('ada@example.com')
             expect(payload).toContain('\n    ')
         })
     })
