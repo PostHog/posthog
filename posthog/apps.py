@@ -146,7 +146,13 @@ class PostHogConfig(AppConfig):
                     self._loaded = True
                     register_all_admin()
 
-            # Override only the essential methods that trigger loading
+            # `dict.items()`, `dict.values()`, and `dict.keys()` iterate the
+            # underlying storage at the C level — they DO NOT call `__iter__`
+            # or `__getitem__`. Django admin's `AdminSite.get_urls()` and
+            # `_build_app_dict()` use `self._registry.items()` /
+            # `self._registry.values()`, so without explicit overrides the
+            # lazy load never fires from those code paths and admin URLs /
+            # sidebar entries silently come back empty.
             def __getitem__(self, key):
                 self._ensure_loaded()
                 return super().__getitem__(key)
@@ -162,6 +168,22 @@ class PostHogConfig(AppConfig):
             def __contains__(self, key):
                 self._ensure_loaded()
                 return super().__contains__(key)
+
+            def keys(self):
+                self._ensure_loaded()
+                return super().keys()
+
+            def values(self):
+                self._ensure_loaded()
+                return super().values()
+
+            def items(self):
+                self._ensure_loaded()
+                return super().items()
+
+            def get(self, key, default=None):
+                self._ensure_loaded()
+                return super().get(key, default)
 
         # Don't use lazy loading in tests and migrations
         if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
