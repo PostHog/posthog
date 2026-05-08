@@ -225,6 +225,10 @@ TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
 def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    # temporarily disable validation, until we checked all prod entities
+    if True:
+        return cast(list[dict[str, object]], value)
+
     try:
         TestAccountFilters.model_validate(value)
     except PydanticValidationError as error:
