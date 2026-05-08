@@ -160,6 +160,57 @@ describe('workflowLogic auto-save', () => {
         })
     })
 
+    describe('auto-save toggle', () => {
+        beforeEach(async () => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('does not auto-save when toggle is disabled', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Edited')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+        })
+
+        it('resets isAutoSavePending when toggle is disabled', async () => {
+            logic.actions.setWorkflowValue('name', 'Edited')
+            expect(logic.values.isAutoSavePending).toBe(true)
+
+            logic.actions.setAutoSaveEnabled(false)
+            expect(logic.values.isAutoSavePending).toBe(false)
+        })
+
+        it('triggers auto-save when toggle is re-enabled with pending changes', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Edited while off')
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(updateCalls).toBe(0)
+
+            logic.actions.setAutoSaveEnabled(true)
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflow', 'saveWorkflowSuccess'])
+            expect(updateCalls).toBe(1)
+        })
+
+        it('does not auto-save active workflows', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('status', 'active')
+            logic.actions.setWorkflowValue('name', 'Edited active')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+        })
+    })
+
     describe('beforeUnmount', () => {
         it('flushes pending changes when the logic unmounts', async () => {
             initKeaTests()
