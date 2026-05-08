@@ -373,7 +373,8 @@ async def test_file_download_end_to_end(
     async with aiohttp.ClientSession() as s:
         async with s.get(pre_signed_url) as resp:
             content = await resp.read()
-            assert resp.status == 200, f"Invalid status: {resp.status}: {content}"
+
+            assert resp.status == 200, f"Invalid status: {resp.status}: {content!r}"
 
     table = pq.read_table(pa.BufferReader(content))
     events, _ = generate_test_data
