@@ -14,7 +14,7 @@ description: >
 
 # Triaging flaky / unrelated test failures on PostHog PRs
 
-This skill is the *triage decision* layer on top of `debugging-ci-failures`.
+This skill is the _triage decision_ layer on top of `debugging-ci-failures`.
 For read-only inspection, classification, and local repro guidance, use the
 `debugging-ci-failures` skill — this skill picks up after that, when the
 question is: "is this failure mine, or someone else's?".
@@ -28,7 +28,7 @@ ID identifies the specific failing job within the workflow run.
 
 ## The contract
 
-After inspecting the failure, every run produces *exactly one* of these:
+After inspecting the failure, every run produces _exactly one_ of these:
 
 1. **PR-caused** — tell the user the failure is theirs, with a one-sentence
    explanation. Stop. Do not open a fix PR. Do not tag a team.
@@ -39,7 +39,7 @@ After inspecting the failure, every run produces *exactly one* of these:
    owning team. Return suggested Slack reply text summarizing the failure
    and tagging the team for triage.
 
-Always *return* suggested Slack reply text — never post to Slack yourself.
+Always _return_ suggested Slack reply text — never post to Slack yourself.
 
 ## Workflow
 
@@ -86,15 +86,15 @@ exit without further action.
 Read the failing test and surrounding code to understand the root cause.
 Common patterns:
 
-- *Race / timing*: missing `await`, fixture ordering, time-based assertion,
+- _Race / timing_: missing `await`, fixture ordering, time-based assertion,
   test depending on a shared resource without isolation.
-- *State leakage*: a sibling test left state that this one depends on not
+- _State leakage_: a sibling test left state that this one depends on not
   existing, or vice versa. Look for class-level or module-level fixtures
   that aren't reset per-test.
-- *Snapshot drift*: visual or string snapshot that needs regenerating after
+- _Snapshot drift_: visual or string snapshot that needs regenerating after
   a legitimate change on master that the failing test forgot to keep up
   with.
-- *Infra / runner*: no local repro is possible; treat per
+- _Infra / runner_: no local repro is possible; treat per
   `debugging-ci-failures` and skip to the "not fixable in one PR" branch.
 
 If the cause is clear and small, write the fix on a **new branch off
@@ -120,7 +120,7 @@ learned for the team handoff in step 4.
 
 ### Step 4: Resolve the owning team — twice
 
-You need *two* identifiers and they are not interchangeable:
+You need _two_ identifiers and they are not interchangeable:
 
 - a **GitHub team handle** like `@PostHog/team-product-analytics`, used in
   PR review requests
@@ -146,7 +146,7 @@ When that's the case, the public feature ownership handbook at
 <https://posthog.com/handbook/engineering/feature-ownership> is the source
 of truth (`WebFetch` it, search for the directory or feature name).
 
-The output of this step is a *team identity* — the GitHub handle if
+The output of this step is a _team identity_ — the GitHub handle if
 CODEOWNERS gave one, otherwise the team's name as written in the handbook
 (e.g. "Product analytics", "Replay", "Pipeline"). That identity is the
 input to step 4b.
