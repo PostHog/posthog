@@ -1,9 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { ciRanges, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLine, trendLine, ValueLabels } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
-
+import type { LineChartConfig, Series } from '../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import { ReferenceLine } from '../overlays/ReferenceLine'
+import { ValueLabels } from '../overlays/ValueLabels'
 import { playHoverAtFraction, Stage, useReactiveTheme } from '../story-helpers'
+import { ciRanges, trendLine } from '../utils/statistics'
+import { LineChart } from './LineChart'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const BASIC: LineChartConfig = { showGrid: true }

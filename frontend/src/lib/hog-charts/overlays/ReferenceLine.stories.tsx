@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LineChart, ReferenceLine } from 'lib/hog-charts'
-import type { LineChartConfig, ReferenceLineFillSide, ReferenceLineVariant, Series } from 'lib/hog-charts'
-
+import { LineChart } from '../charts/LineChart'
+import type { LineChartConfig, Series } from '../core/types'
 import { Stage, useReactiveTheme } from '../story-helpers'
+import { ReferenceLine } from './ReferenceLine'
+import type { ReferenceLineFillSide, ReferenceLineVariant } from './ReferenceLine'
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

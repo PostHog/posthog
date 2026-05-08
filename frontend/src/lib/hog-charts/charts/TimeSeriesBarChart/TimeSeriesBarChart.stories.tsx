@@ -1,9 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { TimeSeriesBarChart } from 'lib/hog-charts'
-import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
-
+import type { Series } from '../../core/types'
 import { Stage, useReactiveTheme } from '../../story-helpers'
+import type { TimeInterval } from '../../utils/dates'
+import type { YAxisConfig } from '../../utils/use-axis-formatters'
 import {
     CURRENCY_SERIES,
     DAILY_LABELS,
@@ -20,6 +20,7 @@ import {
     PERCENTAGE_SERIES,
     SERIES,
 } from '../time-series-fixtures'
+import { TimeSeriesBarChart } from './TimeSeriesBarChart'
 
 const meta: Meta = {
     title: 'Components/HogCharts/TimeSeriesBarChart',

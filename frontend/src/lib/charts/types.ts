@@ -8,4 +8,5 @@ export interface ChartTheme {
     crosshairColor?: string
     tooltipBackground?: string
     tooltipColor?: string
+    tooltipZIndex?: number | string
 }
