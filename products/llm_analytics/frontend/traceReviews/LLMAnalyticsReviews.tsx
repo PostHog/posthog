@@ -21,7 +21,6 @@ import { urls } from '~/scenes/urls'
 import { ExporterFormat } from '~/types'
 
 import { llmAnalyticsReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './llmAnalyticsReviewsLogic'
-import { copyReviewsAs } from './traceReviewsExport'
 import { TraceReviewValue } from './TraceReviewValue'
 import type { TraceReview } from './types'
 
@@ -31,7 +30,7 @@ function formatTraceId(traceId: string): string {
 
 export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element {
     const logic = useMountedLogic(llmAnalyticsReviewsLogic({ tabId }))
-    const { setFilters } = useActions(logic)
+    const { setFilters, copyReviewsToClipboard } = useActions(logic)
     const { startExport } = useActions(exportsLogic)
     const {
         reviews,
@@ -178,17 +177,17 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                                 items: [
                                     {
                                         label: 'CSV',
-                                        onClick: () => void copyReviewsAs(filters, 'csv'),
+                                        onClick: () => copyReviewsToClipboard('csv'),
                                         'data-attr': 'copy-csv-to-clipboard',
                                     },
                                     {
                                         label: 'JSON',
-                                        onClick: () => void copyReviewsAs(filters, 'json'),
+                                        onClick: () => copyReviewsToClipboard('json'),
                                         'data-attr': 'copy-json-to-clipboard',
                                     },
                                     {
                                         label: 'Excel',
-                                        onClick: () => void copyReviewsAs(filters, 'tsv'),
+                                        onClick: () => copyReviewsToClipboard('tsv'),
                                         'data-attr': 'copy-excel-to-clipboard',
                                     },
                                 ],

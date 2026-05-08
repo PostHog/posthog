@@ -1,8 +1,11 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { Sorting } from 'lib/lemon-ui/LemonTable'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
@@ -15,7 +18,8 @@ import { urls } from '~/scenes/urls'
 import { llmAnalyticsScoreDefinitionsList } from '../generated/api'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { llmAnalyticsReviewsLogicType } from './llmAnalyticsReviewsLogicType'
-import { buildTraceReviewsListUrl, traceReviewsApi } from './traceReviewsApi'
+import { buildTraceReviewsListUrl, traceReviewListParamsFromFilters, traceReviewsApi } from './traceReviewsApi'
+import { fetchAllReviewsForExport, formatReviewsForClipboard, type ReviewClipboardFormat } from './traceReviewsExport'
 import type { TraceReview } from './types'
 
 export const TRACE_REVIEWS_PER_PAGE = 30
@@ -71,6 +75,7 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
         }),
         loadReviews: (debounce: boolean = true) => ({ debounce }),
         loadScoreDefinitionOptions: true,
+        copyReviewsToClipboard: (format: ReviewClipboardFormat) => ({ format }),
     }),
 
     reducers({
@@ -99,9 +104,7 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
                     const { filters } = values
 
                     return traceReviewsApi.list({
-                        search: filters.search || undefined,
-                        definition_id: filters.definition_id || undefined,
-                        order_by: filters.order_by,
+                        ...traceReviewListParamsFromFilters(filters),
                         offset: Math.max(0, (filters.page - 1) * TRACE_REVIEWS_PER_PAGE),
                         limit: TRACE_REVIEWS_PER_PAGE,
                     })
@@ -164,11 +167,7 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
         exportPath: [
             (s) => [s.filters],
             (filters: TraceReviewFilters): string =>
-                buildTraceReviewsListUrl(undefined, {
-                    search: filters.search || undefined,
-                    definition_id: filters.definition_id || undefined,
-                    order_by: filters.order_by,
-                }),
+                buildTraceReviewsListUrl(undefined, traceReviewListParamsFromFilters(filters)),
         ],
     }),
 
@@ -178,6 +177,32 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
 
             if (!objectsEqual(oldFilters, values.filters)) {
                 await asyncActions.loadReviews(debounce)
+            }
+        },
+        copyReviewsToClipboard: async ({ format }, breakpoint) => {
+            try {
+                const { reviews, total, truncated } = await fetchAllReviewsForExport(values.filters)
+                breakpoint()
+
+                if (total === 0) {
+                    lemonToast.error('No reviews to copy!')
+                    return
+                }
+
+                if (truncated) {
+                    lemonToast.warning(
+                        `Too many reviews to copy to clipboard (${total}). Use "Export current columns" to download a file instead.`
+                    )
+                    return
+                }
+
+                const payload = formatReviewsForClipboard(reviews, format)
+                await copyToClipboard(payload, 'reviews')
+                breakpoint()
+            } catch (error) {
+                if (!isBreakpoint(error)) {
+                    lemonToast.error('Copy failed!')
+                }
             }
         },
     })),
