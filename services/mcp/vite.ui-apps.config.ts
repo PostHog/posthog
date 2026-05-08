@@ -51,6 +51,17 @@ export default defineConfig({
             // (which transitively pulls auto axis formatters and derived-series).
             'lib/hog-charts': resolve(__dirname, '../../frontend/src/lib/hog-charts'),
             'lib/charts/types': resolve(__dirname, '../../frontend/src/lib/charts/types'),
+            // hog-charts source imports third-party packages (d3 submodules,
+            // @floating-ui/react). CI's scoped install
+            // (`pnpm --filter=@posthog/mcp...`) doesn't install frontend's
+            // node_modules, so vite — which resolves bare specifiers from the
+            // importing file's directory upwards — can't find these packages
+            // from `frontend/src/lib/hog-charts/`. Pin them to MCP's own copies.
+            'd3-array': resolve(__dirname, 'node_modules/d3-array'),
+            'd3-color': resolve(__dirname, 'node_modules/d3-color'),
+            'd3-scale': resolve(__dirname, 'node_modules/d3-scale'),
+            'd3-shape': resolve(__dirname, 'node_modules/d3-shape'),
+            '@floating-ui/react': resolve(__dirname, 'node_modules/@floating-ui/react'),
         },
     },
     define: {

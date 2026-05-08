@@ -34,6 +34,7 @@
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
+        "@floating-ui/react": "^0.27.19",
         "@modelcontextprotocol/ext-apps": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@posthog/mosaic": "workspace:*",

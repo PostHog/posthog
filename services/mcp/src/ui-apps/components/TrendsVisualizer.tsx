@@ -60,12 +60,23 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
+function BarBranch({ results }: { results: TrendsResultItem[] }): ReactElement {
+    const { series, labels, maxValue } = prepareChartData(results)
+    return (
+        <BarChart
+            series={series}
+            labels={labels}
+            maxValue={maxValue}
+            yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+        />
+    )
+}
+
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
 
-    if (!results || results.length === 0 || series.length === 0) {
+    if (!results || results.length === 0) {
         return <EmptyState icon="chart" description="No data available" />
     }
 
@@ -87,16 +98,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
-            {chartMode === 'bar' ? (
-                <BarChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
-            ) : (
-                <McpTrendsLineChart results={results} />
-            )}
+            {chartMode === 'bar' ? <BarBranch results={results} /> : <McpTrendsLineChart results={results} />}
         </div>
     )
 }
