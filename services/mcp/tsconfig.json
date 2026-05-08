@@ -26,7 +26,14 @@
             "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
             "@common/*": ["../../common/*"],
             "lib/hog-charts/*": ["../../frontend/src/lib/hog-charts/*"],
-            "lib/charts/types": ["../../frontend/src/lib/charts/types"]
+            "lib/charts/types": ["../../frontend/src/lib/charts/types"],
+            "react": ["./node_modules/@types/react"],
+            "react/*": ["./node_modules/@types/react/*"],
+            "d3-array": ["./node_modules/@types/d3-array"],
+            "d3-color": ["./node_modules/@types/d3-color"],
+            "d3-scale": ["./node_modules/@types/d3-scale"],
+            "d3-shape": ["./node_modules/@types/d3-shape"],
+            "@floating-ui/react": ["./node_modules/@floating-ui/react"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
