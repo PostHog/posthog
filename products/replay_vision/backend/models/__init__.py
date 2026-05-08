@@ -1,4 +1,4 @@
 from products.replay_vision.backend.models.replay_lens import ReplayLens
-from products.replay_vision.backend.models.replay_lens_observation import ReplayLensObservation
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 
-__all__ = ["ReplayLens", "ReplayLensObservation"]
+__all__ = ["ReplayLens", "ReplayObservation"]

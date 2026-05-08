@@ -16,7 +16,7 @@ class ObservationTrigger(models.TextChoices):
     ON_DEMAND = "on_demand", "On demand"
 
 
-class ReplayLensObservation(UUIDModel):
+class ReplayObservation(UUIDModel):
     """One application of a `ReplayLens` to a session recording (see README)."""
 
     lens = models.ForeignKey("replay_vision.ReplayLens", on_delete=models.CASCADE, related_name="observations")
@@ -67,21 +67,19 @@ class ReplayLensObservation(UUIDModel):
 
     class Meta:
         constraints = [
-            # At-most-once: failed/succeeded rows are sticky; admin deletes to re-trigger.
-            models.UniqueConstraint(fields=["lens", "session_id"], name="replay_lens_observation_unique_lens_session"),
-            # Terminal status ⇔ completed_at non-null.
+            # Failed/succeeded rows are sticky; admin deletes to re-trigger.
+            models.UniqueConstraint(fields=["lens", "session_id"], name="replay_observation_unique_lens_session"),
             models.CheckConstraint(
                 condition=(
                     models.Q(status__in=["pending", "running"], completed_at__isnull=True)
                     | models.Q(status__in=["succeeded", "failed"], completed_at__isnull=False)
                 ),
-                name="replay_lens_observation_completed_at_matches_status",
+                name="replay_observation_completed_at_matches_status",
             ),
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
             models.Index(fields=["lens", "status"], name="rlo_lens_status_idx"),
-            # Partial index for the reaper's workflow_id lookups; excludes pending rows.
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
@@ -90,24 +88,20 @@ class ReplayLensObservation(UUIDModel):
         ]
 
     def save(self, *args, **kwargs) -> None:
-        # Tenant invariant: observation.team_id must equal lens.team_id; validated only on create.
+        # Tenant invariant: observation.team_id must match lens.team_id.
         if self._state.adding:
             lens_team_id = self.lens.team_id
             if self.team_id and self.team_id != lens_team_id:
-                raise ValueError(
-                    f"ReplayLensObservation.team_id ({self.team_id}) must match lens.team_id ({lens_team_id})"
-                )
+                raise ValueError(f"ReplayObservation.team_id ({self.team_id}) must match lens.team_id ({lens_team_id})")
             self.team_id = lens_team_id
         super().save(*args, **kwargs)
 
     def mark_succeeded(self) -> None:
-        """Transition to terminal `succeeded` while satisfying the completed_at invariant."""
         self.status = ObservationStatus.SUCCEEDED
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "completed_at"])
 
     def mark_failed(self, error_reason: str) -> None:
-        """Transition to terminal `failed` with a non-empty reason while satisfying the completed_at invariant."""
         self.status = ObservationStatus.FAILED
         self.error_reason = error_reason
         self.completed_at = timezone.now()

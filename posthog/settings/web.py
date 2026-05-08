@@ -422,6 +422,12 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
+        "LensModelEnum": "products.replay_vision.backend.models.replay_lens.LensModel",
+        "LensTypeEnum": "products.replay_vision.backend.models.replay_lens.LensType",
+        "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
+        "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
+        "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
