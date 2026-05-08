@@ -194,9 +194,7 @@ class SdkOutdatedCheck(HealthCheck):
             if lib not in github_data or not entries:
                 continue
             sdk_for_lib = github_data[lib]
-            latest_version = sdk_for_lib.get("latestVersion")
-            if not latest_version:
-                continue
+            latest_version = sdk_for_lib["latestVersion"]
             release_dates = sdk_for_lib.get("releaseDates", {})
             combined[lib] = {
                 "latest_version": latest_version,
