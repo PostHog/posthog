@@ -145,7 +145,7 @@ export class ErrorTrackingConsumer {
         this.promiseScheduler = new PromiseScheduler()
 
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
-            pipeline: 'error_tracking',
+            pipeline: 'errortracking',
         })
 
         // Create shared Redis repository for overflow redirect services

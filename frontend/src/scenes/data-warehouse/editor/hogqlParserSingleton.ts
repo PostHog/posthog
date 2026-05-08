@@ -1,14 +1,16 @@
-import createHogQLParser, { type HogQLParser } from '@posthog/hogql-parser'
+import type { HogQLParser } from '@posthog/hogql-parser'
 
 let parserPromise: Promise<HogQLParser> | null = null
 
 function getParser(): Promise<HogQLParser> {
     if (!parserPromise) {
-        parserPromise = createHogQLParser().catch((error) => {
-            // Reset so next call retries initialization
-            parserPromise = null
-            throw error
-        })
+        parserPromise = import('@posthog/hogql-parser')
+            .then((mod) => mod.default())
+            .catch((error) => {
+                // Reset so next call retries initialization
+                parserPromise = null
+                throw error
+            })
     }
     return parserPromise
 }

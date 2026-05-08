@@ -117,7 +117,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         allow_null=True,
         help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
     )
-    allow_unknown_events = serializers.BooleanField(required=False, default=False, write_only=True)
+    allow_unknown_events = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "Suppresses the validation that rejects metrics referencing events not yet "
+            "ingested by this project. REQUIRES explicit user confirmation before being "
+            "set to true — never flip this silently to retry a failed call. The default "
+            "validation catches typo'd event names and missing instrumentation. Set this "
+            "to true only when the user has confirmed the event is intentional (e.g. they "
+            "are about to instrument it)."
+        ),
+    )
     name = serializers.CharField(
         max_length=400,
         help_text="Name of the experiment.",
