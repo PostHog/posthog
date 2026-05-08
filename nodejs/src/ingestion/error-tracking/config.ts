@@ -31,12 +31,13 @@ export type ErrorTrackingConsumerConfig = {
     /** TTL in seconds for local cache entries */
     ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
     /**
-     * When true, redirects to the overflow lane keep the event's original
-     * partition key. When false (default), the overflow producer emits with
-     * a null key and Kafka spreads the events across partitions. Cymbal
-     * cache locality is enforced one layer down — by team_id consistent
-     * hashing inside `CymbalClient` — so the partition key on the overflow
-     * lane doesn't affect symbolication cache hits.
+     * When true (default, matching the previous hardcoded behavior), redirects
+     * to the overflow lane keep the event's original partition key. When
+     * false, the overflow producer emits with a null key and Kafka spreads
+     * the events across partitions. Cymbal cache locality is enforced one
+     * layer down — by team_id consistent hashing inside `CymbalClient` — so
+     * the partition key on the overflow lane doesn't affect symbolication
+     * cache hits.
      */
     ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
 
@@ -77,7 +78,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED: false,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
-        ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
+        ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
         ERROR_TRACKING_RATE_LIMITER_ENABLED: false,
         ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: true,
