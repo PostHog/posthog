@@ -304,8 +304,8 @@ def reconcile_postgres_schemas(
         schema_models_by_location.setdefault(location, schema_model)
 
     for source_schema in source_schemas:
-        schema_model = schema_models.get(source_schema.name)
-        if schema_model is None:
+        matched_schema_model: ExternalDataSchema | None = schema_models.get(source_schema.name)
+        if matched_schema_model is None:
             location = get_direct_postgres_location(
                 schema_name=source_schema.name,
                 schema_metadata={
@@ -315,9 +315,10 @@ def reconcile_postgres_schemas(
                 },
                 default_schema=default_schema,
             )
-            schema_model = schema_models_by_location.get(location)
-        if schema_model is None:
+            matched_schema_model = schema_models_by_location.get(location)
+        if matched_schema_model is None:
             continue
+        schema_model = matched_schema_model
 
         resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_direct_postgres_location(
             schema_name=source_schema.name,
