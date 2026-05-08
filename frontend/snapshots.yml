@@ -3370,6 +3370,10 @@ snapshots:
         hash: v1.k794b7964.aa3960b581d37e9a411559014b45e0aa699959d440188593cc795ca1696ef69a.lIF61tDsqxT2_hwn3-e0bJ9wJ-snwJSmrhf9BCGgfHQ
     mcp-apps-feature-flags--multivariate-flag--light:
         hash: v1.k794b7964.05705ec2ca5795bbe1c50bc6b51fdca45b8d9d771972996fdf91ef13f7e0a937.EzIU430T0Q9c_HI7WNVQr3Qf7huzFzLnUrEo_odl9Ds
+    mcp-apps-feature-flags--testing-matched--light:
+        hash: v1.k794b7964.41595a5f077c3d37eb8dd5bd872475e0a1b2d19297722336227757ac3595c89a.SmsLXf8poLxGeLJ4MW3AlLqLwiJCeGW6mzgVyO60GjA
+    mcp-apps-feature-flags--testing-no-match--light:
+        hash: v1.k794b7964.c1cbdb7b5d939c3f65e2893d31c31ab41d5932bf51d4b1491958052495f4f305.cIii_UkqMPXtF9oXeY_I4YBt37qty07EKb-GyAwpYOc
     mcp-apps-llm-analytics--empty--light:
         hash: v1.k794b7964.4b06add3c54b017f17dd3c72b937f6cb504505ab868caf2b82775afefc6de70c.eIIDY8rVtTESV2D2OU_HMregnxqOCdFR6nohVPm2R28
     mcp-apps-llm-analytics--multi-model--light:
