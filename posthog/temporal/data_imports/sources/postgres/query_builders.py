@@ -35,4 +35,9 @@ def build_select_clause(
     if incremental_field and incremental_field in retained and incremental_field not in seen:
         ordered.append(incremental_field)
 
+    if not ordered:
+        # `enabled_columns=[]` on a table with no PKs / incremental field would otherwise emit
+        # `SELECT  FROM …`. Fall back to `*` rather than blow up the sync with a syntax error.
+        return sql.SQL("*")
+
     return sql.SQL(", ").join(sql.Identifier(column) for column in ordered)

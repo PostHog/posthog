@@ -1543,51 +1543,62 @@ def postgres_source(
                     )
                 )
 
-                logger.debug("Checking if source is a read replica...")
-                using_read_replica = _is_read_replica(cursor)
-                logger.debug(f"using_read_replica = {using_read_replica}")
-                logger.debug("Getting primary keys...")
-                primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
-                if primary_keys:
-                    logger.debug(f"Found primary keys: {primary_keys}")
-
-                # Project both the Arrow schema and the SELECT clause so the cursor's row shape
-                # matches what downstream consumers expect.
-                retained_columns: list[str] | None = None
-                if enabled_columns is not None:
-                    retained_set: set[str] = set(enabled_columns)
-                    for pk in primary_keys or []:
-                        retained_set.add(pk)
-                    if incremental_field:
-                        retained_set.add(incremental_field)
-                    retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
-
-                table = _project_table_columns(full_table, retained_columns)
-                logger.debug(f"Source schema: {table.to_arrow_schema()}")
-
-                inner_query_with_limit = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    table.type,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                    add_sampling=True,
-                    enabled_columns=enabled_columns,
-                    primary_keys=primary_keys,
-                )
-
-                count_query = _build_count_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                )
-
                 try:
+                    logger.debug("Checking if source is a read replica...")
+                    using_read_replica = _is_read_replica(cursor)
+                    logger.debug(f"using_read_replica = {using_read_replica}")
+                    logger.debug("Getting primary keys...")
+                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                    if primary_keys:
+                        logger.debug(f"Found primary keys: {primary_keys}")
+
+                    # Fallback on checking for an `id` field on the table. Resolve the PKs
+                    # before building queries so chunk-size sampling and the actual reader
+                    # project the same columns.
+                    used_id_pk_fallback = False
+                    if primary_keys is None and "id" in full_table:
+                        logger.debug("Falling back to ['id'] for primary keys...")
+                        primary_keys = ["id"]
+                        used_id_pk_fallback = True
+
+                    # Project both the Arrow schema and the SELECT clause so the cursor's row shape
+                    # matches what downstream consumers expect.
+                    retained_columns: list[str] | None = None
+                    if enabled_columns is not None:
+                        retained_set: set[str] = set(enabled_columns)
+                        for pk in primary_keys or []:
+                            retained_set.add(pk)
+                        if incremental_field:
+                            retained_set.add(incremental_field)
+                        retained_columns = [
+                            column.name for column in full_table.columns if column.name in retained_set
+                        ]
+
+                    table = _project_table_columns(full_table, retained_columns)
+                    logger.debug(f"Source schema: {table.to_arrow_schema()}")
+
+                    inner_query_with_limit = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        add_sampling=True,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                    )
+
+                    count_query = _build_count_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+
                     logger.debug("Checking if table is partitioned...")
                     is_partitioned = False
                     child_partitions: list = []
@@ -1676,11 +1687,7 @@ def postgres_source(
                     )
 
                     has_duplicate_primary_keys = False
-
-                    # Fallback on checking for an `id` field on the table
-                    if primary_keys is None and "id" in table:
-                        logger.debug("Falling back to ['id'] for primary keys...")
-                        primary_keys = ["id"]
+                    if used_id_pk_fallback and primary_keys is not None:
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys, logger

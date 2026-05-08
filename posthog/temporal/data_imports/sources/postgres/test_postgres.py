@@ -558,6 +558,19 @@ class TestBuildQuery:
                 ["SELECT *"],
                 None,
             ),
+            # Guard against an invalid `SELECT  FROM` when no columns can be retained.
+            (
+                "empty_with_no_pks_or_incremental_falls_back_to_star",
+                [],
+                None,
+                False,
+                None,
+                None,
+                None,
+                ["SELECT *"],
+                None,
+                None,
+            ),
         ],
     )
     def test_enabled_columns_projection(
