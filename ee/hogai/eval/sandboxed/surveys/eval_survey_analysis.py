@@ -310,11 +310,10 @@ SURVEY_ANALYSIS_SCENARIOS: tuple[SurveyAnalysisScenario, ...] = (
 
 def _survey_analysis_prompt(scenario: SurveyAnalysisScenario) -> str:
     return (
-        f'Analyze the open-ended responses for the survey named "{scenario.survey_name}" in this PostHog project. '
-        "Use PostHog MCP tools to find the survey ID, then use that ID to retrieve the actual response text. "
-        "In your final answer include the total open-ended response count, key themes with examples, "
-        "overall sentiment, actionable insights, and recommendations. Do not create or modify any surveys, "
-        "insights, dashboards, or other saved PostHog content."
+        f'Can you look at the open-ended responses for the survey named "{scenario.survey_name}" '
+        "and summarize what users are saying? Please base the analysis on the actual response text. "
+        "I'd like to understand the response volume, main themes with examples, overall sentiment, "
+        "and concrete recommendations. Please don't create or modify any saved PostHog content."
     )
 
 
