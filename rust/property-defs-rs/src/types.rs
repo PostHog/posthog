@@ -327,20 +327,30 @@ impl Event {
             }
 
             if !will_fit_in_postgres_column(key) {
+                let skipped = if parent_type == PropertyParentType::Event {
+                    2 // EventProperty + PropertyDefinition
+                } else {
+                    1 // PropertyDefinition only
+                };
                 metrics::counter!(
                     UPDATES_SKIPPED,
                     &[("reason", "property_name_wont_fit_in_postgres")]
                 )
-                .increment(2); // We're skipping one EventProperty, and one PropertyDefinition
+                .increment(skipped);
                 continue;
             }
 
-            updates.push(Update::EventProperty(EventProperty {
-                team_id: self.team_id,
-                project_id: self.project_id,
-                event: sanitize_string(&self.event),
-                property: key.clone(),
-            }));
+            // posthog_eventproperty only tracks which properties appear on which events —
+            // person, group, and session properties have no meaningful event association
+            // and no read path consumes those rows.
+            if parent_type == PropertyParentType::Event {
+                updates.push(Update::EventProperty(EventProperty {
+                    team_id: self.team_id,
+                    project_id: self.project_id,
+                    event: sanitize_string(&self.event),
+                    property: sanitize_string(key),
+                }));
+            }
 
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
@@ -348,7 +358,7 @@ impl Event {
             updates.push(Update::Property(PropertyDefinition {
                 team_id: self.team_id,
                 project_id: self.project_id,
-                name: key.clone(),
+                name: sanitize_string(key),
                 is_numerical,
                 property_type,
                 event_type: parent_type,

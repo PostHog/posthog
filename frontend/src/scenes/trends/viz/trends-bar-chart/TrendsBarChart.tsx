@@ -27,12 +27,12 @@ import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../handleTrendsChartClick'
-import { AnnotationsLayer } from '../trends-line-chart/AnnotationsLayer'
-import { goalLinesToReferenceLines } from '../trends-line-chart/goalLinesAdapter'
-import { TrendsAlertOverlays } from '../trends-line-chart/TrendsAlertOverlays'
-import { trendsFilterToYFormatterConfig } from '../trends-line-chart/trendsAxisFormat'
-import type { TrendsSeriesMeta } from '../trends-line-chart/trendsSeriesMeta'
-import { TrendsTooltip } from '../trends-line-chart/TrendsTooltip'
+import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
+import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
+import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
+import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import { buildTrendsBarAggregatedSeries, buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
 
@@ -284,6 +284,14 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
     const showAnnotations = !inSharedMode && !isAggregated
     const annotationsDates = currentPeriodResult?.days ?? []
+    // In compare-against-previous grouped layouts each band holds two bars (previous, current).
+    // Anchor each period's annotations on its matching bar so they line up with what they describe.
+    const currentSeriesKey = isGrouped ? series.find((s) => s.meta?.compare_label === 'current')?.key : undefined
+    const previousSeriesKey = isGrouped ? series.find((s) => s.meta?.compare_label === 'previous')?.key : undefined
+    const previousPeriodResult = isGrouped
+        ? indexedResults?.find((r: IndexedTrendResult) => r.compare_label === 'previous')
+        : undefined
+    const annotationsPreviousDates = previousPeriodResult?.days
 
     return (
         <BarChart<TrendsSeriesMeta>
@@ -314,7 +322,9 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 <AnnotationsLayer
                     insightNumericId={insight.id || 'new'}
                     dates={annotationsDates}
-                    xTickFormatter={xTickFormatter}
+                    seriesKey={currentSeriesKey}
+                    previousDates={annotationsPreviousDates}
+                    previousSeriesKey={previousSeriesKey}
                 />
             )}
         </BarChart>

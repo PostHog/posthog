@@ -211,12 +211,12 @@ impl Offset {
         self.offset
     }
 
-    pub fn topic(&self) -> &str {
-        &self.topic
-    }
-
     pub fn partition(&self) -> i32 {
         self.partition
+    }
+
+    pub fn topic(&self) -> &str {
+        &self.topic
     }
 }
 

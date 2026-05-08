@@ -166,6 +166,35 @@ describe('findPostHogPermissionError', () => {
         err.cause = err
         expect(findPostHogPermissionError(err)).toBeUndefined()
     })
+
+    // Cloudflare Durable Object RPC strips Error.cause and the custom subclass
+    // prototype on the way out of the DO. Only `name`, `message`, and `stack`
+    // survive. Without a message-shape fallback, init-time permission failures
+    // get mapped to opaque 500s and OAuth-aware MCP clients never see the
+    // 403 + insufficient_scope challenge they need to re-consent.
+    describe('boundary-stripped errors (DO RPC fallback)', () => {
+        it('reconstructs a PostHogPermissionError from a plain Error whose message carries the missing-scope literal', () => {
+            const stripped = new Error("Failed to get user: Missing PostHog API scope: 'user:read'")
+
+            const recovered = findPostHogPermissionError(stripped)
+
+            expect(recovered).toBeInstanceOf(PostHogPermissionError)
+            expect(recovered?.missingScope).toBe('user:read')
+        })
+
+        it('handles double-quoted scope literal', () => {
+            const stripped = new Error('Failed to do thing: Missing PostHog API scope: "insight:write"')
+
+            const recovered = findPostHogPermissionError(stripped)
+
+            expect(recovered?.missingScope).toBe('insight:write')
+        })
+
+        it('returns undefined for unrelated error messages even when shape-similar', () => {
+            expect(findPostHogPermissionError(new Error('Something about scope but not the literal'))).toBeUndefined()
+            expect(findPostHogPermissionError(new Error('Missing PostHog API scope without quotes'))).toBeUndefined()
+        })
+    })
 })
 
 describe('handleToolError with permission errors', () => {

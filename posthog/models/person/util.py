@@ -665,6 +665,30 @@ def _delete_person(
 
 
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_distinct_ids_for_person(
+                GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_distinct_ids_with_version", source="personhog", client_name=get_client_name()
+            ).inc()
+            return {d.distinct_id: int(d.version or 0) for d in resp.distinct_ids}
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_distinct_ids_with_version",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_distinct_ids_with_version_failure", team_id=person.team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_distinct_ids_with_version", source="django_orm", client_name=get_client_name()
+    ).inc()
     return {
         distinct_id: int(version or 0)
         for distinct_id, version in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)

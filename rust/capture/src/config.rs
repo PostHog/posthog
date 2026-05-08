@@ -246,6 +246,14 @@ pub struct Config {
     /// Empty string means the v1 sink layer is disabled.
     #[envconfig(default = "")]
     pub capture_v1_sinks: String,
+
+    /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
+    #[envconfig(default = "10485760")]
+    pub capture_v1_max_compressed_body_bytes: usize,
+
+    /// Maximum decompressed body size the v1 endpoint will accept (bytes).
+    #[envconfig(default = "52428800")]
+    pub capture_v1_max_decompressed_body_bytes: usize,
 }
 
 #[derive(Envconfig, Clone)]

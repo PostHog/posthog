@@ -55,6 +55,11 @@ impl Context {
         method: Method,
         path: &str,
     ) -> Result<Self, Error> {
+        // Authorization checked first — missing auth is 401, not 400
+        if headers.get(header::AUTHORIZATION).is_none() {
+            return Err(Error::MissingAuthorization);
+        }
+
         // Missing-headers gate: collect all absent required headers at once
         let missing: Vec<String> = REQUIRED_HEADERS
             .iter()
@@ -67,8 +72,6 @@ impl Context {
         }
 
         // All required headers are present — validate each one
-
-        // Authorization header presence is guaranteed by the REQUIRED_HEADERS gate above.
         // The Bearer scheme is case-insensitive per RFC 6750 Section 1.1.
         let auth_raw = header_str(headers, header::AUTHORIZATION.as_str())?;
         let token_raw = if auth_raw.len() > 7 && auth_raw[..7].eq_ignore_ascii_case("Bearer ") {
@@ -228,13 +231,21 @@ mod tests {
     }
 
     #[test]
-    fn missing_single_required_header() {
+    fn missing_authorization_returns_401() {
         let mut headers = valid_headers();
         headers.remove(header::AUTHORIZATION.as_str());
         let err = test_context(&headers).unwrap_err();
+        assert!(matches!(err, Error::MissingAuthorization));
+    }
+
+    #[test]
+    fn missing_single_required_header() {
+        let mut headers = valid_headers();
+        headers.remove("user-agent");
+        let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
-                assert_eq!(names, vec![header::AUTHORIZATION.as_str()]);
+                assert_eq!(names, vec!["user-agent"]);
             }
             other => panic!("expected MissingRequiredHeaders, got: {other:?}"),
         }
@@ -243,13 +254,13 @@ mod tests {
     #[test]
     fn missing_multiple_required_headers() {
         let mut headers = valid_headers();
-        headers.remove(header::AUTHORIZATION.as_str());
         headers.remove("user-agent");
+        headers.remove("content-type");
         let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
-                assert!(names.contains(&header::AUTHORIZATION.as_str().to_string()));
                 assert!(names.contains(&"user-agent".to_string()));
+                assert!(names.contains(&"content-type".to_string()));
                 assert_eq!(names.len(), 2);
             }
             other => panic!("expected MissingRequiredHeaders, got: {other:?}"),

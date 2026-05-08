@@ -18,6 +18,7 @@ from posthog.schema import (
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
+    DashboardAutoRefreshInterval,
     DashboardFilter,
     DateRange,
     EndpointsUsageOverviewQuery,
@@ -194,10 +195,10 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`. Must match the
-# frontend `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` (1800s) — drift would silently drop
-# periodic refresh ticks. Best-effort throttle, not a hard rate limit.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=30)
+# Minimum age before a shared insight may honor `?refresh=force_blocking`.
+# Sourced from the same generated schema as the frontend's auto-refresh interval so the
+# two cannot drift. Best-effort throttle, not a hard rate limit.
+SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {
@@ -206,6 +207,10 @@ _SHARED_MODE_WHITELIST = {
     # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
     ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+    # Used by the shared-notebook inline query payload builder. Without this entry the
+    # request silently falls through to EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, which causes
+    # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
 
 
