@@ -1,9 +1,15 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.feature_extractor import HogQLFeatureExtractor, extract_hogql_features
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
 
 
 class TestHogQLFeatureExtractor(BaseTest):
@@ -88,3 +94,37 @@ class TestHogQLFeatureExtractor(BaseTest):
         )
         assert visitor.tables == {"events"}
         assert visitor.events == {"$exception"}
+
+    def _resolve(self, sql: str) -> ast.SelectQuery | ast.SelectSetQuery:
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(database=database, team_id=self.team.pk, enable_select_queries=True)
+        node = parse_select(sql)
+        return cast(ast.SelectQuery | ast.SelectSetQuery, resolve_types(node, context, dialect="clickhouse"))
+
+    def test_resolved_ast_uses_type_system(self):
+        # After resolution, `event = '$exception'` carries a FieldType pointing
+        # at EventsTable; the extractor should pick it up via types just like
+        # it does via chain matching.
+        _tables, events = extract_hogql_features(self._resolve("SELECT * FROM events WHERE event = '$exception'"))
+        assert events == ["$exception"]
+
+    def test_resolved_event_field_on_non_events_table_ignored(self):
+        # Construct a Field whose chain ends in "event" but whose resolved
+        # type lives on a non-EventsTable. The chain-only heuristic would
+        # accept it; the type-aware path must reject it.
+        from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable
+
+        non_events_table_type = ast.TableType(table=QueryLogArchiveTable())
+        field = ast.Field(
+            chain=["query_log", "event"],
+            type=ast.FieldType(name="event", table_type=non_events_table_type),
+        )
+        compare = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=field,
+            right=ast.Constant(value="$exception"),
+        )
+
+        visitor = HogQLFeatureExtractor()
+        visitor.visit(compare)
+        assert visitor.events == set()

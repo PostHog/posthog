@@ -1,4 +1,4 @@
-"""Extract product-attribution features from a parsed HogQL select query.
+"""Extract product-attribution features from a HogQL select query.
 
 Used by ``HogQLQueryExecutor`` to tag ClickHouse queries with the set of
 PostHog tables and well-known event filters they reference. The tags feed
@@ -10,9 +10,8 @@ analytics, error tracking, web analytics, replay, etc.
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
-# Field chains that name the event-name column on the events table. We match
-# against the *last* identifier so aliases like `e.event` work without us
-# having to resolve types.
+# Last-identifier match for the events ``event`` column when type info isn't
+# available — covers ``event``, ``events.event``, ``e.event``, etc.
 _EVENT_FIELD_NAMES: frozenset[str] = frozenset({"event"})
 
 # Known event names worth surfacing for product attribution. Restricted to
@@ -34,16 +33,16 @@ _INTERESTING_EVENT_NAMES: frozenset[str] = frozenset(
 
 
 class HogQLFeatureExtractor(TraversingVisitor):
-    """Walk a parsed HogQL ``SelectQuery``/``SelectSetQuery`` and record:
+    """Walk a HogQL ``SelectQuery``/``SelectSetQuery`` and record:
 
     * ``tables``: identifiers that appear directly as a ``FROM``/``JOIN`` source.
-    * ``events``: string literals compared to an ``event`` field via ``=`` /
-      ``IN``, restricted to the curated ``_INTERESTING_EVENT_NAMES`` set.
+    * ``events``: string literals compared to an ``event`` field on the events
+      table via ``=`` / ``IN``, restricted to the curated
+      ``_INTERESTING_EVENT_NAMES`` set.
 
-    The extractor runs *before* type resolution, so it works on the raw chain
-    structure rather than resolved table types. Aliased and CTE-referenced
-    tables show up as their alias/CTE name, which is intentional — the real
-    underlying table is still captured wherever it is first joined.
+    Works on either a raw parsed AST or a resolved AST. When type info is
+    available (post-Resolver), the event-field check uses it for accuracy;
+    otherwise it falls back to a last-identifier chain match.
     """
 
     def __init__(self) -> None:
@@ -74,13 +73,51 @@ class HogQLFeatureExtractor(TraversingVisitor):
 
 
 def _looks_like_event_field(expr: ast.Expr) -> bool:
-    """``e.event`` / ``events.event`` / ``event`` all qualify."""
+    """True if ``expr`` references the ``event`` column on the events table.
+
+    Mirrors ``is_events_only_field`` in the session where-clause extractor:
+    when the AST has been resolved we walk the type chain to confirm the
+    field is ``event`` on ``EventsTable`` exactly. When types aren't
+    populated (e.g. pre-resolution caller, or a partially-typed branch) we
+    fall back to a last-identifier chain match — looser, but still useful.
+    """
     if isinstance(expr, ast.Alias):
         expr = expr.expr
     if not isinstance(expr, ast.Field) or not expr.chain:
         return False
+
+    if (events_field := _is_event_field_via_types(expr)) is not None:
+        return events_field
+
     last = expr.chain[-1]
     return isinstance(last, str) and last in _EVENT_FIELD_NAMES
+
+
+def _is_event_field_via_types(field: ast.Field) -> bool | None:
+    """Return True/False from the type system, or None if types aren't
+    populated and the caller should fall back to chain matching."""
+    from posthog.hogql.database.schema.events import EventsTable
+
+    type_ = field.type
+    if type_ is None:
+        return None
+
+    if isinstance(type_, ast.PropertyType):
+        type_ = type_.field_type
+    if isinstance(type_, ast.FieldAliasType):
+        type_ = type_.type
+    if not isinstance(type_, ast.FieldType):
+        return None
+
+    if type_.name != "event":
+        return False
+
+    table_type = type_.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    if isinstance(table_type, ast.TableType):
+        return isinstance(table_type.table, EventsTable)
+    return False
 
 
 def _iter_string_constants(expr: ast.Expr):
