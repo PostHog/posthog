@@ -341,6 +341,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 markAutoSave: (_, { isAutoSave }) => isAutoSave,
                 submitWorkflow: () => false,
                 saveWorkflowPartial: () => false,
+                saveWorkflowSuccess: () => false,
             },
         ],
         lastSavedAt: [
@@ -883,6 +884,9 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
+            if (logic.props.editTemplateId) {
+                return false
+            }
             if (!logic.values.hasUnsavedChanges) {
                 return false
             }
