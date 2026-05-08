@@ -6,6 +6,7 @@ import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } 
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
+    buildStackedResolveValue,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -299,20 +300,7 @@ function BarChartInner<Meta = unknown>({
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        // Return the stacked top so the tooltip anchor lands at the visual top of each segment, not the raw series value.
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
 
     return (
         <Chart

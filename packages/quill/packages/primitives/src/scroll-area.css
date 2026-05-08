@@ -71,6 +71,24 @@
         opacity: 1;
     }
 
+    /*
+     * Hide the scrollbar entirely when its axis has no overflow. base-ui
+     * always renders both Scrollbar elements; `data-overflow-{x,y}-{start,end}`
+     * lives on the Root and only appears when scroll is possible on that
+     * axis. Without these guards a content-fits-viewport region still shows
+     * a full-track stationary thumb on hover, which reads as "stale UI" to
+     * users. Hide outright when neither edge has overflow.
+     */
+    [data-component='scroll-area']:not([data-overflow-y-start], [data-overflow-y-end])
+        .quill-scroll-area__scrollbar[data-orientation='vertical'] {
+        display: none;
+    }
+
+    [data-component='scroll-area']:not([data-overflow-x-start], [data-overflow-x-end])
+        .quill-scroll-area__scrollbar[data-orientation='horizontal'] {
+        display: none;
+    }
+
     /* Thumb */
     .quill-scroll-area__thumb {
         position: relative;
