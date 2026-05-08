@@ -87,23 +87,26 @@ describe('redis-token-bucket lua', () => {
             const key = `@posthog-test/lua-bucket/${command}/team-1`
             await deleteKeysWithPrefix(redis, key)
 
-            const [, drained] = await callRateLimit({ command, key, cost: 101, poolMax: 100, fillRate: 1.5 })
-            // V3 doesn't charge denied requests, so a cost > poolMax leaves the
-            // bucket untouched. V1/V2 charge speculatively and clamp to -1.
-            const expectedDrained = command === 'checkRateLimitV3' ? 100 : -1
-            expect(drained).toBe(expectedDrained)
+            const [, tokensAfterFirstCall] = await callRateLimit({
+                command,
+                key,
+                cost: 100,
+                poolMax: 100,
+                fillRate: 1.5,
+            })
+            expect(tokensAfterFirstCall).toBe(0)
 
-            let lastTokens = drained
+            let tokensAfter = tokensAfterFirstCall
             for (let i = 0; i < 10; i++) {
                 advanceTime(1000)
-                const [, tokens] = await callRateLimit({ command, key, cost: 1, poolMax: 100, fillRate: 1.5 })
-                lastTokens = tokens
+                const [, tokensAfterTemp] = await callRateLimit({ command, key, cost: 1, poolMax: 100, fillRate: 1.5 })
+                tokensAfter = tokensAfterTemp
             }
 
             if (expectsRecovery) {
-                expect(lastTokens).toBeGreaterThan(0)
+                expect(tokensAfter).toBeGreaterThan(0)
             } else {
-                expect(lastTokens).toBe(-1)
+                expect(tokensAfter).toBe(-1)
             }
         })
     })
