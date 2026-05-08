@@ -21,8 +21,9 @@ import {
     NodeKind,
     TrendsQuery,
     TrendsQueryResponse,
+    WebAnalyticsPropertyFilter,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
+import { BaseMathType, LiveEvent, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
@@ -90,7 +91,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             featureFlagLogic,
             ['featureFlags'],
             webAnalyticsFilterLogic,
-            ['selectedHost as rawSelectedHost'],
+            ['selectedHost as rawSelectedHost', 'liveFilters as rawLiveFilters'],
         ],
     })),
     actions(() => ({
@@ -366,6 +367,25 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet): string | null =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null,
         ],
+        liveFilters: [
+            (s) => [s.rawLiveFilters, s.featureFlags],
+            (
+                rawLiveFilters: WebAnalyticsPropertyFilter[],
+                featureFlags: FeatureFlagsSet
+            ): WebAnalyticsPropertyFilter[] => {
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS]) {
+                    return rawLiveFilters
+                }
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER]) {
+                    return rawLiveFilters.filter((f) => f.key === '$host')
+                }
+                return []
+            },
+        ],
+        hasActiveFilters: [
+            (s) => [s.liveFilters],
+            (liveFilters: WebAnalyticsPropertyFilter[]): boolean => liveFilters.length > 0,
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
@@ -422,7 +442,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 ] = await loadQueryData(
                     dateFrom,
                     handoff,
-                    values.selectedHost,
+                    values.liveFilters,
                     !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
                 )
 
@@ -469,9 +489,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 ? ',$geoip_city_name,$geoip_country_code'
                 : ''
             url.searchParams.append('columns', `${baseColumns}${cityColumns}`)
-            if (values.selectedHost) {
-                url.searchParams.append('property', `$host=${values.selectedHost}`)
-            }
+            appendFilterParams(url, values.liveFilters)
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -516,6 +534,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             const url = new URL(`${host}/events`)
             url.searchParams.append('geo', 'true')
+            appendFilterParams(url, values.liveFilters)
 
             cache.geoBatch = cache.geoBatch ?? ([] as LiveGeoEvent[])
 
@@ -539,7 +558,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
     })),
     subscriptions(({ actions, cache }) => ({
-        selectedHost: () => {
+        liveFilters: () => {
             if (!cache.hasInitialized) {
                 return
             }
@@ -607,6 +626,24 @@ const stopFlushInterval = (cache: FlushCache): void => {
     }
 }
 
+// Translates the canonical filter list into repeated `?property=key=value` query params
+// understood by the livestream filter. Array values produce one param per entry, which the
+// livestream backend treats as IN (livestream/events/filter.go matchesPropertyFilters).
+export const appendFilterParams = (url: URL, filters: WebAnalyticsPropertyFilter[]): void => {
+    for (const f of filters) {
+        if (!f.key || f.operator !== PropertyOperator.Exact) {
+            continue
+        }
+        const values = Array.isArray(f.value) ? f.value : [f.value]
+        for (const v of values) {
+            if (v == null) {
+                continue
+            }
+            url.searchParams.append('property', `${f.key}=${String(v)}`)
+        }
+    }
+}
+
 // Flush both event and geo batches on a fixed interval
 // to cap kea dispatches at a predictable rate regardless of event volume
 const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
@@ -628,7 +665,7 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date,
-    host: string | null,
+    filters: WebAnalyticsPropertyFilter[],
     includeCity: boolean
 ): Promise<
     [
@@ -643,8 +680,12 @@ const loadQueryData = async (
         HogQLQueryResponse | null,
     ]
 > => {
-    const hostFilterClause = host ? `AND properties.$host = {host}` : ''
-    const hostValues = host ? { host } : {}
+    // The {filters} placeholder is expanded by HogQL into the property + date predicates.
+    // See HogQLFilters in queries/schema/schema-general.ts.
+    const hogQLFilters = {
+        properties: filters,
+        dateRange: { date_from: dateFrom.toISOString(), date_to: dateTo.toISOString() },
+    }
 
     const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
 
@@ -656,19 +697,12 @@ const loadQueryData = async (
                     countIf(event = '$pageview') AS pageviews,
                     countIf(event IN ${botEligibleEventsTuple}) AS bot_eligible_events
                 FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
-                    ${hostFilterClause}
+                WHERE {filters}
                 GROUP BY
                     minute_bucket
                 ORDER BY
                     minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        filters: hogQLFilters,
     }
 
     const createBreakdownQuery = (property: string, alias: string): HogQLQuery => ({
@@ -697,10 +731,7 @@ const loadQueryData = async (
                             )
                         )) AS device_ids
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
-                        ${hostFilterClause}
+                    WHERE {filters}
                     GROUP BY
                         minute_bucket,
                         ${alias}
@@ -709,11 +740,7 @@ const loadQueryData = async (
                     minute_bucket
                 ORDER BY
                     minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        filters: hogQLFilters,
     })
 
     const deviceQuery = createBreakdownQuery('$device_type', 'device_type')
@@ -733,18 +760,7 @@ const loadQueryData = async (
             date_from: dateFrom.toISOString(),
             date_to: dateTo.toISOString(),
         },
-        ...(host
-            ? {
-                  properties: [
-                      {
-                          key: '$host',
-                          value: host,
-                          operator: PropertyOperator.Exact,
-                          type: PropertyFilterType.Event,
-                      },
-                  ],
-              }
-            : {}),
+        properties: filters,
     }
 
     const referrerQuery: HogQLQuery = {
@@ -754,18 +770,11 @@ const loadQueryData = async (
                     if(isNotNull(properties.$referring_domain) AND properties.$referring_domain != '', properties.$referring_domain, '$direct') AS referring_domain,
                     count() AS view_count
                 FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
+                WHERE {filters}
                     AND event = '$pageview'
-                    ${hostFilterClause}
                 GROUP BY minute_bucket, referring_domain
                 ORDER BY minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        filters: hogQLFilters,
     }
 
     const geoQuery: HogQLQuery = {
@@ -783,23 +792,16 @@ const loadQueryData = async (
                         properties.$geoip_country_code AS country_code,
                         arrayDistinct(groupArray(distinct_id)) AS distinct_ids
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
+                    WHERE {filters}
                         AND properties.$geoip_country_code IS NOT NULL
                         AND properties.$geoip_country_code != ''
-                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         country_code
                 )
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        filters: hogQLFilters,
     }
 
     // Aggregate per-minute first then re-group so the response is bounded by the
@@ -824,13 +826,10 @@ const loadQueryData = async (
                         ) AS bot_key,
                         count() AS event_count
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
+                    WHERE {filters}
                         AND \`$virt_is_bot\` = true
                         AND \`$virt_bot_name\` != ''
                         AND event IN ${botEligibleEventsTuple}
-                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         bot_key
@@ -838,11 +837,9 @@ const loadQueryData = async (
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
         values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
             botSeparator: BOT_KEY_SEPARATOR,
-            ...hostValues,
         },
+        filters: hogQLFilters,
     }
 
     const cityQuery: HogQLQuery | null = includeCity
@@ -865,12 +862,9 @@ const loadQueryData = async (
                         ) AS city_key,
                         arrayDistinct(groupArray(distinct_id)) AS distinct_ids
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
+                    WHERE {filters}
                         AND properties.$geoip_city_name IS NOT NULL
                         AND properties.$geoip_city_name != ''
-                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         city_key
@@ -878,32 +872,33 @@ const loadQueryData = async (
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
               values: {
-                  dateFrom: dateFrom.toISOString(),
-                  dateTo: dateTo.toISOString(),
                   citySeparator: CITY_KEY_SEPARATOR,
-                  ...hostValues,
               },
+              filters: hogQLFilters,
           }
         : null
 
-    const recentUsersQuery: HogQLQuery | null = host
-        ? {
-              kind: NodeKind.HogQLQuery,
-              query: `SELECT
+    // Custom 60-second window for "Users online" — narrower than the dashboard's 30 min,
+    // so we can't reuse hogQLFilters' dateRange. We pass only the property filters and keep
+    // the explicit timestamp predicate. Loaded whenever any filter is active.
+    const recentUsersQuery: HogQLQuery | null =
+        filters.length > 0
+            ? {
+                  kind: NodeKind.HogQLQuery,
+                  query: `SELECT
                           distinct_id,
                           toUnixTimestamp(max(timestamp)) AS last_seen
                       FROM events
-                      WHERE
-                          timestamp > toDateTime({dateTo}) - INTERVAL ${FILTERED_LIVE_USER_WINDOW_SECONDS} SECOND
+                      WHERE {filters}
+                          AND timestamp > toDateTime({dateTo}) - INTERVAL ${FILTERED_LIVE_USER_WINDOW_SECONDS} SECOND
                           AND timestamp <= toDateTime({dateTo})
-                          ${hostFilterClause}
                       GROUP BY distinct_id`,
-              values: {
-                  dateTo: dateTo.toISOString(),
-                  ...hostValues,
-              },
-          }
-        : null
+                  values: {
+                      dateTo: dateTo.toISOString(),
+                  },
+                  filters: { properties: filters },
+              }
+            : null
 
     return await Promise.all([
         performQuery(usersPageviewsQuery),

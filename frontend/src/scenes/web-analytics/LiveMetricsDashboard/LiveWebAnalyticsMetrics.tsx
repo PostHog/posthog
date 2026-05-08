@@ -22,7 +22,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
-import { WebAnalyticsDomainSelector } from '../WebAnalyticsFilters'
+import {
+    WebAnalyticsDomainSelector,
+    WebAnalyticsLiveCountrySelector,
+    WebAnalyticsLiveDeviceToggle,
+    WebAnalyticsLiveReferrerSelector,
+} from '../WebAnalyticsFilters'
+import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
 import { LiveBotTrafficCard } from './LiveBotTrafficCard'
@@ -62,6 +68,54 @@ const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
         >
             {countryCodeToFlag(d.country)}
         </span>
+    )
+}
+
+const LiveDashboardFilterRow = (): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { topReferrers } = useValues(liveWebAnalyticsMetricsLogic)
+    const { countryFilter, referrerFilter, deviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter } = useActions(webAnalyticsLogic)
+
+    const showDomainFilter = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER]
+    const showLiveFilters = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS]
+
+    if (!showDomainFilter && !showLiveFilters) {
+        return null
+    }
+
+    if (!showLiveFilters) {
+        return (
+            <div className="mb-4">
+                <WebAnalyticsDomainSelector />
+            </div>
+        )
+    }
+
+    const referrerSuggestions = topReferrers.map((r: { referrer: string }) => r.referrer).filter(Boolean)
+    const hasFilters = !!(countryFilter || referrerFilter || deviceTypeFilter)
+
+    return (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+            {showDomainFilter && <WebAnalyticsDomainSelector />}
+            <WebAnalyticsLiveCountrySelector />
+            <WebAnalyticsLiveDeviceToggle />
+            <WebAnalyticsLiveReferrerSelector suggestions={referrerSuggestions} />
+            {hasFilters && (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    onClick={() => {
+                        setCountryFilter(null)
+                        setReferrerFilter(null)
+                        setDeviceTypeFilter(null)
+                        setDomainFilter(null)
+                    }}
+                >
+                    Clear filters
+                </LemonButton>
+            )}
+        </div>
     )
 }
 
@@ -128,7 +182,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalBotEvents,
         totalBotEligibleEvents,
         liveUserCount,
-        selectedHost,
+        hasActiveFilters,
         isLoading,
         recentEvents,
     } = useValues(liveWebAnalyticsMetricsLogic)
@@ -158,7 +212,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     }, [isVisible, resumeStream, pauseStream, resumeLiveCount, pauseLiveCount])
 
     const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
-    const displayedLiveUserCount = selectedHost ? liveUserCount : allDomainsLiveUserCount
+    const displayedLiveUserCount = hasActiveFilters ? liveUserCount : allDomainsLiveUserCount
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -173,7 +227,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     <LiveStatCard
                         label="Users online"
                         value={displayedLiveUserCount}
-                        isLoading={selectedHost ? isLoading : undefined}
+                        isLoading={hasActiveFilters ? isLoading : undefined}
                     />
                 )
             case 'unique_visitors':
@@ -333,11 +387,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
             </LemonBanner>
 
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] && (
-                <div className="mb-4">
-                    <WebAnalyticsDomainSelector />
-                </div>
-            )}
+            <LiveDashboardFilterRow />
 
             {canEditLayout && (
                 <div className="flex items-center justify-end gap-2 mb-2">

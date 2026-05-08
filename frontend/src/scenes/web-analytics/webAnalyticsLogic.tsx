@@ -152,6 +152,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'rawWebAnalyticsFilters',
                 'domainFilter',
                 'deviceTypeFilter',
+                'countryFilter',
+                'referrerFilter',
                 'compareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
@@ -179,6 +181,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'togglePropertyFilter',
                 'setDomainFilter',
                 'setDeviceTypeFilter',
+                'setCountryFilter',
+                'setReferrerFilter',
                 'setCompareFilter',
                 'loadPreset',
             ],
@@ -576,6 +580,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.rawWebAnalyticsFilters,
                 s.domainFilter,
                 s.deviceTypeFilter,
+                s.countryFilter,
+                s.referrerFilter,
                 s.compareFilter,
                 s.dateFilter,
                 s.conversionGoal,
@@ -586,6 +592,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 properties,
                 domainFilter,
                 deviceTypeFilter,
+                countryFilter,
+                referrerFilter,
                 compareFilter,
                 dateFilter,
                 conversionGoal,
@@ -599,18 +607,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 domainFilter,
                 deviceTypeFilter,
+                countryFilter,
+                referrerFilter,
                 conversionGoal,
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
             }),
         ],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.selectedHost, s.deviceTypeFilter],
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.isPathCleaningEnabled,
+                s.selectedHost,
+                s.deviceTypeFilter,
+                s.countryFilter,
+                s.referrerFilter,
+            ],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 selectedHost: string | null,
-                deviceTypeFilter: DeviceType | null
+                deviceTypeFilter: DeviceType | null,
+                countryFilter: string | null,
+                referrerFilter: string | null
             ) => {
                 let filters = rawWebAnalyticsFilters
 
@@ -634,6 +653,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             key: '$device_type',
                             // Extra handling for device type to include mobile+tablet as a single filter
                             value: deviceTypeFilter === 'Desktop' ? 'Desktop' : ['Mobile', 'Tablet'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
+                }
+
+                if (countryFilter) {
+                    filters = [
+                        ...filters,
+                        {
+                            key: '$geoip_country_code',
+                            value: countryFilter,
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
+                }
+
+                if (referrerFilter) {
+                    filters = [
+                        ...filters,
+                        {
+                            key: '$referring_domain',
+                            value: referrerFilter,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
