@@ -1092,10 +1092,9 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         discardLocalChanges: () => {
-            // User chose to drop their unsynced edits and reload the server state.
-            actions.dismissStaleConflict()
+            // Hard reload — only reliable way to drop PM-collab's sendable buffer.
             actions.clearLocalContent()
-            actions.loadNotebook()
+            window.location.reload()
         },
 
         rebaseFailed: ({ serverContent, localContent, localText }) => {
@@ -1104,9 +1103,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         copyUnsavedToNewNotebook: async () => {
-            // Stash the user's unsaved edits in a fresh notebook so nothing is lost. Then
-            // dismiss the modal and reload the original — same end state as discarding,
-            // but with the orphaned content preserved at a separate URL the user can return to.
+            // Save unsaved edits to a fresh notebook, then navigate to it.
             if (!values.notebook || !values.staleConflict) {
                 return
             }
@@ -1121,7 +1118,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 lemonToast.success('Saved your unsaved changes to a new notebook.')
                 actions.dismissStaleConflict()
                 actions.clearLocalContent()
-                actions.loadNotebook()
                 await openNotebook(created.short_id, NotebookTarget.Scene)
             } catch {
                 lemonToast.error('Could not copy your changes to a new notebook.')
