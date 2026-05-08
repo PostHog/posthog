@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldOauthConfig
@@ -64,18 +65,16 @@ class TestNotionSource:
 
     @patch("posthog.temporal.data_imports.sources.notion.source._list_data_sources")
     @patch.object(NotionSource, "_get_access_token")
-    def test_get_schemas_falls_back_when_data_source_discovery_fails(
+    def test_get_schemas_raises_when_data_source_discovery_fails(
         self, mock_get_token: MagicMock, mock_list_data_sources: MagicMock
     ) -> None:
-        # If listing data sources fails (e.g. revoked token), the static schemas should
-        # still be returned so the UI doesn't error out entirely.
+        # Surface real errors (revoked token, missing scope, Notion outage) rather than
+        # silently degrading to only the static schemas — which would mask broken syncs.
         mock_get_token.return_value = "tok"
         mock_list_data_sources.side_effect = Exception("notion api down")
 
-        schemas = NotionSource().get_schemas(config=NotionSourceConfig(notion_integration_id=1), team_id=1)
-        names = [s.name for s in schemas]
-
-        assert names == ["users", "pages", "data_sources"]
+        with pytest.raises(Exception, match="notion api down"):
+            NotionSource().get_schemas(config=NotionSourceConfig(notion_integration_id=1), team_id=1)
 
     @patch.object(NotionSource, "_get_access_token")
     def test_get_schemas_filters_by_names(self, mock_get_token: MagicMock) -> None:

@@ -99,23 +99,20 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         ]
 
         # Data source row tables are discovered live — one warehouse table per Notion data
-        # source (each Notion database hosts one or more data sources). If the API call fails
-        # (revoked token, network blip), fall back to the static schemas so the UI still
-        # surfaces something rather than erroring entirely.
-        try:
-            access_token = self._get_access_token(config, team_id)
-            for data_source_id, title in _list_data_sources(access_token):
-                schemas.append(
-                    SourceSchema(
-                        name=data_source_rows_schema_name(data_source_id),
-                        label=title or "Untitled data source",
-                        supports_incremental=True,
-                        supports_append=True,
-                        incremental_fields=INCREMENTAL_DATETIME_FIELDS,
-                    )
+        # source (each Notion database hosts one or more data sources). Let API failures
+        # propagate so the user sees the real error (revoked token, missing scope, Notion
+        # outage) instead of silently getting back only the static schemas.
+        access_token = self._get_access_token(config, team_id)
+        for data_source_id, title in _list_data_sources(access_token):
+            schemas.append(
+                SourceSchema(
+                    name=data_source_rows_schema_name(data_source_id),
+                    label=title or "Untitled data source",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=INCREMENTAL_DATETIME_FIELDS,
                 )
-        except Exception:
-            pass
+            )
 
         if names is not None:
             names_set = set(names)
