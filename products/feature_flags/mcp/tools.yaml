@@ -217,7 +217,6 @@ tools:
     feature-flags-test-evaluation-create:
         operation: feature_flags_test_evaluation_create
         enabled: true
-        ui_app: feature-flag-testing
         scopes:
             - feature_flag:read
         annotations:
@@ -226,9 +225,10 @@ tools:
             idempotent: true
         title: Test feature flag evaluation
         description: >
-            Test how a feature flag evaluates for a specific user at an optional point in time.
-            Provides detailed reasoning about why the flag matched or didn't match, including
-            condition analysis and person properties used in evaluation.
+            Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed
+            reasoning about why the flag matched or didn't match, including condition analysis and person properties
+            used in evaluation.
+        ui_app: feature-flag-testing
         param_overrides:
             id:
                 cast: string-int
