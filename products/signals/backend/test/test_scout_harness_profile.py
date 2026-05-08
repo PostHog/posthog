@@ -334,3 +334,14 @@ class TestGetProjectProfile(BaseTest):
         result = get_project_profile(team_id=self.team.id)
         row = SignalProjectProfile.objects.get(id=result.profile_id)
         assert row.team_id == self.team.id
+
+    def test_force_refresh_rebuilds_even_when_cache_is_fresh(self) -> None:
+        cached = compute_project_profile(team=self.team)
+        # Default fetch hits the cache — same row.
+        sanity = get_project_profile(team_id=self.team.id)
+        assert sanity.profile_id == cached.profile_id
+        # `force_refresh=True` skips the cache and the post-lock re-check, persisting a
+        # second row even though the first is still well within TTL.
+        fresh = get_project_profile(team_id=self.team.id, force_refresh=True)
+        assert fresh.profile_id != cached.profile_id
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 2

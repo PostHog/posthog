@@ -549,7 +549,9 @@ class SignalProjectProfile(UUIDModel):
     )
     computed_at = models.DateTimeField(auto_now_add=True)
     # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
-    # ~36h gives a safety margin against the daily Temporal refresh in Phase 7.
+    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
+    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
     expires_at = models.DateTimeField()
     # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
     # invalidate stale rows without a manual backfill.

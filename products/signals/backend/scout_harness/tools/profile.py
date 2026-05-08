@@ -28,8 +28,14 @@ from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERS
 from products.signals.backend.models import SignalProjectProfile
 
 # Soft cache TTL — `get_project_profile` recomputes when the newest row is older than this.
-# 36h gives a safety margin around the daily Temporal refresh planned for Phase 7.
-PROFILE_TTL = timedelta(hours=36)
+# Aligned to the coordinator tick (60min in prod, 15min in dev) so an active team's
+# agent runs see fresh ground-truth at most one tick stale. The TTL is a freshness
+# floor, not a smoothing knob — smoothing comes from the time windows the inventory
+# builders themselves query. Profile builds are single-flighted under the advisory
+# lock below, so per-team build rate is bounded by 1/TTL regardless of fan-out width.
+# Callers that *know* the underlying data just changed can bypass the cache via
+# `get_project_profile(..., force_refresh=True)`.
+PROFILE_TTL = timedelta(hours=1)
 
 # Keep the last N profiles per team. The table is append-only on cache miss; without
 # pruning a single active team accumulates indefinitely. Phase 7 diff logic only needs
@@ -62,7 +68,7 @@ class ProjectProfile:
         return asdict(self)
 
 
-def get_project_profile(*, team_id: int) -> ProjectProfile:
+def get_project_profile(*, team_id: int, force_refresh: bool = False) -> ProjectProfile:
     """Return a fresh project profile for a team, computing on cache miss.
 
     Reads the newest `SignalProjectProfile` row; if expired or absent, recomputes inline
@@ -72,20 +78,28 @@ def get_project_profile(*, team_id: int) -> ProjectProfile:
     Cache hit is the steady-state path, so the `Team` fetch is deferred to the miss
     branch — a hit completes with one indexed query against `signal_project_profile`
     instead of two.
+
+    `force_refresh=True` skips the cache lookup and goes straight to a rebuild, for
+    callers that know the underlying data just changed (e.g. a dev seeded events into
+    the project and wants the agent's view to reflect them on the next run, instead of
+    waiting up to `PROFILE_TTL` for natural expiry). The compute path still takes the
+    advisory lock, so concurrent force-refreshes collapse into one build with the
+    losers returning the winner's freshly persisted row.
     """
-    cached = _latest_fresh_profile(team_id=team_id)
-    if cached is not None:
-        return _to_dataclass(cached)
+    if not force_refresh:
+        cached = _latest_fresh_profile(team_id=team_id)
+        if cached is not None:
+            return _to_dataclass(cached)
     team = Team.objects.get(id=team_id)
-    return compute_project_profile(team=team)
+    return compute_project_profile(team=team, force=force_refresh)
 
 
-def compute_project_profile(*, team: Team) -> ProjectProfile:
+def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfile:
     """Build a new profile from authoritative sources and persist it.
 
-    Currently writes the inventory layer only. The row is the cache for the next ~36h
-    (until `expires_at`); `get_project_profile` reads the newest non-expired row before
-    paying the build cost again.
+    Currently writes the inventory layer only. The row is the cache for the next
+    `PROFILE_TTL` (until `expires_at`); `get_project_profile` reads the newest
+    non-expired row before paying the build cost again.
 
     Concurrent cache misses (Temporal coordinator + lazy MCP call hitting the same team
     at once) take a Postgres advisory lock keyed on team_id and re-check the cache after
@@ -94,14 +108,21 @@ def compute_project_profile(*, team: Team) -> ProjectProfile:
     returning the winner's freshly persisted row. After persisting, prune so only the
     last `PROFILE_KEEP_N` rows survive — the table would otherwise grow unbounded
     (one row per cache miss, ~once per `PROFILE_TTL` per team, forever).
+
+    `force=True` skips the post-lock re-check so a caller that explicitly asked for a
+    rebuild (via `get_project_profile(force_refresh=True)`) actually gets one even when
+    a fresh row exists. The lock still serializes concurrent forced rebuilds, so the
+    cost is at most one duplicate `build_inventory` per simultaneous force request —
+    bounded and only paid by callers who knowingly opted into it.
     """
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
-        # Re-check after the lock — another worker may have just persisted a fresh row.
-        existing = _latest_fresh_profile(team_id=team.id)
-        if existing is not None:
-            return _to_dataclass(existing)
+        if not force:
+            # Re-check after the lock — another worker may have just persisted a fresh row.
+            existing = _latest_fresh_profile(team_id=team.id)
+            if existing is not None:
+                return _to_dataclass(existing)
         payload: dict[str, Any] = {"inventory": build_inventory(team)}
         now = timezone.now()
         row = SignalProjectProfile.objects.create(

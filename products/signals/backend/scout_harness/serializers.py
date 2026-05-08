@@ -501,12 +501,29 @@ class ProjectProfilePayloadSerializer(serializers.Serializer):
     inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
 
 
+class ProjectProfileQuerySerializer(serializers.Serializer):
+    """Query parameters for the `current` action on `SignalProjectProfileViewSet`."""
+
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, skip the cache and rebuild the profile from authoritative sources before "
+            "responding. Use after seeding events, importing data, or any other change the caller "
+            "knows just landed but hasn't surfaced through natural cache expiry yet. Concurrent "
+            "forced rebuilds are still serialized by the team-keyed advisory lock — at most one "
+            "extra `build_inventory` per simultaneous request."
+        ),
+    )
+
+
 class ProjectProfileSerializer(serializers.Serializer):
     """Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
 
     Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
-    is per-team with a ~36h soft TTL; the response always reflects either the latest cached
-    profile or a freshly-built one if the cache was stale.
+    is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
+    latest cached profile or a freshly-built one if the cache was stale or the caller passed
+    `force_refresh=true`.
     """
 
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
