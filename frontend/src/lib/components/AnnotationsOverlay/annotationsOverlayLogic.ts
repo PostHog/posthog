@@ -40,7 +40,7 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
 /** Track index for the previous-period timeline. Track 0 is always the primary period. */
 export const PREVIOUS_TRACK_INDEX = 1
 
-interface AnnotationBadgeDataIndex {
+export interface AnnotationBadgeDataIndex {
     dateKey: string
     date: Dayjs
     dataIndex: number
