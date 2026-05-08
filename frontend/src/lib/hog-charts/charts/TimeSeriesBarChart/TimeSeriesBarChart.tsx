@@ -107,7 +107,10 @@ export function TimeSeriesBarChart<Meta = unknown>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [series, seriesKeysSignature])
 
-    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
+    // Mirror BarChart's internal percent fallback so value labels show `%` too.
+    const effectiveYFormatter =
+        yTickFormatter ?? (barLayout === 'percent' ? (v: number): string => `${Math.round(v * 100)}%` : undefined)
+    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? effectiveYFormatter) : undefined
 
     const referenceLines = useMemo(
         () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
