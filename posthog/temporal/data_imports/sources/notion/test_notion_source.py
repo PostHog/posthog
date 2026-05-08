@@ -1,7 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import NotionSourceConfig
+from posthog.temporal.data_imports.sources.notion.notion import NotionResumeConfig
 from posthog.temporal.data_imports.sources.notion.settings import data_source_rows_schema_name
 from posthog.temporal.data_imports.sources.notion.source import NotionSource
 
@@ -124,3 +126,78 @@ class TestNotionSource:
         assert ok is False
         assert err is not None
         assert "Notion access token not found" in err
+
+    @patch("posthog.temporal.data_imports.sources.notion.source.notion_source")
+    @patch.object(NotionSource, "_get_access_token")
+    def test_source_for_pipeline_passes_inputs_through(
+        self, mock_get_token: MagicMock, mock_notion_source: MagicMock
+    ) -> None:
+        # Anchor the wiring between SourceInputs and notion_source — team_id, job_id, the
+        # incremental cursor field, and the schema name all need to make it through.
+        # A regression here would silently break incremental sync without test coverage.
+        mock_get_token.return_value = "tok"
+        sentinel = object()
+        mock_notion_source.return_value = sentinel
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        inputs = MagicMock(
+            schema_name="data_source_rows__abc",
+            team_id=42,
+            job_id="job-xyz",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-05-01T00:00:00Z",
+            incremental_field="last_edited_time",
+        )
+
+        response = NotionSource().source_for_pipeline(
+            config=NotionSourceConfig(notion_integration_id=1),
+            resumable_source_manager=manager,
+            inputs=inputs,
+        )
+
+        assert response is sentinel
+        kwargs = mock_notion_source.call_args.kwargs
+        assert kwargs["access_token"] == "tok"
+        assert kwargs["endpoint_name"] == "data_source_rows__abc"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2026-05-01T00:00:00Z"
+        assert kwargs["incremental_field"] == "last_edited_time"
+
+    @patch.object(NotionSource, "_get_access_token")
+    def test_source_for_pipeline_omits_incremental_state_for_full_refresh(self, mock_get_token: MagicMock) -> None:
+        # When the schema is configured for full refresh, neither the cursor value nor the
+        # selected field should leak through — otherwise the pipeline would erroneously
+        # resume from a stale point.
+        mock_get_token.return_value = "tok"
+        manager = MagicMock(spec=ResumableSourceManager)
+        inputs = MagicMock(
+            schema_name="users",
+            team_id=1,
+            job_id="j",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="leftover-cursor",
+            incremental_field="last_edited_time",
+        )
+
+        with patch("posthog.temporal.data_imports.sources.notion.source.notion_source") as mock_notion_source:
+            NotionSource().source_for_pipeline(
+                config=NotionSourceConfig(notion_integration_id=1),
+                resumable_source_manager=manager,
+                inputs=inputs,
+            )
+
+        kwargs = mock_notion_source.call_args.kwargs
+        assert kwargs["should_use_incremental_field"] is False
+        assert kwargs["db_incremental_field_last_value"] is None
+        assert kwargs["incremental_field"] is None
+
+    def test_get_resumable_source_manager_returns_manager_bound_to_resume_config(self) -> None:
+        # ResumableSourceManager is generic over the resume dataclass and uses it to
+        # serialize/deserialize Redis state. Wiring the wrong class would silently corrupt
+        # checkpoints across crashes.
+        inputs = MagicMock(team_id=1, job_id="j", logger=MagicMock())
+        manager = NotionSource().get_resumable_source_manager(inputs)
+        assert isinstance(manager, ResumableSourceManager)
+        # `_data_class` is the source-of-truth field the manager uses to round-trip state.
+        assert manager._data_class is NotionResumeConfig
