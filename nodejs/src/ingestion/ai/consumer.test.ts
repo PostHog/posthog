@@ -8,7 +8,14 @@ import { BatchWritingPersonsStore } from '../../worker/ingestion/persons/batch-w
 import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from '../analytics/outputs'
 import { CommonIngestionConsumer } from '../common/common-ingestion-consumer'
 import { EventFilterManager } from '../common/event-filters'
-import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    AppMetricsOutput,
+    DlqOutput,
+    GroupsOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHog } from '../tophog'
@@ -59,6 +66,7 @@ describe('createAiConsumer', () => {
             | PersonsOutput
             | PersonDistinctIdsOutput
             | AppMetricsOutput
+            | TophogOutput
         >
         return {
             outputs,
