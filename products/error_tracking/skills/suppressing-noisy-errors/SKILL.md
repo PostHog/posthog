@@ -117,15 +117,15 @@ The `error-tracking-suppression-rules-create` tool description warns explicitly:
 do **not** create match-all rules and do **not** create overly broad rules.
 Match on the most specific property combination you can:
 
-| Noise pattern                       | Recommended filter                                                                                                                                                                                                                                         |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chrome extension errors             | `$exception_sources icontains "chrome-extension://"`                                                                                                                                                                                                       |
-| Firefox extension errors            | `$exception_sources icontains "moz-extension://"`                                                                                                                                                                                                          |
-| Safari extension errors             | `$exception_sources icontains "safari-extension://"`                                                                                                                                                                                                       |
-| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` (the message is specific; a type filter is optional)                                                                                                                                                   |
-| Cross-origin "Script error."        | `$exception_values icontains "Script error."` AND `$exception_types exact "Error"`                                                                                                                                                                         |
-| Bot user agents                     | `$raw_user_agent regex "(?i)(HeadlessChrome\|bot\|crawler\|spider)"` (note the `(?i)` flag — `regex` is case-sensitive by default; `$user_agent` also works but the raw header is more reliable for crawler markers since parsers can normalize them away) |
-| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND a type filter (e.g. `$exception_types exact "TypeError"`)                                                                                                                                             |
+| Noise pattern                       | Recommended filter                                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chrome extension errors             | `$exception_sources icontains "chrome-extension://"`                                                                                        |
+| Firefox extension errors            | `$exception_sources icontains "moz-extension://"`                                                                                           |
+| Safari extension errors             | `$exception_sources icontains "safari-extension://"`                                                                                        |
+| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` (the message is specific; a type filter is optional)                                    |
+| Cross-origin "Script error."        | `$exception_values icontains "Script error."` AND `$exception_types exact "Error"`                                                          |
+| Bot user agents                     | `$raw_user_agent regex "(?i)bot"` for a single term; see the alternation pattern below for matching several bot/crawler markers in one rule |
+| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND a type filter (e.g. `$exception_types exact "TypeError"`)                              |
 
 The canonical exception properties (`$exception_types`, `$exception_values`,
 `$exception_sources`, `$exception_functions`) are arrays at capture time. The
@@ -143,6 +143,15 @@ filtering on them produces a rule that silently never matches.
 Note that the `regex` operator on suppression and grouping rules compiles to
 the HogVM `Operation::Regex`, which is **case-sensitive**. Use the `(?i)`
 inline flag for case-insensitive matching (e.g. `(?i)headlesschrome`).
+
+For matching multiple bot or crawler terms, use bare pipes for alternation.
+Pass this as the `value` field of the regex filter when calling the API
+(`$raw_user_agent` is more reliable than the parsed `$user_agent`, which some
+parsers normalize away from crawler markers):
+
+```text
+(?i)(HeadlessChrome|bot|crawler|spider)
+```
 
 Whenever possible, AND together two or more conditions — type plus message, or
 message plus URL pattern — so the rule is specific to the real noise.
