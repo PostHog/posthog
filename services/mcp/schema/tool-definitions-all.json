@@ -4952,7 +4952,7 @@
         }
     },
     "switch-organization": {
-        "description": "Switch the active PostHog organization that subsequent tool calls will operate against. Call this proactively whenever the user references an organization by name or you have reason to believe their request applies to an organization other than the currently active one. If you don't have the organization id, call `organizations-list` first to resolve a name (or other description) to an id. Defaulting to the active organization is fine when no specific organization is mentioned. Switching is cheap and reversible, so prefer switching over guessing.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog organization for subsequent tool calls.",
@@ -4967,7 +4967,7 @@
         }
     },
     "switch-project": {
-        "description": "Switch the active PostHog project that subsequent tool calls will operate against. Call this proactively whenever the user references a project by name, mentions a different workspace, or you have reason to believe their request applies to a project other than the currently active one. If you don't have the project id, call `projects-get` first to resolve a name (or other description) to an id. Note that `projects-get` only lists projects in the currently active organization; if the project is not found there, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Defaulting to the active project is fine when no specific project is mentioned. Switching is cheap and reversible, so prefer switching over guessing.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog project for subsequent tool calls.",

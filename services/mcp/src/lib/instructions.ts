@@ -25,9 +25,6 @@ export function buildActiveEnvironmentContextPrompt(
         lines.push(
             `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
         )
-        lines.push(
-            'The user may have access to other projects. If they reference a project by name, mention a different workspace, or you suspect their request applies to a different project, call `switch-project` (use `projects-get` first to resolve a name to an id). Similarly, use `switch-organization` (paired with `organizations-list`) when the user references a different organization.'
-        )
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
