@@ -102,6 +102,7 @@ import type {
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
+    TaggerCreateApi,
     TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
@@ -1999,14 +2000,14 @@ export const getTaggersCreateUrl = (projectId: string) => {
 
 export const taggersCreate = async (
     projectId: string,
-    taggerApi: NonReadonly<TaggerApi>,
+    taggerCreateApi: TaggerCreateApi,
     options?: RequestInit
 ): Promise<TaggerApi> => {
     return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerApi),
+        body: JSON.stringify(taggerCreateApi),
     })
 }
 

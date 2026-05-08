@@ -1495,9 +1495,6 @@ const llmaTaggerCreate = (): ToolBase<typeof LlmaTaggerCreateSchema, WithPostHog
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
         const result = await context.api.request<Schemas.Tagger>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/taggers/`,

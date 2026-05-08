@@ -2026,6 +2026,52 @@ export const TaggerTypeEnumApi = {
     Hog: 'hog',
 } as const
 
+export interface TagDefinitionApi {
+    /**
+     * Tag identifier
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Description to help the LLM classify
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface LLMTaggerConfigApi {
+    /**
+     * Prompt instructing the LLM how to tag generations
+     * @minLength 1
+     */
+    prompt: string
+    /** Available tags the LLM can assign */
+    tags: TagDefinitionApi[]
+    /**
+     * Minimum number of tags to apply
+     * @minimum 0
+     */
+    min_tags?: number
+    /**
+     * Maximum number of tags to apply (null = no limit)
+     * @minimum 1
+     * @nullable
+     */
+    max_tags?: number | null
+}
+
+export interface HogTaggerConfigApi {
+    /**
+     * Hog source code to classify a generation into tags.
+     * @minLength 1
+     */
+    source: string
+    /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
+    tags?: TagDefinitionApi[]
+}
+
+export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
+
 export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
 
 export interface TaggerConditionApi {
@@ -2048,8 +2094,20 @@ export interface TaggerConditionApi {
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
+    /** LLM provider to use for this tagger.
+
+* `openai` - Openai
+* `anthropic` - Anthropic
+* `gemini` - Gemini
+* `openrouter` - Openrouter
+* `fireworks` - Fireworks
+* `azure_openai` - Azure OpenAI
+* `together_ai` - Together AI */
     provider: LLMProviderEnumApi
-    /** @maxLength 100 */
+    /**
+     * Provider model identifier to use for this tagger.
+     * @maxLength 100
+     */
     model: string
     /**
      * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
@@ -2068,7 +2126,7 @@ export interface TaggerApi {
     enabled?: boolean
     tagger_type?: TaggerTypeEnumApi
     /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: unknown
+    tagger_config: TaggerConfigApi
     /** Conditions that scope when the tagger runs */
     conditions?: TaggerConditionApi[]
     model_configuration?: TaggerModelConfigurationApi | null
@@ -2085,6 +2143,42 @@ export interface PaginatedTaggerListApi {
     /** @nullable */
     previous?: string | null
     results: TaggerApi[]
+}
+
+export interface TaggerModelConfigurationWriteApi {
+    /** LLM provider to use for this tagger.
+
+* `openai` - Openai
+* `anthropic` - Anthropic
+* `gemini` - Gemini
+* `openrouter` - Openrouter
+* `fireworks` - Fireworks
+* `azure_openai` - Azure OpenAI
+* `together_ai` - Together AI */
+    provider: LLMProviderEnumApi
+    /**
+     * Provider model identifier to use for this tagger.
+     * @maxLength 100
+     */
+    model: string
+    /**
+     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * @nullable
+     */
+    provider_key_id?: string | null
+}
+
+export interface TaggerCreateApi {
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config: TaggerConfigApi
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationWriteApi | null
 }
 
 export interface TestHogTaggerTagApi {

@@ -34,9 +34,6 @@
             },
             "type": "array"
         },
-        "deleted": {
-            "type": "boolean"
-        },
         "description": {
             "type": "string"
         },
@@ -46,14 +43,14 @@
         "model_configuration": {
             "anyOf": [
                 {
-                    "description": "Nested serializer for model configuration.",
                     "properties": {
                         "model": {
+                            "description": "Provider model identifier to use for this tagger.",
                             "maxLength": 100,
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI",
+                            "description": "LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -75,16 +72,6 @@
                                 }
                             ],
                             "description": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned."
-                        },
-                        "provider_key_name": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
                         }
                     },
                     "required": ["provider", "model"],
@@ -100,6 +87,90 @@
             "type": "string"
         },
         "tagger_config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "max_tags": {
+                            "anyOf": [
+                                {
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Maximum number of tags to apply (null = no limit)"
+                        },
+                        "min_tags": {
+                            "default": 0,
+                            "description": "Minimum number of tags to apply",
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        "prompt": {
+                            "description": "Prompt instructing the LLM how to tag generations",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Available tags the LLM can assign",
+                            "items": {
+                                "properties": {
+                                    "description": {
+                                        "default": "",
+                                        "description": "Description to help the LLM classify",
+                                        "maxLength": 500,
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Tag identifier",
+                                        "maxLength": 100,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["prompt", "tags"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "source": {
+                            "description": "Hog source code to classify a generation into tags.",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.",
+                            "items": {
+                                "properties": {
+                                    "description": {
+                                        "default": "",
+                                        "description": "Description to help the LLM classify",
+                                        "maxLength": 500,
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Tag identifier",
+                                        "maxLength": 100,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                }
+            ],
             "description": "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
         },
         "tagger_type": {

@@ -1718,6 +1718,19 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
 export const taggersCreateBodyNameMax = 400
 
 export const taggersCreateBodyTaggerTypeDefault = `llm`
+export const taggersCreateBodyTaggerConfigOneOneTagsItemNameMax = 100
+
+export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
+export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
+
+export const taggersCreateBodyTaggerConfigOneOneMinTagsDefault = 0
+export const taggersCreateBodyTaggerConfigOneOneMinTagsMin = 0
+
+export const taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax = 100
+
+export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
+export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
+
 export const taggersCreateBodyConditionsItemIdMax = 100
 
 export const taggersCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -1735,7 +1748,51 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .describe('* `llm` - LLM\n* `hog` - Hog')
         .default(taggersCreateBodyTaggerTypeDefault),
     tagger_config: zod
-        .unknown()
+        .union([
+            zod.object({
+                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax)
+                                .default(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .describe('Available tags the LLM can assign'),
+                min_tags: zod
+                    .number()
+                    .min(taggersCreateBodyTaggerConfigOneOneMinTagsMin)
+                    .default(taggersCreateBodyTaggerConfigOneOneMinTagsDefault)
+                    .describe('Minimum number of tags to apply'),
+                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
+            }),
+            zod.object({
+                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
+                                .default(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .optional()
+                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
+            }),
+        ])
         .describe(
             "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
         ),
@@ -1762,35 +1819,29 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
         .union([
-            zod
-                .object({
-                    provider: zod
-                        .enum([
-                            'openai',
-                            'anthropic',
-                            'gemini',
-                            'openrouter',
-                            'fireworks',
-                            'azure_openai',
-                            'together_ai',
-                        ])
-                        .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                        ),
-                    model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod
-                        .uuid()
-                        .nullish()
-                        .describe(
-                            'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.'
-                        ),
-                    provider_key_name: zod.string().nullable(),
-                })
-                .describe('Nested serializer for model configuration.'),
+            zod.object({
+                provider: zod
+                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .describe(
+                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                    )
+                    .describe(
+                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                    ),
+                model: zod
+                    .string()
+                    .max(taggersCreateBodyModelConfigurationOneModelMax)
+                    .describe('Provider model identifier to use for this tagger.'),
+                provider_key_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.'
+                    ),
+            }),
             zod.null(),
         ])
         .optional(),
-    deleted: zod.boolean().optional(),
 })
 
 /**
