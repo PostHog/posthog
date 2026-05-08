@@ -58,12 +58,13 @@ posthog:query-error-tracking-issues-list
   "orderDirection": "DESC",
   "dateRange": { "date_from": "-24h" },
   "limit": 20,
-  "volumeResolution": 1
+  "volumeResolution": 24
 }
 ```
 
-`volumeResolution: 1` returns sparkline data — useful for spotting spikes vs steady
-state at a glance.
+Match `volumeResolution` to the window (24 buckets for `-24h`, 14 for `-14d`, etc.)
+so each row's sparkline has enough resolution to show a spike vs flat steady state.
+A single bucket only gives a total, not a shape.
 
 For new-issues-only, run a parallel query with `orderBy: "first_seen"`:
 
@@ -76,6 +77,15 @@ For new-issues-only, run a parallel query with `orderBy: "first_seen"`:
   "limit": 10
 }
 ```
+
+If a project mixes browser and server SDKs, the top-by-users list is usually drowned
+by server-side errors (each invocation often gets a fresh `distinct_id`). Narrow with
+the `library` filter — values match the SDK's `$lib`, not the npm package name, examples:
+
+- `web` — posthog-js (browser)
+- `posthog-node`, `posthog-python`, `posthog-ruby`, `posthog-go`, `posthog-php`, `posthog-java`, `posthog-dotnet`, `posthog-rs` — server SDKs
+- `posthog-edge` — Cloudflare Workers / edge runtime
+- `posthog-ios`, `posthog-android`, `posthog-react-native`, `posthog-flutter` — mobile
 
 ### Step 3 — Filter the noise
 
