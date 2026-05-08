@@ -203,22 +203,6 @@ func (p *Process) IsRunning() bool {
 	return p.Status().IsRunning()
 }
 
-// IsRestartable reports whether the proc was started at least once in this
-// session and is not currently running. This is the predicate behind the
-// "restart all" hotkey — narrower than "is not running" because it must
-// exclude procs that have never been started (autostart=false, never
-// touched), which would otherwise look identical to a manually-stopped
-// proc (both sit at StatusStopped). Standby procs are excluded for free
-// since they never reach Start() and thus have a zero startedAt.
-func (p *Process) IsRestartable() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.startedAt.IsZero() {
-		return false
-	}
-	return !p.status.IsRunning() && !p.status.IsStandby()
-}
-
 func (p *Process) SetMetricsEnabled(on bool) {
 	p.metricsEnabled.Store(on)
 }

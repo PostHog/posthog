@@ -3,38 +3,38 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	PrevProc      key.Binding
-	NextProc      key.Binding
-	KeyUp         key.Binding
-	KeyDown       key.Binding
-	ScrollUp      key.Binding
-	ScrollDown    key.Binding
-	GotoTop       key.Binding
-	GotoBottom    key.Binding
-	NextPane      key.Binding
-	PrevPane      key.Binding
-	Start      key.Binding
-	Stop       key.Binding
-	Restart    key.Binding
-	RestartAll key.Binding
-	ClearLogs  key.Binding
-	CopyMode      key.Binding
-	InfoMode      key.Binding
-	SearchMode    key.Binding
-	SearchNext    key.Binding
-	SearchPrev    key.Binding
-	CommitFilter  key.Binding
-	ToggleFilter  key.Binding
-	Quit          key.Binding
-	Help          key.Binding
-	Backspace     key.Binding
-	Hedgehog      key.Binding
-	Sort          key.Binding
-	Group         key.Binding
-	LazyDocker    key.Binding
-	ProcViewer    key.Binding
-	SetupMode     key.Binding
-	ShowAll       key.Binding
+	PrevProc         key.Binding
+	NextProc         key.Binding
+	KeyUp            key.Binding
+	KeyDown          key.Binding
+	ScrollUp         key.Binding
+	ScrollDown       key.Binding
+	GotoTop          key.Binding
+	GotoBottom       key.Binding
+	NextPane         key.Binding
+	PrevPane         key.Binding
+	Start            key.Binding
+	Stop             key.Binding
+	Restart          key.Binding
+	RestartAllFailed key.Binding
+	ClearLogs        key.Binding
+	CopyMode         key.Binding
+	InfoMode         key.Binding
+	SearchMode       key.Binding
+	SearchNext       key.Binding
+	SearchPrev       key.Binding
+	CommitFilter     key.Binding
+	ToggleFilter     key.Binding
+	Quit             key.Binding
+	Help             key.Binding
+	Backspace        key.Binding
+	Hedgehog         key.Binding
+	Sort             key.Binding
+	Group            key.Binding
+	LazyDocker       key.Binding
+	ProcViewer       key.Binding
+	SetupMode        key.Binding
+	ShowAll          key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -89,18 +89,15 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
 		),
-		RestartAll: key.NewBinding(
+		RestartAllFailed: key.NewBinding(
 			// Capital R mirrors the lowercase-vs-uppercase pattern used by
-			// many TUIs to distinguish "single" vs "all" actions.
-			//
-			// "All" here means "all that have been started this session and
-			// aren't currently running" — covers crashes, manual stops, and
-			// exited one-shots. Never-started procs (autostart=false,
-			// untouched) and standby placeholders are skipped so a stray
-			// keypress can't promote things the user opted out of. See
-			// `Process.IsRestartable` for the exact predicate.
+			// many TUIs to distinguish "single" vs "bulk" actions.
+			// Restarts every proc currently in StatusCrashed (non-zero exit
+			// or killed by a signal). Manually-stopped, clean-exit, never-
+			// started, and standby procs are all naturally excluded — they
+			// sit in different status states.
 			key.WithKeys("R"),
-			key.WithHelp("R:", "restart all"),
+			key.WithHelp("R:", "restart failed"),
 			key.WithDisabled(),
 		),
 		ClearLogs: key.NewBinding(
@@ -181,7 +178,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Restart, k.RestartAll, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
+	return []key.Binding{k.Start, k.Stop, k.Restart, k.RestartAllFailed, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
 }
 
 func (k keyMap) SearchModeHelp() []key.Binding {
@@ -198,7 +195,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.ScrollUp, k.ScrollDown, k.Group},
 		{k.GotoTop, k.GotoBottom, k.ClearLogs},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
-		{k.Start, k.Stop, k.Restart, k.RestartAll, k.InfoMode},
+		{k.Start, k.Stop, k.Restart, k.RestartAllFailed, k.InfoMode},
 		{k.SearchMode, k.CopyMode, k.SetupMode},
 		{k.Quit, k.Help, k.ShowAll},
 	}

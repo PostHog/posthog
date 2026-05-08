@@ -8,6 +8,8 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
 // procViewerCmd returns an exec.Cmd for the best available process viewer,
@@ -292,11 +294,11 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 }
 
 // updateProcKeys enables/disables start, stop, and restart bindings
-// based on the active process state. RestartAll is global (operates across
-// the whole sidebar), but is gated on at-least-one restartable proc so the
-// help footer hides it when there's nothing to do.
+// based on the active process state. RestartAllFailed is global (operates
+// across the whole sidebar), but is gated on at-least-one failed proc so
+// the help footer hides it when there's nothing to do.
 func (m *Model) updateProcKeys() {
-	m.keys.RestartAll.SetEnabled(m.hasRestartableProc())
+	m.keys.RestartAllFailed.SetEnabled(m.hasFailedProc())
 
 	p := m.activeProc()
 	if p == nil {
@@ -320,31 +322,30 @@ func (m *Model) updateProcKeys() {
 	m.keys.ClearLogs.SetEnabled(running)
 }
 
-// hasRestartableProc reports whether any sidebar service has been started
-// at least once this session and is not currently running — i.e. whether
-// `R` has anything to do.
-func (m *Model) hasRestartableProc() bool {
+// hasFailedProc reports whether any sidebar service is currently in
+// StatusCrashed — i.e. whether `R` has anything to do.
+func (m *Model) hasFailedProc() bool {
 	for _, p := range m.services {
-		if p.IsRestartable() {
+		if p.Status() == process.StatusCrashed {
 			return true
 		}
 	}
 	return false
 }
 
-// restartAll starts every previously-started, non-running service in display
-// order. Procs that have never been started this session (autostart disabled
-// and untouched, plus standby placeholders) are skipped — the user opted
-// out of those by not running them, and `R` should not flip that decision.
+// restartAllFailed starts every service currently in StatusCrashed in
+// display order. Manually-stopped, clean-exit, never-started, and standby
+// procs are all in different status states and naturally skipped, so the
+// hotkey only ever touches procs that actually died on their own.
 // Returns the number of procs that were kicked off.
-func (m *Model) restartAll() int {
+func (m *Model) restartAllFailed() int {
 	send := m.mgr.Send()
 	count := 0
 	for _, p := range m.services {
-		if !p.IsRestartable() {
+		if p.Status() != process.StatusCrashed {
 			continue
 		}
-		m.dbg("restart all: proc=%s", p.Name)
+		m.dbg("restart failed: proc=%s", p.Name)
 		// Fan out so we don't block the TUI event loop while Start allocates
 		// a PTY and forks the child. As a side benefit, spawns happen in
 		// parallel rather than serially. Capture p locally to avoid the
@@ -513,9 +514,9 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			go p.Restart(send)
 		}
 
-	case key.Matches(msg, m.keys.RestartAll):
-		if started := m.restartAll(); started > 0 {
-			m.dbg("restart all: kicked off %d procs", started)
+	case key.Matches(msg, m.keys.RestartAllFailed):
+		if started := m.restartAllFailed(); started > 0 {
+			m.dbg("restart failed: kicked off %d procs", started)
 		}
 
 	case key.Matches(msg, m.keys.Stop):
