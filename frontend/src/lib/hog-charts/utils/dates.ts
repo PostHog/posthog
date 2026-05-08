@@ -1,5 +1,4 @@
-import { Dayjs } from 'lib/dayjs'
-import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
+import { type Dayjs, parseDateInTimezone } from './dayjs'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */

@@ -14,6 +14,7 @@ import {
     CohortsRetrieveParams,
 } from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -78,7 +79,10 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
         },
     })
 
-const CohortsListSchema = CohortsListQueryParams
+const CohortsListSchema = CohortsListQueryParams.extend({
+    limit: z.preprocess(castStringToInt, CohortsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, CohortsListQueryParams.shape['offset']).optional(),
+})
 
 const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schemas.PaginatedCohortList>> =>
     withUiApp('cohort-list', {
@@ -113,9 +117,9 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
         },
     })
 
-const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
-    CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape
-)
+const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true })
+    .extend(CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']) })
 
 const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, WithPostHogUrl<Schemas.Cohort>> =>
     withUiApp('cohort', {
@@ -154,7 +158,9 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, Wit
         },
     })
 
-const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
+const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, CohortsRetrieveParams.shape['id']),
+})
 
 const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUrl<Schemas.Cohort>> =>
     withUiApp('cohort', {

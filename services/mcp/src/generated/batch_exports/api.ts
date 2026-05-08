@@ -105,9 +105,9 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
                                             ),
-                                        zod.literal(null),
+                                        zod.null(),
                                     ])
-                                    .nullish()
+                                    .optional()
                                     .describe(
                                         'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
                                     ),
@@ -258,9 +258,9 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
                                             ),
-                                        zod.literal(null),
+                                        zod.null(),
                                     ])
-                                    .nullish()
+                                    .optional()
                                     .describe(
                                         'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
                                     ),

@@ -877,7 +877,13 @@ jobs:
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
-              if: always() && github.event_name == 'pull_request'
+              #
+              # Skipped on PRs from forks: GITHUB_TOKEN is read-only for fork
+              # PRs regardless of the workflow's `permissions:` block, so the
+              # check-runs POST 403s. The analyzer itself still runs in earlier
+              # steps and fails the job on Blocked migrations; reviewers can
+              # read the verdict in the uploaded migration-analysis artifact.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}

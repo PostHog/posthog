@@ -1614,9 +1614,9 @@
                 "cache_read_token": 1.16e-7
             },
             "novita": {
-                "prompt_token": 0.00000174,
-                "completion_token": 0.00000348,
-                "cache_read_token": 1.45e-7
+                "prompt_token": 0.00000169,
+                "completion_token": 0.00000338,
+                "cache_read_token": 1.3e-7
             },
             "parasail-fp8": {
                 "prompt_token": 0.00000174,
@@ -2332,8 +2332,8 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.9e-7
+                "prompt_token": 2e-7,
+                "completion_token": 3.5e-7
             }
         }
     },
@@ -2424,7 +2424,7 @@
             "nextbit-bf16": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 4e-7,
-                "cache_read_token": 5e-8
+                "cache_read_token": 1e-7
             },
             "novita-bf16": {
                 "prompt_token": 1.3e-7,
@@ -2434,6 +2434,10 @@
                 "prompt_token": 1.3e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 5e-8
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 1.2e-7,
+                "completion_token": 4e-7
             },
             "venice-bf16": {
                 "prompt_token": 1.625e-7,
@@ -2477,7 +2481,7 @@
             "parasail-bf16": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 4e-7,
-                "cache_read_token": 7e-8
+                "cache_read_token": 1e-7
             },
             "together": {
                 "prompt_token": 2e-7,
@@ -3266,8 +3270,8 @@
                 "completion_token": 0.00000138
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.9e-7
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -3699,19 +3703,6 @@
         }
     },
     {
-        "model": "mistralai/mixtral-8x7b-instruct",
-        "cost": {
-            "default": {
-                "prompt_token": 5.4e-7,
-                "completion_token": 5.4e-7
-            },
-            "deepinfra-fp8": {
-                "prompt_token": 5.4e-7,
-                "completion_token": 5.4e-7
-            }
-        }
-    },
-    {
         "model": "mistralai/pixtral-large-2411",
         "cost": {
             "default": {
@@ -4094,19 +4085,6 @@
             "nebius-fp8": {
                 "prompt_token": 1.3e-7,
                 "completion_token": 4e-7
-            }
-        }
-    },
-    {
-        "model": "nvidia/llama-3.1-nemotron-70b-instruct",
-        "cost": {
-            "default": {
-                "prompt_token": 0.0000012,
-                "completion_token": 0.0000012
-            },
-            "deepinfra-fp8": {
-                "prompt_token": 0.0000012,
-                "completion_token": 0.0000012
             }
         }
     },
@@ -7021,10 +6999,6 @@
                 "prompt_token": 6.5e-7,
                 "completion_token": 7.5e-7
             },
-            "deepinfra-fp8": {
-                "prompt_token": 8.5e-7,
-                "completion_token": 8.5e-7
-            },
             "nextbit-bf16": {
                 "prompt_token": 6.5e-7,
                 "completion_token": 7.5e-7
@@ -7670,8 +7644,9 @@
         "model": "z-ai/glm-4.7",
         "cost": {
             "default": {
-                "prompt_token": 3.8e-7,
-                "completion_token": 0.00000174
+                "prompt_token": 4e-7,
+                "completion_token": 0.00000175,
+                "cache_read_token": 8e-8
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 5.2e-7,
@@ -7687,10 +7662,6 @@
                 "prompt_token": 4e-7,
                 "completion_token": 0.00000175,
                 "cache_read_token": 8e-8
-            },
-            "dekallm-fp4": {
-                "prompt_token": 3.8e-7,
-                "completion_token": 0.00000174
             },
             "google-vertex": {
                 "prompt_token": 6e-7,

@@ -1,8 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
+import { ciRanges, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLine, trendLine, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
-import { ciRanges, trendLine } from 'lib/statistics'
 
 import { playHoverAtFraction, Stage, useReactiveTheme } from '../story-helpers'
 
