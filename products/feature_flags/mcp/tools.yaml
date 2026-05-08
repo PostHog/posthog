@@ -228,12 +228,12 @@ tools:
             Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed
             reasoning about why the flag matched or didn't match, including condition analysis and person properties
             used in evaluation.
-        ui_app: feature-flag-testing
         param_overrides:
             id:
                 cast: string-int
         validators:
             - validateDistinctIdPersonIdExclusive
+        ui_app: feature-flag-testing
     feature-flags-update:
         operation: feature_flags_update
         enabled: false
