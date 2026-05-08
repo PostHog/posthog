@@ -65,6 +65,7 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import (
+    filter_dwh_columns_by_enabled_columns,
     get_direct_postgres_location,
     postgres_schema_metadata,
     reconcile_postgres_schemas,
@@ -1141,11 +1142,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
+                # Apply the picker's column subset on the very first DataWarehouseTable build,
+                # not just on subsequent updates — otherwise users see all columns in HogQL until
+                # they hit save again or a refresh runs.
                 schema_model.table = upsert_direct_postgres_table(
                     None,
                     schema_name=schema_name,
                     source=new_source_model,
-                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                    ),
                     source_catalog=resolved_source_catalog,
                     source_schema=resolved_source_schema,
                     source_table_name=resolved_source_table_name,
