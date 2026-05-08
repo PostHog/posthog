@@ -37,14 +37,25 @@ export class ChunkLoadErrorBoundary extends Component<{ children: ReactNode }, S
         if (!isChunkLoadError(error)) {
             return
         }
-        const lastReload = Number(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? 0)
+        let lastReload = 0
+        try {
+            lastReload = Number(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? 0)
+        } catch {
+            // localStorage may be unavailable (e.g. Safari private mode) - treat as no prior reload
+        }
         if (lastReload && Date.now() - lastReload < RELOAD_GUARD_WINDOW_MS) {
             console.error('[ChunkLoadErrorBoundary] Recently reloaded; surfacing error instead of looping.')
             this.setState({ surface: true })
             return
         }
         console.warn('[ChunkLoadErrorBoundary] Chunk-load failure (likely stale deploy); reloading.')
-        window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+        try {
+            window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+        } catch {
+            // localStorage may throw QuotaExceededError (Safari private mode, full storage).
+            // Skip the guard and reload anyway - without the timestamp the worst case is
+            // a reload loop, which only happens if the chunk itself keeps failing.
+        }
         window.location.reload()
     }
 
