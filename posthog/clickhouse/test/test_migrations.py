@@ -132,15 +132,17 @@ class TestUniqueMigrationPrefixes(TestCase):
         if is_alter_on_replicated_table is None:
             errors.append("is_alter_on_replicated_table parameter must be explicitly specified for ALTER TABLE queries")
 
-        allowed_roles_label = (
-            "one of " + ", ".join(f"NodeRole.{r.name}" for r in sorted(DATA_BEARING_NODE_ROLES, key=lambda r: r.name))
+        allowed_roles_label = "one of " + ", ".join(
+            f"NodeRole.{r.name}" for r in sorted(DATA_BEARING_NODE_ROLES, key=lambda r: r.name)
         )
 
         if sharded and (len(node_roles) != 1 or node_roles[0] not in DATA_BEARING_NODE_ROLES):
             errors.append(f"ALTER TABLE on sharded tables must have node_role={allowed_roles_label}")
 
-        if not sharded and is_alter_on_replicated_table and (
-            len(node_roles) != 1 or node_roles[0] not in DATA_BEARING_NODE_ROLES
+        if (
+            not sharded
+            and is_alter_on_replicated_table
+            and (len(node_roles) != 1 or node_roles[0] not in DATA_BEARING_NODE_ROLES)
         ):
             errors.append(f"ALTER TABLE on non-sharded tables must have node_role={allowed_roles_label}")
 
