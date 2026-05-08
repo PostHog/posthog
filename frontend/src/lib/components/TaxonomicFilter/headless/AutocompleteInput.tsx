@@ -33,7 +33,6 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import FuseClass from 'fuse.js'
 import { useActions, useValues } from 'kea'
-import { ChevronLeftIcon } from 'lucide-react'
 import {
     createContext,
     ReactElement,
@@ -47,6 +46,7 @@ import {
     useState,
 } from 'react'
 
+import { IconChevronLeft } from '@posthog/icons'
 import { IconChevronRight } from '@posthog/icons'
 import {
     Button,
@@ -1381,7 +1381,7 @@ function Header({ rootTitle, subTitle, className }: TaxonomicAutocompleteHeaderP
                     data-attr="taxonomic-autocomplete-back"
                     className="-ml-1 shrink-0"
                 >
-                    <ChevronLeftIcon className="size-4" />
+                    <IconChevronLeft className="size-4" />
                 </Button>
             )}
             <span className="flex-1 truncate">{resolvedTitle}</span>

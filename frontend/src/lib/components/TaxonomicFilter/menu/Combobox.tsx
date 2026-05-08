@@ -12,9 +12,9 @@
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import FuseClass from 'fuse.js'
-import { Check, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconCheck, IconChevronRight } from '@posthog/icons'
 import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -555,8 +555,8 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 </span>
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
-            {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
-            {opensSubmenu && <ChevronRight className="size-3.5 text-tertiary shrink-0" />}
+            {isSelected && <IconCheck className="size-3.5 text-foreground shrink-0" />}
+            {opensSubmenu && <IconChevronRight className="size-3.5 text-tertiary shrink-0" />}
         </Autocomplete.Item>
     )
 }

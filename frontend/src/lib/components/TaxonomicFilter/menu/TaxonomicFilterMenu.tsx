@@ -22,10 +22,10 @@
  * old headless components use).
  */
 import { useValues } from 'kea'
-import { ChevronRight } from 'lucide-react'
 import posthog from 'posthog-js'
 import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconChevronRight } from '@posthog/icons'
 import {
     Button,
     cn,
@@ -497,34 +497,34 @@ export function TaxonomicFilterMenu({
             <DropdownMenuContent align="start" className="min-w-[240px]">
                 <DropdownMenuItem onClick={() => openCombobox('all')} data-attr="taxonomic-filter-menu-new">
                     New filter…
-                    <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                    <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                 </DropdownMenuItem>
                 {recentEntries.length > 0 && (
                     <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => openCombobox('recent')}>
                             Recent
-                            <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                            <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                         </DropdownMenuItem>
                     </>
                 )}
                 {pinnedEntries.length > 0 && (
                     <DropdownMenuItem onClick={() => openCombobox('pinned')}>
                         Pinned
-                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {(hasDwh || hasHogql) && <DropdownMenuSeparator />}
                 {hasDwh && (
                     <DropdownMenuItem onClick={openDwhPick} data-attr="taxonomic-filter-menu-dwh">
                         Data warehouse tables
-                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {hasHogql && (
                     <DropdownMenuItem onClick={openHogql} data-attr="taxonomic-filter-menu-hogql">
                         HogQL expression
-                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
             </DropdownMenuContent>

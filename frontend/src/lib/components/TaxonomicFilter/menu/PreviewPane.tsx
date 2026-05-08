@@ -9,8 +9,7 @@
  * Properties / events / actions render specific extras; everything else
  * falls back to the shared header + description.
  */
-import { Pin } from 'lucide-react'
-
+import { IconPin } from '@posthog/icons'
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
 import { Link } from 'lib/lemon-ui/Link'
@@ -111,7 +110,7 @@ function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | 
                     aria-pressed={details.isPinned}
                     onClick={details.togglePin}
                 >
-                    <Pin className="size-3.5" />
+                    <IconPin className="size-3.5" />
                     {details.isPinned ? 'Pinned' : 'Pin'}
                 </Button>
                 {viewUrl && (
