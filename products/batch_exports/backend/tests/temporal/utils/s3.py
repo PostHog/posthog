@@ -27,11 +27,12 @@ async def read_parquet_from_s3(
     json_columns,
 ) -> list:
     credentials = s3_client._request_signer._credentials  # type: ignore
+    frozen = await credentials.get_frozen_credentials()
     endpoint_url = s3_client.meta.endpoint_url
     s3 = fs.S3FileSystem(
-        access_key=credentials.access_key,
-        secret_key=credentials.secret_key,
-        session_token=credentials.token,
+        access_key=frozen.access_key,
+        secret_key=frozen.secret_key,
+        session_token=frozen.token,
         endpoint_override=endpoint_url,
     )
 
