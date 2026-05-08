@@ -80,6 +80,7 @@ class GenerateEmbeddingOutput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
@@ -185,6 +186,7 @@ class GenerateSearchQueriesOutput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
@@ -471,6 +473,7 @@ class MatchSignalToReportInput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
@@ -510,6 +513,7 @@ class FetchReportContextsOutput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
     """Fetch lightweight context (title, signal count) for reports from Postgres."""
     if not input.report_ids:
@@ -587,6 +591,7 @@ async def verify_match_specificity(
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
@@ -642,6 +647,7 @@ class AssignAndEmitSignalOutput:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
@@ -788,7 +794,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     },
                     groups=groups(team.organization, team),
                 )
-            except Exception:
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
                 # Swallow the exception, to avoid breaking the flow over failed analytics event
                 logger.exception(
                     "Failed to capture signal_assigned_to_report event",
@@ -1252,6 +1259,12 @@ class TeamSignalGroupingWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: TeamSignalGroupingInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
         self._buffer_size_gauge.set(len(self._signal_buffer))
 

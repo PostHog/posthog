@@ -132,17 +132,17 @@ export const getUserInterviewsPartialUpdateUrl = (projectId: string, id: string)
 export const userInterviewsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUserInterviewApi: NonReadonly<PatchedUserInterviewApi>,
+    patchedUserInterviewApi?: NonReadonly<PatchedUserInterviewApi>,
     options?: RequestInit
 ): Promise<UserInterviewApi> => {
     const formData = new FormData()
-    if (patchedUserInterviewApi.interviewee_emails !== undefined) {
-        patchedUserInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
+    if (patchedUserInterviewApi?.interviewee_emails !== undefined) {
+        patchedUserInterviewApi?.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
     }
-    if (patchedUserInterviewApi.summary !== undefined) {
+    if (patchedUserInterviewApi?.summary !== undefined) {
         formData.append(`summary`, patchedUserInterviewApi.summary)
     }
-    if (patchedUserInterviewApi.audio !== undefined) {
+    if (patchedUserInterviewApi?.audio !== undefined) {
         formData.append(`audio`, patchedUserInterviewApi.audio)
     }
 

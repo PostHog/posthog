@@ -9,6 +9,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
@@ -42,6 +43,7 @@ class FlushBufferOutput:
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOutput:
     batch_id = str(uuid.uuid4())
     object_key = f"{OBJECT_STORAGE_SIGNALS_PREFIX}/{batch_id}"
@@ -66,6 +68,7 @@ class SignalWithStartGroupingV2Input:
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV2Input) -> None:
     """Signal-with-start the grouping v2 workflow, creating it if it doesn't exist."""
     client = await async_connect()
@@ -90,6 +93,7 @@ BACKPRESSURE_POLL_INTERVAL_SECONDS = 1
 
 
 @activity.defn
+@posthoganalytics.scoped()
 async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> None:
     """Poll the buffer workflow's size via query, then send the signal once there's space."""
     client = await async_connect()
@@ -150,6 +154,12 @@ class BufferSignalsWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: BufferSignalsInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: BufferSignalsInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
 
         while True:
