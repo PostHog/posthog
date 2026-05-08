@@ -80,12 +80,12 @@ _SESSIONS_SQL = """
 SELECT
     'session' AS kind,
     session_id AS id,
-    any(first_user_message) AS title,
+    argMin(first_user_message, trace_first_seen) AS title,
     count() AS turns,
     any(any_distinct_id) AS distinct_id,
     round(sum(trace_cost), 4) AS total_cost,
-    min(first_seen) AS first_seen,
-    max(last_seen) AS last_seen
+    min(trace_first_seen) AS first_seen,
+    max(trace_last_seen) AS last_seen
 FROM (
     SELECT
         anyIf(
@@ -97,8 +97,8 @@ FROM (
             toFloat(properties.$ai_total_cost_usd),
             event IN ('$ai_generation', '$ai_embedding')
         ) AS trace_cost,
-        min(timestamp) AS first_seen,
-        max(timestamp) AS last_seen,
+        min(timestamp) AS trace_first_seen,
+        max(timestamp) AS trace_last_seen,
         argMinIf(
             JSONExtractString(
                 arrayFilter(

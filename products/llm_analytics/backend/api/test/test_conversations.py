@@ -141,6 +141,37 @@ class TestConversationsList(ClickhouseTestMixin, APIBaseTest):
         assert by_id["sess-trends"]["title"] == "What are trends?"
         assert by_id["sess-trends"]["turns"] == 2
 
+    def test_session_title_uses_earliest_trace_message(self):
+        # Each trace's `$ai_input` carries only its own user message (no accumulated
+        # history) — the realistic case for SDKs that keep conversation state
+        # server-side. Without `argMin(first_user_message, first_seen)`, the SQL's
+        # `any()` would pick whichever row ClickHouse processed first, surfacing a
+        # later turn's prompt as the conversation title.
+        session_id = "sess-no-history"
+        for i, (offset_min, prompt, reply) in enumerate(
+            [
+                (10, "First question", "A1"),
+                (5, "Second question", "A2"),
+                (2, "Third question", "A3"),
+            ]
+        ):
+            _create_generation(
+                team=self.team,
+                distinct_id="user-1",
+                trace_id=f"isolated-trace-{i}",
+                session_id=session_id,
+                user_messages=[{"role": "user", "content": prompt}],
+                assistant_text=reply,
+                timestamp=self.now - timedelta(minutes=offset_min),
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(self.URL + "?date_from=-1d")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        row = next(r for r in response.json()["results"] if r["id"] == session_id)
+        assert row["title"] == "First question"
+        assert row["turns"] == 3
+
     def test_orphan_traces_hidden_by_default(self):
         self._seed_session("sess-1", [("hi", "hello")])
         self._seed_orphan("orphan-1", "What's the capital of France?", "Paris.")
