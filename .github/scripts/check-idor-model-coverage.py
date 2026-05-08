@@ -581,7 +581,7 @@ def check_fail_closed_baseline(
         print(f"\n  ✅ {len(migrated)} model(s) migrated since baseline (regenerate to shrink):")
         for model in sorted(migrated):
             print(f"     - {model}")
-        print(f"\n  Run: python {Path(__file__).name} --regenerate-baseline")
+        print(f"\n  Run: python {Path(__file__).relative_to(REPO_ROOT)} --regenerate-baseline")
         return False, True
 
     print("  ✅ Fail-closed baseline matches.")
