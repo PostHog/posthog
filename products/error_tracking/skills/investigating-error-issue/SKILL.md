@@ -72,11 +72,14 @@ comes back with `stacktrace.type: "resolved"` but no frames at all (common for
 minified bundles where every frame looks vendor-y to the resolver, e.g. React
 production builds).
 
-For the earliest sample, narrow `dateRange.date_from` to a window around the
-issue's `first_seen` and call again. If recent and earliest events look
-materially different — different stack root, different URL pattern — the issue
-may be a grouping mistake. Flag for `grouping-noisy-errors` instead of
-continuing as if it were one bug.
+For the earliest sample, narrow `dateRange` to a tight window around the
+issue's `first_seen` (e.g. set `date_from` slightly before and `date_to`
+slightly after) and pass `orderDirection: "ASC"` so you get the earliest
+event in the window rather than the latest — the tool defaults to `DESC`,
+which would return a recent event and silently duplicate the first call.
+If recent and earliest events look materially different — different stack
+root, different URL pattern — the issue may be a grouping mistake. Flag for
+`grouping-noisy-errors` instead of continuing as if it were one bug.
 
 ### Step 3 — Run breakdowns to isolate the cause
 
@@ -103,12 +106,20 @@ SELECT
     max(timestamp) AS last_seen
 FROM events
 WHERE event = '$exception'
-    AND properties.$exception_issue_id = '<issue_id>'
+    AND (issue_id = '<issue_id>' OR properties.$exception_issue_id = '<issue_id>')
     AND timestamp > now() - INTERVAL 30 DAY
 GROUP BY lib_version
 ORDER BY occurrences DESC
 LIMIT 20
 ```
+
+The `(issue_id = ... OR properties.$exception_issue_id = ...)` pattern
+mirrors the canonical `build_issue_where` clause from
+`products/error_tracking/backend/api/query_utils.py`. `issue_id` is the
+resolved virtual field on `events` (it follows fingerprint overrides so
+merged/split issues route correctly); `properties.$exception_issue_id` is
+the raw event property captured at ingestion. Filtering on only the property
+silently undercounts events for issues that have been merged or split.
 
 If `first_seen` for one version is much later than the issue's overall
 `first_seen`, that SDK version (or whatever app shipped with it) introduced
@@ -140,7 +151,7 @@ SELECT
     uniq(person_id) AS users
 FROM events
 WHERE event = '$exception'
-    AND properties.$exception_issue_id = '<issue_id>'
+    AND (issue_id = '<issue_id>' OR properties.$exception_issue_id = '<issue_id>')
     AND timestamp > now() - INTERVAL 14 DAY
     AND notEmpty(toString(properties.$active_feature_flags))
 GROUP BY flag
@@ -155,13 +166,14 @@ hypothesis, query the per-flag value column `properties.$feature/<flag-key>`,
 which carries the evaluated value (`true`/`false`/variant name):
 
 ```sql
+posthog:execute-sql
 SELECT
     properties.`$feature/my-flag-key` AS variant,
     count() AS occurrences,
     uniq(person_id) AS users
 FROM events
 WHERE event = '$exception'
-    AND properties.$exception_issue_id = '<issue_id>'
+    AND (issue_id = '<issue_id>' OR properties.$exception_issue_id = '<issue_id>')
     AND timestamp > now() - INTERVAL 14 DAY
 GROUP BY variant
 ORDER BY occurrences DESC
@@ -205,13 +217,11 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 
 ## Tips
 
-- `properties.$exception_issue_id` is the canonical join key from events to an
-  issue. The fingerprint also works but the issue ID is stable across
-  fingerprint splits and merges.
+- The canonical join key from events to an issue is the resolved `issue_id`
+  virtual field, with `properties.$exception_issue_id` as fallback — see Step 3
+  for the reason and the `build_issue_where` pattern.
 - For a "what version introduced this?" breakdown, use `$lib_version` (set on
-  ~100% of events). Explicit release metadata lives in `$exception_releases`
-  (a JSON dict the SDK only fills when configured) — there is no top-level
-  `$release` property.
+  ~100% of events); see the `$exception_releases` caveat in Step 3.
 - If the issue spans more than 30 days, widen the date range explicitly.
   Defaults often truncate the original `first_seen` event off the breakdown.
 - Don't propose a fix in the synthesis unless the cause is obvious from the
