@@ -2,7 +2,8 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
+    'Warning: encountered multiple names for the same choice set (Format5eaEnum). This may be unwanted even though the generated schema is technically correct. Add an entry to ENUM_NAME_OVERRIDES to fix the naming.',
+    'Warning: enum naming encountered a non-optimally resolvable collision for fields named "format". The same name has been used for multiple choice sets in multiple components. The collision was resolved with "Format5eaEnum". add an entry to ENUM_NAME_OVERRIDES to fix the naming.',
     'Warning: enum naming encountered a non-optimally resolvable collision for fields named "model". The same name has been used for multiple choice sets in multiple components. The collision was resolved with "ModelCcdEnum". add an entry to ENUM_NAME_OVERRIDES to fix the naming.',
-    'Warning: enum naming encountered a non-optimally resolvable collision for fields named "status". The same name has been used for multiple choice sets in multiple components. The collision was resolved with "Status54aEnum". add an entry to ENUM_NAME_OVERRIDES to fix the naming.',
   ])
 # ---
