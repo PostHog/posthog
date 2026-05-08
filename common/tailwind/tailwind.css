@@ -3,6 +3,18 @@
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
+/*
+ * Scan @posthog/quill source so utilities used in primitive/component
+ * authoring (including arbitrary values like `w-[601px]`) get emitted
+ * into this precompiled bundle. The config's `content` array already
+ * lists quill's compiled `dist/**` output; these sources cover classes
+ * that live in JSX/TSX before bundling strips them.
+ */
+@source "../../packages/quill/packages/primitives/src/**/*.{ts,tsx}";
+@source "../../packages/quill/packages/components/src/**/*.{ts,tsx}";
+@source "../../packages/quill/packages/blocks/src/**/*.{ts,tsx}";
+@source "../../packages/quill/packages/quill/src/**/*.{ts,tsx}";
+
 @theme {
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;

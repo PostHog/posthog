@@ -120,7 +120,7 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSurveySerializerCreateUpdateOnlySchemaApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlySchemaApi>,
+    patchedSurveySerializerCreateUpdateOnlySchemaApi?: NonReadonly<PatchedSurveySerializerCreateUpdateOnlySchemaApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysPartialUpdateUrl(projectId, id), {
@@ -153,16 +153,16 @@ export const surveysActivityRetrieve = async (projectId: string, id: string, opt
     })
 }
 
+export const getSurveysArchivedResponseUuidsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/archived-response-uuids/`
+}
+
 /**
  * Get list of archived response UUIDs for HogQL filtering.
 
 Returns list of UUIDs that the frontend can use to filter out archived responses
 in HogQL queries.
  */
-export const getSurveysArchivedResponseUuidsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/archived-response-uuids/`
-}
-
 export const surveysArchivedResponseUuidsRetrieve = async (
     projectId: string,
     id: string,
@@ -174,16 +174,16 @@ export const surveysArchivedResponseUuidsRetrieve = async (
     })
 }
 
+export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/duplicate_to_projects/`
+}
+
 /**
  * Duplicate a survey to multiple projects in a single transaction.
 
 Accepts a list of target team IDs and creates a copy of the survey in each project.
 Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
  */
-export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/duplicate_to_projects/`
-}
-
 export const surveysDuplicateToProjectsCreate = async (
     projectId: string,
     id: string,
@@ -216,13 +216,13 @@ export const surveysGenerateTranslationsCreate = async (
     })
 }
 
-/**
- * Archive a single survey response.
- */
 export const getSurveysResponsesArchiveCreateUrl = (projectId: string, id: string, responseUuid: string) => {
     return `/api/projects/${projectId}/surveys/${id}/responses/${responseUuid}/archive/`
 }
 
+/**
+ * Archive a single survey response.
+ */
 export const surveysResponsesArchiveCreate = async (
     projectId: string,
     id: string,
@@ -238,13 +238,13 @@ export const surveysResponsesArchiveCreate = async (
     })
 }
 
-/**
- * Unarchive a single survey response.
- */
 export const getSurveysResponsesUnarchiveCreateUrl = (projectId: string, id: string, responseUuid: string) => {
     return `/api/projects/${projectId}/surveys/${id}/responses/${responseUuid}/unarchive/`
 }
 
+/**
+ * Unarchive a single survey response.
+ */
 export const surveysResponsesUnarchiveCreate = async (
     projectId: string,
     id: string,
@@ -260,17 +260,6 @@ export const surveysResponsesUnarchiveCreate = async (
     })
 }
 
-/**
- * Get survey response statistics for a specific survey.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
-
-Returns:
-    Survey statistics including event counts, unique respondents, and conversion rates
- */
 export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params?: SurveysStatsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -287,6 +276,17 @@ export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params
         : `/api/projects/${projectId}/surveys/${id}/stats/`
 }
 
+/**
+ * Get survey response statistics for a specific survey.
+
+Args:
+    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+
+Returns:
+    Survey statistics including event counts, unique respondents, and conversion rates
+ */
 export const surveysStatsRetrieve = async (
     projectId: string,
     id: string,
@@ -346,6 +346,10 @@ export const surveysAllActivityRetrieve = async (projectId: string, options?: Re
     })
 }
 
+export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/surveys/responses_count/`
+}
+
 /**
  * Get response counts for all surveys.
 
@@ -356,10 +360,6 @@ Args:
 Returns:
     Dictionary mapping survey IDs to response counts
  */
-export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/surveys/responses_count/`
-}
-
 export const surveysResponsesCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysResponsesCountRetrieveUrl(projectId), {
         ...options,
@@ -367,16 +367,6 @@ export const surveysResponsesCountRetrieve = async (projectId: string, options?:
     })
 }
 
-/**
- * Get aggregated response statistics across all surveys.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-
-Returns:
-    Aggregated statistics across all surveys including total counts and rates
- */
 export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: SurveysGlobalStatsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -393,6 +383,16 @@ export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: Sur
         : `/api/projects/${projectId}/surveys/stats/`
 }
 
+/**
+ * Get aggregated response statistics across all surveys.
+
+Args:
+    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+
+Returns:
+    Aggregated statistics across all surveys including total counts and rates
+ */
 export const surveysGlobalStatsRetrieve = async (
     projectId: string,
     params?: SurveysGlobalStatsRetrieveParams,

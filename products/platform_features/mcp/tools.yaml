@@ -26,6 +26,9 @@ tools:
         param_overrides:
             page_size:
                 default: 10
+                cast: string-int
+            page:
+                cast: string-int
         url_prefix: /activity
         response:
             include:

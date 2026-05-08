@@ -45,6 +45,23 @@ tools:
             Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is
             removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned
             infrastructure.
+    proxy-diagnose:
+        operation: proxy_records_diagnose_create
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: false
+        title: Diagnose reverse proxy
+        description: >
+            Run a deep diagnostic on a reverse proxy that's stuck or erroring. Inspects the customer's CNAME, the
+            certificate provider's hostname state, CAA records walked up the DNS tree (the most common stuck-validation
+            cause), HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured
+            report with each check's status and concrete remediation steps — including the exact DNS records the
+            customer should add when CAA blocks issuance. Use this when proxy-get returns an erroring or timed_out
+            status, or whenever a user asks why their proxy isn't working.
     proxy-get:
         operation: proxy_records_retrieve
         enabled: true

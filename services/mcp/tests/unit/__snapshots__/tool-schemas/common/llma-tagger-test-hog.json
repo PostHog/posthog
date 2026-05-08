@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "sample_count": {
+            "default": 5,
+            "description": "Number of recent $ai_generation events to test against (1-10, default 5).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+        },
+        "source": {
+            "description": "Hog source code to test. Return a tag name string, a list of tag name strings, or null.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "tags": {
+            "description": "Optional tag whitelist. Returned tags outside this list are filtered out.",
+            "items": {
+                "properties": {
+                    "description": {
+                        "default": "",
+                        "description": "Optional description for the tag.",
+                        "maxLength": 500,
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Tag identifier to allow in Hog test results.",
+                        "maxLength": 100,
+                        "type": "string"
+                    }
+                },
+                "required": ["name"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["source"],
+    "type": "object"
+}

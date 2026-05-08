@@ -1,6 +1,8 @@
 use chrono::Utc;
-use property_defs_rs::types::{detect_property_type, get_floored_last_seen, PropertyValueType};
-use serde_json::{Number, Value};
+use property_defs_rs::types::{
+    detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
+};
+use serde_json::{json, Number, Value};
 
 #[test]
 fn test_date_flooring() {
@@ -422,4 +424,215 @@ fn test_bare_utm_properties_still_string() {
             "expected String for key={key}, value={value}"
         );
     }
+}
+
+#[test]
+fn test_property_keys_are_sanitized_of_null_bytes() {
+    // Property keys with embedded null bytes must be sanitized before reaching Postgres,
+    // otherwise the INSERT fails with 22021 (invalid_text_representation) and burns the
+    // 3-retry batch. We mirror the existing sanitize on event names.
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$pageview".to_string(),
+        properties: Some(r#"{"clean_key":"v","key\u0000with\u0000nulls":"v"}"#.to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    // Expect: 1 EventDefinition + 2 EventProperty + 2 PropertyDefinition = 5 updates
+    assert_eq!(
+        updates.len(),
+        5,
+        "all keys should produce updates: {updates:?}"
+    );
+
+    let replacement_char = '\u{FFFD}';
+
+    let mut saw_sanitized_event_property = false;
+    let mut saw_sanitized_property_definition = false;
+
+    for update in &updates {
+        match update {
+            Update::EventProperty(ep) => {
+                assert!(
+                    !ep.property.contains('\u{0000}'),
+                    "EventProperty.property must not contain null bytes: {:?}",
+                    ep.property
+                );
+                if ep.property.contains(replacement_char) {
+                    saw_sanitized_event_property = true;
+                }
+            }
+            Update::Property(pd) => {
+                assert!(
+                    !pd.name.contains('\u{0000}'),
+                    "PropertyDefinition.name must not contain null bytes: {:?}",
+                    pd.name
+                );
+                if pd.name.contains(replacement_char) {
+                    saw_sanitized_property_definition = true;
+                }
+            }
+            Update::Event(_) => {}
+        }
+    }
+
+    assert!(
+        saw_sanitized_event_property,
+        "expected at least one EventProperty with the sanitized key: {updates:?}"
+    );
+    assert!(
+        saw_sanitized_property_definition,
+        "expected at least one PropertyDefinition with the sanitized name: {updates:?}"
+    );
+}
+
+#[test]
+fn test_event_properties_only_emitted_for_event_parent_type() {
+    let props = json!({
+        "url": "https://example.com",
+        "count": 42,
+        "$set": {
+            "email": "test@example.com",
+            "name": "Test User"
+        }
+    });
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "my_event".to_string(),
+        properties: Some(props.to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    let event_property_keys: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::EventProperty(ep) => Some(ep.property.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Only top-level event properties should produce EventProperty updates;
+    // $set is in SKIP_PROPERTIES so it's excluded from event-type processing
+    assert!(
+        event_property_keys.contains(&"url"),
+        "expected EventProperty for top-level 'url': {event_property_keys:?}"
+    );
+    assert!(
+        event_property_keys.contains(&"count"),
+        "expected EventProperty for top-level 'count': {event_property_keys:?}"
+    );
+    assert_eq!(
+        event_property_keys.len(),
+        2,
+        "expected exactly 2 EventProperty updates (url + count), got: {event_property_keys:?}"
+    );
+    // Person properties from $set must NOT produce EventProperty rows
+    assert!(
+        !event_property_keys.contains(&"email"),
+        "person property 'email' must not appear in EventProperty: {event_property_keys:?}"
+    );
+    assert!(
+        !event_property_keys.contains(&"name"),
+        "person property 'name' must not appear in EventProperty: {event_property_keys:?}"
+    );
+
+    // But person properties should still produce PropertyDefinition updates
+    let prop_def_names: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Property(pd) => Some(pd.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        prop_def_names.contains(&"email"),
+        "expected PropertyDefinition for person property 'email': {prop_def_names:?}"
+    );
+    assert!(
+        prop_def_names.contains(&"name"),
+        "expected PropertyDefinition for person property 'name': {prop_def_names:?}"
+    );
+}
+
+#[test]
+fn test_groupidentify_emits_zero_event_properties() {
+    let props = json!({
+        "$group_type": "company",
+        "$group_key": "posthog",
+        "$group_set": {
+            "name": "PostHog",
+            "industry": "Analytics"
+        }
+    });
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$groupidentify".to_string(),
+        properties: Some(props.to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    let event_property_count = updates
+        .iter()
+        .filter(|u| matches!(u, Update::EventProperty(_)))
+        .count();
+
+    assert_eq!(
+        event_property_count, 0,
+        "expected zero EventProperty updates for $groupidentify, got {event_property_count}: {updates:?}"
+    );
+
+    // Group properties should still produce PropertyDefinition updates
+    let prop_def_names: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Property(pd) => Some(pd.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        prop_def_names.contains(&"name"),
+        "expected PropertyDefinition for group property 'name': {prop_def_names:?}"
+    );
+    assert!(
+        prop_def_names.contains(&"industry"),
+        "expected PropertyDefinition for group property 'industry': {prop_def_names:?}"
+    );
+}
+
+#[test]
+fn test_plain_event_properties_still_emitted() {
+    let props = json!({
+        "page": "/home",
+        "referrer": "https://google.com"
+    });
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$pageview".to_string(),
+        properties: Some(props.to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    let event_property_keys: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::EventProperty(ep) => Some(ep.property.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(
+        event_property_keys.len(),
+        2,
+        "expected exactly 2 EventProperty updates: {event_property_keys:?}"
+    );
+    assert!(event_property_keys.contains(&"page"));
+    assert!(event_property_keys.contains(&"referrer"));
 }

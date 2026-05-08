@@ -189,16 +189,27 @@ function ScrollArea({
     hideScrollbars = false,
     alwaysShowScrollbars = false,
     showScrollToButton,
+    viewportClassName,
     ...props
 }: ScrollAreaPrimitive.Root.Props & {
     scrollShadows?: boolean
     hideScrollbars?: boolean
     alwaysShowScrollbars?: boolean
     showScrollToButton?: ShowScrollToButton
+    viewportClassName?: string
 }): React.ReactElement {
     const viewportRef = React.useRef<HTMLDivElement | null>(null)
     const edges = resolveEdges(showScrollToButton)
-    if (process.env.NODE_ENV !== 'production' && hideScrollbars && alwaysShowScrollbars) {
+    // `typeof process` (vs `process.env.NODE_ENV` directly) avoids the
+    // `Cannot find name 'process'` TS error in builds without
+    // `@types/node`. Surfaced once `dialog.tsx` started importing
+    // `ScrollArea`, which dragged this file into Quill's typecheck.
+    if (
+        typeof process !== 'undefined' &&
+        process.env?.NODE_ENV !== 'production' &&
+        hideScrollbars &&
+        alwaysShowScrollbars
+    ) {
         // eslint-disable-next-line no-console
         console.warn(
             '[ScrollArea] `hideScrollbars` and `alwaysShowScrollbars` are mutually exclusive; `alwaysShowScrollbars` will be ignored.'
@@ -217,7 +228,7 @@ function ScrollArea({
             <ScrollAreaPrimitive.Viewport
                 ref={viewportRef}
                 data-slot="scroll-area-viewport"
-                className="quill-scroll-area__viewport"
+                className={cn("quill-scroll-area__viewport", viewportClassName)}
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>
