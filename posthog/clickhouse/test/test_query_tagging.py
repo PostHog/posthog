@@ -440,6 +440,23 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["hogql_features"] == {"tables": ["events"], "events": []}
         assert comment["product"] == Product.PRODUCT_ANALYTICS.value
 
+    def test_execute_hogql_query_with_mcp_source_still_attributes_via_features(self):
+        # Pulling MCP traffic apart by what it actually does is the whole point
+        # of this fallback — confirm a $exception query from MCP attributes to
+        # error_tracking, not the catch-all MCP product.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, source="mcp", feature="query")
+        execute_hogql_query(
+            f"SELECT count() FROM events WHERE distinct_id = '{marker}' AND event = '$exception'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["product"] == Product.ERROR_TRACKING.value
+
 
 class TestAddFallbackQueryTags(BaseTest):
     def test_does_not_override_set_product(self):
@@ -577,6 +594,28 @@ class TestAddFallbackQueryTags(BaseTest):
         )
         add_fallback_query_tags(tags)
         assert tags.product == Product.MCP
+
+    def test_hogql_features_take_precedence_over_mcp_source(self):
+        # The whole point of the hogql_features fallback is to pull MCP traffic
+        # apart by what it actually does — so even when source=mcp, a recognised
+        # event filter must win over the catch-all MCP attribution.
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            source="mcp",
+            hogql_features=HogQLFeatures(tables=["events"], events=["$exception"]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.ERROR_TRACKING
+
+    def test_hogql_features_table_only_take_precedence_over_mcp_source(self):
+        # Same precedence holds for the table-only path.
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            source="mcp",
+            hogql_features=HogQLFeatures(tables=["session_replay_events"], events=[]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.REPLAY
 
     def test_hogql_features_unmapped_features_fall_through_to_mcp(self):
         # No interesting events, no recognised tables — let the MCP source
