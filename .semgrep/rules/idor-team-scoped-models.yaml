@@ -64,6 +64,7 @@ rules:
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
+                              |BatchExportOnDemand
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
