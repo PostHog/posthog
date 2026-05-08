@@ -437,6 +437,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 row_count=row_count,
                 queryable_folder=queryable_folder,
                 table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                primary_keys=self._resource.primary_keys,
             )
             await self._logger.adebug("Finished validating schema and updating table")
 

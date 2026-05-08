@@ -370,6 +370,7 @@ async def run_post_load_operations(
                     row_count=row_count,
                     queryable_folder=queryable_folder,
                     table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                    primary_keys=resource.primary_keys if resource is not None else None,
                 )
             logger.debug("Finished validating schema and updating table")
 

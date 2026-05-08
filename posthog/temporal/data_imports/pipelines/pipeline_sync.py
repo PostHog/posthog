@@ -140,6 +140,7 @@ async def validate_schema_and_update_table(
     table_format: DataWarehouseTable.TableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -240,10 +241,13 @@ async def validate_schema_and_update_table(
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 # Project to enabled_columns so disabled columns the user already deselected don't
                 # creep back into HogQL via the Delta schema (which still contains them historically).
+                # Prefer source-detected PKs (always present) over the schema model's PKs (only set
+                # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
+                effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
                 columns = filter_dwh_columns_by_enabled_columns(
                     columns,
                     external_data_schema.enabled_columns,
-                    external_data_schema.primary_key_columns,
+                    effective_primary_keys,
                     external_data_schema.incremental_field,
                 )
                 table_for_update.columns = columns

@@ -165,6 +165,7 @@ async def _handle_partial_data_loading(
         row_count=export_signal.cumulative_row_count,
         queryable_folder=queryable_folder,
         table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        primary_keys=export_signal.primary_keys,
     )
 
     logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)
