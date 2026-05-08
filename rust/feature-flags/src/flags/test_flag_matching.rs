@@ -5400,14 +5400,23 @@ mod tests {
             None,
         );
 
-        matcher
-            .prepare_flag_evaluation_state(&[&flag])
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await
             .unwrap();
-
-        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
-        assert!(match_result.matches);
-        assert_eq!(match_result.variant, None);
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get("flag1").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
     }
 
     fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {
