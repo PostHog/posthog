@@ -550,11 +550,6 @@ class TestRunWaDigestBatch(APIBaseTest):
 
 
 class TestIsUserTargetedForDigest(APIBaseTest):
-    """The per-user flag check uses network eval (`only_evaluate_locally=False`)
-    and fails closed: any error treats the user as not targeted, so a flag
-    service outage skips delivery rather than risking double-send on retry.
-    """
-
     def test_returns_true_when_flag_evaluates_true(self):
         with patch(
             "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
@@ -562,9 +557,6 @@ class TestIsUserTargetedForDigest(APIBaseTest):
         ) as mock_flag:
             assert _is_user_targeted_for_digest(self.user, str(self.organization.id)) is True
 
-        # Confirms we are calling the flag service with network eval and the
-        # right group context — guards against accidentally re-introducing
-        # only_evaluate_locally=True.
         kwargs = mock_flag.call_args.kwargs
         assert kwargs["only_evaluate_locally"] is False
         assert kwargs["groups"] == {"organization": str(self.organization.id)}
@@ -585,9 +577,6 @@ class TestIsUserTargetedForDigest(APIBaseTest):
             assert _is_user_targeted_for_digest(self.user, str(self.organization.id)) is False
 
     def test_returns_false_when_flag_evaluator_returns_none(self):
-        # `posthoganalytics.feature_enabled` can return None when even the
-        # network evaluator can't conclusively decide — `bool(None)` is
-        # False, so we treat that as "not targeted" same as an explicit False.
         with patch(
             "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
             return_value=None,

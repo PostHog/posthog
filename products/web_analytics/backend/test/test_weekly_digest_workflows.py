@@ -24,11 +24,6 @@ def _empty_batch_result(batch_size: int) -> DigestBatchResult:
 
 @pytest.mark.asyncio
 async def test_wa_weekly_digest_skips_batch_fanout_when_no_batches_but_still_pushes_metrics() -> None:
-    """An empty discovery result short-circuits the batch fan-out, but we still
-    push the (zero-count) metrics so staleness alerts on `last_run_timestamp`
-    can detect a worker that quietly stopped finding work to do.
-    """
-
     @activity.defn(name="wa-digest-get-org-batches")
     async def _get_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
         return []
@@ -62,8 +57,8 @@ async def test_wa_weekly_digest_skips_batch_fanout_when_no_batches_but_still_pus
     assert result["orgs"] == 0
     assert result["batches"] == 0
     assert result["emails_sent"] == 0
-    assert len(metric_pushes) == 1, "metrics push must happen even on an empty run"
-    assert metric_pushes[0][1] is True, "an empty run is still a successful run"
+    assert len(metric_pushes) == 1
+    assert metric_pushes[0][1] is True
 
 
 @dataclasses.dataclass

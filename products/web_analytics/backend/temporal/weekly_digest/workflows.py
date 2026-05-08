@@ -45,8 +45,6 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: WAWeeklyDigestInput | None = None) -> dict:
-        # Default lets the workflow be started from the Temporal UI without
-        # supplying input — the schedule always passes one explicitly.
         if input is None:
             input = WAWeeklyDigestInput()
 
@@ -92,13 +90,10 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
                 else:
                     totals += r
         else:
-            workflow.logger.info("No org batches for WA weekly digest — pushing zero-counts metric")
+            workflow.logger.info("No org batches for WA weekly digest")
 
         threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
 
-        # Always push metrics, even on empty runs — staleness alerts and "did the
-        # run actually happen" dashboards depend on the timestamp gauge updating
-        # on every successful workflow completion.
         await workflow.execute_activity(
             push_wa_digest_metrics_activity,
             args=[dataclasses.asdict(totals), not threshold_exceeded],

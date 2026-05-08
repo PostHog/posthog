@@ -66,13 +66,6 @@ def _get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
         org_ids = list(input.org_ids)
         logger.info("processing configured orgs for WA digest", count=len(org_ids))
     else:
-        # Discovery used to also filter by `feature_enabled` here against a
-        # synthetic distinct_id (`digest-worker-{org_id}`). That couldn't
-        # match a user-targeted flag (cohort + percentage rollout) since the
-        # synthetic id has no person record, so it silently filtered every
-        # org out and the workflow short-circuited with zero work. The
-        # per-user check below evaluates the flag against real distinct_ids,
-        # which is the correct gate for this flag's targeting model.
         qs = Organization.objects.all()
         cutoff = None
         if input.active_since_days is not None and input.active_since_days > 0:
@@ -187,17 +180,6 @@ def _send_digest_for_user(
 
 
 def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
-    """Network-eval the digest flag for a real user. Falls closed on error so a
-    flag-service blip skips the user instead of either silently sending or
-    indefinitely retrying. Mirrors the patterns in
-    `posthog/temporal/data_imports/workflow_activities/create_job_model.py`
-    and `posthog/temporal/subscriptions/snapshot_activities.py`.
-
-    `only_evaluate_locally=False` is required: the flag's release condition
-    is a user cohort, which can't be reliably evaluated against the worker's
-    local cache (cohort membership needs person properties the worker may
-    not have loaded — silently returns `None` in that case).
-    """
     try:
         return bool(
             posthoganalytics.feature_enabled(
