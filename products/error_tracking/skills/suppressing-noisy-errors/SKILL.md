@@ -204,10 +204,14 @@ rule isn't catching real errors before tightening to `1.0`.
 
 After creating the rule:
 
-- Confirm matching events are no longer being captured (re-run the count from
-  step 5; should drop to near zero)
-- Watch related active issues — if their volume drops in the same window, the
-  rule was scoped correctly
+- Confirm matching events are no longer being captured by running the same
+  filter against a short window scoped to **after** the rule was created
+  (e.g. `WHERE timestamp > now() - INTERVAL 1 HOUR` once an hour has passed).
+  Don't re-run the 7-day estimate from step 5 — suppression only applies to
+  new events, so historical events in the window will still be there and the
+  count won't drop.
+- Watch related active issues over the post-creation window — if their volume
+  drops while non-related issues hold steady, the rule was scoped correctly
 - If a related real issue's volume drops too (false-positive), ask the user to
   disable the rule via **Project settings → Error tracking → Suppression rules**
   immediately and tighten the filter before re-creating it. The MCP tools to
