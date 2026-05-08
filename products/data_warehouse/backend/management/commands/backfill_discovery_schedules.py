@@ -67,7 +67,11 @@ class Command(BaseCommand):
         source_type_filter: str | None = options["source_type"]
         team_id_filter: int | None = options["team_id"]
 
-        queryset = ExternalDataSource.objects.exclude(deleted=True)
+        # Direct-query sources resolve schemas at query time and opt out of all
+        # background sync — they should not get a discovery schedule.
+        queryset = ExternalDataSource.objects.exclude(deleted=True).exclude(
+            access_method=ExternalDataSource.AccessMethod.DIRECT
+        )
         if source_type_filter is not None:
             queryset = queryset.filter(source_type=source_type_filter)
         if team_id_filter is not None:

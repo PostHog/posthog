@@ -11,7 +11,12 @@ from products.data_warehouse.backend.models import ExternalDataSource
 pytestmark = pytest.mark.django_db
 
 
-def _create_source(team, source_type: str = "Stripe", deleted: bool = False) -> ExternalDataSource:
+def _create_source(
+    team,
+    source_type: str = "Stripe",
+    deleted: bool = False,
+    access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
+) -> ExternalDataSource:
     src = ExternalDataSource.objects.create(
         team=team,
         source_id=str(uuid.uuid4()),
@@ -19,6 +24,7 @@ def _create_source(team, source_type: str = "Stripe", deleted: bool = False) -> 
         destination_id=str(uuid.uuid4()),
         source_type=source_type,
         status="Completed",
+        access_method=access_method,
         job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test"}},
     )
     if deleted:
@@ -56,6 +62,19 @@ class TestBackfillDiscoverySchedules:
         for call in mock_sync.call_args_list:
             assert call.kwargs == {"create": False}
         assert "processed=2 skipped_unregistered=0 failed=0" in out.getvalue()
+
+    def test_skips_direct_query_sources(self, team):
+        _create_source(team)
+        _create_source(team, source_type="Postgres", access_method=ExternalDataSource.AccessMethod.DIRECT)
+
+        with patch(
+            "products.data_warehouse.backend.management.commands.backfill_discovery_schedules.sync_discover_schemas_schedule"
+        ) as mock_sync:
+            out = StringIO()
+            call_command("backfill_discovery_schedules", "--live-run", stdout=out)
+
+        assert mock_sync.call_count == 1
+        assert "Found 1 sources to process" in out.getvalue()
 
     def test_skips_soft_deleted_sources(self, team):
         _create_source(team)
