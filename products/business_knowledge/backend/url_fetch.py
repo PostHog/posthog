@@ -200,7 +200,7 @@ def _ssrf_safe_get(
     session = requests.Session()
     session.mount(
         "http://", adapter
-    )  # nosemgrep: request-session-with-http -- adapter must cover both schemes for redirect chains; actual transport is validated per-hop by validate_url_and_pin_ips
+    )  # nosemgrep: request-session-with-http -- covers both schemes for redirect chains; per-hop validate_url_and_pin_ips enforces safety
     session.mount("https://", adapter)
     try:
         for _hop in range(URL_MAX_REDIRECTS + 1):
