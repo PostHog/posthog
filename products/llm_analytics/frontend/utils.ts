@@ -1440,6 +1440,14 @@ export function safeStringify(value: unknown, indent: number = 2): string {
     }
 }
 
+// Escape a value for safe inlining into a single-quoted HogQL string.
+// Use when a `values` dict can't be combined with a `{filters}` placeholder —
+// `parse_select` resolves all placeholders against `values` before
+// `find_placeholders` runs, so the two cannot coexist.
+export function escapeHogqlString(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "''")
+}
+
 export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }

@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoaderLogicType'
-import { parsePartialJSON } from './utils'
+import { escapeHogqlString, parsePartialJSON } from './utils'
 
 export interface TraceMessages {
     firstInput: unknown
@@ -36,11 +36,6 @@ function chunk<T>(arr: T[], size: number): T[][] {
         chunks.push(arr.slice(i, i + size))
     }
     return chunks
-}
-
-// Escape a trace ID for safe inlining into a single-quoted HogQL string.
-function escapeHogqlString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "''")
 }
 
 // "2026-04-11T19:20:55.828Z" → "2026-04-11 19:20:55" (ClickHouse toDateTime format, UTC).

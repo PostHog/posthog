@@ -13,6 +13,7 @@ import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { escapeHogqlString } from '../utils'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
 import { llmTaggersLogic } from './llmTaggersLogic'
 import {
@@ -317,9 +318,8 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             // find_placeholders runs, which means combining `{tagger_id}` with
             // `{filters}` fails — `{filters}` is missing from `values` and the
             // whole query errors out, leaving the runs list silently empty.
-            // The id is escaped via escapeHogqlString as defense in depth (it
-            // comes from the URL path).
-            const escapedTaggerId = props.id.replace(/\\/g, '\\\\').replace(/'/g, "''")
+            // Escape as defense in depth (the id comes from the URL path).
+            const escapedTaggerId = escapeHogqlString(props.id)
             const query: HogQLQuery = {
                 kind: NodeKind.HogQLQuery,
                 query: `
