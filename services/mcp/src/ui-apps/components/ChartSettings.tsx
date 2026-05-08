@@ -62,9 +62,18 @@ interface ChartSettingsProps {
     chartMode: 'line' | 'bar'
     config: ChartConfig
     onChange: (config: ChartConfig) => void
+    /** When true, derived-series toggles (trend line / moving average / CI) are disabled —
+     *  area mode auto-stacks, and overlays drawn at raw per-series values look broken
+     *  against the stacked totals. Mirrors the web trends Options behaviour. */
+    derivedSeriesDisabled?: boolean
 }
 
-export function ChartSettings({ chartMode, config, onChange }: ChartSettingsProps): ReactElement {
+export function ChartSettings({
+    chartMode,
+    config,
+    onChange,
+    derivedSeriesDisabled = false,
+}: ChartSettingsProps): ReactElement {
     const [open, setOpen] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -112,16 +121,19 @@ export function ChartSettings({ chartMode, config, onChange }: ChartSettingsProp
                                 <Toggle
                                     label="Trend line"
                                     checked={config.showTrendLine}
+                                    disabled={derivedSeriesDisabled}
                                     onChange={(v) => update('showTrendLine', v)}
                                 />
                                 <Toggle
                                     label="Moving average"
                                     checked={config.showMovingAverage}
+                                    disabled={derivedSeriesDisabled}
                                     onChange={(v) => update('showMovingAverage', v)}
                                 />
                                 <Toggle
                                     label="Confidence intervals"
                                     checked={config.showConfidenceIntervals}
+                                    disabled={derivedSeriesDisabled}
                                     onChange={(v) => update('showConfidenceIntervals', v)}
                                 />
                                 <Toggle
@@ -178,14 +190,21 @@ function Toggle({
     label,
     checked,
     onChange,
+    disabled = false,
 }: {
     label: string
     checked: boolean
     onChange: (next: boolean) => void
+    disabled?: boolean
 }): ReactElement {
     return (
-        <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <label className={`inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}>
+            <input
+                type="checkbox"
+                checked={checked && !disabled}
+                disabled={disabled}
+                onChange={(e) => onChange(e.target.checked)}
+            />
             {label}
         </label>
     )

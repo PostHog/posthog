@@ -64,6 +64,10 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
 
     const isBar = chartType === 'bar' || chartType === 'stacked-bar'
     const chartFamily = isBar ? 'bar' : 'line'
+    // Area auto-stacks but derived overlays draw at raw per-series values, so they
+    // visually disconnect from the stacked totals. Mirror the web's pattern: disable
+    // those toggles in Options and force them off when rendering area mode.
+    const derivedSeriesDisabled = chartType === 'area'
 
     return (
         <div>
@@ -90,7 +94,12 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     {/* eslint-disable-next-line react/forbid-elements */}
                     <Select value={chartType} onChange={setChartType} options={CHART_TYPE_OPTIONS} />
-                    <ChartSettings chartMode={chartFamily} config={chartConfig} onChange={setChartConfig} />
+                    <ChartSettings
+                        chartMode={chartFamily}
+                        config={chartConfig}
+                        onChange={setChartConfig}
+                        derivedSeriesDisabled={derivedSeriesDisabled}
+                    />
                 </div>
             </div>
             {/* hog-charts canvas uses flex:1 + minHeight:0 — needs a sized flex column parent. */}
@@ -110,10 +119,10 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
                         interval={query?.interval}
                         timezone={timezone}
                         fillArea={chartType === 'area'}
-                        showTrendLine={chartConfig.showTrendLine}
-                        showMovingAverage={chartConfig.showMovingAverage}
+                        showTrendLine={chartConfig.showTrendLine && !derivedSeriesDisabled}
+                        showMovingAverage={chartConfig.showMovingAverage && !derivedSeriesDisabled}
                         showValueLabels={chartConfig.showValueLabels}
-                        showConfidenceIntervals={chartConfig.showConfidenceIntervals}
+                        showConfidenceIntervals={chartConfig.showConfidenceIntervals && !derivedSeriesDisabled}
                         percentStack={chartConfig.percentStack}
                         yUnit={chartConfig.yUnit}
                     />
