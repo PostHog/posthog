@@ -47,8 +47,7 @@ interface AnnotationBadgeCluster {
     annotations: DatedAnnotationType[]
     leftPx: number
     rightPx: number
-    /** Dim the badge when every annotation in the cluster comes from the previous-period
-     *  track. Mixed clusters render at full opacity since they include current data. */
+    /** Mixed clusters render at full opacity — only fully-previous clusters dim. */
     allFromPreviousTrack: boolean
 }
 
@@ -265,8 +264,6 @@ interface AnnotationsBadgeProps {
     widthPx: number
     annotations: DatedAnnotationType[]
     badgeRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>
-    /** Render at reduced opacity so it visually defers to current-period badges. Matches the
-     *  comparison-dimming applied to the previous-period bars themselves. */
     dimmed?: boolean
 }
 

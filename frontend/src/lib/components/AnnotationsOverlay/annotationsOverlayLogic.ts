@@ -29,7 +29,6 @@ import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
     dashboardId: DashboardType['id'] | undefined
     insightNumericId: QueryBasedInsightModel['id'] | 'new'
-    /** Primary timeline (current period). */
     dates: string[]
     ticks: { value: number }[]
     /** Optional secondary timeline. Used by compare-against-previous bar charts so a single
@@ -308,8 +307,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
-                        // Route to the track whose date range contains this annotation. If both
-                        // contain it (unlikely outside overlapping periods), prefer track 0.
+                        // If both ranges contain the date (overlapping periods), prefer track 0.
                         const trackIndex = trackDateRanges.findIndex(
                             (range) => range !== null && date >= range[0] && date < range[1]
                         )
