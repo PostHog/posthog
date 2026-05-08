@@ -19,6 +19,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
 import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
@@ -57,7 +58,7 @@ import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshSt
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
-import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
+import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -90,11 +91,6 @@ export function SurveyViewRedesign(): JSX.Element {
                 key: 'details',
                 label: 'Details',
                 content: <SurveyDetailsPanel />,
-            },
-            {
-                key: 'notifications',
-                label: 'Notifications',
-                content: <SurveyNotificationsPanel />,
             },
             ...(!isDraft
                 ? [
@@ -354,6 +350,11 @@ export function SurveyViewRedesign(): JSX.Element {
                               ]
                             : []),
                         {
+                            key: SurveyTab.NOTIFICATIONS,
+                            label: 'Notifications',
+                            content: <SurveyNotificationsContent />,
+                        },
+                        {
                             key: 'history',
                             label: 'History',
                             content: (
@@ -369,6 +370,21 @@ export function SurveyViewRedesign(): JSX.Element {
             <DuplicateToProjectModal />
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </SceneContent>
+    )
+}
+
+function SurveyNotificationsContent(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+
+    return (
+        <div className="px-4 pb-4">
+            <div className="mx-auto w-full max-w-[1200px]">
+                <SurveyNotifications
+                    surveyId={survey.id}
+                    description="Get notified whenever a survey result is submitted."
+                />
+            </div>
+        </div>
     )
 }
 

@@ -21,7 +21,7 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     evaluation_id: zod.uuid().describe('UUID of the evaluation to run.'),
     target_event_id: zod.uuid().describe('UUID of the $ai_generation event to evaluate.'),
     timestamp: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe('ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup).'),
     event: zod
         .string()
@@ -44,9 +44,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
     evaluation_type: zod
         .enum(['llm_judge', 'hog'])
-        .describe('* `llm_judge` - LLM as a judge\n* `hog` - Hog')
+        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog')
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog"
         ),
     evaluation_config: zod
         .union([
@@ -60,24 +60,24 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .string()
                     .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
+                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
             }),
         ])
         .optional()
         .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
     output_type: zod
         .enum(['boolean'])
-        .describe('* `boolean` - Boolean (Pass/Fail)')
-        .describe("Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)"),
+        .describe('\* `boolean` - Boolean (Pass\/Fail)')
+        .describe("Output format. Currently only 'boolean' is supported.\n\n\* `boolean` - Boolean (Pass\/Fail)"),
     output_config: zod
         .object({
             allows_na: zod
                 .boolean()
                 .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
         })
         .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
+        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
         .unknown()
         .optional()
@@ -85,18 +85,30 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -114,9 +126,9 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
     evaluation_type: zod
         .enum(['llm_judge', 'hog'])
-        .describe('* `llm_judge` - LLM as a judge\n* `hog` - Hog')
+        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog')
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog"
         ),
     evaluation_config: zod
         .union([
@@ -130,24 +142,24 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .string()
                     .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
+                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
             }),
         ])
         .optional()
         .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
     output_type: zod
         .enum(['boolean'])
-        .describe('* `boolean` - Boolean (Pass/Fail)')
-        .describe("Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)"),
+        .describe('\* `boolean` - Boolean (Pass\/Fail)')
+        .describe("Output format. Currently only 'boolean' is supported.\n\n\* `boolean` - Boolean (Pass\/Fail)"),
     output_config: zod
         .object({
             allows_na: zod
                 .boolean()
                 .default(evaluationsUpdateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
         })
         .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
+        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
         .unknown()
         .optional()
@@ -155,18 +167,30 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -184,10 +208,10 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
     evaluation_type: zod
         .enum(['llm_judge', 'hog'])
-        .describe('* `llm_judge` - LLM as a judge\n* `hog` - Hog')
+        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog')
         .optional()
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog"
         ),
     evaluation_config: zod
         .union([
@@ -201,25 +225,25 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .string()
                     .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
+                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
             }),
         ])
         .optional()
         .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
     output_type: zod
         .enum(['boolean'])
-        .describe('* `boolean` - Boolean (Pass/Fail)')
+        .describe('\* `boolean` - Boolean (Pass\/Fail)')
         .optional()
-        .describe("Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)"),
+        .describe("Output format. Currently only 'boolean' is supported.\n\n\* `boolean` - Boolean (Pass\/Fail)"),
     output_config: zod
         .object({
             allows_na: zod
                 .boolean()
                 .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
         })
         .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
+        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
         .unknown()
         .optional()
@@ -227,18 +251,30 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -255,7 +291,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.'),
+        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N\/A.'),
     sample_count: zod
         .number()
         .min(1)
@@ -265,7 +301,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     allows_na: zod
         .boolean()
         .default(evaluationsTestHogCreateBodyAllowsNaDefault)
-        .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+        .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
     conditions: zod
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
@@ -281,7 +317,7 @@ export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsCreateBodyNameMax),
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
-        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
+        .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
     event_filters: zod.unknown().optional(),
     enabled: zod.boolean().optional(),
 })
@@ -295,7 +331,7 @@ export const LlmAnalyticsClusteringJobsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsUpdateBodyNameMax),
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
-        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
+        .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
     event_filters: zod.unknown().optional(),
     enabled: zod.boolean().optional(),
 })
@@ -310,7 +346,7 @@ export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.o
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .optional()
-        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
+        .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
     event_filters: zod.unknown().optional(),
     enabled: zod.boolean().optional(),
 })
@@ -371,17 +407,17 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
             .describe('Maximum number of traces to sample for clustering'),
         embedding_normalization: zod
             .enum(['none', 'l2'])
-            .describe('* `none` - none\n* `l2` - l2')
+            .describe('\* `none` - none\n\* `l2` - l2')
             .default(llmAnalyticsClusteringRunsCreateBodyEmbeddingNormalizationDefault)
             .describe(
-                "Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)\n\n* `none` - none\n* `l2` - l2"
+                "Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)\n\n\* `none` - none\n\* `l2` - l2"
             ),
         dimensionality_reduction_method: zod
             .enum(['none', 'umap', 'pca'])
-            .describe('* `none` - none\n* `umap` - umap\n* `pca` - pca')
+            .describe('\* `none` - none\n\* `umap` - umap\n\* `pca` - pca')
             .default(llmAnalyticsClusteringRunsCreateBodyDimensionalityReductionMethodDefault)
             .describe(
-                "Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'\n\n* `none` - none\n* `umap` - umap\n* `pca` - pca"
+                "Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'\n\n\* `none` - none\n\* `umap` - umap\n\* `pca` - pca"
             ),
         dimensionality_reduction_ndims: zod
             .number()
@@ -391,10 +427,10 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
             .describe("Target dimensions for dimensionality reduction (ignored if method is 'none')"),
         clustering_method: zod
             .enum(['hdbscan', 'kmeans'])
-            .describe('* `hdbscan` - hdbscan\n* `kmeans` - kmeans')
+            .describe('\* `hdbscan` - hdbscan\n\* `kmeans` - kmeans')
             .default(llmAnalyticsClusteringRunsCreateBodyClusteringMethodDefault)
             .describe(
-                "Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)\n\n* `hdbscan` - hdbscan\n* `kmeans` - kmeans"
+                "Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)\n\n\* `hdbscan` - hdbscan\n\* `kmeans` - kmeans"
             ),
         min_cluster_size_fraction: zod
             .number()
@@ -424,13 +460,13 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(llmAnalyticsClusteringRunsCreateBodyRunLabelMax)
             .default(llmAnalyticsClusteringRunsCreateBodyRunLabelDefault)
-            .describe('Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)'),
+            .describe('Optional label\/tag for the clustering run (used as suffix in run_id for tracking experiments)'),
         visualization_method: zod
             .enum(['umap', 'pca', 'tsne'])
-            .describe('* `umap` - umap\n* `pca` - pca\n* `tsne` - tsne')
+            .describe('\* `umap` - umap\n\* `pca` - pca\n\* `tsne` - tsne')
             .default(llmAnalyticsClusteringRunsCreateBodyVisualizationMethodDefault)
             .describe(
-                "Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'\n\n* `umap` - umap\n* `pca` - pca\n* `tsne` - tsne"
+                "Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'\n\n\* `umap` - umap\n\* `pca` - pca\n\* `tsne` - tsne"
             ),
         event_filters: zod
             .array(zod.record(zod.string(), zod.unknown()))
@@ -476,10 +512,10 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
     evaluation: zod.uuid().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
-        .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
+        .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
@@ -488,7 +524,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -498,7 +534,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax)
         .optional()
         .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
         ),
     delivery_targets: zod
         .unknown()
@@ -566,10 +602,10 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
     evaluation: zod.uuid().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
-        .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
+        .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
@@ -578,7 +614,7 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -588,7 +624,7 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsUpdateBodyTimezoneNameMax)
         .optional()
         .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
         ),
     delivery_targets: zod
         .unknown()
@@ -656,10 +692,10 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
     evaluation: zod.uuid().optional().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
-        .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
+        .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
@@ -668,7 +704,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -678,7 +714,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax)
         .optional()
         .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
         ),
     delivery_targets: zod
         .unknown()
@@ -727,7 +763,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
 })
 
 /**
- * 
+ *
 Generate an AI-powered summary of evaluation results.
 
 This endpoint analyzes evaluation runs and identifies patterns in passing
@@ -740,7 +776,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 - Identify systematic issues in LLM responses
 - Get recommendations for improving response quality
 - Review patterns across many evaluation runs at once
-        
+
  */
 export const llmAnalyticsEvaluationSummaryCreateBodyFilterDefault = `all`
 export const llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax = 250
@@ -752,10 +788,10 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
         evaluation_id: zod.uuid().describe('UUID of the evaluation config to summarize'),
         filter: zod
             .enum(['all', 'pass', 'fail', 'na'])
-            .describe('* `all` - all\n* `pass` - pass\n* `fail` - fail\n* `na` - na')
+            .describe('\* `all` - all\n\* `pass` - pass\n\* `fail` - fail\n\* `na` - na')
             .default(llmAnalyticsEvaluationSummaryCreateBodyFilterDefault)
             .describe(
-                "Filter type to apply ('all', 'pass', 'fail', or 'na')\n\n* `all` - all\n* `pass` - pass\n* `fail` - fail\n* `na` - na"
+                "Filter type to apply ('all', 'pass', 'fail', or 'na')\n\n\* `all` - all\n\* `pass` - pass\n\* `fail` - fail\n\* `na` - na"
             ),
         generation_ids: zod
             .array(zod.uuid())
@@ -769,6 +805,18 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
 
+export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
+    experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe('Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.'),
+    date_to: zod
+        .string()
+        .nullish()
+        .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
+})
+
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
@@ -779,7 +827,7 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -802,7 +850,7 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
@@ -826,7 +874,7 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .optional()
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
@@ -852,7 +900,7 @@ export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.obje
     provider: zod
         .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -875,7 +923,7 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
     provider: zod
         .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -930,9 +978,9 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
         .enum(['categorical', 'numeric', 'boolean'])
-        .describe('* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean')
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
         .describe(
-            'Scorer kind. This cannot be changed after creation.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean'
+            'Scorer kind. This cannot be changed after creation.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
         ),
     archived: zod
         .boolean()
@@ -959,10 +1007,10 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .describe('Ordered categorical options available to the scorer.'),
                 selection_mode: zod
                     .enum(['single', 'multiple'])
-                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
                     .optional()
                     .describe(
-                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
                     ),
                 min_selections: zod
                     .number()
@@ -1033,10 +1081,10 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .describe('Ordered categorical options available to the scorer.'),
                 selection_mode: zod
                     .enum(['single', 'multiple'])
-                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
                     .optional()
                     .describe(
-                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
                     ),
                 min_selections: zod
                     .number()
@@ -1067,6 +1115,13 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
             }),
         ])
         .describe('Next immutable scorer configuration.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
+        ),
 })
 
 export const llmAnalyticsSentimentCreateBodyIdsMax = 5
@@ -1082,10 +1137,10 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
     analysis_level: zod
         .enum(['trace', 'generation'])
-        .describe('* `trace` - trace\n* `generation` - generation')
+        .describe('\* `trace` - trace\n\* `generation` - generation')
         .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault)
         .describe(
-            "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n* `trace` - trace\n* `generation` - generation"
+            "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n\* `trace` - trace\n\* `generation` - generation"
         ),
     force_refresh: zod
         .boolean()
@@ -1098,15 +1153,6 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
     date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
 
-/**
- * Fetch the recent $ai_generation events for the sentiment tab.
-
-Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
-`execute_with_ai_events_fallback`, so heavy `input` values survive the
-post-cutover strip on `events.properties.$ai_input`. Frontend callers
-pass the same `HogQLFilters` payload they previously passed to
-`api.query({kind: HogQLQuery, filters: ...})`.
- */
 export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
     .object({
         filters: zod.unknown().optional(),
@@ -1116,7 +1162,7 @@ export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * 
+ *
 Generate an AI-powered summary of an LLM trace or event.
 
 This endpoint analyzes the provided trace/event, generates a line-numbered text
@@ -1137,7 +1183,7 @@ representation, and uses an LLM to create a concise summary with line references
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
 The response includes the structured summary, the text representation, and metadata.
-        
+
  */
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
@@ -1145,17 +1191,17 @@ export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
 export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     summarize_type: zod
         .enum(['trace', 'event'])
-        .describe('* `trace` - trace\n* `event` - event')
+        .describe('\* `trace` - trace\n\* `event` - event')
         .optional()
         .describe(
-            'Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n* `trace` - trace\n* `event` - event'
+            'Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n\* `trace` - trace\n\* `event` - event'
         ),
     mode: zod
         .enum(['minimal', 'detailed'])
-        .describe('* `minimal` - minimal\n* `detailed` - detailed')
+        .describe('\* `minimal` - minimal\n\* `detailed` - detailed')
         .default(llmAnalyticsSummarizationCreateBodyModeDefault)
         .describe(
-            "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n* `minimal` - minimal\n* `detailed` - detailed"
+            "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n\* `minimal` - minimal\n\* `detailed` - detailed"
         ),
     data: zod
         .unknown()
@@ -1188,7 +1234,7 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * 
+ *
 Check which traces have cached summaries available.
 
 This endpoint allows batch checking of multiple trace IDs to see which ones
@@ -1199,7 +1245,7 @@ with their titles.
 - Load cached summaries on session view load
 - Avoid unnecessary LLM calls for already-summarized traces
 - Display summary previews without generating new summaries
-        
+
  */
 export const llmAnalyticsSummarizationBatchCheckCreateBodyTraceIdsMax = 100
 
@@ -1212,14 +1258,14 @@ export const LlmAnalyticsSummarizationBatchCheckCreateBody = /* @__PURE__ */ zod
         .describe('List of trace IDs to check for cached summaries'),
     mode: zod
         .enum(['minimal', 'detailed'])
-        .describe('* `minimal` - minimal\n* `detailed` - detailed')
+        .describe('\* `minimal` - minimal\n\* `detailed` - detailed')
         .default(llmAnalyticsSummarizationBatchCheckCreateBodyModeDefault)
-        .describe('Summary detail level to check for\n\n* `minimal` - minimal\n* `detailed` - detailed'),
+        .describe('Summary detail level to check for\n\n\* `minimal` - minimal\n\* `detailed` - detailed'),
     model: zod.string().nullish().describe('LLM model used for cached summaries'),
 })
 
 /**
- * 
+ *
 Generate a human-readable text representation of an LLM trace event.
 
 This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
@@ -1252,16 +1298,16 @@ into formatted text representations suitable for display, logging, or analysis.
 - Backend LLM context (full): `truncated: false`
 
 The response includes the formatted text and metadata about the rendering.
-        
+
  */
 export const LlmAnalyticsTextReprCreateBody = /* @__PURE__ */ zod.object({
     event_type: zod
         .enum(['$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace'])
         .describe(
-            '* `$ai_generation` - $ai_generation\n* `$ai_span` - $ai_span\n* `$ai_embedding` - $ai_embedding\n* `$ai_trace` - $ai_trace'
+            '\* `$ai_generation` - $ai_generation\n\* `$ai_span` - $ai_span\n\* `$ai_embedding` - $ai_embedding\n\* `$ai_trace` - $ai_trace'
         )
         .describe(
-            'Type of LLM event to stringify\n\n* `$ai_generation` - $ai_generation\n* `$ai_span` - $ai_span\n* `$ai_embedding` - $ai_embedding\n* `$ai_trace` - $ai_trace'
+            'Type of LLM event to stringify\n\n\* `$ai_generation` - $ai_generation\n\* `$ai_span` - $ai_span\n\* `$ai_embedding` - $ai_embedding\n\* `$ai_trace` - $ai_trace'
         ),
     data: zod.unknown().describe("Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields."),
     options: zod
@@ -1274,11 +1320,11 @@ export const LlmAnalyticsTextReprCreateBody = /* @__PURE__ */ zod.object({
             truncate_buffer: zod
                 .number()
                 .optional()
-                .describe('Characters to show at start/end when truncating (default: 1000)'),
+                .describe('Characters to show at start\/end when truncating (default: 1000)'),
             include_markers: zod
                 .boolean()
                 .optional()
-                .describe('Use interactive markers for frontend vs plain text for backend/LLM (default: true)'),
+                .describe('Use interactive markers for frontend vs plain text for backend\/LLM (default: true)'),
             collapsed: zod
                 .boolean()
                 .optional()
@@ -1325,8 +1371,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish()
                     .describe('Categorical option keys selected for this score.'),
                 numeric_value: zod
-                    .string()
-                    .regex(llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp)
+                    .stringFormat('decimal', llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp)
                     .nullish()
                     .describe('Numeric value selected for this score.'),
                 boolean_value: zod.boolean().nullish().describe('Boolean value selected for this score.'),
@@ -1373,8 +1418,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
                     .nullish()
                     .describe('Categorical option keys selected for this score.'),
                 numeric_value: zod
-                    .string()
-                    .regex(llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegExp)
+                    .stringFormat('decimal', llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegExp)
                     .nullish()
                     .describe('Numeric value selected for this score.'),
                 boolean_value: zod.boolean().nullish().describe('Boolean value selected for this score.'),
@@ -1431,7 +1475,7 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+            "List of find\/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
         ),
     base_version: zod
         .number()
@@ -1504,7 +1548,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .max(llmSkillsCreateBodyFilesItemPathMax)
                         .describe(
-                            "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."
+                            "File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."
                         ),
                     content: zod.string().describe('Text content of the file.'),
                     content_type: zod
@@ -1548,7 +1592,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body."
+            "List of find\/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body."
         ),
     description: zod
         .string()
@@ -1573,7 +1617,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
                 path: zod
                     .string()
                     .max(llmSkillsNamePartialUpdateBodyFilesItemPathMax)
-                    .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
+                    .describe("File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."),
                 content: zod.string().describe('Text content of the file.'),
                 content_type: zod
                     .string()
@@ -1602,12 +1646,12 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
                             new: zod.string().describe('Replacement text.'),
                         })
                     )
-                    .describe("Sequential find/replace operations to apply to this file's content."),
+                    .describe("Sequential find\/replace operations to apply to this file's content."),
             })
         )
         .optional()
         .describe(
-            "Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
+            "Per-file find\/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
         ),
     base_version: zod
         .number()
@@ -1634,7 +1678,7 @@ export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
     path: zod
         .string()
         .max(llmSkillsNameFilesCreateBodyPathMax)
-        .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
+        .describe("File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."),
     content: zod.string().describe('Text content of the file.'),
     content_type: zod
         .string()
@@ -1686,7 +1730,7 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
     tagger_type: zod
         .enum(['llm', 'hog'])
-        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .describe('\* `llm` - LLM\n\* `hog` - Hog')
         .default(taggersCreateBodyTaggerTypeDefault),
     tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
     conditions: zod
@@ -1711,18 +1755,30 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional(),
 })
 
@@ -1746,7 +1802,7 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
     tagger_type: zod
         .enum(['llm', 'hog'])
-        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .describe('\* `llm` - LLM\n\* `hog` - Hog')
         .default(taggersTestHogCreateBodyTaggerTypeDefault),
     tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
     conditions: zod
@@ -1771,18 +1827,30 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional(),
 })
 
@@ -1792,11 +1860,11 @@ export const datasetItemsCreateBodyRefSourceIdMax = 255
 
 export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid(),
-    input: zod.unknown().nullish(),
-    output: zod.unknown().nullish(),
-    metadata: zod.unknown().nullish(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
     ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({}).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
     ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
     deleted: zod.boolean().nullish(),
 })
@@ -1807,11 +1875,11 @@ export const datasetItemsUpdateBodyRefSourceIdMax = 255
 
 export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid(),
-    input: zod.unknown().nullish(),
-    output: zod.unknown().nullish(),
-    metadata: zod.unknown().nullish(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
     ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({}).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
     ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
     deleted: zod.boolean().nullish(),
 })
@@ -1822,11 +1890,11 @@ export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
 
 export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid().optional(),
-    input: zod.unknown().nullish(),
-    output: zod.unknown().nullish(),
-    metadata: zod.unknown().nullish(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
     ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({}).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
     ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
     deleted: zod.boolean().nullish(),
 })
@@ -1836,7 +1904,7 @@ export const datasetsCreateBodyNameMax = 400
 export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(datasetsCreateBodyNameMax),
     description: zod.string().nullish(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
 })
 
@@ -1845,7 +1913,7 @@ export const datasetsUpdateBodyNameMax = 400
 export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(datasetsUpdateBodyNameMax),
     description: zod.string().nullish(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
 })
 
@@ -1854,6 +1922,6 @@ export const datasetsPartialUpdateBodyNameMax = 400
 export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
     description: zod.string().nullish(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
 })

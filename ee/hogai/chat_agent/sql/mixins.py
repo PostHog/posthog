@@ -119,14 +119,13 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         )
 
     def _build_axis_formatting(self, result: RawSQLSchemaGeneratorOutput) -> ChartSettingsFormatting | None:
-        if not any(
-            [
-                result.y_axis_format,
-                result.y_axis_decimal_places is not None,
-                result.y_axis_prefix,
-                result.y_axis_suffix,
-            ]
-        ):
+        has_formatting = (
+            result.y_axis_format not in (None, Style.NONE)
+            or result.y_axis_decimal_places is not None
+            or bool(result.y_axis_prefix)
+            or bool(result.y_axis_suffix)
+        )
+        if not has_formatting:
             return None
         return ChartSettingsFormatting(
             style=result.y_axis_format,

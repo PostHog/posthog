@@ -7,6 +7,7 @@ and returns the result synchronously (blocks until Temporal completes).
 import time
 import uuid
 import asyncio
+from collections import namedtuple
 from datetime import timedelta
 
 from django.conf import settings
@@ -24,9 +25,11 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import HogQLFilters
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -113,37 +116,41 @@ class SentimentBatchResponseSerializer(serializers.Serializer):
     results = serializers.DictField(child=SentimentResultSerializer())
 
 
-# SQL template for the sentiment-tab generations list. Reads heavy `input` from
-# `posthog.ai_events`; the resolver re-runs against `events.properties.$ai_input`
-# on the events fallback path. Both branches honour the team's
-# `ai-events-table-rollout` flag and emit `ai_query_source` tags for dashboards.
-_SENTIMENT_GENERATIONS_SQL = f"""
+# Preflight runs against `events` (not `posthog.ai_events`): the events sort
+# key starts `(team_id, toDate(timestamp), event)` so date filtering prunes
+# granules cheaply, while ai_events is `(team_id, trace_id, timestamp)` —
+# unusable for date pruning until trace_id is bounded.
+_SENTIMENT_GENERATIONS_PREFLIGHT_SQL = f"""
 SELECT
-    argMax(uuid, ts) as uuid,
-    trace_id,
-    argMax(ai_input, ts) as ai_input,
-    argMax(model, ts) as model,
-    argMax(did, ts) as distinct_id,
-    max(ts) as timestamp,
-    min(ts) as created_at
-FROM (
-    SELECT
-        uuid,
-        trace_id,
-        input as ai_input,
-        model,
-        distinct_id as did,
-        timestamp as ts
-    FROM posthog.ai_events AS ai_events
-    WHERE event = '$ai_generation'
-        AND length(coalesce(input, '')) > 0
-        AND length(coalesce(trace_id, '')) > 0
-        AND {{filters}}
-)
+    argMax(uuid, timestamp) as uuid,
+    properties.$ai_trace_id as trace_id,
+    argMax(properties.$ai_model, timestamp) as model,
+    argMax(distinct_id, timestamp) as distinct_id,
+    max(timestamp) as timestamp,
+    min(timestamp) as created_at
+FROM events
+WHERE event = '$ai_generation'
+    AND length(coalesce(properties.$ai_trace_id, '')) > 0
+    AND {{filters}}
 GROUP BY trace_id
 ORDER BY timestamp DESC, trace_id DESC
 LIMIT {GENERATIONS_QUERY_LIMIT}
 """
+
+_SENTIMENT_GENERATIONS_HEAVY_SQL = """
+SELECT
+    trace_id,
+    argMax(input, timestamp) as ai_input
+FROM posthog.ai_events AS ai_events
+WHERE event = '$ai_generation'
+    AND trace_id IN {trace_ids}
+    AND uuid IN {uuids}
+    AND timestamp >= {ts_start}
+    AND timestamp <= {ts_end}
+GROUP BY trace_id
+"""
+
+_PreflightRow = namedtuple("_PreflightRow", ["uuid", "trace_id", "model", "distinct_id", "timestamp", "created_at"])
 
 
 class SentimentGenerationsRequestSerializer(serializers.Serializer):
@@ -305,14 +312,6 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     @llma_track_latency("llma_sentiment_generations")
     @monitor(feature=None, endpoint="llma_sentiment_generations", method="POST")
     def generations(self, request: Request, **kwargs) -> Response:
-        """Fetch the recent $ai_generation events for the sentiment tab.
-
-        Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
-        `execute_with_ai_events_fallback`, so heavy `input` values survive the
-        post-cutover strip on `events.properties.$ai_input`. Frontend callers
-        pass the same `HogQLFilters` payload they previously passed to
-        `api.query({kind: HogQLQuery, filters: ...})`.
-        """
         serializer = SentimentGenerationsRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -332,17 +331,47 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             # the full exception representation (CodeQL flagged it as info exposure).
             return Response({"filters": e.errors()}, status=status.HTTP_400_BAD_REQUEST)
 
-        query = parse_select(_SENTIMENT_GENERATIONS_SQL)
-        # Apply dateRange / properties / filterTestAccounts via the standard
-        # `{filters}` placeholder substitution (same machinery the frontend
-        # HogQL path used pre-migration).
-        query_with_filters = replace_filters(query, filters, self.team)
+        preflight_query = replace_filters(parse_select(_SENTIMENT_GENERATIONS_PREFLIGHT_SQL), filters, self.team)
 
         with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
             try:
-                result = execute_with_ai_events_fallback(
-                    query=query_with_filters,
+                preflight_result = execute_hogql_query(
+                    query=preflight_query,
                     placeholders={},
+                    team=self.team,
+                    query_type="LLMSentimentGenerationsTraceIdResolve",
+                    limit_context=LimitContext.QUERY,
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to resolve sentiment generations trace_ids",
+                    team_id=self.team_id,
+                    error=str(e),
+                )
+                return Response(
+                    {"error": "Failed to fetch sentiment generations"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            preflight_rows = [_PreflightRow(*row) for row in (preflight_result.results or [])]
+            if not preflight_rows:
+                return Response({"results": []}, status=status.HTTP_200_OK)
+
+            trace_ids = [str(row.trace_id) for row in preflight_rows]
+            uuids = [str(row.uuid) for row in preflight_rows]
+            ts_start = min(row.created_at for row in preflight_rows)
+            ts_end = max(row.timestamp for row in preflight_rows)
+
+            heavy_query = parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL)
+            try:
+                heavy_result = execute_with_ai_events_fallback(
+                    query=heavy_query,
+                    placeholders={
+                        "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+                        "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
+                        "ts_start": ast.Constant(value=ts_start),
+                        "ts_end": ast.Constant(value=ts_end),
+                    },
                     team=self.team,
                     query_type="LLMSentimentGenerations",
                     limit_context=LimitContext.QUERY,
@@ -358,4 +387,17 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-        return Response({"results": result.results or []}, status=status.HTTP_200_OK)
+        ai_input_by_trace = {str(trace_id): ai_input for trace_id, ai_input in (heavy_result.results or [])}
+        results = [
+            [
+                row.uuid,
+                row.trace_id,
+                ai_input_by_trace.get(str(row.trace_id)),
+                row.model,
+                row.distinct_id,
+                row.timestamp,
+                row.created_at,
+            ]
+            for row in preflight_rows
+        ]
+        return Response({"results": results}, status=status.HTTP_200_OK)

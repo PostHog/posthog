@@ -61,6 +61,8 @@ from posthog.personhog_client.proto import (
     InsertCohortMembersResponse,
     ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse,
+    ListGroupsRequest,
+    ListGroupsResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
@@ -256,6 +258,9 @@ class PersonHogClient:
 
     def get_groups_batch(self, request: GetGroupsBatchRequest) -> GetGroupsBatchResponse:
         return self._stub.GetGroupsBatch(request, timeout=self._timeout)
+
+    def list_groups(self, request: ListGroupsRequest) -> ListGroupsResponse:
+        return self._stub.ListGroups(request, timeout=self._timeout)
 
     def create_group(self, request: CreateGroupRequest) -> CreateGroupResponse:
         return self._stub.CreateGroup(request, timeout=self._timeout)

@@ -168,6 +168,7 @@ async def run_external_data_job_workflow(
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,
