@@ -46,14 +46,15 @@ class CanApprove(permissions.BasePermission):
             except ImportError:
                 return False
 
-            user_roles = set(
-                RoleMembership.objects.filter(
+            user_roles = {
+                str(rid)
+                for rid in RoleMembership.objects.filter(
                     user=user,
                     role__organization=change_request.organization,
                 ).values_list("role_id", flat=True)
-            )
+            }
 
-            if user_roles & set(approver_roles):
+            if user_roles & {str(r) for r in approver_roles}:
                 return True
 
         return False
