@@ -165,7 +165,6 @@ export const FEATURE_FLAGS = {
     HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
 
     // UX flags, used to control the UX of the app
-    AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
@@ -421,6 +420,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
+    PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SELECTION_SCREEN_VARIANT: 'product-selection-screen-variant', // owner: @fercgomes #team-growth multivariate=control,spotlight,multiproduct
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations

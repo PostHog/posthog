@@ -35,10 +35,10 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
             statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
             orderBy: zod
                 .enum(['latest', 'earliest'])
-                .describe('* `latest` - latest\n* `earliest` - earliest')
+                .describe('\* `latest` - latest\n\* `earliest` - earliest')
                 .optional()
                 .describe(
-                    'Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest'
+                    'Order results by timestamp. Defaults to latest.\n\n\* `latest` - latest\n\* `earliest` - earliest'
                 ),
             filterGroup: zod
                 .array(
@@ -46,15 +46,15 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
                             .describe(
-                                '* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                                '\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
                             )
                             .describe(
-                                '\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                                '\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -70,16 +70,16 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )
@@ -126,10 +126,10 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
             statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
             orderBy: zod
                 .enum(['latest', 'earliest'])
-                .describe('* `latest` - latest\n* `earliest` - earliest')
+                .describe('\* `latest` - latest\n\* `earliest` - earliest')
                 .optional()
                 .describe(
-                    'Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest'
+                    'Order results by timestamp. Defaults to latest.\n\n\* `latest` - latest\n\* `earliest` - earliest'
                 ),
             filterGroup: zod
                 .array(
@@ -137,15 +137,15 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
                             .describe(
-                                '* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                                '\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
                             )
                             .describe(
-                                '\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                                '\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -161,16 +161,16 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )

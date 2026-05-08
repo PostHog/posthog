@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 
 import requests
@@ -52,6 +52,16 @@ COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
 COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
     "posthog_cohort_deletion_run_failure_total",
     "Times cohort deletion run failed",
+)
+
+STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
+    "posthog_task_run_stale_queued_swept_total",
+    "TaskRuns marked FAILED by the stale-queued cleanup sweep",
+)
+
+STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_stale_queued_errors_total",
+    "Errors raised while marking a TaskRun FAILED in the stale-queued cleanup sweep",
 )
 
 
@@ -109,6 +119,70 @@ def delete_expired_delegation_invites() -> None:
         swept=swept,
         errors=errors,
         batch_size=BATCH_SIZE,
+    )
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def kill_stale_queued_task_runs() -> None:
+    """Mark TaskRuns stuck in QUEUED for >24h as FAILED.
+
+    A TaskRun sits in QUEUED until the Temporal `process-task` workflow flips it
+    to IN_PROGRESS. If that workflow never starts (worker down, schedule call
+    failed), the row would otherwise stay QUEUED forever. mark_failed() (per row,
+    not bulk .update()) preserves publish_stream_state_event and the
+    `task_run_failed` analytics capture. Materializing ids first avoids
+    server-side cursor invalidation while updating the same table; the inner
+    refetch with status=QUEUED handles the race where a worker picks up the run
+    between selection and update.
+
+    Staleness is keyed on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    re-queues an existing run (status=QUEUED, completed_at=None) without resetting
+    `created_at`; using `created_at` would cause the cleanup to kill freshly
+    re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
+    so a re-queued run won't appear in this candidate set until it has actually
+    been QUEUED for the full STALE_AFTER window.
+    """
+    from products.tasks.backend.models import TaskRun
+
+    BATCH_SIZE = 500
+    STALE_AFTER = datetime.timedelta(hours=24)
+    REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
+
+    cutoff = timezone.now() - STALE_AFTER
+    # Janitor sweep is intentionally cross-team — it runs without a team context.
+    stale_ids = list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
+        )
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:BATCH_SIZE]
+    )
+    swept = 0
+    errors = 0
+    for run_id in stale_ids:
+        # Refetching by pk from the candidate set above; cross-team is intentional.
+        run = TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            pk=run_id, status=TaskRun.Status.QUEUED
+        ).first()
+        if run is None:
+            continue
+        try:
+            run.mark_failed(REASON)
+            swept += 1
+            STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
+        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+            errors += 1
+            STALE_QUEUED_TASK_RUN_ERRORS_COUNTER.inc()
+            capture_exception(exc)
+    saturated = len(stale_ids) >= BATCH_SIZE
+    log = logger.warning if saturated else logger.info
+    log(
+        "kill_stale_queued_task_runs.sweep_done",
+        candidates=len(stale_ids),
+        swept=swept,
+        errors=errors,
+        batch_size=BATCH_SIZE,
+        saturated=saturated,
     )
 
 
@@ -1080,10 +1154,13 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     delete_data_modeling_schedules(team_ids=team_ids)
 
     logger.info("Deleting team records", team_ids=team_ids)
-    if project_id:
-        Project.objects.filter(id=project_id).delete()
-    else:
-        Team.objects.filter(id__in=team_ids).delete()
+    # FOR UPDATE on teams blocks concurrent FK-inserts to any child table during cascade.
+    with transaction.atomic():
+        list(Team.objects.select_for_update().filter(id__in=team_ids))
+        if project_id:
+            Project.objects.filter(id=project_id).delete()
+        else:
+            Team.objects.filter(id__in=team_ids).delete()
 
     logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
     AsyncDeletion.objects.bulk_create(
