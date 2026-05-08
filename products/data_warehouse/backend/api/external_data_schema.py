@@ -455,12 +455,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # disabled column right away. The Delta files still hold the data — re-enabling will
             # repopulate the column on the next sync via merge_columns.
             current_columns = instance.table.columns or {}
-            projected_columns = _filter_dwh_columns_by_enabled_columns(
-                current_columns,
-                validated_data["enabled_columns"],
-                instance.primary_key_columns,
-                instance.incremental_field,
-            )
+            new_enabled = validated_data["enabled_columns"]
+            if new_enabled is None:
+                # Reset to "sync all": restore columns the user previously hid by merging in the
+                # source-side schema metadata. Existing Delta-derived definitions keep precedence
+                # so we don't clobber more accurate ClickHouse types with Postgres-derived ones.
+                metadata_columns = postgres_schema_metadata_to_dwh_columns(instance.schema_metadata)
+                projected_columns = {**metadata_columns, **current_columns}
+            else:
+                projected_columns = _filter_dwh_columns_by_enabled_columns(
+                    current_columns,
+                    new_enabled,
+                    instance.primary_key_columns,
+                    instance.incremental_field,
+                )
             if projected_columns != current_columns:
                 instance.table.columns = projected_columns
                 instance.table.save(update_fields=["columns"])
