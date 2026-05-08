@@ -36,7 +36,7 @@ class TestPandaDocClient(TestCase):
                 recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
                 tokens={"Client.Company": "Acme, Inc.", "Client.StreetAddress": "1 Analytics Way"},
                 metadata={"legal_document_id": "lid-1"},
-                owner_email="privacy@posthog.com",
+                sender_email="privacy@posthog.com",
             )
 
         mock_post.assert_called_once()
@@ -55,12 +55,12 @@ class TestPandaDocClient(TestCase):
             ],
         )
         self.assertEqual(body["metadata"], {"legal_document_id": "lid-1"})
-        self.assertEqual(body["owner"], {"email": "privacy@posthog.com"})
+        self.assertEqual(body["sender"], {"email": "privacy@posthog.com"})
         self.assertEqual(result.id, "doc_123")
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
-    def test_create_document_omits_owner_when_not_provided(self) -> None:
-        # When `owner_email` is None we leave the field off so PandaDoc falls
+    def test_create_document_omits_sender_when_not_provided(self) -> None:
+        # When `sender_email` is None we leave the field off so PandaDoc falls
         # back to the API key's owning user.
         fake_response = MagicMock()
         fake_response.status_code = 201
@@ -77,7 +77,7 @@ class TestPandaDocClient(TestCase):
             )
 
         body = mock_post.call_args.kwargs["json"]
-        self.assertNotIn("owner", body)
+        self.assertNotIn("sender", body)
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_stream_document_yields_raw_binary_stream(self) -> None:
