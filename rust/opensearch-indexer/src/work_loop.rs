@@ -263,6 +263,16 @@ pub async fn run_sink(
                 }
             }
             _ = timer.tick() => {
+                // The recv arm is gated on `gate.ready()`, so when the gate
+                // is closed we won't notice the channel closing via that
+                // path. Detect it here so a consumer panic during a degraded
+                // window doesn't hang the sink until the lifecycle stall
+                // threshold trips.
+                if rx.is_closed() && rx.is_empty() {
+                    flush_remaining(&writer, &mut batch, "channel closed (timer-detected)").await;
+                    info!("Channel closed (detected via timer), sink loop exiting");
+                    return;
+                }
                 if gate.ready() && batch.should_flush_age(config.max_batch_age) {
                     if let Err(e) = flush_and_track(&writer, &mut batch, "age", &mut gate).await {
                         handle.signal_failure(format!("Bulk flush failed (age): {e}"));
