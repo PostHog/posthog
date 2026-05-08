@@ -15,7 +15,6 @@ from posthog.temporal.data_imports.sources.slack.slack import (
     _fetch_all_channels,
     _fetch_all_channels_cached,
     _fetch_channels_by_type,
-    invalidate_channels_cache,
     slack_source,
 )
 
@@ -297,22 +296,51 @@ class TestFetchAllChannelsCached:
         assert b == [{"id": "B1", "name": "b"}]
         assert mock_fetch.call_count == 2
 
-    def test_invalidate_forces_refetch(self) -> None:
+    def test_force_refresh_refetches_and_overwrites_cache(self) -> None:
         with patch(
             "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
         ) as mock_fetch:
             first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
-            invalidate_channels_cache(42)
-            second = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached(
+                integration_id=42, access_token="token", authed_user="U_INSTALLER", force_refresh=True
+            )
+            third = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
 
         assert first == [{"id": "C1", "name": "general"}]
         assert second == [{"id": "C2", "name": "renamed"}]
+        # Third call hits the cache populated by the force_refresh write.
+        assert third == [{"id": "C2", "name": "renamed"}]
         assert mock_fetch.call_count == 2
 
-    def test_invalidate_is_safe_when_no_cache_entry(self) -> None:
-        # Calling invalidate before anything was cached must not raise.
-        invalidate_channels_cache(42)
+    def test_force_refresh_does_not_evict_on_failure(self) -> None:
+        # If the upstream fetch raises, the previous cached value must remain so
+        # concurrent readers continue to see stale-but-valid data.
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[{"id": "C1", "name": "general"}],
+        ):
+            _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=RuntimeError("rate limited"),
+        ):
+            try:
+                _fetch_all_channels_cached(
+                    integration_id=42, access_token="token", authed_user="U_INSTALLER", force_refresh=True
+                )
+            except RuntimeError:
+                pass
+
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[{"id": "WRONG", "name": "should_not_be_called"}],
+        ) as mock_fetch:
+            after = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+
+        assert after == [{"id": "C1", "name": "general"}]
+        assert mock_fetch.call_count == 0
 
 
 class TestSlackSourceGetSchemasForceRefresh:

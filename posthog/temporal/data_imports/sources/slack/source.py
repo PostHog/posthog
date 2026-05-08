@@ -33,7 +33,6 @@ from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, mess
 from posthog.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
     get_channels,
-    invalidate_channels_cache,
     slack_source,
     validate_credentials as validate_slack_credentials,
 )
@@ -191,9 +190,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         authed_user = self._get_authed_user_id(integration)
-        if force_refresh:
-            invalidate_channels_cache(integration.id)
-        channels = get_channels(integration.id, access_token, authed_user)
+        channels = get_channels(integration.id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
