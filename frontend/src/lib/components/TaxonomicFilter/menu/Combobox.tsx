@@ -11,11 +11,12 @@
  * commit. Esc → onBack.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import FuseClass from 'fuse.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
 import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
+
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -26,10 +27,12 @@ import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
 
+// `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
+// only override what's specific to the menu (keys + the
+// `ignoreLocation` switch so a typo near the end of the string still
+// matches).
 const FUSE_OPTIONS = {
     keys: ['name', 'friendlyLabel'],
-    threshold: 0.3,
-    ignoreDiacritics: true,
     ignoreLocation: true,
 }
 
@@ -222,7 +225,11 @@ export function MenuFilterCombobox({
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q ? new FuseClass(indexed, FUSE_OPTIONS as any).search(q).map((r) => r.item) : indexed
+        const base = q
+            ? createFuse(indexed, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
+                  .search(q)
+                  .map((r) => r.item)
+            : indexed
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the

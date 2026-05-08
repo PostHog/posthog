@@ -31,7 +31,6 @@
  * the popover is open so 'All' search has data ready.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import FuseClass from 'fuse.js'
 import { useActions, useValues } from 'kea'
 import {
     createContext,
@@ -69,6 +68,8 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
+
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -239,10 +240,10 @@ function useAutocompleteCtx(): AutocompleteCtx {
     return ctx
 }
 
+// `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
+// only override the keys + the `ignoreLocation` switch here.
 const FUSE_OPTIONS = {
     keys: ['name', 'friendlyLabel'],
-    threshold: 0.3,
-    ignoreDiacritics: true,
     ignoreLocation: true,
 }
 
@@ -510,7 +511,7 @@ export function Root({
         if (!trimmed) {
             return indexed
         }
-        const fuse = new FuseClass(indexed, FUSE_OPTIONS as any)
+        const fuse = createFuse(indexed, FUSE_OPTIONS as Parameters<typeof createFuse<IndexedItem>>[1])
         return fuse.search(trimmed).map((r) => r.item)
     }, [indexed, searchQuery])
 
