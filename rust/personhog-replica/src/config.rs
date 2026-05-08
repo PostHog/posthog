@@ -45,9 +45,8 @@ pub struct Config {
     #[envconfig(default = "30000")]
     pub bulk_statement_timeout_ms: u64,
 
-    /// Acquire timeout for bulk pool (seconds). Shorter than the fast pool
-    /// so bulk queries fail fast under pressure rather than queueing.
-    #[envconfig(default = "5")]
+    /// Acquire timeout for bulk pool (seconds).
+    #[envconfig(default = "10")]
     pub bulk_acquire_timeout_secs: u64,
 
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
