@@ -132,6 +132,7 @@ async function watchApps(apps: string[]): Promise<void> {
                 join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'products/**/mcp/apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
+                join(ROOT_DIR, 'frontend/src/lib/hog-charts/**/*.{ts,tsx,css}'),
             ],
             {
                 ignoreInitial: true,

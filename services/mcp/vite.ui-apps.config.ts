@@ -43,6 +43,14 @@ export default defineConfig({
             products: resolve(__dirname, '../../products'),
             '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
             '@common': resolve(__dirname, '../../common'),
+            // Narrow opt-in to hog-charts. Deliberately no aliases for lib/utils,
+            // lib/colors, lib/dayjs, or lib/statistics — keeping the surface small
+            // forces explicit decisions if hog-charts grows new transitive imports.
+            // The MCP adapter uses the lower-level `LineChart` (only depends on
+            // `core/` + `lib/charts/types`) rather than `TimeSeriesLineChart`
+            // (which transitively pulls auto axis formatters and derived-series).
+            'lib/hog-charts': resolve(__dirname, '../../frontend/src/lib/hog-charts'),
+            'lib/charts/types': resolve(__dirname, '../../frontend/src/lib/charts/types'),
         },
     },
     define: {

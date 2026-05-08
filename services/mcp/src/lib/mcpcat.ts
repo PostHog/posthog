@@ -52,7 +52,7 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
             // own PostHog session UUID. $session_id drives Session Replay; $ai_session_id is what
             // LLM Analytics groups traces by — without overriding it, MCPcat's exporter falls back
             // to `mcpcat_<ksuid>`. Recomputed per event so a late-bound session UUID is picked up.
-            eventTags: async () => {
+            eventTags: async (): Promise<Record<string, string>> => {
                 const sessionUuid = await identity.getSessionUuid()
                 if (!sessionUuid) {
                     return {}

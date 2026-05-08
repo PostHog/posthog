@@ -2,7 +2,8 @@ import { type ReactElement, useState } from 'react'
 
 import { EmptyState } from '@posthog/mosaic'
 
-import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
+import { BarChart, BigNumber, Select, type Series } from './charts'
+import { McpTrendsLineChart } from './McpTrendsLineChart'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
@@ -94,12 +95,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
-                <LineChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
+                <McpTrendsLineChart results={results} />
             )}
         </div>
     )

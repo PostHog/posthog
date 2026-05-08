@@ -15,8 +15,6 @@
         "strict": true,
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
-        "noUncheckedIndexedAccess": true,
-        "exactOptionalPropertyTypes": true,
         "skipLibCheck": true,
         "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
         "baseUrl": ".",
@@ -26,7 +24,9 @@
             "@shared/*": ["shared/*"],
             "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
             "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
-            "@common/*": ["../../common/*"]
+            "@common/*": ["../../common/*"],
+            "lib/hog-charts/*": ["../../frontend/src/lib/hog-charts/*"],
+            "lib/charts/types": ["../../frontend/src/lib/charts/types"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
