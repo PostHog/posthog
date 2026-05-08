@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, uuid, team_id::bigint as \"team_id!\", properties,\n                   properties_last_updated_at, properties_last_operation,\n                   created_at, version, is_identified,\n                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                   last_seen_at\n            FROM posthog_person\n            WHERE team_id = $1 AND id = ANY($2)\n            ",
+  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\", properties,\n                           properties_last_updated_at, properties_last_operation,\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND uuid = ANY($2)\n                    ",
   "describe": {
     "columns": [
       {
@@ -62,7 +62,7 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Int8Array"
+        "UuidArray"
       ]
     },
     "nullable": [
@@ -79,5 +79,5 @@
       true
     ]
   },
-  "hash": "4bfdba594761909a371917ed0cd3baa16ac8749c7dc378183a049ced998fc94e"
+  "hash": "a439ccfbc07305c9ade6b9858dd9f4daff9aaaa4fc9dcb4b136112d8b1f963bd"
 }

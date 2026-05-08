@@ -16,6 +16,8 @@ pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_
 pub(crate) const DB_POOL_ACQUIRE_DURATION: &str = "personhog_replica_db_pool_acquire_duration_ms";
 pub(crate) const DB_ROWS_RETURNED: &str = "personhog_replica_db_rows_returned";
 
+pub(crate) const BULK_CHUNK_SIZE: usize = 200;
+
 /// Consistency level for read operations
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ConsistencyLevel {

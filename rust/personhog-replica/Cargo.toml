@@ -14,6 +14,7 @@ metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
+futures = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }

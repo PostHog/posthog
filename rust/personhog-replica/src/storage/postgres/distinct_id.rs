@@ -2,7 +2,9 @@ use async_trait::async_trait;
 
 use personhog_common::grpc::current_client_name;
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
+use super::{
+    ConsistencyLevel, PostgresStorage, BULK_CHUNK_SIZE, DB_QUERY_DURATION, DB_ROWS_RETURNED,
+};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
 use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
@@ -103,44 +105,56 @@ impl DistinctIdLookup for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.bulk_pool_for_consistency(consistency);
-        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = match limit_per_person {
-            Some(l) => {
-                sqlx::query_as!(
-                    DistinctIdMapping,
-                    r#"
-                    SELECT l.person_id, l.distinct_id, l.version
-                    FROM UNNEST($2::bigint[]) AS pid(id)
-                    CROSS JOIN LATERAL (
-                        SELECT person_id, distinct_id, version
-                        FROM posthog_persondistinctid
-                        WHERE team_id = $1 AND person_id = pid.id
-                        LIMIT $3
-                    ) l
-                    "#,
-                    team_id as i32,
-                    person_ids,
-                    l
-                )
-                .fetch_all(&mut *conn)
-                .await?
-            }
-            _ => {
-                sqlx::query_as!(
-                    DistinctIdMapping,
-                    r#"
-                    SELECT person_id, distinct_id, version
-                    FROM posthog_persondistinctid
-                    WHERE team_id = $1 AND person_id = ANY($2)
-                    "#,
-                    team_id as i32,
-                    person_ids
-                )
-                .fetch_all(&mut *conn)
-                .await?
-            }
-        };
+        let chunk_futures: Vec<_> = person_ids
+            .chunks(BULK_CHUNK_SIZE)
+            .map(|chunk| async move {
+                let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+                let result = match limit_per_person {
+                    Some(l) => {
+                        sqlx::query_as!(
+                            DistinctIdMapping,
+                            r#"
+                            SELECT l.person_id, l.distinct_id, l.version
+                            FROM UNNEST($2::bigint[]) AS pid(id)
+                            CROSS JOIN LATERAL (
+                                SELECT person_id, distinct_id, version
+                                FROM posthog_persondistinctid
+                                WHERE team_id = $1 AND person_id = pid.id
+                                LIMIT $3
+                            ) l
+                            "#,
+                            team_id as i32,
+                            chunk,
+                            l
+                        )
+                        .fetch_all(&mut *conn)
+                        .await?
+                    }
+                    _ => {
+                        sqlx::query_as!(
+                            DistinctIdMapping,
+                            r#"
+                            SELECT person_id, distinct_id, version
+                            FROM posthog_persondistinctid
+                            WHERE team_id = $1 AND person_id = ANY($2)
+                            "#,
+                            team_id as i32,
+                            chunk
+                        )
+                        .fetch_all(&mut *conn)
+                        .await?
+                    }
+                };
+                Ok::<_, crate::storage::error::StorageError>(result)
+            })
+            .collect();
+
+        let rows: Vec<_> = futures::future::try_join_all(chunk_futures)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
