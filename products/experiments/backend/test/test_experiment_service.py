@@ -1939,6 +1939,43 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.end_date is not None
 
+    @parameterized.expand(
+        [
+            ("significant", {"significant": True, "variants": []}, "Primary metric: significant"),
+            ("inconclusive", {"significant": False, "variants": []}, "Primary metric: inconclusive"),
+            ("no_result", None, ""),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_end_experiment_body_reflects_primary_metric_outcome(
+        self,
+        _name: str,
+        metric_result: dict | None,
+        expected_body: str,
+        mock_create_notification: MagicMock,
+    ) -> None:
+        experiment = self._create_running_experiment(
+            name=f"End Body {_name}", feature_flag_key=f"end-body-{_name.replace('_', '-')}-flag"
+        )
+        if metric_result is not None:
+            assert experiment.metrics is not None
+            assert experiment.start_date is not None
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid=experiment.metrics[0]["uuid"],
+                query_from=experiment.start_date,
+                query_to=timezone.now(),
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result=metric_result,
+                completed_at=timezone.now(),
+            )
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.body == expected_body
+
     # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------

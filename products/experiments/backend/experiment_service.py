@@ -1209,7 +1209,7 @@ class ExperimentService:
                         target_id=str(experiment.created_by_id),
                         resource_type="experiment",
                         resource_id=str(experiment.id),
-                        source_url=f"/project/{experiment.team.project_id}/experiments/{experiment.id}",
+                        source_url=f"/project/{self.team.project_id}/experiments/{experiment.id}",
                         source_type=SourceType.EXPERIMENT,
                         source_id=str(experiment.id),
                     )
