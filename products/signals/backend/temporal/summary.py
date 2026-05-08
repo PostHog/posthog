@@ -17,6 +17,7 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -353,7 +354,7 @@ class MarkReportInProgressInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -406,7 +407,7 @@ class MarkReportReadyInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
@@ -463,7 +464,7 @@ class MarkReportFailedInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
@@ -514,7 +515,7 @@ class MarkReportPendingInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
@@ -564,7 +565,7 @@ class ResetReportToPotentialInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:
@@ -610,7 +611,7 @@ class PublishReportCompletedInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def publish_report_completed_activity(input: PublishReportCompletedInput) -> None:
     """Publish a message to Kafka when a report is generated or re-generated."""
     try:

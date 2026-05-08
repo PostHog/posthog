@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import (
     SignalReport,
@@ -413,7 +414,7 @@ async def _persist_agentic_report_artefacts(
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:

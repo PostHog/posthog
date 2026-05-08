@@ -26,12 +26,13 @@ from django.utils.deprecation import MiddlewareMixin
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from prometheus_client import Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties
@@ -363,6 +364,37 @@ class AutoProjectMiddleware:
         return True
 
 
+API_REQUESTS_LATENCY_SECONDS = Histogram(
+    "posthog_api_requests_latency_seconds",
+    "Latency of api/ requests, labelled to expose agent vs browser traffic.",
+    # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
+    # or "error" when the view raised before producing one — keeps error-path
+    # latency from polluting success buckets while still recording it.
+    labelnames=["view", "method", "source", "access_method", "status_class"],
+    # Same buckets as django_prometheus' default so we line up with
+    # django_http_requests_latency_seconds_by_view_method.
+    buckets=(
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.5,
+        5.0,
+        7.5,
+        10.0,
+        25.0,
+        50.0,
+        75.0,
+        float("inf"),
+    ),
+)
+
+
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -375,6 +407,7 @@ class CHQueries:
         """
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
+        is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
 
@@ -396,10 +429,15 @@ class CHQueries:
             **get_mcp_properties(request),
         )
 
+        start = time.perf_counter()
+        # Stays "error" if get_response raises — observed in the finally below.
+        status_class = "error"
+
         try:
             response: HttpResponse = self.get_response(request)
+            status_class = f"{response.status_code // 100}xx"
 
-            if "api/" in request.path and "capture" not in request.path:
+            if is_api_request:
                 statsd.incr(
                     "http_api_request_response",
                     tags={"id": route_id, "status_code": response.status_code},
@@ -407,6 +445,19 @@ class CHQueries:
 
             return response
         finally:
+            if is_api_request:
+                API_REQUESTS_LATENCY_SECONDS.labels(
+                    # DRF viewset name (api:viewset-action) when set, view function name
+                    # otherwise. (Django builds view_name from url_name, so url_name as a
+                    # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
+                    view=route.view_name or route.func.__name__,
+                    method=request.method or "",
+                    # Read after get_response so view code that calls tag_queries(source=...)
+                    # wins — matches access_method semantics, where DRF auth tags during dispatch.
+                    source=get_query_tag_value("source") or "",
+                    access_method=get_query_tag_value("access_method") or "",
+                    status_class=status_class,
+                ).observe(time.perf_counter() - start)
             reset_query_tags()
 
     def _get_param(self, request: HttpRequest, name: str):

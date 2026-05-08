@@ -3430,6 +3430,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@posthog/mcp-analytics':
+        specifier: npm:@posthog/mcp@0.0.2
+        version: '@posthog/mcp@0.0.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)'
       '@posthog/mosaic':
         specifier: workspace:*
         version: link:../../common/mosaic
@@ -9003,6 +9006,9 @@ packages:
   '@posthog/core@1.23.1':
     resolution: {integrity: sha512-GViD5mOv/mcbZcyzz3z9CS0R79JzxVaqEz4sP5Dsea178M/j3ZWe6gaHDZB9yuyGfcmIMQ/8K14yv+7QrK4sQQ==}
 
+  '@posthog/core@1.28.3':
+    resolution: {integrity: sha512-SOy0aphKawZzp8jxfeOpTcXPwi6ii0I2V6tX8YXnM+WbxKKR/R+BXLK0jS6LV8kZtW3H5YxmPAfuIbUP1UnGTw==}
+
   '@posthog/core@1.28.4':
     resolution: {integrity: sha512-wmtUYHYqA3zIAKDKvYWRNWAQsWOIBwxV08e+bWzVy0wQQzpaS/LzzRupXWRMRrLOk+1x3JKFxbqA3n0QGvpqsQ==}
 
@@ -9039,6 +9045,12 @@ packages:
       kea-router: '*'
       react: 18.3.1
       react-dom: 18.3.1
+
+  '@posthog/mcp@0.0.2':
+    resolution: {integrity: sha512-sK0/kY/wyPXzWaX14UrBjA2wTo+K9mUmRfzDBUSDFyyDeZgxEMK2JK/0CeuEI0yXdpTja6rsDlMkRZjYakTFVA==}
+    engines: {node: '>=22.22.0'}
+    peerDependencies:
+      '@modelcontextprotocol/sdk': ^1.29.0
 
   '@posthog/react@1.9.0':
     resolution: {integrity: sha512-lVdTsWT5+PtHBu44gSQ7QohbLjAYqHkFAIGAQ+HV8Eh9yj+OcnQ7mXCmyhaMlTBD3z7D0H1eWMp4vQaFnsIyWQ==}
@@ -9080,6 +9092,9 @@ packages:
 
   '@posthog/types@1.372.10':
     resolution: {integrity: sha512-KuT3vLu3LSFsNWCwasS4gqjH/ysAyIUcB/aJSmKyNhDd/85hAznHRz1eSSl0sMvtsDTYiQIq0I0ybduVbrpPew==}
+
+  '@posthog/types@1.372.9':
+    resolution: {integrity: sha512-B7k9S+H9WUKHXxe1HOkQWbpWtMcrBvsodm5stZaLQ3pYxf9TowtwssdzTtX4hHjzSYqgrS1IpNnJX4vs1KgBzA==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -20168,6 +20183,15 @@ packages:
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
     engines: {node: ^20.20.0 || >=22.22.0}
+
+  posthog-node@5.33.3:
+    resolution: {integrity: sha512-6BkdRtRKf/y/j6JGXLUDWpruL9Rebpe2EtbSU3EB+yaI9ukTwEGT8XJQDyM8wcsxu1HdOnvAwN7gnOOu5OgY2A==}
+    engines: {node: ^20.20.0 || >=22.22.0}
+    peerDependencies:
+      rxjs: ^7.0.0
+    peerDependenciesMeta:
+      rxjs:
+        optional: true
 
   posthtml-parser@0.11.0:
     resolution: {integrity: sha512-QecJtfLekJbWVo/dMAA+OSwY79wpRmbqS5TeXvXSX+f0c6pW4/SE6inzZ2qkU7oAMCPqIDkZDvd/bQsSFUnKyw==}
@@ -32119,6 +32143,10 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
+  '@posthog/core@1.28.3':
+    dependencies:
+      '@posthog/types': 1.372.9
+
   '@posthog/core@1.28.4':
     dependencies:
       '@posthog/types': 1.372.10
@@ -32160,6 +32188,13 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
+  '@posthog/mcp@0.0.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      posthog-node: 5.33.3(rxjs@7.8.1)
+    transitivePeerDependencies:
+      - rxjs
+
   '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.372.10)(react@18.3.1)':
     dependencies:
       posthog-js: 1.372.10
@@ -32200,6 +32235,8 @@ snapshots:
   '@posthog/siphash@1.1.1': {}
 
   '@posthog/types@1.372.10': {}
+
+  '@posthog/types@1.372.9': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -46730,6 +46767,12 @@ snapshots:
   posthog-node@5.25.0:
     dependencies:
       '@posthog/core': 1.23.1
+
+  posthog-node@5.33.3(rxjs@7.8.1):
+    dependencies:
+      '@posthog/core': 1.28.3
+    optionalDependencies:
+      rxjs: 7.8.1
 
   posthtml-parser@0.11.0:
     dependencies:
