@@ -15,14 +15,14 @@ It consumes events from Kafka (produced by the capture service), runs them throu
 processing steps (person resolution, group assignment, property overrides, etc.),
 and produces enriched events to ClickHouse-bound Kafka topics.
 
-A single codebase is deployed as **many K8s Deployments** via the `posthog-node`
-Helm chart. Each deployment sets `PLUGIN_SERVER_MODE` and is distinguished in
-metrics by two default Prometheus labels:
+A single codebase is deployed as **many K8s Deployments** via the `posthog-app`
+Helm chart (golden-chart migration). Each deployment sets `PLUGIN_SERVER_MODE`
+and is distinguished in metrics by two default Prometheus labels:
 
-- `ingestion_pipeline` — values: `general`, `heatmaps`, `client_warnings`, `errortracking`
-- `ingestion_lane` — values: `main`, `overflow`, `historical`, `async`
+- `ingestion_pipeline` — values: `analytics`, `heatmaps`, `clientwarnings`, `errortracking`
+- `ingestion_lane` — values: `main`, `overflow`, `historical`, `async`, `turbo`
 
-The `app` label (set by K8s) matches the deployment name and is the most
+The `app` label (set by K8s pod labels) matches the deployment name and is the most
 universal scope filter across all telemetry domains.
 
 This skill teaches how to **discover live metrics** using the Grafana MCP tools
@@ -47,7 +47,10 @@ and ClickHouse `type` label values are **identical** across prod-us and prod-eu.
 
 Key differences:
 
-- `ingestion-general-turbo` deployment exists only in **prod-us**.
+- `ingestion-analytics-turbo` deployment exists only in **prod-us**.
+- Both envs use a **dedicated ingestion MSK** cluster separate from the events cluster —
+  consumers point at `msk-ingestion` not `events`
+  (prod-us: c21; prod-eu: `posthog-prod-eu-ingestion-2026-05-04`).
 - CloudWatch cluster IDs differ by region suffix (see topology sections below).
 
 ## Observability landscape
@@ -74,54 +77,64 @@ These facts change infrequently and are hard to discover dynamically.
 
 ### Deployment roles
 
-All `PLUGIN_SERVER_MODE=ingestion-v2` deployments (the "analytics ingestion" family), plus specialized modes:
+All `PLUGIN_SERVER_MODE=ingestion-v2` deployments (the "analytics ingestion" family), plus specialized modes.
+Each golden-chart deployment runs in its **own namespace** matching the deployment name.
 
-| Deployment name                | Mode                           | Lane         | Consumer group                | Consume topic pattern                       |
-| ------------------------------ | ------------------------------ | ------------ | ----------------------------- | ------------------------------------------- |
-| `ingestion-events`             | `ingestion-v2`                 | `main`       | `ingestion-events`            | `ingestion-events-{partitions}`             |
-| `ingestion-events-overflow`    | `ingestion-v2`                 | `overflow`   | `ingestion-events-overflow`   | `ingestion-events-overflow-{partitions}`    |
-| `ingestion-events-historical`  | `ingestion-v2`                 | `historical` | `ingestion-events-historical` | `ingestion-events-historical-{partitions}`  |
-| `ingestion-events-async`       | `ingestion-v2`                 | `async`      | `ingestion-events-async`      | `events_plugin_ingestion_async`             |
-| `ingestion-client-warnings`    | `ingestion-v2`                 | —            | `ingestion-client-warnings`   | `client_iwarnings_ingestion`                |
-| `ingestion-heatmaps`           | `ingestion-v2`                 | —            | `ingestion-heatmaps`          | `heatmaps_ingestion`                        |
-| `ingestion-general-turbo`      | `ingestion-v2`                 | —            | `ingestion-general-turbo`     | `ingestion-general-turbo-{partitions}`      |
-| `ingestion-batch-imports`      | `ingestion-v2`                 | —            | `ingestion-batch-imports`     | `ingestion-batch-imports`                   |
-| `ingestion-logs`               | `ingestion-logs`               | —            | `ingestion-logs`              | `logs_ingestion`                            |
-| `ingestion-errortracking-main` | `ingestion-errortracking`      | —            | `ingestion-errortracking`     | `ingestion-errortracking-main-{partitions}` |
-| `recordings-blob-ingestion-v2` | `recordings-blob-ingestion-v2` | —            | `session-recordings-blob-v2`  | `session_recording_snapshot_item_events`    |
+| Deployment name                         | Mode                           | Pipeline         | Lane         | Consumer group                        | Consume topic (EU example)            |
+| --------------------------------------- | ------------------------------ | ---------------- | ------------ | ------------------------------------- | ------------------------------------- |
+| `ingestion-analytics-main`              | `ingestion-v2`                 | `analytics`      | `main`       | `ingestion-analytics-main`            | `ingestion-analytics-main-512`        |
+| `ingestion-analytics-overflow`          | `ingestion-v2`                 | `analytics`      | `overflow`   | `ingestion-analytics-overflow`        | `ingestion-analytics-overflow-128`    |
+| `ingestion-analytics-historical`        | `ingestion-v2`                 | `analytics`      | `historical` | `ingestion-analytics-historical`      | `ingestion-analytics-historical-128`  |
+| `ingestion-analytics-async`             | `ingestion-v2`                 | `analytics`      | `async`      | `ingestion-analytics-async`           | `ingestion-analytics-async-8`         |
+| `ingestion-analytics-turbo`             | `ingestion-v2`                 | `analytics`      | `turbo`      | `ingestion-analytics-turbo`           | `ingestion-analytics-turbo-1024`      |
+| `ingestion-clientwarnings-main`         | `ingestion-v2`                 | `clientwarnings` | —            | `ingestion-clientwarnings-main`       | `ingestion-clientwarnings-main-32`    |
+| `ingestion-heatmaps-main`               | `ingestion-v2`                 | `heatmaps`       | —            | `ingestion-heatmaps-main`             | `ingestion-heatmaps-main-128`         |
+| `ingestion-errortracking-main`          | `ingestion-errortracking`      | `errortracking`  | —            | `ingestion-errortracking-main`        | `ingestion-errortracking-main-128`    |
+| `ingestion-errortracking-overflow`      | `ingestion-errortracking`      | `errortracking`  | —            | `ingestion-errortracking-overflow`    | `ingestion-errortracking-overflow-32` |
+| `logs-ingestion`                        | `ingestion-logs`               | —                | —            | `logs-ingestion`                      | `ingestion-logs`                      |
+| `traces-ingestion`                      | (traces)                       | —                | —            | `traces-ingestion`                    | `ingestion-traces`                    |
+| `recordings-blob-ingestion-v2`          | `recordings-blob-ingestion-v2` | —                | —            | `session-recordings-blob-v2`          | `ingestion-sessionreplay-main-256`    |
+| `recordings-blob-ingestion-v2-overflow` | `recordings-blob-ingestion-v2` | —                | —            | `session-recordings-blob-v2-overflow` | `ingestion-sessionreplay-overflow-32` |
 
-**Note:** `ingestion-general-turbo` exists only in **prod-us**.
+**Notes:**
+
+- `ingestion-analytics-turbo` exists only in **prod-us**.
+- Topic partition counts differ by env (e.g., main is 1024 in US, 512 in EU).
+- Each deployment also has a DLQ topic (`ingestion-analytics-main-dlq`, etc.).
+- KEDA autoscaling queries reference **both old and new** consumer group names during migration
+  (e.g., `groupId=~"ingestion-events|ingestion-analytics-main"`).
 
 ### Metric prefixes
 
 Every prefix here can be discovered live with `list_prometheus_metric_names`
 using `datasourceUid: "victoriametrics"` and `regex: "<prefix>.*"`.
 
-| Prefix                                                                           | Domain                                     | Key scope labels                                   |
-| -------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------- |
-| `ingestion_*`                                                                    | Core ingestion app metrics (~80 metrics)   | `app`, `ingestion_pipeline`, `ingestion_lane`      |
-| `consumed_batch_*`                                                               | Kafka consumer batch processing            | `topic`, `groupId`                                 |
-| `consumer_batch_*` / `consumer_background_*`                                     | Consumer loop health                       | `topic`, `groupId`                                 |
-| `kafka_broker_*`                                                                 | librdkafka broker stats                    | `broker_id`, `broker_name`, `consumer_group`       |
-| `kafka_consumer_*`                                                               | Consumer rebalance, assignment             | `groupId`, `type`                                  |
-| `events_pipeline_*`                                                              | Legacy pipeline step metrics               | `step_name`                                        |
-| `person_*`                                                                       | Person processing (~30 metrics)            | `db_write_mode`, `operation`, `method`             |
-| `group_*` (non-AWS)                                                              | Group processing                           | `operation`                                        |
-| `personhog_*`                                                                    | PersonHog gRPC client + service            | `method`, `source`, `client`                       |
-| `overflow_redirect_*`                                                            | Stateful overflow routing                  | `type`, `result`, `decision`, `operation`          |
-| `cookieless_*`                                                                   | Cookieless mode                            | —                                                  |
-| `http_request_duration_seconds`                                                  | HTTP health/readiness server               | `method`, `route`, `status_code`                   |
-| `recording_blob_ingestion_v2_*`                                                  | Session replay ingestion                   | `app`                                              |
-| `logs_ingestion_*`                                                               | Logs ingestion pipeline                    | `app`                                              |
-| `error_tracking_*` / `cymbal_*`                                                  | Error tracking pipeline                    | `app`                                              |
-| `kminion_kafka_*`                                                                | KMinion consumer group lag & topic offsets | `group_id`, `topic_name`, `partition_id`           |
-| `aws_msk_kafka_*`                                                                | MSK broker-side JMX metrics                | `environment`                                      |
-| `warpstream_agent_*`                                                             | WarpStream agent metrics                   | varies                                             |
-| `kube_*` / `container_*`                                                         | K8s resources                              | `namespace="posthog"`, `container=~"ingestion-.*"` |
-| `pg_*` / `pgbouncer_*`                                                           | Postgres exporter                          | varies                                             |
-| `ClickHouseMetrics_*` / `ClickHouseProfileEvents_*` / `ClickHouseAsyncMetrics_*` | ClickHouse cluster health                  | `type` (=cluster role)                             |
-| `kafka_connect_*`                                                                | Kafka Connect bridge to ClickHouse         | `namespace`, `connector`                           |
-| `posthog_celery_clickhouse_*`                                                    | CH health monitors from Django celery      | `scenario`                                         |
+| Prefix                                                                           | Domain                                     | Key scope labels                                         |
+| -------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------- |
+| `ingestion_*`                                                                    | Core ingestion app metrics (~80 metrics)   | `app`, `ingestion_pipeline`, `ingestion_lane`            |
+| `ingestion_lag_ms*`                                                              | Per-partition lag (primary lag signal)     | `groupId`, `partition`                                   |
+| `consumed_batch_*`                                                               | Kafka consumer batch processing            | `topic`, `groupId`                                       |
+| `consumer_batch_*` / `consumer_background_*`                                     | Consumer loop health                       | `topic`, `groupId`                                       |
+| `kafka_broker_*`                                                                 | librdkafka broker stats                    | `broker_id`, `broker_name`, `consumer_group`             |
+| `kafka_consumer_*`                                                               | Consumer rebalance, assignment             | `groupId`, `type`                                        |
+| `events_pipeline_*`                                                              | Legacy pipeline step metrics               | `step_name`                                              |
+| `person_*`                                                                       | Person processing (~30 metrics)            | `db_write_mode`, `operation`, `method`                   |
+| `group_*` (non-AWS)                                                              | Group processing                           | `operation`                                              |
+| `personhog_*`                                                                    | PersonHog gRPC client + service            | `method`, `source`, `client`                             |
+| `overflow_redirect_*`                                                            | Stateful overflow routing                  | `type`, `result`, `decision`, `operation`                |
+| `cookieless_*`                                                                   | Cookieless mode                            | —                                                        |
+| `http_request_duration_seconds`                                                  | HTTP health/readiness server               | `method`, `route`, `status_code`                         |
+| `recording_blob_ingestion_v2_*`                                                  | Session replay ingestion                   | `app`                                                    |
+| `logs_ingestion_*`                                                               | Logs ingestion pipeline                    | `app`                                                    |
+| `error_tracking_*` / `cymbal_*`                                                  | Error tracking pipeline                    | `app`                                                    |
+| `kminion_kafka_*`                                                                | KMinion consumer group lag & topic offsets | `group_id`, `topic_name`, `partition_id`                 |
+| `aws_msk_kafka_*`                                                                | MSK broker-side JMX metrics                | `environment`                                            |
+| `warpstream_agent_*`                                                             | WarpStream agent metrics (~10 metrics)     | `virtual_cluster_id`, `agent_group`, `operation`         |
+| `kube_*` / `container_*`                                                         | K8s resources                              | `namespace=~"ingestion-.*"`, `container=~"ingestion-.*"` |
+| `pg_*` / `pgbouncer_*`                                                           | Postgres exporter                          | varies                                                   |
+| `ClickHouseMetrics_*` / `ClickHouseProfileEvents_*` / `ClickHouseAsyncMetrics_*` | ClickHouse cluster health                  | `type` (=cluster role)                                   |
+| `kafka_connect_*`                                                                | Kafka Connect bridge to ClickHouse         | `namespace`, `connector`                                 |
+| `posthog_celery_clickhouse_*`                                                    | CH health monitors from Django celery      | `scenario`                                               |
 
 ### Redis topology
 
@@ -139,18 +152,55 @@ Redis health is inferred from ingestion-side metrics and CloudWatch ElastiCache 
 Ingestion-side Redis metrics: `overflow_redirect_redis_*`, `cookieless_redis_error`.
 Infrastructure-side: CloudWatch datasource `P034F075C744B399F`.
 
-prod-eu uses the same logical cluster names but different endpoint suffixes
-(`.mkct36...euc1` instead of `.nfjpjm...use1`).
+prod-eu uses the same logical cluster names but different endpoint suffixes.
 The prod-eu primary Redis is `posthog-prod-redis-encripted` (sic — the typo is in the actual cluster name).
+The event restrictions Redis (`ingestion-prod-redis`) is a **separate writable cluster** from
+the primary — capture-analytics and ingestion workers both use it via `EVENT_RESTRICTIONS_REDIS_URL`.
 
 ### Kafka topology
 
-Two backing systems:
+Ingestion workers interact with **three Kafka systems** via separate producer/consumer configs:
 
-- **MSK** — prod-us: `posthog-prod-us-events-2026-03-08` (12 brokers, `kafka.m7g.8xlarge`, tiered storage); prod-eu: `posthog-prod-eu-events-2025-10-16` (15 brokers, `kafka.m7g.4xlarge`)
-- **WarpStream** — in-cluster agents in `warpstream-ingestion` namespace; virtual cluster `vcn_ingestion_prod_us` / `vcn_ingestion_prod_eu`
+1. **MSK ingestion cluster** (consume side) — `KAFKA_CONSUMER_METADATA_BROKER_LIST`.
+   Capture produces here; ingestion workers consume. Carries all `ingestion-analytics-*`,
+   `ingestion-errortracking-*`, `ingestion-heatmaps-*`, `ingestion-clientwarnings-*` topics.
+   Both envs have a dedicated cluster (prod-us: c21, 12 brokers; prod-eu: `posthog-prod-eu-ingestion-2026-05-04`).
+   KMinion: `kminion-msk-ingestion`.
 
-KMinion instance for MSK: `app_kubernetes_io_instance=~"kminion-msk-analytics"`.
+2. **WarpStream ingestion VC** (output side) — `KAFKA_WARPSTREAM_PRODUCER_METADATA_BROKER_LIST`.
+   Ingestion workers produce ALL ClickHouse-bound output here (`clickhouse_events_json`,
+   `clickhouse_person`, `clickhouse_groups`, `clickhouse_heatmap_events`, `clickhouse_ai_events_json`, etc.).
+   In-cluster WarpStream agents (`warpstream-ingestion-v2`) with multi-AZ pools; plaintext, no TLS.
+   KMinion: `kminion-warpstream-ingestion`.
+
+3. **MSK ingestion cluster** (feedback) — `KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST`.
+   Used for overflow/DLQ/async topics that route events BACK to the ingestion system.
+
+- **MSK (events/analytics)** — the original events cluster. Still carries some legacy topics and
+  ClickHouse consumer groups during migration. prod-us: `posthog-prod-us-events-2026-03-08`
+  (12 brokers, `kafka.m7g.8xlarge`); prod-eu: `posthog-prod-eu-events-2025-10-16` (15 brokers).
+  KMinion: `kminion-msk-analytics`.
+
+**WarpStream virtual clusters** — each VC is a separate logical cluster backed by S3, with its own
+agent pool, KMinion instance, and topic namespace:
+
+| VC name                          | Topics carried                                                                                                                                                                                                                                    | KMinion instance                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `warpstream-ingestion-v2`        | `clickhouse_events_json`, `clickhouse_person`, `clickhouse_groups`, `clickhouse_ai_events_json`, `clickhouse_heatmap_events`, `clickhouse_tophog`, `clickhouse_property_values`, `clickhouse_ingestion_warnings`, `distinct_id_usage_events_json` | `kminion-warpstream-ingestion`           |
+| `warpstream-replay-v2`           | `ingestion-sessionreplay-main-*`, `clickhouse_session_replay_events`, `clickhouse_session_replay_features`                                                                                                                                        | `kminion-warpstream-replay`              |
+| `warpstream-logs`                | `ingestion-logs`, `clickhouse_logs`                                                                                                                                                                                                               | `kminion-warpstream-logs`                |
+| `warpstream-traces`              | `ingestion-traces`, `clickhouse_traces`                                                                                                                                                                                                           | `kminion-warpstream-traces`              |
+| `warpstream-shared`              | `clickhouse_document_embeddings`, error tracking fingerprint/issue topics, `document_embeddings_input`                                                                                                                                            | `kminion-warpstream-shared`              |
+| `warpstream-calculated-events`   | `clickhouse_precalculated_person_properties`, `clickhouse_prefiltered_events`, `cohort_membership_changed`                                                                                                                                        | `kminion-warpstream-calculated-events`   |
+| `warpstream-cyclotron`           | CDP topics (`cdp_cyclotron_hog*`, `cdp_internal_events`, etc.)                                                                                                                                                                                    | `kminion-warpstream-cyclotron`           |
+| `warpstream-warehouse-pipelines` | `data_warehouse_source_webhooks`, `data_warehouse_sources_jobs`                                                                                                                                                                                   | `kminion-warpstream-warehouse-pipelines` |
+
+WarpStream agent metrics: `warpstream_agent_*` prefix (~10 metrics).
+Key: `control_plane_operation_counter` (by `operation`), `file_cache_client_fetch_local_or_remote_counter` (cache hit/miss).
+Labels: `virtual_cluster_id`, `agent_group` (`general`, `multi-az`).
+Dashboards: `warpstream` (Agent Overview), `dbfj5c31spa1ogf` (MSK vs WarpStream — Active Produce Topics),
+`8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream: ClickHouse Consumer Lag),
+`ws-coarse-lag-explore` (Coarse Lag exploration).
 
 ### Postgres topology
 
@@ -195,16 +245,21 @@ like `batch-exports` or `test` may exist only in one env.
 
 **Two consumption paths from Kafka to ClickHouse:**
 
+ClickHouse now reads primarily from the **WarpStream ingestion VC** (where ingestion workers
+produce their output), not directly from MSK.
+
 1. **ClickHouse Kafka Engine** — native CH feature. Metrics prefixed `ClickHouseProfileEvents_Kafka*`
    (e.g., `KafkaMessagesPolled`, `KafkaRowsRead`, `KafkaRowsRejected`, `KafkaCommitFailures`).
    Consumer groups: `clickhouse_events_json` (prod-us), `group1` / `group1_recent` (prod-eu).
+   These groups exist on BOTH MSK analytics and WarpStream ingestion — use the correct KMinion
+   instance to distinguish: `kminion-warpstream-ingestion` for WarpStream, `kminion-msk-analytics` for MSK.
 2. **Kafka Connect** — runs in `kafka-connect` namespace, uses DuckLake sink connector.
    Metrics prefixed `kafka_connect_*` and `kafka_connect_ducklake_sink_task_metrics_*`.
    Consumer groups: `connect-events-ducklake*`.
 
 **Key health signals for ingestion operators:**
 
-- `kminion_kafka_consumer_group_topic_lag{group_id=~"clickhouse_events_json|group1|group1_recent", topic_name="clickhouse_events_json"}` — lag between ingestion output and CH consumption (group name differs by env: `clickhouse_events_json` in prod-us, `group1`/`group1_recent` in prod-eu)
+- `kminion_kafka_consumer_group_topic_lag{app_kubernetes_io_instance="kminion-warpstream-ingestion", group_id=~"clickhouse_events_json|group1|group1_recent", topic_name="clickhouse_events_json"}` — lag between ingestion output and CH consumption on the WarpStream path (the primary path)
 - `kminion_kafka_consumer_group_topic_lag_seconds` with same group filter — same in seconds
 - `ClickHouseProfileEvents_KafkaRowsRejected` — rows CH couldn't parse/insert
 - `ClickHouseProfileEvents_FailedInsertQuery` — insert failures (schema issues, too many parts, etc.)
@@ -215,19 +270,24 @@ like `batch-exports` or `test` may exist only in one env.
 
 ### Pyroscope services
 
-| Service name                                                | Deployment                   |
-| ----------------------------------------------------------- | ---------------------------- |
-| `ingestion/ingestion-events`                                | Main analytics               |
-| `ingestion/ingestion-events-overflow`                       | Overflow lane                |
-| `ingestion/ingestion-events-historical`                     | Historical lane              |
-| `ingestion/ingestion-events-async`                          | Async lane                   |
-| `ingestion/ingestion-heatmaps`                              | Heatmaps                     |
-| `ingestion/ingestion-client-warnings`                       | Client warnings              |
-| `ingestion/ingestion-general-turbo`                         | General turbo (prod-us only) |
-| `ingestion/ingestion-logs`                                  | Logs ingestion               |
-| `ingestion/ingestion-batch-imports`                         | Batch imports                |
-| `ingestion-errortracking-main/ingestion-errortracking-main` | Error tracking               |
-| `recordings/recordings-blob-ingestion-v2`                   | Session replay               |
+Both old (`ingestion/{name}`) and new (`{namespace}/{name}`) formats coexist in Pyroscope
+during the golden-chart migration. Prefer the new `{namespace}/{name}` format.
+
+| Service name (new format)                                           | Deployment                |
+| ------------------------------------------------------------------- | ------------------------- |
+| `ingestion-analytics-main/ingestion-analytics-main`                 | Main analytics            |
+| `ingestion-analytics-overflow/ingestion-analytics-overflow`         | Overflow lane             |
+| `ingestion-analytics-historical/ingestion-analytics-historical`     | Historical lane           |
+| `ingestion-analytics-async/ingestion-analytics-async`               | Async lane                |
+| `ingestion-analytics-turbo/ingestion-analytics-turbo`               | Turbo lane (prod-us only) |
+| `ingestion-heatmaps-main/ingestion-heatmaps-main`                   | Heatmaps                  |
+| `ingestion-clientwarnings-main/ingestion-clientwarnings-main`       | Client warnings           |
+| `ingestion-errortracking-main/ingestion-errortracking-main`         | Error tracking            |
+| `ingestion-errortracking-overflow/ingestion-errortracking-overflow` | Error tracking overflow   |
+| `logs-ingestion/logs-ingestion`                                     | Logs ingestion            |
+| `traces-ingestion/traces-ingestion`                                 | Traces ingestion          |
+| `recordings/recordings-blob-ingestion-v2`                           | Session replay            |
+| `recordings/recordings-blob-ingestion-v2-overflow`                  | Session replay overflow   |
 
 Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 `wall:wall:nanoseconds:wall:nanoseconds`,
@@ -236,32 +296,36 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 
 ### Grafana dashboards
 
-| UID                                    | Title                                       | Focus                                         |
-| -------------------------------------- | ------------------------------------------- | --------------------------------------------- |
-| `ingestion-general`                    | Ingestion - General                         | Cross-service overview, E2E lag, topic flow   |
-| `ingestion-pipelines`                  | Ingestion - Pipelines                       | Per-lane pipeline step breakdown              |
-| `ingestion-pipeline-performance`       | Ingestion - Pipeline Performance            | Step latency, batch utilization               |
-| `ingestion-reliability`                | Ingestion - Reliability                     | Error rates, DLQ, drop causes                 |
-| `ingestion-autoscaling`                | Ingestion - Autoscaling                     | HPA/KEDA scaling                              |
-| `ingestion-person-processing`          | Ingestion -- Person Processing              | Person store, merge, cache                    |
-| `ingestion-group-processing`           | Ingestion -- Group Processing               | Group store                                   |
-| `ingestion-session-recordings`         | Session Replay -- Ingestion                 | Replay blob pipeline                          |
-| `ingestion-capture`                    | Ingestion - Capture                         | Capture-specific ingestion metrics            |
-| `ceef2kuqw66tca`                       | Ingestion copy for warpstream               | WarpStream-specific                           |
-| `personhog-service`                    | Personhog service                           | PersonHog latency decomposition               |
-| `personhog-cdp-migration`              | PersonHog CDP/NodeJS migration              | PersonHog rollout                             |
-| `dbfgkwxs3gw8owd`                      | KMinion Consumer Group Lag                  | Consumer lag by group (including CH groups)   |
-| `logs`                                 | Logs (product)                              | Logs ingestion                                |
-| `vm-clickhouse-cluster-overview`       | ClickHouse (cluster overview)               | QPS, memory, disk, replication, parts, merges |
-| `8aa35a4a-091a-4645-ac8f-ae46901f0060` | ClickHouse Ingestion Layer - Resource Usage | K8s resources for `chi-ingestion-*` pods      |
-| `dafd3tvakk4t1cd`                      | ClickHouse - Data Inserted Per Table        | Insert rates per table                        |
-| `edvegyvt4u8sge`                       | ClickHouse - Query Metrics                  | Query performance                             |
-| `clickhouse-keeper`                    | ClickHouse Keeper                           | ZooKeeper replacement health                  |
-| `ef2loyheonm68a`                       | ClickHouse - table sizes and growth         | Storage growth                                |
-| `ef7h2todfg4xsd`                       | New ClickHouse Cluster Merge Overview       | Merge throughput                              |
-| `cdzv7o1635n9ca`                       | Kafka Connect                               | Kafka Connect tasks, lag, DuckLake sink       |
-| `ddpxkllwxg268e`                       | (ingestion vs past)                         | CH ingestion rate vs historical comparison    |
-| `deoz13wy08wsga`                       | ClickHouse - Disk capacity (EU ONLY)        | EU-specific disk dashboard                    |
+| UID                                    | Title                                       | Focus                                               |
+| -------------------------------------- | ------------------------------------------- | --------------------------------------------------- |
+| `ingestion-general`                    | Ingestion - General                         | Cross-service overview, E2E lag, topic flow         |
+| `ingestion-analytics`                  | Ingestion - Analytics                       | Per-pipeline analytics breakdown                    |
+| `ingestion-health`                     | Ingestion - Health                          | Health overview across all ingestion services       |
+| `ingestion-pipelines`                  | Ingestion - Pipelines                       | Per-lane pipeline step breakdown                    |
+| `ingestion-pipeline-performance`       | Ingestion - Pipeline Performance            | Step latency, batch utilization                     |
+| `ingestion-reliability`                | Ingestion - Reliability                     | Error rates, DLQ, drop causes                       |
+| `ingestion-autoscaling`                | Ingestion - Autoscaling                     | HPA/KEDA scaling                                    |
+| `ingestion-person-processing`          | Ingestion -- Person Processing              | Person store, merge, cache                          |
+| `ingestion-group-processing`           | Ingestion -- Group Processing               | Group store                                         |
+| `ingestion-session-recordings`         | Session Replay -- Ingestion                 | Replay blob pipeline                                |
+| `dffkdlee8ub5s0a`                      | Ingestion - Capture Golden                  | Capture-specific ingestion metrics (golden chart)   |
+| `cesaxfujkyl8gf`                       | Ingestion - Deduplication                   | Event deduplication pipeline                        |
+| `pl-ingestion-slas`                    | Ingestion — SLIs / SLOs / SLAs              | Dynamic SLI/SLO view from `ingestion_sli_*` metrics |
+| `warpstream`                           | Warpstream Agent Overview                   | Agent health, control plane ops, file cache         |
+| `dbfj5c31spa1ogf`                      | MSK vs Warpstream — Active Produce Topics   | Side-by-side produce volume comparison              |
+| `8e93b023-a544-4a3b-8fac-123459d4eb84` | WarpStream: ClickHouse Consumer Lag         | CH consumer lag on WarpStream topics                |
+| `ws-coarse-lag-explore`                | WarpStream Coarse Lag — Explore             | Agent-reported lag (coarse, use with caution)       |
+| `ceef2kuqw66tca`                       | Ingestion copy for warpstream               | Legacy WarpStream migration view                    |
+| `personhog-service`                    | Personhog service                           | PersonHog latency decomposition                     |
+| `dbfgkwxs3gw8owd`                      | KMinion Consumer Group Lag                  | Consumer lag by group (including CH groups)         |
+| `logs`                                 | Logs (product)                              | Logs ingestion                                      |
+| `vm-clickhouse-cluster-overview`       | ClickHouse (cluster overview)               | QPS, memory, disk, replication, parts, merges       |
+| `8aa35a4a-091a-4645-ac8f-ae46901f0060` | ClickHouse Ingestion Layer - Resource Usage | K8s resources for `chi-ingestion-*` pods            |
+| `ddpxkllwxg268e`                       | ClickHouse - Kafka consumption              | CH Kafka engine consumption stats                   |
+| `clickhouse-keeper`                    | ClickHouse Keeper                           | ZooKeeper replacement health                        |
+| `ef7h2todfg4xsd`                       | New ClickHouse Cluster Merge Overview       | Merge throughput                                    |
+| `cdzv7o1635n9ca`                       | Kafka Connect                               | Kafka Connect tasks, lag, DuckLake sink             |
+| `deoz13wy08wsga`                       | ClickHouse - Disk capacity (EU ONLY)        | EU-specific disk dashboard                          |
 
 ## Discovery workflows
 
@@ -279,13 +343,13 @@ Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
 ### Loki (logs)
 
 1. `list_loki_label_names` — `datasourceUid: "P44D702D3E93867EC"`
-2. `list_loki_label_values` for `app` — find ingestion containers (values like `ingestion-events`, `ingestion-logs`, etc.)
+2. `list_loki_label_values` for `app` — find ingestion containers (values like `ingestion-analytics-main`, `logs-ingestion`, etc.)
 3. `query_loki_logs` — e.g. `{app=~"ingestion-.*"} |= "error"` or `{namespace="clickhouse"} |= "Exception"`
 
 ### Pyroscope (profiling)
 
 1. `list_pyroscope_profile_types` — `data_source_uid: "pyroscope"`
-2. `fetch_pyroscope_profile` — `matchers: '{service_name="ingestion/ingestion-events"}'`,
+2. `fetch_pyroscope_profile` — `matchers: '{service_name="ingestion-analytics-main/ingestion-analytics-main"}'`,
    `profile_type: "process_cpu:cpu:nanoseconds:cpu:nanoseconds"`
 
 ### Dashboards
@@ -316,10 +380,12 @@ Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
 - Kafka engine health: regex `"ClickHouseProfileEvents_Kafka.*"`
 - Kafka Connect: regex `"kafka_connect_.*"` — scope with `namespace="kafka-connect"`
 - Consumer lag (the bridge): `kminion_kafka_consumer_group_topic_lag` with
-  `group_id=~"clickhouse_events_json|group1|group1_recent|connect-events-ducklake.*"` and `topic_name="clickhouse_events_json"`
+  `group_id=~"clickhouse_events_json|group1|group1_recent|connect-events-ducklake.*"` and `topic_name="clickhouse_events_json"`.
+  **Important:** scope with `app_kubernetes_io_instance="kminion-warpstream-ingestion"` for the
+  WarpStream path (primary) or `"kminion-msk-analytics"` for the MSK path.
 - Logs: `{namespace="clickhouse"} |= "Exception"` or `{namespace="kafka-connect"}`
 - Dashboards: `vm-clickhouse-cluster-overview`, `8aa35a4a-091a-4645-ac8f-ae46901f0060`,
-  `cdzv7o1635n9ca`
+  `cdzv7o1635n9ca`, `8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream CH consumer lag)
 
 ## Key metric domains
 
@@ -349,7 +415,7 @@ to the query layer. Metrics: `ClickHouseMetrics_*`, `ClickHouseProfileEvents_*`,
 `ClickHouseAsyncMetrics_*` scoped by `type`; `kafka_connect_*` scoped by `namespace`.
 
 **K8s resources** — `container_*` and `kube_*` for CPU, memory, restarts, HPA state.
-Scope: `namespace="posthog"`, `pod=~"ingestion-.*"` (or `namespace="clickhouse"`,
+Scope: `namespace=~"ingestion-.*"`, `pod=~"ingestion-.*"` (or `namespace="clickhouse"`,
 `pod=~"chi-ingestion-.*"` for CH ingestion pods).
 
 ## Investigation playbooks

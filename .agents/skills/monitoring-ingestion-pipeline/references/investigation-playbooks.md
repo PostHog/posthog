@@ -11,16 +11,19 @@ Start by pulling up the main dashboard:
 
 Then verify these signals in order:
 
-1. **E2E event lag** — `posthog_celery_observed_ingestion_lag_seconds{scenario="ingestion_api"}`.
-   This is the Django-measured end-to-end lag from event capture to ClickHouse visibility.
-   Sustained values > 60s warrant investigation.
+1. **E2E event lag** — two complementary metrics:
+   - `ingestion_lag_ms{groupId=~"ingestion-analytics-main"}` — per-partition lag measured
+     by the consumer itself; the primary signal driving KEDA autoscaling.
+   - `posthog_celery_observed_ingestion_lag_seconds{scenario="ingestion_api"}` —
+     Django-measured end-to-end lag from event capture to ClickHouse visibility.
+     Sustained values > 60s on either warrant investigation.
 2. **Consumer group lag** — `kminion_kafka_consumer_group_topic_lag_seconds` scoped to
-   key groups: `ingestion-events`, `ingestion-events-overflow`, `session-recordings-blob-v2`.
+   key groups: `ingestion-analytics-main`, `ingestion-analytics-overflow`, `session-recordings-blob-v2`.
    Growing lag = consumers falling behind.
 3. **Pipeline results** — `ingestion_pipeline_results` by `result`.
    Watch for rising `dlq` or `dropped` rates relative to `ingested`.
 4. **Pod restarts** — `kube_pod_container_status_restarts_total` for
-   `namespace="posthog"`, `pod=~"ingestion-.*"`. Any recent restarts?
+   `namespace=~"ingestion-.*"`, `pod=~"ingestion-.*"`. Any recent restarts?
 5. **ClickHouse consumer lag** — `kminion_kafka_consumer_group_topic_lag{group_id=~"clickhouse_events_json|group1|group1_recent", topic_name="clickhouse_events_json"}`.
    This is the final leg: even if ingestion workers are healthy, CH lag means users see stale data.
    (Consumer group name differs by env: `clickhouse_events_json` in prod-us, `group1`/`group1_recent` in prod-eu.)
@@ -82,7 +85,7 @@ Diagnose layer by layer, from consumer to output:
    Partitions should be evenly distributed. Zero = consumer not assigned.
 5. **Rebalance events** — `consumer_background_task_timeout_total` for timeouts
    that trigger rebalances. Check Loki logs for rebalance messages:
-   `{app=~"ingestion-events.*"} |= "rebalance"`.
+   `{app=~"ingestion-analytics.*"} |= "rebalance"`.
 6. **Backpressure from downstream** — if Kafka production to output topics is slow
    (`ingestion_outputs_latency_seconds` high), the consumer can't commit offsets fast enough.
 
@@ -108,15 +111,25 @@ Diagnose layer by layer, from consumer to output:
 1. **Broker RTT** — `kafka_broker_rtt_us` by `broker_name` and `consumer_group`.
    Identify if a single broker is slow vs all brokers.
 2. **Broker connectivity** — check for librdkafka error logs in Loki:
-   `{app=~"ingestion-events.*"} |= "broker"`.
+   `{app=~"ingestion-analytics.*"} |= "broker"`.
 3. **MSK JMX metrics** — `list_prometheus_metric_names` regex `"aws_msk_kafka.*"`.
    Key signals: throttle time, network processor idle %, request queue size.
-4. **WarpStream** — `warpstream_agent_*` metrics for WarpStream-backed topics.
-   Scope to `warpstream-ingestion` namespace.
+4. **WarpStream agent health** — `warpstream_agent_*` metrics. Ingestion workers
+   produce ALL ClickHouse-bound output to WarpStream (`warpstream-ingestion-v2` VC).
+   Key signals:
+   - `warpstream_agent_control_plane_operation_counter` by `operation` — control plane errors
+   - `warpstream_agent_file_cache_client_fetch_local_or_remote_counter` — cache hit/miss
+   - Agent groups: `general` (consumer-side, single-AZ) and `multi-az` (producer-side)
+     Dashboards: `warpstream` (Agent Overview), `dbfj5c31spa1ogf` (MSK vs WarpStream topics).
+     Per-VC KMinion: `kminion-warpstream-ingestion`, `kminion-warpstream-replay`,
+     `kminion-warpstream-logs`, `kminion-warpstream-traces`, etc.
 5. **KMinion cluster view** — dashboard `dbfgkwxs3gw8owd` for lag across all
-   consumer groups and topics.
+   consumer groups and topics. Note: there are separate KMinion instances per
+   WarpStream VC (`kminion-warpstream-*`) and per MSK cluster (`kminion-msk-*`).
+   Scope lag queries with `app_kubernetes_io_instance` to target the correct backing system.
 6. **Topic production** — `ingestion_outputs_message_value_bytes` by `topic` for
-   output volume. Compare with consumption rate to find bottlenecks.
+   output volume. These go to WarpStream, not MSK. Compare with CH consumption
+   rate to find bottlenecks.
 
 ## 7. "Redis problems" — diagnosing Redis dependency failures
 
@@ -137,7 +150,7 @@ Then check infrastructure health:
    Cluster IDs: `ingestion-prod-redis`, `posthog-solo` (prod-us primary),
    `cookieless-prod-redis`, `ingestion-duplicates-prod-redis`.
    prod-eu primary: `posthog-prod-redis-encripted` (sic).
-2. **Loki logs** — `{app=~"ingestion-events.*"} |= "redis" |= "error"`.
+2. **Loki logs** — `{app=~"ingestion-analytics.*"} |= "redis" |= "error"`.
 3. **Fail-open behavior** — ingestion workers are generally designed to fail open
    for Redis failures, but overflow routing accuracy degrades.
 
@@ -153,8 +166,8 @@ Then check infrastructure health:
    Key metrics: `CPUUtilization`, `ReadLatency`, `WriteLatency`, `DatabaseConnections`.
 4. **Postgres exporter** — `list_prometheus_metric_names` regex `"pg_.*"`.
    `prometheus-postgres-exporter` and `prometheus-postgres-persons-exporter`.
-5. **Loki logs** — `{app=~"ingestion-events.*"} |= "postgres" |= "error"` or
-   `{app=~"ingestion-events.*"} |= "ECONNREFUSED"`.
+5. **Loki logs** — `{app=~"ingestion-analytics.*"} |= "postgres" |= "error"` or
+   `{app=~"ingestion-analytics.*"} |= "ECONNREFUSED"`.
 
 ## 9. "Session replay ingestion issues" — replay pipeline
 
@@ -163,6 +176,7 @@ Then check infrastructure health:
 3. **Replay metrics** — `list_prometheus_metric_names` regex `"recording_blob_ingestion_v2_.*"`.
    Key: batch size, S3 upload latency, session manager operations.
 4. **K8s resources** — scope to `app="recordings-blob-ingestion-v2"`.
+   Also check `recordings-blob-ingestion-v2-overflow` for overflow pipeline health.
 5. **Pyroscope** — profile `recordings/recordings-blob-ingestion-v2` for CPU/memory hotspots.
 
 ## 10. "ClickHouse ingestion is behind" — downstream health
@@ -170,10 +184,13 @@ Then check infrastructure health:
 ClickHouse lag means users see stale data even if ingestion workers are healthy.
 
 1. **Consumer lag on `clickhouse_events_json`** —
-   `kminion_kafka_consumer_group_topic_lag{group_id=~"clickhouse_events_json|group1|group1_recent", topic_name="clickhouse_events_json"}`.
+   ClickHouse now reads primarily from the **WarpStream ingestion VC**, so scope to the
+   correct KMinion instance:
+   `kminion_kafka_consumer_group_topic_lag{app_kubernetes_io_instance="kminion-warpstream-ingestion", group_id=~"clickhouse_events_json|group1|group1_recent", topic_name="clickhouse_events_json"}`.
    Also check `kminion_kafka_consumer_group_topic_lag_seconds` for time-based lag.
    (Consumer group name differs by env: `clickhouse_events_json` in prod-us, `group1`/`group1_recent` in prod-eu.)
-   Dashboard: `dbfgkwxs3gw8owd` (KMinion Consumer Group Lag).
+   Dashboard: `8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream: ClickHouse Consumer Lag),
+   `dbfgkwxs3gw8owd` (KMinion Consumer Group Lag — all backing systems).
 
 2. **CH Kafka engine errors** — `ClickHouseProfileEvents_KafkaRowsRejected{type="events"}` rate.
    Also `ClickHouseProfileEvents_KafkaConsumerErrors` and `KafkaCommitFailures`.
@@ -227,4 +244,9 @@ For cross-environment comparison:
    - Redis: `posthog-solo` (US) vs `posthog-prod-redis-encripted` (EU) for primary
    - MSK: `posthog-prod-us-events-*` vs `posthog-prod-eu-events-*`
    - RDS: `posthog-cloud-prod-us-east-1` vs `posthog-cloud-prod-eu-central-1`
-5. **Deployment differences** — `ingestion-general-turbo` exists only in **prod-us**.
+5. **Deployment differences** — `ingestion-analytics-turbo` exists only in **prod-us**.
+6. **Kafka topology** — both envs use a **dedicated ingestion MSK** cluster
+   (prod-us: c21; prod-eu: `posthog-prod-eu-ingestion-*`) for the consume side and
+   **WarpStream** (`warpstream-ingestion-v2` VC) for the ClickHouse output side.
+   Topic partition counts differ (e.g., main is 1024 in US, 512 in EU; clientwarnings is 16 in US, 32 in EU).
+   WarpStream VCs exist in both envs with the same logical names but different `virtual_cluster_id` values.
