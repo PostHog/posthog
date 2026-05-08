@@ -43,6 +43,8 @@ FILE_DOWNLOAD_PREFIX = (
 
 NON_RETRYABLE_ERROR_TYPES = ()
 
+SESSION = aioboto3.Session()
+
 
 class Credentials(typing.NamedTuple):
     aws_access_key_id: str
@@ -98,9 +100,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
     `_get_temporary_credentials_for_multipart_upload` or
     `_get_temporary_credentials_to_head_object` as needed.
     """
-    session = aioboto3.Session()
-
-    async with session.client("sts") as sts:
+    async with SESSION.client("sts") as sts:
         for attempt in range(1, max_attempts + 1):
             try:
                 response = await sts.assume_role(
@@ -173,7 +173,6 @@ FileDownloadIds = list[uuid.UUID]
 
 
 @activity.defn
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def generate_file_downloads(inputs: GenerateFileDownloadsInputs) -> FileDownloadIds:
     """Generate file downloads for given keys."""
     existing = [
@@ -325,8 +324,10 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
 
         interval_delta = data_interval_end_dt - data_interval_start_dt
 
+        on_demand = False
         if inputs.batch_export_run_id is not None:
             run_id = str(inputs.batch_export_run_id)
+            on_demand = True
         else:
             start_batch_export_run_inputs = StartBatchExportRunInputs(
                 team_id=inputs.team_id,
@@ -363,6 +364,7 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
                 data_interval_start=data_interval_start_dt.isoformat() if not should_backfill_from_beginning else None,
                 data_interval_end=data_interval_end_dt.isoformat(),
                 destination_default_fields=s3_default_fields(),
+                on_demand=on_demand,
             ),
             s3_bucket=S3Bucket(
                 name=settings.BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET,
@@ -397,7 +399,7 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=1),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=3,
             ),
         )
 
