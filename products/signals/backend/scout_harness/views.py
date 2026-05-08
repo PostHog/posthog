@@ -391,18 +391,13 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     queryset = SignalProjectProfile.objects.all()
     pagination_class = None
 
-<<<<<<< HEAD:products/signals/backend/scout_harness/views.py
     # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,
     # which renders as `signals-scout-project-profile-list` in the MCP. The agent-facing
     # tool is semantically a "get the current profile" (singleton), not a "list" — override
     # the id so it matches the tool name in tools.yaml and the scout's bootstrap step.
-    @extend_schema(
-        operation_id="signals_scout_project_profile_get",
-=======
     @validated_request(
-        operation_id="signals_agent_project_profile_get",
+        operation_id="signals_scout_project_profile_get",
         query_serializer=ProjectProfileQuerySerializer,
->>>>>>> ecb903cbc9c (feat(signals): cache project profile for 1h, with force_refresh punch-through):products/signals/backend/agent_harness/views.py
         responses={
             200: OpenApiResponse(
                 response=ProjectProfileSerializer,

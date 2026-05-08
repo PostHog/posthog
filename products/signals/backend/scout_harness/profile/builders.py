@@ -5,23 +5,30 @@ private function so individual sources can be added, swapped, or stubbed out wit
 touching the orchestration. Output is a plain dict that the tools layer wraps into a
 `SignalProjectProfile.payload`.
 
-What lands in v1 (Phase 4a): products in use, integrations, external data sources,
-signal source configs, inbox report counts. Deferred (v2 of the aggregator): latest
-`UsageReport` numbers, top events via HogQL — both are looser fits with the "authoritative
-tables only" rule and warrant their own iteration.
+Sections split into two camps. Capability / configured (sticky) — `project_context`,
+`products_in_use`, `product_intents`, `integrations`, `external_data_sources`,
+`signal_source_configs`. Activity / recent — `existing_inbox_reports`, `recent_dashboards`,
+`popular_insights`, `top_events`, `recent_activity`. The capability layer answers "what's
+turned on"; the activity layer answers "what's actually happening now and what's been
+edited lately." Future per-entity active-inventory readers (surveys, feature flags,
+experiments) would extend the activity layer with concrete lists for the entity types
+that are most often the subject of an investigation.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from django.db.models import Count, Max
+from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -37,7 +44,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v3"
+INVENTORY_SOURCE_VERSION = "v4"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -51,6 +58,14 @@ TOP_EVENTS_LIMIT = 50
 # tells it what's worth pulling.
 RECENT_DASHBOARDS_LIMIT = 20
 POPULAR_INSIGHTS_LIMIT = 20
+
+# Recent activity window — 14d captures weekly cadence (sprints, weekly reviews) and
+# bi-weekly iterations without drowning in stale edits. 20 distinct scopes is more
+# than any team realistically touches in two weeks; the long tail beyond that is
+# noise. The query hits the partial index `idx_alog_team_scope_created` whose
+# condition (`was_impersonated=False AND is_system=False`) matches the filter.
+RECENT_ACTIVITY_WINDOW_DAYS = 14
+RECENT_ACTIVITY_LIMIT = 20
 
 
 def build_inventory(team: Team) -> dict[str, Any]:
@@ -71,6 +86,7 @@ def build_inventory(team: Team) -> dict[str, Any]:
         "existing_inbox_reports": _existing_inbox_reports(team),
         "recent_dashboards": _recent_dashboards(team),
         "popular_insights": _popular_insights(team),
+        "recent_activity": _recent_activity(team),
         "top_events": _top_events(team),
     }
 
@@ -257,6 +273,54 @@ def _popular_insights(team: Team) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def _recent_activity(team: Team) -> dict[str, Any]:
+    """Per-scope recency from the activity log over a `RECENT_ACTIVITY_WINDOW_DAYS` window.
+
+    Cuts across every entity type the activity log knows about — surveys, feature flags,
+    experiments, dashboards, insights, cohorts, notebooks, actions, etc. — so the agent
+    gets one place to look for "where has this team been working lately?" without per-
+    entity readers. The MCP tools `activity-log-list` / `advanced-activity-logs-list`
+    do the drill-down once the agent decides a scope is worth investigating.
+
+    `edits` is total log entries in the window (write velocity). `users` is distinct
+    user count, so a single power-user looping is distinguishable from broad team
+    activity. `last_edit` lets the agent sort/skim by recency as well as volume.
+
+    The filter matches the partial index `idx_alog_team_scope_created` exactly — both
+    sides use `was_impersonated=False AND is_system=False`, so this is a single cheap
+    aggregate even on busy teams. Rows where either flag is NULL are intentionally
+    skipped; the index treats them as not-real-user-activity, and we follow.
+    """
+    cutoff = timezone.now() - timedelta(days=RECENT_ACTIVITY_WINDOW_DAYS)
+    rows = (
+        ActivityLog.objects.filter(
+            team_id=team.id,
+            created_at__gte=cutoff,
+            was_impersonated=False,
+            is_system=False,
+        )
+        .values("scope")
+        .annotate(
+            edits=Count("id"),
+            users=Count("user_id", distinct=True),
+            last_edit=Max("created_at"),
+        )
+        .order_by("-edits")[:RECENT_ACTIVITY_LIMIT]
+    )
+    return {
+        "window_days": RECENT_ACTIVITY_WINDOW_DAYS,
+        "by_scope": [
+            {
+                "scope": row["scope"],
+                "edits": row["edits"],
+                "users": row["users"],
+                "last_edit": row["last_edit"].isoformat() if row["last_edit"] else None,
+            }
+            for row in rows
+        ],
+    }
 
 
 def _top_events(team: Team) -> list[dict[str, Any]] | None:

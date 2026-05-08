@@ -12,6 +12,7 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -20,6 +21,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
+    RECENT_ACTIVITY_WINDOW_DAYS,
     _existing_inbox_reports,
     _external_data_sources,
     _integrations,
@@ -27,6 +29,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _product_intents,
     _products_in_use,
     _project_context,
+    _recent_activity,
     _recent_dashboards,
     _signal_source_configs,
 )
@@ -266,6 +269,99 @@ class TestPopularInsights(BaseTest):
         return User.objects.create(email=email, distinct_id=email)
 
 
+class TestRecentActivity(BaseTest):
+    def _log(
+        self,
+        *,
+        scope: str,
+        team=None,
+        user=None,
+        created_at=None,
+        was_impersonated: bool | None = False,
+        is_system: bool | None = False,
+        activity: str = "updated",
+    ) -> ActivityLog:
+        # Direct create with `created_at=...` works because the model uses
+        # `default=timezone.now` rather than `auto_now_add` — lets us backdate rows
+        # to test the windowing without a follow-up `.update()` dance.
+        return ActivityLog.objects.create(
+            team_id=(team or self.team).id,
+            user=user,
+            activity=activity,
+            scope=scope,
+            item_id="x",
+            was_impersonated=was_impersonated,
+            is_system=is_system,
+            created_at=created_at or timezone.now(),
+        )
+
+    def test_groups_scopes_by_edit_count_descending(self) -> None:
+        self._log(scope="FeatureFlag")
+        self._log(scope="FeatureFlag")
+        self._log(scope="FeatureFlag")
+        self._log(scope="Survey")
+        result = _recent_activity(self.team)
+        assert result["window_days"] == RECENT_ACTIVITY_WINDOW_DAYS
+        assert [row["scope"] for row in result["by_scope"]] == ["FeatureFlag", "Survey"]
+        assert [row["edits"] for row in result["by_scope"]] == [3, 1]
+
+    def test_distinct_user_count_and_last_edit_per_scope(self) -> None:
+        u1 = self._create_user("u1@example.com")
+        u2 = self._create_user("u2@example.com")
+        # Two users, three edits — `users` should be 2, not 3.
+        first = self._log(scope="Experiment", user=u1)
+        ActivityLog.objects.filter(id=first.id).update(created_at=timezone.now() - timedelta(days=2))
+        self._log(scope="Experiment", user=u2)
+        last = self._log(scope="Experiment", user=u2)
+        result = _recent_activity(self.team)
+        row = next(r for r in result["by_scope"] if r["scope"] == "Experiment")
+        assert row["edits"] == 3
+        assert row["users"] == 2
+        # `last_edit` reflects the most recent row in the window.
+        assert row["last_edit"] is not None
+        assert row["last_edit"] == last.created_at.isoformat()
+
+    def test_excludes_impersonated_and_system_rows(self) -> None:
+        # The partial index treats both flags as required-False; we mirror that.
+        self._log(scope="Survey")  # counted
+        self._log(scope="Survey", was_impersonated=True)
+        self._log(scope="Survey", is_system=True)
+        self._log(scope="Survey", was_impersonated=None)
+        self._log(scope="Survey", is_system=None)
+        result = _recent_activity(self.team)
+        survey = next(r for r in result["by_scope"] if r["scope"] == "Survey")
+        assert survey["edits"] == 1
+
+    def test_excludes_rows_outside_window(self) -> None:
+        old = self._log(scope="Cohort")
+        ActivityLog.objects.filter(id=old.id).update(
+            created_at=timezone.now() - timedelta(days=RECENT_ACTIVITY_WINDOW_DAYS + 1),
+        )
+        recent = self._log(scope="Cohort")
+        result = _recent_activity(self.team)
+        cohort = next(r for r in result["by_scope"] if r["scope"] == "Cohort")
+        assert cohort["edits"] == 1
+        assert cohort["last_edit"] == recent.created_at.isoformat()
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        self._log(scope="FeatureFlag", team=other)
+        result = _recent_activity(self.team)
+        assert result == {"window_days": RECENT_ACTIVITY_WINDOW_DAYS, "by_scope": []}
+
+    def test_empty_when_no_activity(self) -> None:
+        # A quiet team should return the section with no rows — distinguishable from
+        # an exception (which would propagate; profile build has no defensive wrapping
+        # at this layer for indexed Postgres readers).
+        result = _recent_activity(self.team)
+        assert result == {"window_days": RECENT_ACTIVITY_WINDOW_DAYS, "by_scope": []}
+
+    def _create_user(self, email: str):
+        from posthog.models.user import User
+
+        return User.objects.create(email=email, distinct_id=email)
+
+
 class TestBuildInventory(BaseTest):
     def test_returns_all_inventory_keys(self) -> None:
         inventory = build_inventory(self.team)
@@ -279,6 +375,7 @@ class TestBuildInventory(BaseTest):
             "existing_inbox_reports",
             "recent_dashboards",
             "popular_insights",
+            "recent_activity",
             "top_events",
         }
 
