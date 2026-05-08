@@ -27,14 +27,7 @@
             "description": "A UUID string identifying this external data source.",
             "type": "string"
         },
-        "job_inputs": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "job_inputs": {},
         "prefix": {
             "anyOf": [
                 {

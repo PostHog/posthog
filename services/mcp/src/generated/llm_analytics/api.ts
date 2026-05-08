@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 51 enabled ops
+ * PostHog API - MCP 57 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -28,7 +28,7 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     evaluation_id: zod.string().describe('UUID of the evaluation to run.'),
     target_event_id: zod.string().describe('UUID of the $ai_generation event to evaluate.'),
     timestamp: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe('ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup).'),
     event: zod
         .string()
@@ -122,18 +122,30 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.string().nullish(),
-            provider_key_name: zod.string().nullish(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullish(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -212,18 +224,30 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.string().nullish(),
-            provider_key_name: zod.string().nullish(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullish(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -390,7 +414,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -501,7 +525,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
             "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     starts_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
@@ -601,7 +625,7 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 })
 
 /**
- * 
+ *
 Generate an AI-powered summary of evaluation results.
 
 This endpoint analyzes evaluation runs and identifies patterns in passing
@@ -614,7 +638,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 - Identify systematic issues in LLM responses
 - Get recommendations for improving response quality
 - Review patterns across many evaluation runs at once
-        
+
  */
 export const LlmAnalyticsEvaluationSummaryCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -808,6 +832,216 @@ export const LlmAnalyticsReviewQueuesDestroyParams = /* @__PURE__ */ zod.object(
         ),
 })
 
+export const LlmAnalyticsScoreDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsScoreDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    archived: zod.boolean().optional().describe('Filter by archived state.'),
+    kind: zod.string().optional().describe('Filter by scorer kind.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
+    search: zod.string().optional().describe('Search scorers by name or description.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
+    description: zod.string().nullish().describe('Optional human-readable description.'),
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean')
+        .describe(
+            'Scorer kind. This cannot be changed after creation.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean'
+        ),
+    archived: zod
+        .boolean()
+        .default(llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault)
+        .describe('New scorers are always created as active.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax)
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax)
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+            }),
+            zod.object({
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .describe('Initial immutable scorer configuration.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
+
+export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Updated scorer name.'),
+    description: zod.string().nullish().describe('Updated scorer description.'),
+    archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax)
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax)
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+            }),
+            zod.object({
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .describe('Next immutable scorer configuration.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
+        ),
+})
+
 export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -846,7 +1080,7 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * 
+ *
 Generate an AI-powered summary of an LLM trace or event.
 
 This endpoint analyzes the provided trace/event, generates a line-numbered text
@@ -867,7 +1101,7 @@ representation, and uses an LLM to create a concise summary with line references
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
 The response includes the structured summary, the text representation, and metadata.
-        
+
  */
 export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -972,7 +1206,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .string()
+                    .uuid()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -981,8 +1215,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
                     .nullish()
                     .describe('Categorical option keys selected for this score.'),
                 numeric_value: zod
-                    .string()
-                    .regex(llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp)
+                    .stringFormat('decimal', llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp)
                     .nullish()
                     .describe('Numeric value selected for this score.'),
                 boolean_value: zod.boolean().nullish().describe('Boolean value selected for this score.'),
@@ -991,7 +1224,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
@@ -1036,7 +1269,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .string()
+                    .uuid()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -1047,8 +1280,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
                     .nullish()
                     .describe('Categorical option keys selected for this score.'),
                 numeric_value: zod
-                    .string()
-                    .regex(llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegExp)
+                    .stringFormat('decimal', llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegExp)
                     .nullish()
                     .describe('Numeric value selected for this score.'),
                 boolean_value: zod.boolean().nullish().describe('Boolean value selected for this score.'),
@@ -1057,7 +1289,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
@@ -1403,6 +1635,17 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+})
+
+export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmSkillsNameArchiveCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameArchiveCreatePathSkillNameRegExp),
 })
 
 export const llmSkillsNameDuplicateCreatePathSkillNameRegExp = new RegExp('^[^/]+$')

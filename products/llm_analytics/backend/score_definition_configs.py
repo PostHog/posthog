@@ -171,6 +171,15 @@ class ScoreDefinitionConfigField(serializers.Field):
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         kind = self._get_score_definition_kind()
         serializer = build_score_definition_config_serializer(kind, data=data)
+
+        if isinstance(data, dict):
+            allowed_keys = set(serializer.fields.keys())
+            unknown_keys = sorted(set(data.keys()) - allowed_keys)
+            if unknown_keys:
+                raise serializers.ValidationError(
+                    f"Unsupported keys for `kind` `{kind}`: {unknown_keys}. Allowed keys: {sorted(allowed_keys)}."
+                )
+
         serializer.is_valid(raise_exception=True)
         return dict(serializer.validated_data)
 
@@ -178,6 +187,11 @@ class ScoreDefinitionConfigField(serializers.Field):
         return value
 
     def _get_score_definition_kind(self) -> str:
+        # Context wins over body to prevent a smuggled `kind` from validating `config` against the wrong schema.
+        kind = self.context.get("score_definition_kind")
+        if isinstance(kind, str) and kind:
+            return kind
+
         initial_data = getattr(self.parent, "initial_data", None)
         if isinstance(initial_data, dict):
             kind = initial_data.get("kind")
@@ -189,9 +203,5 @@ class ScoreDefinitionConfigField(serializers.Field):
             kind = instance.kind
             if isinstance(kind, str) and kind:
                 return kind
-
-        kind = self.context.get("score_definition_kind")
-        if isinstance(kind, str) and kind:
-            return kind
 
         raise serializers.ValidationError({"kind": "Set `kind` before validating `config`."})

@@ -372,15 +372,25 @@ function getBuiltEntryPoints(config, result) {
     if (jsFiles.length > 0) {
         const allFiles = [...jsFiles]
         const allOutputPaths = Object.keys(result.metafile?.outputs || {})
+        // Pair each entry JS with its companion CSS by stripping the optional
+        // "-<hash>" suffix. The hash matcher excludes `-` so that a sibling
+        // entry sharing a prefix can't have its CSS stolen — e.g. an `exporter`
+        // entry must not match `dist/exporter-extra-HASH.css` (the `-extra-HASH`
+        // segment contains a `-`, which fails the single-segment match).
+        // esbuild's default hash is base32 (uppercase + digits, no hyphens) so
+        // the constraint is compatible with default builds and allows mixed-
+        // case alphabets too.
+        const hashSuffixPattern = /(-[^./-]+)?\.js$/
         for (const jsFile of jsFiles) {
-            // Strip optional hash suffix: "dist/exporter-HASH.js" -> "dist/exporter"
-            const baseName = jsFile.replace(/(-[A-Z0-9]+)?\.js$/, '')
+            const baseName = jsFile.replace(hashSuffixPattern, '')
+            const escapedBase = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const expectedCss = new RegExp(`^${escapedBase}(-[^./-]+)?\\.css$`)
             for (const outputPath of allOutputPaths) {
                 if (!outputPath.endsWith('.css')) {
                     continue
                 }
                 const absoluteCss = path.resolve(process.cwd(), outputPath)
-                if (absoluteCss.startsWith(baseName + '-') || absoluteCss === baseName + '.css') {
+                if (expectedCss.test(absoluteCss)) {
                     allFiles.push(absoluteCss)
                 }
             }

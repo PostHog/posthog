@@ -445,6 +445,13 @@ class AssistantInsightVizNode(BaseModel):
     )
 
 
+class AssistantLifecycleStatus(StrEnum):
+    NEW = "new"
+    RETURNING = "returning"
+    RESURRECTING = "resurrecting"
+    DORMANT = "dormant"
+
+
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
@@ -719,6 +726,7 @@ class AssistantTool(StrEnum):
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
+    DIAGNOSE_PROXY = "diagnose_proxy"
 
 
 class AssistantToolCall(BaseModel):
@@ -1284,6 +1292,10 @@ class DangerousOperationResponse(BaseModel):
     proposalId: str
     status: Literal["pending_approval"] = "pending_approval"
     toolName: str
+
+
+class DashboardAutoRefreshInterval(RootModel[Literal[1800]]):
+    root: Literal[1800] = 1800
 
 
 class DataColorToken(StrEnum):
@@ -1959,7 +1971,16 @@ class ExperimentVariant(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(..., description="Variant key, e.g. 'control', 'test', 'variant_a'.")
+    key: str = Field(
+        ...,
+        description=(
+            "Variant key. Exactly one variant in feature_flag_variants must use key"
+            " 'control' (lowercase, exactly) — that is the baseline used for analysis"
+            " and the special key the experiment runtime expects. Other variants use"
+            " keys like 'test', 'variant_a', 'variant_b'. Map natural-language names"
+            " ('original', 'A', 'baseline') to 'control'."
+        ),
+    )
     name: str | None = Field(default=None, description="Human-readable variant name.")
     rollout_percentage: float | None = None
     split_percent: float | None = Field(
@@ -4124,6 +4145,12 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationPropertyType1(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    DATA_WAREHOUSE = "data_warehouse"
 
 
 class RetentionPeriod(StrEnum):
@@ -6858,7 +6885,11 @@ class ExperimentParameters(BaseModel):
     )
     feature_flag_variants: list[ExperimentVariant] | None = Field(
         default=None,
-        description=("Experiment variants. If not specified, defaults to a 50/50 control/test split."),
+        description=(
+            "Experiment variants. If specified, must include a variant with key"
+            " 'control' (lowercase). Defaults to a 50/50 control/test split when"
+            " omitted. Minimum 2, maximum 20."
+        ),
     )
     minimum_detectable_effect: float | None = Field(
         default=None,
@@ -8044,6 +8075,15 @@ class SavedInsightNode(BaseModel):
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: bool | None = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
+    showAbsoluteTime: bool | None = Field(
+        default=None,
+        description=(
+            "Render date-time columns (timestamp, created_at, last_seen, last_seen_at,"
+            ' session_start, session_end) as absolute date+time instead of relative ("X'
+            ' ago"). The toggle is exposed in the column header menu only on'
+            " EventsQuery / ActorsQuery sources."
+        ),
+    )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None,
@@ -17556,9 +17596,9 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
-    aggregationPropertyType: AggregationPropertyType | None = Field(
-        default=AggregationPropertyType.EVENT,
-        description=("The type of property to aggregate on (event or person). Defaults to event."),
+    aggregationPropertyType: AggregationPropertyType1 | None = Field(
+        default=AggregationPropertyType1.EVENT,
+        description=("The type of property to aggregate on (event, person or data_warehouse). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
@@ -20069,6 +20109,29 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AssistantLifecycleActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str = Field(
+        ...,
+        description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantLifecycleQuery = Field(
+        ...,
+        description=("The source lifecycle insight query whose bucket we are drilling into."),
+    )
+    status: AssistantLifecycleStatus = Field(
+        ...,
+        description=(
+            "Lifecycle status to drill into for the given day. Must be one of the"
+            " bucket names visible in the source's `lifecycleFilter.toggledLifecycles`"
+            " (defaults to all four when omitted)."
+        ),
+    )
 
 
 class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
@@ -22665,6 +22728,15 @@ class DataTableNode(BaseModel):
         | Response26
         | None
     ) = None
+    showAbsoluteTime: bool | None = Field(
+        default=None,
+        description=(
+            "Render date-time columns (timestamp, created_at, last_seen, last_seen_at,"
+            ' session_start, session_end) as absolute date+time instead of relative ("X'
+            ' ago"). The toggle is exposed in the column header menu only on'
+            " EventsQuery / ActorsQuery sources."
+        ),
+    )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None,

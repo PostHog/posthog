@@ -60,17 +60,9 @@
                                 "compression": {
                                     "anyOf": [
                                         {
-                                            "anyOf": [
-                                                {
-                                                    "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
-                                                    "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "const": null,
-                                                    "type": "null"
-                                                }
-                                            ]
+                                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                            "type": "string"
                                         },
                                         {
                                             "type": "null"

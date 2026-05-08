@@ -4,7 +4,6 @@ import { IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
 
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -35,7 +34,6 @@ export function PinnedFolder(): JSX.Element {
     const { pinnedFolder } = useValues(pinnedFolderLogic)
     const { setPinnedFolder } = useActions(pinnedFolderLogic)
     const { openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -51,7 +49,7 @@ export function PinnedFolder(): JSX.Element {
                     buttonProps={{
                         iconOnly: true,
                         size: 'xs',
-                        tooltip: isAIFirst ? 'Add to starred' : 'Add shortcut',
+                        tooltip: 'Add to starred',
                         tooltipPlacement: 'top',
                         children: <IconPlusSmall className="size-4 text-tertiary" />,
                     }}

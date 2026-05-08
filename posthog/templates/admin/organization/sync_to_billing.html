@@ -1,0 +1,7 @@
+<form method="post" action="{% url 'admin:organization_sync_to_billing' organization_id %}" style="display: inline-block;">
+    {% csrf_token %}
+    <button type="submit" class="button">Sync to billing</button>
+</form>
+<p style="color: #666; margin-top: 8px;">
+    Queues a Celery task that syncs this organization's members to the billing service (equivalent to <code>./manage.py sync_to_billing --action=organization_users --organization-ids=&lt;id&gt; --async=1</code>).
+</p>

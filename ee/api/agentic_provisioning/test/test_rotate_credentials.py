@@ -103,11 +103,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
         )
-        pat = (
-            PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
-            .order_by("-created_at")
-            .first()
-        )
+        pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).order_by("-created_at").first()
         assert pat is not None
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
@@ -119,7 +115,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        initial_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        initial_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
         assert initial_pat is not None
 
         self._post_signed_with_bearer(
@@ -127,7 +123,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             token=token,
         )
         assert PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
-        assert PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").count() == 2
+        assert PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).count() == 2
 
     @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
     def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):

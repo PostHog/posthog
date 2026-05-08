@@ -57,10 +57,14 @@ def _add_to_tach_toml(product_name: str, *, dry_run: bool) -> None:
         f"\n[[modules]]\n"
         f'path = "{module_path}"\n'
         f'depends_on = ["posthog"]\n'
-        f'layer = "products"\n'
-        f"interfaces = [\n"
-        f'    "{module_path}.backend.facade",\n'
-        f'    "{module_path}.backend.presentation.views",\n'
+        f'layer = "modules"\n'
+        f"\n[[interfaces]]\n"
+        f"expose = [\n"
+        f'    "backend\\\\.facade.*",\n'
+        f'    "backend\\\\.presentation\\\\.views.*",\n'
+        f"]\n"
+        f"from = [\n"
+        f'    "{module_path}",\n'
         f"]\n"
     )
     _register_in_file(

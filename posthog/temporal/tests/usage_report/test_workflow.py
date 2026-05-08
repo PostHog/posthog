@@ -1,8 +1,10 @@
 """End-to-end workflow tests using a Temporal `WorkflowEnvironment`.
 
 The activities are mocked at the `@activity.defn` boundary so the workflow's
-orchestration logic — query fan-out, aggregation, SQS pointer — can be
-verified without standing up real ClickHouse / Postgres / S3.
+orchestration logic — query fan-out, aggregation — can be verified without
+standing up real ClickHouse / Postgres / S3. The SQS pointer activity call
+is currently disabled in the workflow (see `workflow.py`), so it's not
+exercised here.
 """
 
 import uuid
@@ -28,7 +30,7 @@ from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
 
 
 @pytest.mark.asyncio
-async def test_workflow_runs_query_aggregate_pointer_in_order() -> None:
+async def test_workflow_runs_query_then_aggregate() -> None:
     seen_query_names: list[str] = []
     aggregated_with: list[list[str]] = []
     pointer_payloads: list[EnqueuePointerInputs] = []
@@ -52,11 +54,14 @@ async def test_workflow_runs_query_aggregate_pointer_in_order() -> None:
             total_orgs_with_usage=1,
         )
 
+    # Pointer activity is registered so the worker accepts it if dispatched,
+    # but the workflow currently does not call it (see workflow.py for why).
     @activity.defn(name="usage-reports-enqueue-pointer-message")
     async def pointer_mock(inputs: EnqueuePointerInputs) -> None:
         pointer_payloads.append(inputs)
 
     task_queue = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
         async with Worker(
             env.client,
@@ -68,20 +73,41 @@ async def test_workflow_runs_query_aggregate_pointer_in_order() -> None:
             result = await env.client.execute_workflow(
                 RunUsageReportsWorkflow.run,
                 RunUsageReportsInputs(at="2026-05-04T12:00:00+00:00"),
-                id=str(uuid.uuid4()),
+                id=workflow_id,
                 task_queue=task_queue,
             )
 
+        # Verify the per-query activity scheduling carried `summary=spec.name`
+        # so the Temporal UI shows which query is running.
+        handle = env.client.get_workflow_handle(workflow_id)
+        scheduled_summaries: dict[str, str] = {}
+        async for event in handle.fetch_history_events():
+            attrs = event.activity_task_scheduled_event_attributes
+            if attrs.activity_type.name != "run-usage-report-query":
+                continue
+            assert event.user_metadata.HasField("summary"), f"activity {attrs.activity_id} scheduled without a summary"
+            (decoded_summary,) = pydantic_data_converter.payload_converter.from_payloads(
+                [event.user_metadata.summary], [str]
+            )
+            scheduled_summaries[attrs.activity_id] = decoded_summary
+
     expected_names = [spec.name for spec in QUERIES]
-    assert seen_query_names == expected_names
+    # Queries run with bounded concurrency, so completion order is not
+    # deterministic — only assert the set. Result ordering (passed to the
+    # aggregator) is preserved via `asyncio.gather`.
+    assert set(seen_query_names) == set(expected_names)
+    assert len(seen_query_names) == len(expected_names)
 
     assert len(aggregated_with) == 1
     assert aggregated_with[0] == expected_names
 
-    assert len(pointer_payloads) == 1
-    pointer = pointer_payloads[0]
-    assert pointer.aggregate.chunk_keys == ["chunks/chunk_0000.jsonl.gz"]
-    assert pointer.aggregate.total_orgs == 2
+    # Pointer dispatch is currently disabled in the workflow.
+    assert pointer_payloads == []
+
+    # Each scheduled query activity carries its query name as the Temporal
+    # `summary`, so the UI surfaces which query is running.
+    assert set(scheduled_summaries.values()) == set(expected_names)
+    assert len(scheduled_summaries) == len(expected_names)
 
     assert (
         result
