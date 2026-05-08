@@ -23,11 +23,15 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActivityLogListSchema = ActivityLogListQueryParams.extend({
-    page_size: ActivityLogListQueryParams.shape['page_size'].default(10).optional(),
+    page_size: z
+        .preprocess(castStringToInt, ActivityLogListQueryParams.shape['page_size'].default(10).optional())
+        .optional(),
+    page: z.preprocess(castStringToInt, ActivityLogListQueryParams.shape['page']).optional(),
 })
 
 const activityLogList = (): ToolBase<
