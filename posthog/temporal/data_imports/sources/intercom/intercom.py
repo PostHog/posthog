@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
-from requests import Request, Response
+from requests import Request, Response, Session
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -29,6 +29,16 @@ def _default_headers() -> dict[str, str]:
 
 def _auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", **_default_headers()}
+
+
+def _make_intercom_session(access_token: str) -> Session:
+    """Build a tracked session with Intercom auth + default headers baked in.
+
+    Reusing one session across the many requests a sync makes lets urllib3
+    keep the underlying TCP+TLS connection alive — the substream generators
+    (one GET per parent row) are the main beneficiary.
+    """
+    return make_tracked_session(headers=_auth_headers(access_token))
 
 
 class IntercomSearchPaginator(BasePaginator):
@@ -161,23 +171,21 @@ def get_resource(
     }
 
 
-def _intercom_get(access_token: str, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     url = path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
-    response = make_tracked_session().get(url, headers=_auth_headers(access_token), params=params, timeout=30)
+    response = session.get(url, params=params, timeout=30)
     response.raise_for_status()
     return response.json()
 
 
-def _intercom_post(access_token: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
-    response = make_tracked_session().post(
-        f"{INTERCOM_API_BASE}{path}", headers=_auth_headers(access_token), json=body, timeout=30
-    )
+def _intercom_post(session: Session, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    response = session.post(f"{INTERCOM_API_BASE}{path}", json=body, timeout=30)
     response.raise_for_status()
     return response.json()
 
 
 def _iter_conversations(
-    access_token: str,
+    session: Session,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[dict[str, Any]]:
@@ -186,7 +194,7 @@ def _iter_conversations(
     refetch parents whose timestamp advanced."""
     body = _build_search_body(INTERCOM_ENDPOINTS["conversations"], incremental_field, db_incremental_field_last_value)
     while True:
-        payload = _intercom_post(access_token, "/conversations/search", body)
+        payload = _intercom_post(session, "/conversations/search", body)
         yield from (payload.get("conversations") or [])
         next_block = (payload.get("pages") or {}).get("next") or {}
         cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
@@ -196,7 +204,7 @@ def _iter_conversations(
 
 
 def _conversation_parts_generator(
-    access_token: str,
+    session: Session,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[dict[str, Any]]:
@@ -204,47 +212,47 @@ def _conversation_parts_generator(
     `updated_at >`; the part rows themselves carry their own `updated_at`,
     so the pipeline's cursor watermark advances per-part. `conversation_id`
     is injected onto each row for joinability."""
-    for conv in _iter_conversations(access_token, incremental_field, db_incremental_field_last_value):
-        full = _intercom_get(access_token, f"/conversations/{conv['id']}")
+    for conv in _iter_conversations(session, incremental_field, db_incremental_field_last_value):
+        full = _intercom_get(session, f"/conversations/{conv['id']}")
         parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
         for part in parts:
             part["conversation_id"] = conv["id"]
             yield part
 
 
-def _iter_companies(access_token: str) -> Iterator[dict[str, Any]]:
+def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
     """Walk `POST /companies/list` page by page (no server-side timestamp
     filter — full refresh)."""
     body: dict[str, Any] = {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
     next_url: str | None = None
     while True:
         if next_url is None:
-            payload = _intercom_post(access_token, "/companies/list", body)
+            payload = _intercom_post(session, "/companies/list", body)
         else:
             # `pages.next` is a full URL; the framework follows it as GET, but
             # /companies/list is POST. Empirically Intercom honors GET on the
             # `pages.next` URL too — same response shape — so we use GET to
             # avoid having to re-build the body with the embedded cursor.
-            payload = _intercom_get(access_token, next_url)
+            payload = _intercom_get(session, next_url)
         yield from (payload.get("data") or [])
         next_url = (payload.get("pages") or {}).get("next")
         if not next_url:
             return
 
 
-def _company_segments_generator(access_token: str) -> Iterator[dict[str, Any]]:
+def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
     either parent or child."""
-    for company in _iter_companies(access_token):
-        payload = _intercom_get(access_token, f"/companies/{company['id']}/segments")
+    for company in _iter_companies(session):
+        payload = _intercom_get(session, f"/companies/{company['id']}/segments")
         for seg in payload.get("data", []) or []:
             seg["company_id"] = company["id"]
             yield seg
 
 
 def _substream_items(
-    access_token: str,
+    session: Session,
     endpoint: str,
     incremental_field: str | None,
     db_incremental_field_last_value: Optional[Any],
@@ -255,9 +263,9 @@ def _substream_items(
             # walk every conversation. `updated_at` is the only declared
             # cursor, so default to it for the parent search filter.
             incremental_field = "updated_at"
-        return _conversation_parts_generator(access_token, incremental_field, db_incremental_field_last_value)
+        return _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
     if endpoint == "company_segments":
-        return _company_segments_generator(access_token)
+        return _company_segments_generator(session)
     raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
@@ -277,9 +285,8 @@ def validate_credentials(access_token: str, schema_name: str | None = None) -> t
         return False, "Missing Intercom access token"
 
     try:
-        response = make_tracked_session().get(
+        response = _make_intercom_session(access_token).get(
             f"{INTERCOM_API_BASE}/me",
-            headers=_auth_headers(access_token),
             timeout=10,
         )
     except Exception as e:
@@ -309,7 +316,11 @@ def intercom_source(
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
 
     if cfg.paginator_kind == "substream":
-        items = lambda: _substream_items(access_token, endpoint, incremental_field, db_incremental_field_last_value)
+        # One session built here is reused across the parent walk and every
+        # per-row child fetch, so urllib3 keeps the connection alive instead
+        # of re-handshaking per request.
+        session = _make_intercom_session(access_token)
+        items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
     else:
         config: RESTAPIConfig = {
             "client": {
