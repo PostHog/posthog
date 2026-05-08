@@ -1141,11 +1141,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # Per-source schema discovery schedule. Runs every 6h so newly added
         # upstream resources (Slack channels, Postgres tables, …) get picked up
-        # without re-discovering on every per-schema sync tick.
-        try:
-            sync_discover_schemas_schedule(new_source_model, create=True)
-        except Exception as e:
-            logger.exception("Could not create schema discovery schedule", exc_info=e)
+        # without re-discovering on every per-schema sync tick. Direct-query
+        # sources resolve schemas at query time, so they opt out of all
+        # background sync — including this discovery cadence.
+        if new_source_model.supports_scheduled_sync:
+            try:
+                sync_discover_schemas_schedule(new_source_model, create=True)
+            except Exception as e:
+                logger.exception("Could not create schema discovery schedule", exc_info=e)
 
         # Start CDC extraction schedule if any CDC schemas are active
         if cdc_enabled:
