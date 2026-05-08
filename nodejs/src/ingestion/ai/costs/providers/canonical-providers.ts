@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-07 10:44:05 UTC
+// Generated at: 2026-05-08 10:30:47 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -16,6 +16,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
@@ -44,7 +45,6 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
-    | 'dekallm-fp4'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'

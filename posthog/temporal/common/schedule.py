@@ -136,6 +136,12 @@ async def a_pause_schedule(temporal: Client, schedule_id: str, note: str | None 
     await handle.pause(note=note)
 
 
+async def a_unpause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
+    """Unpause a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.unpause(note=note)
+
+
 @async_to_sync
 async def trigger_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Trigger a Temporal Schedule."""

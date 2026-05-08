@@ -20,6 +20,7 @@ class AdvancedActivityLogFilterManager:
         queryset = self._apply_is_system_filter(queryset, filters)
         queryset = self._apply_item_ids_filter(queryset, filters)
         queryset = self._apply_clients_filter(queryset, filters)
+        queryset = self._apply_team_ids_filter(queryset, filters)
         return queryset
 
     def _apply_date_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
@@ -186,6 +187,11 @@ class AdvancedActivityLogFilterManager:
     def _apply_clients_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         if filters.get("clients"):
             queryset = queryset.filter(client__in=filters["clients"])
+        return queryset
+
+    def _apply_team_ids_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
+        if filters.get("team_ids"):
+            queryset = queryset.filter(team_id__in=filters["team_ids"])
         return queryset
 
     def _get_type_variants(self, value: Any) -> list[Any]:

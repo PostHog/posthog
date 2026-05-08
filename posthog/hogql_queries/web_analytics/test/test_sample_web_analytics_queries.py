@@ -22,6 +22,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_hogql_q
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
+    CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -260,6 +261,60 @@ class TestSampleWebAnalyticsQueries(ClickhouseTestMixin, APIBaseTest):
             properties=[],
             breakdownBy=WebStatsBreakdown.PAGE,
             includeBounceRate=True,
+            limit=10,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_stats_with_avg_time_on_page_snapshot(self):
+        """
+        Paths breakdown with average time on page query example.
+
+        Triggers the path-bounce-and-avg-time strategy, joining bounce rate with
+        average time-on-page. Pins the SQL shape produced by the avg-time query
+        template so future strategy changes surface in this snapshot.
+        """
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.PAGE,
+            includeAvgTimeOnPage=True,
+            limit=10,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_stats_initial_page_with_bounce_rate_snapshot(self):
+        """
+        Initial-page (entry-page) breakdown with bounce rate.
+
+        Triggers the main strategy with an entry-pathname breakdown override,
+        producing bounce metrics keyed on the session's first pageview rather
+        than every pageview. Pins the entry-bounce override path.
+        """
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.INITIAL_PAGE,
+            includeBounceRate=True,
+            limit=10,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_stats_page_with_conversion_goal_snapshot(self):
+        """
+        Page breakdown combined with a conversion goal.
+
+        When a conversion goal is set on a PAGE breakdown the runner falls
+        back to the main strategy (no bounce/avg-time templates). Pins the
+        conversion-rate column shape that downstream consumers depend on.
+        """
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.PAGE,
+            conversionGoal=CustomEventConversionGoal(customEventName="signup"),
             limit=10,
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)

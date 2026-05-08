@@ -14,6 +14,9 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
+    llm-analytics-offline-evaluations-experiment-items-create:
+        operation: llm_analytics_offline_evaluations_experiment_items_create
+        enabled: false
     llm-analytics-sentiment-generations-create:
         operation: llm_analytics_sentiment_generations_create
         enabled: false
@@ -765,7 +768,20 @@ tools:
             Rate-limited.
     llma-skill-archive:
         operation: llm_skills_name_archive_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Archive skill
+        description: >
+            Archive every active version of an agent skill by name. This hides the skill from default lists and cannot
+            be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.
+        param_overrides:
+            skill_name:
+                description: The kebab-case name of the skill to archive.
     llma-skill-create:
         operation: llm_skills_create
         enabled: true

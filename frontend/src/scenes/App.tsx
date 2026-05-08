@@ -27,8 +27,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
-import { MaxInstance } from './max/Max'
-
 window.process = MOCK_NODE_PROCESS
 
 /**
@@ -87,7 +85,7 @@ function AppScene(): JSX.Element | null {
         activeSceneLogicPropsWithTabId,
         sceneConfig,
     } = useValues(sceneLogic)
-    const { showingDelayedSpinner, hasExitedAIOnlyMode } = useValues(appLogic)
+    const { showingDelayedSpinner } = useValues(appLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -104,23 +102,6 @@ function AppScene(): JSX.Element | null {
             theme={isDarkModeOn ? 'dark' : 'light'}
         />
     )
-
-    if (featureFlags[FEATURE_FLAGS.AI_ONLY_MODE] && !hasExitedAIOnlyMode) {
-        return (
-            <>
-                <div
-                    className="fixed inset-0 bg-surface-secondary flex flex-col overflow-auto"
-                    ref={() => {
-                        // HACK: Normally DebugNotice removes the HTML-level debug bar, but in this case we don't have the nav rendering DebugNotice
-                        document.getElementById('bottom-notice')?.remove()
-                    }}
-                >
-                    <MaxInstance tabId="ai-only-mode" sidePanel isAIOnlyMode />
-                </div>
-                {toastContainer}
-            </>
-        )
-    }
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {

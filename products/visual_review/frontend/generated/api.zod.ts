@@ -35,7 +35,7 @@ export const visualReviewReposQuarantineCreateBodyReasonMax = 255
 export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod.string().max(visualReviewReposQuarantineCreateBodyIdentifierMax),
     reason: zod.string().max(visualReviewReposQuarantineCreateBodyReasonMax),
-    expires_at: zod.iso.datetime({}).nullish(),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
@@ -48,7 +48,7 @@ export const visualReviewReposQuarantineExpireCreateBodyReasonMax = 255
 export const VisualReviewReposQuarantineExpireCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod.string().max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax),
     reason: zod.string().max(visualReviewReposQuarantineExpireCreateBodyReasonMax),
-    expires_at: zod.iso.datetime({}).nullish(),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**

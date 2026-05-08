@@ -445,6 +445,13 @@ class AssistantInsightVizNode(BaseModel):
     )
 
 
+class AssistantLifecycleStatus(StrEnum):
+    NEW = "new"
+    RETURNING = "returning"
+    RESURRECTING = "resurrecting"
+    DORMANT = "dormant"
+
+
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
@@ -1285,6 +1292,10 @@ class DangerousOperationResponse(BaseModel):
     proposalId: str
     status: Literal["pending_approval"] = "pending_approval"
     toolName: str
+
+
+class DashboardAutoRefreshInterval(RootModel[Literal[1800]]):
+    root: Literal[1800] = 1800
 
 
 class DataColorToken(StrEnum):
@@ -8064,6 +8075,15 @@ class SavedInsightNode(BaseModel):
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: bool | None = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
+    showAbsoluteTime: bool | None = Field(
+        default=None,
+        description=(
+            "Render date-time columns (timestamp, created_at, last_seen, last_seen_at,"
+            ' session_start, session_end) as absolute date+time instead of relative ("X'
+            ' ago"). The toggle is exposed in the column header menu only on'
+            " EventsQuery / ActorsQuery sources."
+        ),
+    )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None,
@@ -20091,6 +20111,29 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AssistantLifecycleActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str = Field(
+        ...,
+        description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantLifecycleQuery = Field(
+        ...,
+        description=("The source lifecycle insight query whose bucket we are drilling into."),
+    )
+    status: AssistantLifecycleStatus = Field(
+        ...,
+        description=(
+            "Lifecycle status to drill into for the given day. Must be one of the"
+            " bucket names visible in the source's `lifecycleFilter.toggledLifecycles`"
+            " (defaults to all four when omitted)."
+        ),
+    )
+
+
 class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22685,6 +22728,15 @@ class DataTableNode(BaseModel):
         | Response26
         | None
     ) = None
+    showAbsoluteTime: bool | None = Field(
+        default=None,
+        description=(
+            "Render date-time columns (timestamp, created_at, last_seen, last_seen_at,"
+            ' session_start, session_end) as absolute date+time instead of relative ("X'
+            ' ago"). The toggle is exposed in the column header menu only on'
+            " EventsQuery / ActorsQuery sources."
+        ),
+    )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None,
