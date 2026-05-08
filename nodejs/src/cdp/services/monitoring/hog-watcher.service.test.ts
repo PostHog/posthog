@@ -1,4 +1,5 @@
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { logger } from '~/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
@@ -223,10 +224,13 @@ describe('HogWatcher', () => {
 
             await watcher.observeResults(lotsOfResults)
 
+            // V2 lua now leaves the pool at bucketSize on denied overshoot calls (no deduct).
+            // The state machine is still driven by the rate-limiter return (-1 on denial), so
+            // `state: 3` (disabled) is correct — it's just the storage value that differs.
             expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                 {
                   "state": 3,
-                  "tokens": -1,
+                  "tokens": 10000,
                 }
             `)
 
@@ -296,10 +300,13 @@ describe('HogWatcher', () => {
 
                 await watcher.clearLock(hogFunctionId) // For testing the logic
                 await watcher.observeResults(Array(100).fill(createResult({ duration: 1000, kind: 'hog' })))
+                // Final batch denies (cost > available); pool stays at the un-deducted value
+                // (4300 from the previous step), but the state transition still fires because
+                // the rate limiter returned -1.
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": -1,
+                      "tokens": 4300,
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(2) // New state change
@@ -315,10 +322,12 @@ describe('HogWatcher', () => {
                 watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
                 onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
+                // Cold-start denial: cost > poolMax leaves the pool at bucketSize. The state
+                // transition still fires from the rate-limiter return.
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 2,
-                      "tokens": -1,
+                      "tokens": 10000,
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
@@ -334,17 +343,21 @@ describe('HogWatcher', () => {
 
             it('should not automatically transition out of disabled', async () => {
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
+                // Pool stays at bucketSize after the denied overshoot. State persists at 3
+                // (disabled) regardless because state writes are independent of pool writes.
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": -1,
+                      "tokens": 10000,
                     }
                 `)
                 advanceTime(1000)
+                // No actual deduction happened, so the pool is already at bucketSize and stays
+                // there even after the refill window — the cap kicks in.
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": 9,
+                      "tokens": 10000,
                     }
                 `)
 
@@ -353,7 +366,7 @@ describe('HogWatcher', () => {
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 3,
-                      "tokens": 19,
+                      "tokens": 10000,
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
@@ -390,6 +403,76 @@ describe('HogWatcher', () => {
                     }
                 `)
             })
+        })
+    })
+
+    describe('getPersistedStates', () => {
+        it('should return healthy with full bucket for unknown function', async () => {
+            const state = await watcher.getPersistedState('totally-unknown-function-id')
+            expect(state).toEqual({
+                state: HogWatcherState.healthy,
+                tokens: 10000,
+            })
+        })
+
+        it('should not create Redis keys on read-only access', async () => {
+            const unknownId = 'never-executed-function'
+            await watcher.getPersistedState(unknownId)
+            await watcher.getPersistedState(unknownId)
+
+            // Verify no key was created — reads should be side-effect-free
+            const exists = await redis.useClient({ name: 'test-check' }, async (client) => {
+                return await client.exists(`${BASE_REDIS_KEY}/tokens/${unknownId}`)
+            })
+            expect(exists).toEqual(0)
+        })
+
+        it('should cap refill at bucketSize after large time gap', async () => {
+            await watcher.observeResults([createResult({ duration: 10000, kind: 'async_function' })])
+            expect((await watcher.getPersistedState(hogFunctionId)).tokens).toBeLessThan(10000)
+
+            // Advance time by a very large amount — tokens should cap at bucketSize, not overflow
+            advanceTime(1_000_000_000)
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(state.tokens).toEqual(watcherConfig.bucketSize)
+        })
+
+        it('should handle pool existing without ts in Redis', async () => {
+            // Write pool directly without ts to simulate corrupted state
+            await redis.useClient({ name: 'test-setup' }, async (client) => {
+                await client.hset(`${BASE_REDIS_KEY}/tokens/${hogFunctionId}`, 'pool', '5000')
+            })
+
+            const state = await watcher.getPersistedState(hogFunctionId)
+            // With no ts, timeDiff is 0, so no refill — tokens should be the raw pool value
+            expect(state.tokens).toEqual(5000)
+        })
+
+        it('should handle ts existing without pool in Redis', async () => {
+            // Write ts directly without pool to simulate corrupted state
+            await redis.useClient({ name: 'test-setup' }, async (client) => {
+                await client.hset(`${BASE_REDIS_KEY}/tokens/${hogFunctionId}`, 'ts', Math.round(now / 1000))
+            })
+
+            const state = await watcher.getPersistedState(hogFunctionId)
+            // With no pool, should return bucketSize (healthy default)
+            expect(state.tokens).toEqual(watcherConfig.bucketSize)
+        })
+
+        it('should return consistent results between write and read paths', async () => {
+            // Write costs via observeResults (uses evalsha Lua script)
+            await watcher.observeResults([
+                createResult({ duration: 5000, kind: 'async_function' }),
+                createResult({ duration: 5000, kind: 'async_function' }),
+            ])
+
+            // Read immediately via getPersistedState (uses hget)
+            const state = await watcher.getPersistedState(hogFunctionId)
+
+            // Tokens should be reduced but function still healthy
+            expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(state.tokens).toBeGreaterThan(0)
+            expect(state.state).toEqual(HogWatcherState.healthy)
         })
     })
 
@@ -480,6 +563,123 @@ describe('HogWatcher', () => {
             expect(observeResultsSpy).toHaveBeenCalledTimes(2)
             expect(observeResultsSpy).toHaveBeenCalledWith([results[0], results[1], results[2]])
             expect(observeResultsSpy).toHaveBeenCalledWith([results[3]])
+        })
+    })
+
+    describe('reader fallback', () => {
+        let loggerWarnSpy: jest.SpyInstance
+
+        const makeFailingReader = (err: Error): RedisV2 => ({
+            useClient: jest.fn(() => Promise.reject(err)),
+            usePipeline: jest.fn(() => Promise.reject(err)),
+        })
+
+        beforeEach(() => {
+            loggerWarnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            loggerWarnSpy.mockRestore()
+        })
+
+        it('should fall back to the writer when the reader throws on getPersistedStates', async () => {
+            const failingReader = makeFailingReader(new Error('reader unavailable'))
+            const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
+
+            // Seed state on the writer so a successful fallback returns real data
+            await watcherWithFailingReader.observeResults([createResult({ duration: 1000, kind: 'hog' })])
+
+            const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
+
+            // observeResults uses useClient (mget), getPersistedState uses usePipeline
+            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
+            expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
+            expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(loggerWarnSpy).toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader getStates failed'),
+                expect.any(Object)
+            )
+        })
+
+        it('should fall back to the writer when the reader throws on getAllFunctionStates', async () => {
+            // Seed enough cost to trigger a state transition - that's what writes the
+            // state key that getAllFunctionStates SCANs for.
+            await watcher.observeResults(Array(10000).fill(createResult({ duration: 25000, kind: 'async_function' })))
+
+            const failingReader = makeFailingReader(new Error('reader unavailable'))
+            const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
+
+            const states = await watcherWithFailingReader.getAllFunctionStates()
+
+            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
+            expect(Object.keys(states)).toContain(hogFunctionId)
+            expect(loggerWarnSpy).toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader scanStates failed'),
+                expect.any(Object)
+            )
+        })
+
+        it('should not log a fallback when the reader is healthy', async () => {
+            const healthyWatcher = new HogWatcherService(hub.teamManager, watcherConfig, redis, redis)
+
+            await healthyWatcher.getPersistedState(hogFunctionId)
+
+            expect(loggerWarnSpy).not.toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader getStates failed'),
+                expect.any(Object)
+            )
+        })
+    })
+
+    // The mirror Valkey path runs observeResults with useV3=true (V3 lua
+    // pipelined per-bucket). Behavior must match V2 — these tests exercise
+    // the same observe → token-deduct → state-transition flow to lock that
+    // contract in.
+    describe('useV3 equivalence (mirror path)', () => {
+        let v3Watcher: HogWatcherService
+
+        beforeEach(() => {
+            v3Watcher = new HogWatcherService(hub.teamManager, { ...watcherConfig, useV3: true }, redis, redis)
+        })
+
+        it('deducts tokens identically to the V2 pipelined path', async () => {
+            const results = Array(10).fill(createResult({ duration: 1000, kind: 'hog' }))
+
+            await v3Watcher.observeResults(results)
+            const state = await v3Watcher.getPersistedState(hogFunctionId)
+
+            // Reset and run the same input through the default (V2) watcher.
+            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+            await watcher.observeResults(results)
+            const v2State = await watcher.getPersistedState(hogFunctionId)
+
+            expect(state).toEqual(v2State)
+        })
+
+        it('triggers state changes via the same threshold logic', async () => {
+            await v3Watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
+            const state = await v3Watcher.getPersistedState(hogFunctionId)
+            // Heavy-cost flow should drive the bucket below the disabled threshold.
+            expect(state.state).toBe(HogWatcherState.disabled)
+        })
+
+        it('handles batches with multiple distinct function ids', async () => {
+            const otherId = 'hog-function-id-2'
+            await v3Watcher.observeResults([
+                createResult({ id: hogFunctionId, duration: 1000, kind: 'hog' }),
+                createResult({ id: otherId, duration: 1000, kind: 'hog' }),
+            ])
+
+            const stateA = await v3Watcher.getPersistedState(hogFunctionId)
+            const stateB = await v3Watcher.getPersistedState(otherId)
+
+            expect(stateA.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(stateB.tokens).toBeLessThan(watcherConfig.bucketSize)
+            // Each function's bucket is independent.
+            expect(stateA.tokens).toEqual(stateB.tokens)
         })
     })
 })

@@ -14,6 +14,12 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
+    llm-analytics-offline-evaluations-experiment-items-create:
+        operation: llm_analytics_offline_evaluations_experiment_items_create
+        enabled: false
+    llm-analytics-sentiment-generations-create:
+        operation: llm_analytics_sentiment_generations_create
+        enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_retrieve
         enabled: false
@@ -664,19 +670,87 @@ tools:
             Rename an existing review queue. The updated name must stay unique among active queues in the project.
     llma-score-definition-create:
         operation: llm_analytics_score_definitions_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create scorer
+        description: >
+            Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`,
+            `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical
+            scorers need an `options` array with unique keys and optional
+            `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`,
+            `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived)
+            and at version 1.
+        param_overrides:
+            config:
+                input_schema: ScoreDefinitionConfigSchema
     llma-score-definition-get:
         operation: llm_analytics_score_definitions_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get scorer
+        description: >
+            Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind,
+            archived state, and timestamps.
     llma-score-definition-list:
         operation: llm_analytics_score_definitions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scorers
+        description: >
+            List active scorers for the current project. By default only active rows are returned — pass `archived=true`
+            to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over
+            name/description. Returns metadata plus the current config snapshot.
+        mcp_version: 1
     llma-score-definition-new-version:
         operation: llm_analytics_score_definitions_new_version_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Bump scorer to a new version
+        description: >
+            Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change
+            (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep
+            their snapshot of the previous version, so historical scores remain stable. The `config` shape must match
+            the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number
+            you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already
+            advanced the scorer.
+        param_overrides:
+            config:
+                input_schema: ScoreDefinitionConfigSchema
     llma-score-definition-update:
         operation: llm_analytics_score_definitions_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update scorer metadata
+        description: >
+            Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or
+            restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules
+            instead, call `llma-score-definition-new-version`. `kind` cannot be changed.
     llma-sentiment-create:
         operation: llm_analytics_sentiment_create
         enabled: true
@@ -694,7 +768,20 @@ tools:
             Rate-limited.
     llma-skill-archive:
         operation: llm_skills_name_archive_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Archive skill
+        description: >
+            Archive every active version of an agent skill by name. This hides the skill from default lists and cannot
+            be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.
+        param_overrides:
+            skill_name:
+                description: The kebab-case name of the skill to archive.
     llma-skill-create:
         operation: llm_skills_create
         enabled: true
@@ -884,13 +971,52 @@ tools:
         requires_ai_consent: true
     llma-tagger-create:
         operation: taggers_create
-        enabled: false
+        enabled: true
+        scopes:
+            - tagger:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: tags/{id}
+        title: Create tagger
+        description: >
+            Create an LLM analytics tagger that automatically adds custom tags to $ai_generation events. For tagger_type
+            "llm", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description);
+            optionally set min_tags and max_tags. For tagger_type "hog", provide tagger_config.source Hog code that
+            returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a
+            whitelist. Use enabled=false while drafting, then update the tagger from the UI.
     llma-tagger-list:
         operation: taggers_list
-        enabled: false
+        enabled: true
+        scopes:
+            - tagger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: tags/{id}
+        list: true
+        title: List taggers
+        description: >
+            List LLM analytics taggers for the current project. Supports filtering by enabled status, id__in, search,
+            and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model
+            configuration, creator, and timestamps.
     llma-tagger-test-hog:
         operation: taggers_test_hog_create
-        enabled: false
+        enabled: true
+        scopes:
+            - tagger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: false
+        title: Test Hog tagger code
+        description: >
+            Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should
+            return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
+            tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
+            reasoning, and any execution error for each sampled event.
     llma-text-repr-create:
         operation: llm_analytics_text_repr_create
         enabled: false

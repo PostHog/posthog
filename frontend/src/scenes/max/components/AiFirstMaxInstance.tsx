@@ -3,7 +3,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconOpenSidebar, IconShare } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -17,7 +16,6 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { Thread } from '../Thread'
-import { ChatHistoryPanel } from './ChatHistoryPanel'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
@@ -96,7 +94,6 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
     const { startNewConversation } = useActions(maxLogic({ tabId }))
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -106,7 +103,6 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
 
     return (
         <div className="flex grow overflow-hidden h-full">
-            {!isAIFirst && <ChatHistoryPanel tabId={tabId} />}
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">

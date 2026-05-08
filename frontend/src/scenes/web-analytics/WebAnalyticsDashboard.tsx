@@ -54,6 +54,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
+import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -450,6 +451,8 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
 
     return (
         <>
@@ -458,6 +461,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
+            {showLiveTiles && <LiveBotTiles />}
             <Tiles tiles={tiles} />
         </>
     )

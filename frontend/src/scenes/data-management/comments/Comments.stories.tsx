@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import commentsLongJson from './__mocks__/comments-long.json'
+import commentsTasksJson from './__mocks__/comments-tasks.json'
 import commentsJson from './__mocks__/comments.json'
 
 const meta: Meta = {
@@ -35,6 +36,16 @@ export const LongContent: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/comments/': commentsLongJson,
+            },
+        }),
+    ],
+}
+
+export const Tasks: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/comments/': commentsTasksJson,
             },
         }),
     ],

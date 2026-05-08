@@ -32,11 +32,11 @@ use personhog_proto::personhog::types::v1::{
     GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, PersonDistinctIds, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
+    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpdateGroupRequest,
+    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -44,6 +44,8 @@ use uuid::Uuid;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
+const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
+const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -292,7 +294,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .or_default()
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
-                    version: None, // This endpoint doesn't return version per distinct_id
+                    version: mapping.version,
                 });
         }
 
@@ -587,8 +589,8 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
 
-        let limit = if req.limit <= 0 || req.limit > 10000 {
-            10000
+        let limit = if req.limit <= 0 || req.limit > MAX_LIST_COHORT_MEMBER_IDS_LIMIT {
+            MAX_LIST_COHORT_MEMBER_IDS_LIMIT
         } else {
             req.limit
         };
@@ -719,6 +721,46 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GetGroupsBatchResponse { results }))
+    }
+
+    async fn list_groups(
+        &self,
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let limit = if req.limit <= 0 || req.limit > MAX_LIST_GROUPS_LIMIT {
+            MAX_LIST_GROUPS_LIMIT
+        } else {
+            req.limit
+        };
+
+        let cursor_created_at = if req.cursor_created_at_ms > 0 {
+            chrono::DateTime::from_timestamp_millis(req.cursor_created_at_ms)
+        } else {
+            None
+        };
+
+        let (groups, has_more) = self
+            .storage
+            .list_groups(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key_contains,
+                &req.search,
+                cursor_created_at,
+                req.cursor_id,
+                limit,
+                consistency,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_groups"))?;
+
+        Ok(Response::new(ListGroupsResponse {
+            groups: groups.into_iter().map(Into::into).collect(),
+            has_more,
+        }))
     }
 
     // ============================================================

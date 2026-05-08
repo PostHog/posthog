@@ -222,7 +222,7 @@ export const groupsTypesMetricsPartialUpdate = async (
     projectId: string,
     groupTypeIndex: number,
     id: string,
-    patchedGroupUsageMetricApi: NonReadonly<PatchedGroupUsageMetricApi>,
+    patchedGroupUsageMetricApi?: NonReadonly<PatchedGroupUsageMetricApi>,
     options?: RequestInit
 ): Promise<GroupUsageMetricApi> => {
     return apiMutator<GroupUsageMetricApi>(getGroupsTypesMetricsPartialUpdateUrl(projectId, groupTypeIndex, id), {

@@ -92,7 +92,7 @@ def validated_request(
     """
 
     def decorator(view_func: Callable) -> Callable:
-        parameters = []
+        parameters: list = list(extend_schema_kwargs.pop("parameters", None) or [])
         if query_serializer is not None:
             parameters.append(query_serializer)
 

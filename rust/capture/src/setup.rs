@@ -275,6 +275,8 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
+        config.capture_v1_max_compressed_body_bytes,
+        config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         replay_overflow_limiter,
     );

@@ -570,7 +570,9 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Start sending logs from your application to PostHog.',
                 taskType: 'setup',
                 requiresManualCompletion: true,
+                getUrl: () => urls.onboarding({ productKey: ProductKey.LOGS, stepKey: OnboardingStepKey.INSTALL }),
                 docsUrl: 'https://posthog.com/docs/logs',
+                targetSelector: '[data-attr="menu-item-logs"]',
             },
             {
                 id: SetupTaskId.ViewFirstLogs,

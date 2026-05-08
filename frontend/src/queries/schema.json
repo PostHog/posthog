@@ -468,6 +468,9 @@
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantTrendsQuery"
                 },
                 {
@@ -1057,9 +1060,34 @@
                 "column": {
                     "description": "Name of a column returned by the SQL query to map onto this axis.",
                     "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisSettings",
+                    "description": "Optional series settings. Only applies to Y-axis series."
                 }
             },
             "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "yAxisPosition": {
+                    "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                    "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
+                    "description": "Display settings for a plotted Y series."
+                }
+            },
             "type": "object"
         },
         "AssistantDataVisualizationChartSettings": {
@@ -1071,6 +1099,14 @@
                         "$ref": "#/definitions/AssistantDataVisualizationGoalLine"
                     },
                     "type": "array"
+                },
+                "leftYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the left Y axis."
+                },
+                "rightYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
                 },
                 "seriesBreakdownColumn": {
                     "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
@@ -1091,6 +1127,10 @@
                 "xAxis": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxis",
                     "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                },
+                "xAxisLabel": {
+                    "description": "Label rendered under the X axis.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "description": "One or more numeric columns plotted as Y series.",
@@ -1181,6 +1221,33 @@
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationYAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "description": "Label rendered beside this Y axis.",
+                    "type": "string"
+                },
+                "scale": {
+                    "description": "Scale used for this Y axis.",
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "showGridLines": {
+                    "description": "Show grid lines for this Y axis.",
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "description": "Show tick labels on this Y axis.",
+                    "type": "boolean"
+                },
+                "startAtZero": {
+                    "description": "Whether this Y axis should start at zero.",
                     "type": "boolean"
                 }
             },
@@ -1727,6 +1794,45 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined step.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantFunnelsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -1738,6 +1844,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsGroupNode"
                 }
             ]
         },
@@ -2211,6 +2320,30 @@
             "required": ["id", "kind", "name"],
             "type": "object"
         },
+        "AssistantLifecycleActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no per-actor `event_count` or matched recordings are projected — the underlying lifecycle runner does not surface a `matching_events` column.\n\nUse the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight is a 4-row stack (new / returning / resurrecting / dormant) per day.\n\nNote: lifecycle insights only support a single series and do not expose `compareFilter`, so `series` and `compare` selectors are intentionally omitted.",
+            "properties": {
+                "day": {
+                    "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantLifecycleQuery",
+                    "description": "The source lifecycle insight query whose bucket we are drilling into."
+                },
+                "status": {
+                    "$ref": "#/definitions/AssistantLifecycleStatus",
+                    "description": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+                }
+            },
+            "required": ["kind", "source", "day", "status"],
+            "type": "object"
+        },
         "AssistantLifecycleEventsNode": {
             "additionalProperties": false,
             "properties": {
@@ -2320,7 +2453,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
-                    "maxLength": 1,
+                    "maxItems": 1,
                     "type": "array"
                 }
             },
@@ -2336,6 +2469,11 @@
                     "$ref": "#/definitions/AssistantLifecycleActionsNode"
                 }
             ]
+        },
+        "AssistantLifecycleStatus": {
+            "description": "A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`.",
+            "enum": ["new", "returning", "resurrecting", "dormant"],
+            "type": "string"
         },
         "AssistantMessage": {
             "additionalProperties": false,
@@ -3364,7 +3502,8 @@
                 "finalize_plan",
                 "call_mcp_server",
                 "search_llm_traces",
-                "run_hog_eval_test"
+                "run_hog_eval_test",
+                "diagnose_proxy"
             ],
             "type": "string"
         },
@@ -3618,12 +3757,16 @@
                     "default": 25,
                     "description": "How many distinct values to show."
                 },
+                "breakdown_path_cleaning": {
+                    "description": "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.",
+                    "type": "boolean"
+                },
                 "breakdowns": {
                     "description": "Use this field to define breakdowns.",
                     "items": {
                         "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -10163,6 +10306,9 @@
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
+                "xAxisLabel": {
+                    "type": "string"
+                },
                 "yAxis": {
                     "items": {
                         "$ref": "#/definitions/ChartAxis"
@@ -11052,6 +11198,10 @@
             },
             "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
+        },
+        "DashboardAutoRefreshInterval": {
+            "const": 1800,
+            "type": "number"
         },
         "DashboardFilter": {
             "additionalProperties": false,
@@ -12670,6 +12820,10 @@
                             "type": "object"
                         }
                     ]
+                },
+                "showAbsoluteTime": {
+                    "description": "Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative (\"X ago\"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.",
+                    "type": "boolean"
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -17375,7 +17529,7 @@
             "additionalProperties": false,
             "properties": {
                 "feature_flag_variants": {
-                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
                         "$ref": "#/definitions/ExperimentVariant"
                     },
@@ -17953,7 +18107,7 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                     "type": "string"
                 },
                 "name": {
@@ -20592,6 +20746,10 @@
                     "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
                     "type": "boolean"
                 },
+                "sessionPropertyPreAggregation": {
+                    "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "type": "boolean"
+                },
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
@@ -23149,6 +23307,10 @@
                 "ID",
                 "Campaign",
                 "Source",
+                "Ad group",
+                "Ad group ID",
+                "Ad",
+                "Ad ID",
                 "Cost",
                 "Clicks",
                 "Impressions",
@@ -23172,7 +23334,11 @@
                 "impressions",
                 "source",
                 "reported_conversion",
-                "reported_conversion_value"
+                "reported_conversion_value",
+                "ad_group_id",
+                "ad_group_name",
+                "ad_id",
+                "ad_name"
             ],
             "type": "string"
         },
@@ -23242,13 +23408,16 @@
                         "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
                     },
                     "type": "array"
+                },
+                "excludesConversionGoals": {
+                    "type": "boolean"
                 }
             },
             "required": ["columnAlias", "excludedBaseColumns"],
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
+            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -32630,8 +32799,8 @@
                 },
                 "aggregationPropertyType": {
                     "default": "event",
-                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "description": "The type of property to aggregate on (event, person or data_warehouse). Defaults to event.",
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
@@ -33959,6 +34128,10 @@
                 },
                 "shortId": {
                     "$ref": "#/definitions/InsightShortId"
+                },
+                "showAbsoluteTime": {
+                    "description": "Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative (\"X ago\"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.",
+                    "type": "boolean"
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -35625,6 +35798,18 @@
         "SourceMap": {
             "additionalProperties": false,
             "properties": {
+                "ad_group_id": {
+                    "type": "string"
+                },
+                "ad_group_name": {
+                    "type": "string"
+                },
+                "ad_id": {
+                    "type": "string"
+                },
+                "ad_name": {
+                    "type": "string"
+                },
                 "campaign": {
                     "type": "string"
                 },
@@ -40050,6 +40235,9 @@
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
+                "label": {
+                    "type": "string"
+                },
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
@@ -40143,6 +40331,22 @@
                 }
             },
             "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "getEffectiveExcludedColumns": {
+            "$comment": "(\n    level: MarketingAnalyticsDrillDownLevel) => Set<MarketingAnalyticsBaseColumns>",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "level": {
+                            "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel"
+                        }
+                    },
+                    "required": ["level"],
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "integer": {

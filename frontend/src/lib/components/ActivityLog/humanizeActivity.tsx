@@ -43,6 +43,8 @@ export type ActivityLogItem = {
     scope: ActivityScope | string
     item_id?: string
     detail: ActivityLogDetail
+    /** Team (project) the activity belongs to; null for organization-scoped activities. */
+    team_id?: number | null
     /** Present if the log is used as a notification. Whether the notification is unread. */
     unread?: boolean
     /** Whether the activity was initiated by a PostHog staff member impersonating a user. */

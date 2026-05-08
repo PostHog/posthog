@@ -22,6 +22,7 @@ from .run_evaluation import (
     BooleanWithNAEvalResult,
     EmitEvaluationEventInputs,
     ExecuteLLMJudgeInputs,
+    LLMJudgeResult,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
@@ -30,6 +31,7 @@ from .run_evaluation import (
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
     execute_llm_judge_activity,
+    extract_event_tools,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     run_hog_eval,
@@ -160,9 +162,10 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": True,
             "reasoning": "Test passed",
+            "allows_na": False,
             "model": "gpt-5-mini",
             "provider": "openai",
             "input_tokens": 42,
@@ -213,7 +216,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": False,
             "reasoning": "Source trace errored before producing output; evaluation skipped.",
             "input_tokens": 0,
@@ -520,7 +523,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": True,
             "reasoning": "Test passed",
             "applicable": True,
@@ -561,7 +564,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": None,
             "reasoning": "Not applicable",
             "applicable": False,
@@ -1258,3 +1261,127 @@ class TestSendEvaluationDisabledEmailActivity:
             )
 
             mock_email_class.assert_not_called()
+
+
+class TestExtractEventTools:
+    def test_returns_tools_when_property_present(self):
+        properties = {
+            "$ai_tools": [{"type": "function", "function": {"name": "send_email", "description": "Send email"}}],
+        }
+        tools = extract_event_tools(properties)
+        assert tools is not None
+        assert isinstance(tools, list)
+        assert tools[0]["function"]["name"] == "send_email"
+
+    def test_returns_none_when_property_missing(self):
+        assert extract_event_tools({}) is None
+
+
+class TestJudgePromptAssembly:
+    """Asserts on the actual user prompt sent to the judge — guards against
+    regressions in section ordering, tool catalog inclusion, and tool_call_id
+    correlation that the unit tests for the helpers can't catch alone."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_prompt_contains_input_tools_and_output_sections_in_order(self, setup_data):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Did the agent call the right tool?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [
+                    {"role": "user", "content": "Send the welcome email."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "send_email", "arguments": '{"to": "x@y.com"}'},
+                            }
+                        ],
+                    },
+                    {"role": "tool", "tool_call_id": "call_1", "content": "ok"},
+                ],
+                "$ai_output_choices": [{"role": "assistant", "content": "Done."}],
+                "$ai_tools": [
+                    {"type": "function", "function": {"name": "send_email", "description": "Send an email."}},
+                    {"type": "function", "function": {"name": "lookup_user", "description": "Look up a user."}},
+                ],
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        completion_request = mock_client.complete.call_args[0][0]
+        user_prompt = completion_request.messages[0]["content"]
+
+        # Section ordering: Input first, then Tools available, then Output.
+        input_idx = user_prompt.index("Input:")
+        tools_idx = user_prompt.index("Tools available:")
+        output_idx = user_prompt.index("Output:")
+        assert input_idx < tools_idx < output_idx
+
+        # Tool calls and their results are paired via tool_call_id.
+        assert "tool_call call_1: send_email" in user_prompt
+        assert "tool[call_1]: ok" in user_prompt
+
+        # Tool catalog is rendered compactly, one entry per line.
+        assert "- send_email: Send an email." in user_prompt
+        assert "- lookup_user: Look up a user." in user_prompt
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_prompt_omits_tools_section_when_catalog_absent(self, setup_data):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        user_prompt = mock_client.complete.call_args[0][0].messages[0]["content"]
+        assert "Tools available:" not in user_prompt
+        assert "Input:" in user_prompt
+        assert "Output:" in user_prompt

@@ -16,6 +16,14 @@ export interface PinnedTaxonomicFilter {
 export interface PinnedItemContext {
     sourceGroupType: TaxonomicFilterGroupType
     sourceGroupName: string
+    /**
+     * Canonical value the entry was pinned under (e.g. `action.id`,
+     * `property.name`). Stored alongside the item because the reducer
+     * shrinks `item` down to `{ name }` for storage; without this,
+     * groups whose `getValue` reads a different field (Actions →
+     * `id`) can't roundtrip into a pinned/unpinned check.
+     */
+    value: TaxonomicFilterValue
 }
 
 export function hasPinnedContext(item: unknown): item is Record<string, any> & { _pinnedContext: PinnedItemContext } {
@@ -91,6 +99,7 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                             _pinnedContext: {
                                 sourceGroupType: f.groupType,
                                 sourceGroupName: f.groupName,
+                                value: f.value,
                             } as PinnedItemContext,
                         }) as unknown as TaxonomicDefinitionTypes
                 ),

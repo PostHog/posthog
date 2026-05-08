@@ -9,7 +9,6 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
-import { createFuse } from 'lib/utils/fuseSearch'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -91,12 +90,11 @@ function mergeSearchSurveysData(
     response: CountedPaginatedResponse<Survey>,
     appendResults = false
 ): SurveyDataState {
-    if (response.results.length === 0) {
+    if (appendResults && response.results.length === 0) {
         return currentData
     }
 
-    const searchSurveys =
-        appendResults && response.results ? [...currentData.searchSurveys, ...response.results] : response.results
+    const searchSurveys = appendResults ? [...currentData.searchSurveys, ...response.results] : response.results
 
     return {
         ...currentData,
@@ -173,11 +171,6 @@ export const surveysLogic = kea<surveysLogicType>([
                 const trimmedSearchTerm = values.searchTerm?.trim() || ''
                 if (trimmedSearchTerm === '') {
                     return mergeSearchSurveysData(values.data, { results: [], count: 0 })
-                }
-
-                // Only do backend search if we have more total items than the page size
-                if (values.data.surveysCount <= SURVEY_PAGE_SIZE) {
-                    return values.data
                 }
 
                 const response = await api.surveys.list({
@@ -411,38 +404,16 @@ export const surveysLogic = kea<surveysLogicType>([
                 router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
             }
         },
-        setSearchTerm: async ({ searchTerm }, breakpoint) => {
-            await breakpoint(300) // Debounce for 300ms
-            if (searchTerm && values.data.surveysCount > SURVEY_PAGE_SIZE) {
-                actions.loadSearchResults()
-            }
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSearchResults()
         },
     })),
     selectors({
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
             (data, searchTerm, filters) => {
-                let searchedSurveys = data.surveys
-
-                if (searchTerm) {
-                    // Always do frontend search first for better UX
-                    const fuseResults = createFuse(searchedSurveys, {
-                        keys: ['key', 'name'],
-                        ignoreLocation: true,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
-
-                    // If we have backend search results (triggered when total count > page size)
-                    // merge them with frontend results, removing duplicates
-                    if (data.searchSurveys.length > 0) {
-                        const seenIds = new Set(fuseResults.map((s) => s.id))
-                        const uniqueBackendResults = data.searchSurveys.filter((s) => !seenIds.has(s.id))
-                        searchedSurveys = [...fuseResults, ...uniqueBackendResults]
-                    } else {
-                        searchedSurveys = fuseResults
-                    }
-                }
+                let searchedSurveys = searchTerm?.trim() ? data.searchSurveys : data.surveys
 
                 const { status, type, created_by, archived } = filters
                 if (status !== 'any') {

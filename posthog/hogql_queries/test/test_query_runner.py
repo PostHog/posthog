@@ -1,6 +1,4 @@
-import re
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -41,9 +39,9 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
-    SHARED_FORCE_BLOCKING_MIN_AGE,
     ExecutionMode,
     QueryRunner,
     get_query_runner,
@@ -51,6 +49,8 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
@@ -217,6 +217,7 @@ class TestQueryRunner(BaseTest):
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionIdPushdown": False,
+                "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
@@ -298,7 +299,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
+        assert cache_key == "cache_42_13ab830e775c41ee3ae4b45c386e6064d74eec55fb93092732c0bb305d7e980f"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -312,7 +313,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
+        assert cache_key == "cache_42_b624e873acbdc9829f0973b4dc14424bb26e3b5c36c11387ce24e9ff3bea2a00"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -323,7 +324,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
+        assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -524,6 +525,39 @@ class TestQueryRunner(BaseTest):
             == failure_delta
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
+
+    @parameterized.expand(
+        [
+            (
+                "user_access_control_error",
+                lambda: UserAccessControlError("query", "viewer", None),
+                SloOutcome.SUCCESS,
+                "user_error",
+            ),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+        ]
+    )
+    def test_run_classifies_slo_error_at_except_boundary(
+        self, _name, exception_factory, expected_outcome, expected_error_category
+    ):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = exception_factory()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+            with pytest.raises(type(raised_exc)):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        mock_emit_slo_completed.assert_called_once()
+        completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+        assert completed_kwargs["properties"].outcome == expected_outcome
+        assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
@@ -1083,10 +1117,14 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ),
             (
-                "unlisted_blocking_if_stale_falls_back_to_extended_async",
+                "blocking_if_stale_passes_through",
+                # Used by the shared-notebook inline query payload builder. Must pass through so
+                # cold-cache loads block and return real results — falling back to async would
+                # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
+                # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 None,
-                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             ),
         ]
     )
@@ -1100,33 +1138,3 @@ class TestSharedInsightsExecutionMode(BaseTest):
         last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
         result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
         self.assertEqual(result, expected_mode)
-
-    def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
-        """Backend throttle must match frontend auto-refresh interval — drift would silently throttle periodic refreshes."""
-        frontend_file = (
-            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
-        )
-        source = frontend_file.read_text()
-
-        interval_match = re.search(
-            r"export\s+const\s+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*=\s*(\d+)\s*",
-            source,
-        )
-        assert interval_match, f"Could not find AUTO_REFRESH_INITIAL_INTERVAL_SECONDS in {frontend_file}"
-        frontend_interval_minutes = int(interval_match.group(1)) // 60
-
-        stale_match = re.search(
-            r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*/\s*60",
-            source,
-        )
-        assert stale_match, (
-            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES must be derived from "
-            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file}."
-        )
-
-        backend_minutes = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds() // 60)
-        self.assertEqual(
-            backend_minutes,
-            frontend_interval_minutes,
-            f"Backend ({backend_minutes}m) must equal frontend ({frontend_interval_minutes}m).",
-        )
