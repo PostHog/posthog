@@ -1719,6 +1719,118 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
 
 
+class TestPersonalAPIKeyAuthenticationCache(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
+
+        PERSONAL_API_KEY_LOOKUP_CACHE.clear()
+        self.client.logout()
+
+    def tearDown(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
+
+        PERSONAL_API_KEY_LOOKUP_CACHE.clear()
+        super().tearDown()
+
+    def test_second_request_with_same_key_does_not_query_personal_api_key_table(self):
+        from posthog.auth import PersonalAPIKeyAuthentication
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        # Prime the cache with a real call.
+        first = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert first.status_code == status.HTTP_200_OK
+
+        # Second call with the same bearer must hit the cache, not the DB.
+        with patch.object(
+            PersonalAPIKey.objects, "select_related", wraps=PersonalAPIKey.objects.select_related
+        ) as select_related_spy:
+            second = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+
+        assert second.status_code == status.HTTP_200_OK
+        select_related_spy.assert_not_called()
+
+        # Sanity: the authentication path still ran (validate_key returned the cached object).
+        cached = PersonalAPIKeyAuthentication().validate_key((personal_api_key, "header"))
+        assert cached.user_id == self.user.id
+
+    def test_invalid_key_is_not_cached(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
+
+        bad_key = generate_random_token_personal()
+
+        first = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {bad_key}"},
+        )
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert len(PERSONAL_API_KEY_LOOKUP_CACHE) == 0
+
+    def test_cache_entry_expires_after_ttl(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE, _personal_api_key_cache_key
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        first = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert first.status_code == status.HTTP_200_OK
+        assert _personal_api_key_cache_key(personal_api_key) in PERSONAL_API_KEY_LOOKUP_CACHE
+
+        # Forcibly expire the cache entry — proxy for "TTL elapsed" without sleeping in tests.
+        PERSONAL_API_KEY_LOOKUP_CACHE.clear()
+
+        # After expiry, the next call must repopulate via a real DB lookup.
+        with patch.object(
+            PersonalAPIKey.objects, "select_related", wraps=PersonalAPIKey.objects.select_related
+        ) as select_related_spy:
+            second = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+
+        assert second.status_code == status.HTTP_200_OK
+        select_related_spy.assert_called()
+        assert _personal_api_key_cache_key(personal_api_key) in PERSONAL_API_KEY_LOOKUP_CACHE
+
+    def test_different_tokens_do_not_collide_in_cache(self):
+        from posthog.auth import PERSONAL_API_KEY_LOOKUP_CACHE
+
+        key_a = generate_random_token_personal()
+        key_b = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="A", user=self.user, secure_value=hash_key_value(key_a), scopes=["*"])
+        PersonalAPIKey.objects.create(label="B", user=self.user, secure_value=hash_key_value(key_b), scopes=["*"])
+
+        for key in (key_a, key_b):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                headers={"authorization": f"Bearer {key}"},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        assert len(PERSONAL_API_KEY_LOOKUP_CACHE) == 2
+
+
 class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

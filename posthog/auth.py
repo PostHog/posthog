@@ -1,9 +1,11 @@
+import os
 import re
 import hmac
 import time
 import hashlib
 import logging
 import functools
+import threading
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
@@ -20,6 +22,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+from cachetools import TTLCache
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -172,6 +175,29 @@ class SessionAuthentication(authentication.SessionAuthentication):
         return "Session"
 
 
+# Short-TTL in-process cache for `PersonalAPIKey` lookups. Agent traffic (MCP, Terraform, posthog-code)
+# bursts many requests per minute on the same bearer token; without this each call paid a Postgres
+# round-trip on the API hot path. Keyed by sha256(token) so the cache is independent of the salted
+# PBKDF2 form the underlying record may currently be stored in. Successful hits only — caching misses
+# would create a probing oracle. TTL bounds revocation latency: a deactivated user / revoked key
+# remains accepted for at most this window across each pod's local cache.
+PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS = int(os.environ.get("PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS", "60"))
+PERSONAL_API_KEY_LOOKUP_CACHE: TTLCache[str, "PersonalAPIKey"] = TTLCache(
+    maxsize=10_000,
+    ttl=max(PERSONAL_API_KEY_LOOKUP_CACHE_TTL_SECONDS, 1),
+)
+_PERSONAL_API_KEY_LOOKUP_CACHE_LOCK = threading.Lock()
+PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER = Counter(
+    "personal_api_key_lookup_cache_total",
+    "Personal API key lookups served from / missed by the in-process auth cache.",
+    labelnames=["result"],
+)
+
+
+def _personal_api_key_cache_key(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     """A way of authenticating with personal API keys.
     Only the first key candidate found in the request is tried, and the order is:
@@ -239,6 +265,15 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         from posthog.models import PersonalAPIKey
 
         personal_api_key, source = personal_api_key_with_source
+
+        cache_key = _personal_api_key_cache_key(personal_api_key)
+        with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
+            cached = PERSONAL_API_KEY_LOOKUP_CACHE.get(cache_key)
+        if cached is not None:
+            PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="hit").inc()
+            return cached
+        PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="miss").inc()
+
         personal_api_key_object = None
         mode_used = None
 
@@ -259,6 +294,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 pass
 
         if not personal_api_key_object:
+            # Don't cache failed lookups — that would create a probing oracle on expired keys.
             source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
 
@@ -270,6 +306,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
                 key_to_update.secure_value = hash_key_value(personal_api_key)
                 key_to_update.save(update_fields=["secure_value"])
+
+        with _PERSONAL_API_KEY_LOOKUP_CACHE_LOCK:
+            PERSONAL_API_KEY_LOOKUP_CACHE[cache_key] = personal_api_key_object
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
