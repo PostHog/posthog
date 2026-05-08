@@ -2,6 +2,7 @@
 
 import dataclasses
 from collections.abc import Generator
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -382,7 +383,14 @@ def notion_source(
 
     last_edited_gte: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
-        last_edited_gte = str(db_incremental_field_last_value)
+        # Datetime cursors must be ISO 8601 (T-separated) — both for Notion's API filter
+        # and for the client-side string comparison against Notion's response timestamps
+        # (which use the `T` separator). `str(datetime)` would produce a space-separated
+        # form that mis-orders lexicographically vs. response values from the same day.
+        if isinstance(db_incremental_field_last_value, datetime):
+            last_edited_gte = db_incremental_field_last_value.isoformat()
+        else:
+            last_edited_gte = str(db_incremental_field_last_value)
         logger.debug(f"Notion: incremental sync for {endpoint_name} since {last_edited_gte}")
 
     # Fall back to `last_edited_time` when the caller doesn't tell us which field the user

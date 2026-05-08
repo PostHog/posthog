@@ -1,5 +1,6 @@
 import copy
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -244,6 +245,35 @@ class TestNotionSource:
                 logger=logger,
                 resumable_source_manager=manager,
             )
+
+    @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
+    def test_datetime_cursor_is_serialized_as_iso_8601(self, mock_make_session: MagicMock) -> None:
+        # `db_incremental_field_last_value` arrives as a parsed `datetime` (see
+        # `process_incremental_value`). `str(dt)` would produce a space-separated form
+        # ("2026-05-08 10:43:00+00:00") which mis-orders lexicographically against Notion's
+        # T-separated response timestamps and is non-canonical for the API filter. The
+        # cursor must be `T`-separated ISO 8601.
+        session = MagicMock()
+        snapshots = _capture_post_calls(session, [_make_response([], False, None)])
+        mock_make_session.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        cursor = datetime(2026, 5, 8, 10, 43, 0, tzinfo=UTC)
+        response = notion_source(
+            access_token="tok",
+            endpoint_name=data_source_rows_schema_name("dsid-1234"),
+            logger=logger,
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cursor,
+        )
+        list(cast(Iterable[Any], response.items()))
+
+        sent = snapshots[0]["filter"]["last_edited_time"]["after"]
+        assert "T" in sent
+        assert sent == cursor.isoformat()
 
     @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
     def test_data_source_rows_filter_uses_user_selected_incremental_field(self, mock_make_session: MagicMock) -> None:
