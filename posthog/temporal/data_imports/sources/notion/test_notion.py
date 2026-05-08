@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.notion.notion import (
     NotionResumeConfig,
     _flatten_property,
     _flatten_row,
+    _list_data_sources,
     _paginate,
     notion_source,
     validate_credentials,
@@ -301,6 +302,52 @@ class TestFlattenRow:
         assert flat["Name"] == "x"
         assert flat["_raw_properties"] == row["properties"]
         assert flat["url"] == "https://www.notion.so/abc"
+
+
+class TestListDataSources:
+    @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
+    def test_per_id_fetch_hits_each_data_source_endpoint(self, mock_make_session: MagicMock) -> None:
+        # With `ids=[...]`, each id should map to one GET /v1/data_sources/{id} — no
+        # /v1/search call, no pagination.
+        session = MagicMock()
+        responses = [
+            _make_response_for_get({"id": "id-a", "title": [{"plain_text": "Tasks"}]}),
+            _make_response_for_get({"id": "id-b", "title": []}),
+        ]
+        session.get.side_effect = responses
+        mock_make_session.return_value = session
+
+        result = _list_data_sources("tok", ids=["id-a", "id-b"])
+
+        assert result == [("id-a", "Tasks"), ("id-b", None)]
+        called_urls = [call.args[0] for call in session.get.call_args_list]
+        assert called_urls == [
+            f"{NOTION_API_URL}/data_sources/id-a",
+            f"{NOTION_API_URL}/data_sources/id-b",
+        ]
+        session.post.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.notion.notion._make_session")
+    def test_full_enumeration_uses_search(self, mock_make_session: MagicMock) -> None:
+        # Without `ids`, fall back to /v1/search?filter=data_source pagination.
+        session = MagicMock()
+        session.post.return_value = _make_response([{"id": "id-a", "title": [{"plain_text": "Tasks"}]}], False, None)
+        mock_make_session.return_value = session
+
+        result = _list_data_sources("tok")
+
+        assert result == [("id-a", "Tasks")]
+        session.post.assert_called_once()
+        assert session.post.call_args.args[0] == f"{NOTION_API_URL}/search"
+        session.get.assert_not_called()
+
+
+def _make_response_for_get(body: dict[str, Any]) -> MagicMock:
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.json.return_value = body
+    return response
 
 
 class TestValidateCredentials:

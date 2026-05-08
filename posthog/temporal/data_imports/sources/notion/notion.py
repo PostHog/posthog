@@ -300,15 +300,29 @@ def _extract_title(item: dict[str, Any]) -> str | None:
     return text or None
 
 
-def _list_data_sources(access_token: str) -> list[tuple[str, str | None]]:
-    """One-shot helper for schema discovery — returns (id, title) for every data source the integration can see.
+def _list_data_sources(
+    access_token: str,
+    ids: list[str] | None = None,
+) -> list[tuple[str, str | None]]:
+    """Returns (id, title) for the requested data sources, or all of them when `ids` is None.
 
     Each Notion database can host one or more data sources (the queryable row collections).
-    `/v1/search` with `filter.value="data_source"` returns data source objects directly,
-    so we don't need to enumerate databases first and then fetch their data sources.
+    With `ids` we issue one `GET /v1/data_sources/{id}` per requested id — cheap for small
+    lookups (e.g. the `incremental_fields` API endpoint, which always passes a single id).
+    Without `ids` we paginate `/v1/search?filter=data_source` over the whole workspace —
+    cheaper than per-id when discovering everything for the first time.
     """
     sess = _make_session(access_token)
     try:
+        if ids is not None:
+            results: list[tuple[str, str | None]] = []
+            for ds_id in ids:
+                response = sess.get(f"{NOTION_API_URL}/data_sources/{ds_id}", timeout=30)
+                response.raise_for_status()
+                payload = response.json()
+                results.append((payload["id"], _extract_title(payload)))
+            return results
+
         data_sources: list[tuple[str, str | None]] = []
         body: dict[str, Any] = {
             "filter": {"property": "object", "value": "data_source"},

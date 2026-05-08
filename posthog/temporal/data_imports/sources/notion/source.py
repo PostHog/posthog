@@ -101,13 +101,22 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         # propagate so the user sees the real error (revoked token, missing scope, Notion
         # outage) instead of silently getting back only the static schemas.
         #
-        # When the caller filters by `names` and asks only about static schemas, skip the
-        # Notion API call entirely — the per-schema lookup endpoint (`incremental_fields`)
-        # passes a single name at a time, so this avoids a round trip on every static-schema
-        # config edit.
-        if names is None or any(n.startswith(DATA_SOURCE_ROWS_PREFIX) for n in names):
+        # Three discovery modes, depending on what the caller asked for:
+        #   - `names is None`:                full enumeration via /v1/search
+        #   - `names` has dynamic schemas:    per-id GET /v1/data_sources/{id}
+        #   - `names` is static-only:         skip the Notion API entirely
+        ids_to_fetch: list[str] | None = None
+        skip_discovery = False
+        if names is not None:
+            dynamic_ids = [n[len(DATA_SOURCE_ROWS_PREFIX) :] for n in names if n.startswith(DATA_SOURCE_ROWS_PREFIX)]
+            if dynamic_ids:
+                ids_to_fetch = dynamic_ids
+            else:
+                skip_discovery = True
+
+        if not skip_discovery:
             access_token = self._get_access_token(config, team_id)
-            for data_source_id, title in _list_data_sources(access_token):
+            for data_source_id, title in _list_data_sources(access_token, ids=ids_to_fetch):
                 schemas.append(
                     SourceSchema(
                         name=data_source_rows_schema_name(data_source_id),
