@@ -6,6 +6,12 @@
     --color-bg-primary: var(--color-background-primary, #fff);
     --color-bg-secondary: var(--color-background-secondary, #f9fafb);
     --color-bg-tertiary: var(--color-background-tertiary, #f2f4f7);
+    /* Aliases consumed by hog-charts DefaultTooltip (bg-bg-light, text-primary, border-border).
+       bg-light is the *card/popup* surface — must contrast with the chart bg (which is
+       background-primary), otherwise the tooltip blends into the chart. */
+    --color-bg-light: var(--color-background-secondary, #fff);
+    --color-primary: var(--color-text-primary, #101828);
+    --color-border: var(--color-border-primary, #e5e7eb);
     --color-text-primary: var(--color-text-primary, #101828);
     --color-text-secondary: var(--color-text-secondary, #6b7280);
     --color-text-inverse: var(--color-text-inverse, #fff);
@@ -36,3 +42,5 @@
 @source "../../../../../products/*/mcp/**/*.tsx";
 @source "../components/**/*.tsx";
 @source "../apps/**/*.tsx";
+/* hog-charts overlays (tooltip, value labels) emit Tailwind classes that need scanning. */
+@source "../../../../../frontend/src/lib/hog-charts/**/*.{ts,tsx}";

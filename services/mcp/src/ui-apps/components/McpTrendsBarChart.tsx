@@ -5,12 +5,16 @@ import {
     type TimeSeriesBarChartConfig,
 } from 'lib/hog-charts/charts/TimeSeriesBarChart/TimeSeriesBarChart'
 import type { Series } from 'lib/hog-charts/core/types'
-import type { XAxisConfig } from 'lib/hog-charts/utils/use-axis-formatters'
+import type { XAxisConfig, YAxisConfig } from 'lib/hog-charts/utils/use-axis-formatters'
 
-import type { BarLayout } from './ChartSettings'
+import type { YUnit } from './ChartSettings'
 import { MCP_CHART_THEME } from './McpChartTheme'
 import type { TrendsInterval, TrendsResultItem } from './types'
-import { formatDate, formatNumber, getSeriesLabel } from './utils'
+import { formatDate, getSeriesLabel } from './utils'
+
+const DEFAULT_CURRENCY = 'USD'
+
+export type BarLayout = 'grouped' | 'stacked' | 'percent'
 
 export interface McpTrendsBarChartProps {
     results: TrendsResultItem[]
@@ -18,6 +22,7 @@ export interface McpTrendsBarChartProps {
     timezone?: string
     barLayout?: BarLayout
     showValueLabels?: boolean
+    yUnit?: YUnit
 }
 
 export function McpTrendsBarChart({
@@ -26,6 +31,7 @@ export function McpTrendsBarChart({
     timezone,
     barLayout = 'grouped',
     showValueLabels = false,
+    yUnit = 'numeric',
 }: McpTrendsBarChartProps): ReactElement | null {
     if (results.length === 0) {
         return null
@@ -44,10 +50,16 @@ export function McpTrendsBarChart({
     const xAxis: XAxisConfig =
         interval && timezone ? { interval, timezone } : { tickFormatter: (label) => formatDate(label) }
 
+    const yAxis: YAxisConfig = {
+        format: yUnit,
+        ...(yUnit === 'currency' ? { currency: DEFAULT_CURRENCY } : {}),
+        showGrid: true,
+    }
+
     const config: TimeSeriesBarChartConfig = {
         barLayout,
         xAxis,
-        yAxis: { tickFormatter: (value) => formatNumber(value), showGrid: true },
+        yAxis,
         ...(showValueLabels ? { valueLabels: true } : {}),
     }
 

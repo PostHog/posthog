@@ -231,6 +231,13 @@ export function Component({ data }: ComponentProps): ReactElement {
         }
     }
 
+    // Trends owns its own header row (title + chart-mode select + Options) so the
+    // controls sit beside the title instead of below it. Other visualizers still get
+    // the standard title block.
+    if (visualizationType === 'trends') {
+        return <div style={containerStyle}>{renderVisualization()}</div>
+    }
+
     return (
         <div style={containerStyle}>
             <div style={titleStyle}>{getTitle()}</div>

@@ -13,7 +13,7 @@ export interface SelectProps<T extends string = string> {
 }
 
 const defaultStyle: CSSProperties = {
-    padding: '0.25rem 1.5rem 0.25rem 0.5rem',
+    padding: '0.25rem 2rem 0.25rem 0.5rem',
     fontSize: '0.75rem',
     border: '1px solid var(--color-border-primary, #e5e7eb)',
     borderRadius: 'var(--border-radius-sm, 0.25rem)',

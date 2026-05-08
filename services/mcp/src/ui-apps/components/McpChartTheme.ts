@@ -3,26 +3,29 @@ import type { ChartTheme } from 'lib/charts/types'
 /**
  * Static ChartTheme for MCP UI apps.
  *
- * IIFE-safe: no `getComputedStyle`, no imports from `lib/colors` or
- * `lib/charts/utils/theme` (those read `document.body` at module load).
- * Uses `var(--…)` with hex fallbacks so dark/light mode follows the host
- * CSS variables when present and degrades gracefully when they aren't.
+ * Concrete hex values (not `var(--…)`) because hog-charts draws series on canvas;
+ * `ctx.strokeStyle = 'var(--…)'` doesn't resolve and falls back to black. Axis text
+ * adapts to dark/light at module load — canvas can't follow CSS vars at runtime.
  *
- * Color palette mirrors the existing MCP SVG `LineChart.tsx` exactly so the
- * hog-charts swap is a like-for-like visual change.
+ * Palette uses PostHog brand colors.
  */
+
 export const MCP_CHART_THEME: ChartTheme = {
     colors: [
-        'var(--posthog-chart-1, #1d4ed8)',
-        'var(--posthog-chart-2, #7c3aed)',
-        'var(--posthog-chart-3, #059669)',
-        'var(--posthog-chart-4, #dc2626)',
-        'var(--posthog-chart-5, #ea580c)',
+        '#1d4aff', // PostHog blue
+        '#621da6', // PostHog purple
+        '#00d683', // PostHog green
+        '#f54e00', // PostHog orange
+        '#f7a501', // PostHog yellow
+        '#dc2626', // red
     ],
-    backgroundColor: 'var(--color-bg-primary, #ffffff)',
-    axisColor: 'var(--color-text-secondary, #6b7280)',
-    gridColor: 'var(--color-border-primary, #e5e7eb)',
-    crosshairColor: 'var(--color-border-primary, #e5e7eb)',
-    tooltipBackground: 'var(--color-bg-primary, #ffffff)',
-    tooltipColor: 'var(--color-text-primary, #111827)',
+    backgroundColor: '#ffffff',
+    // Single mid-gray for axis labels — readable on both light and dark hosts.
+    // Claude Desktop's iframe doesn't set `prefers-color-scheme`, so we can't
+    // detect host theme and adapt at runtime.
+    axisColor: '#9ca3af',
+    gridColor: 'rgba(128, 128, 128, 0.2)',
+    crosshairColor: 'rgba(128, 128, 128, 0.5)',
+    tooltipBackground: '#ffffff',
+    tooltipColor: '#111827',
 }

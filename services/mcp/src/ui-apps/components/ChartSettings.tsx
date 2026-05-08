@@ -1,24 +1,38 @@
 import { type ReactElement, useEffect, useRef, useState } from 'react'
 
-export type BarLayout = 'grouped' | 'stacked' | 'percent'
+import type { YAxisFormat } from 'lib/hog-charts/utils/y-formatters'
+
+export type YUnit = YAxisFormat
 
 export interface ChartConfig {
     showTrendLine: boolean
     showMovingAverage: boolean
     showValueLabels: boolean
-    /** Line chart only — render as a 100% stacked area. */
+    /** Line / area only. */
+    showConfidenceIntervals: boolean
+    /** Line / area only — render as a 100% stacked view. */
     percentStack: boolean
-    /** Bar chart only. */
-    barLayout: BarLayout
+    yUnit: YUnit
 }
 
 export const DEFAULT_CHART_CONFIG: ChartConfig = {
     showTrendLine: false,
     showMovingAverage: false,
     showValueLabels: false,
+    showConfidenceIntervals: false,
     percentStack: false,
-    barLayout: 'grouped',
+    yUnit: 'numeric',
 }
+
+const Y_UNIT_OPTIONS: { value: YUnit; label: string }[] = [
+    { value: 'numeric', label: 'Numeric' },
+    { value: 'short', label: 'Compact (1.2K)' },
+    { value: 'percentage', label: 'Percentage (0–100)' },
+    { value: 'percentage_scaled', label: 'Percentage (0–1)' },
+    { value: 'duration', label: 'Duration (s)' },
+    { value: 'duration_ms', label: 'Duration (ms)' },
+    { value: 'currency', label: 'Currency' },
+]
 
 const STORAGE_KEY = 'mcp-trends-chart-config'
 
@@ -91,6 +105,11 @@ export function ChartSettings({ chartMode, config, onChange }: ChartSettingsProp
                         {chartMode === 'line' ? (
                             <>
                                 <Toggle
+                                    label="Value labels"
+                                    checked={config.showValueLabels}
+                                    onChange={(v) => update('showValueLabels', v)}
+                                />
+                                <Toggle
                                     label="Trend line"
                                     checked={config.showTrendLine}
                                     onChange={(v) => update('showTrendLine', v)}
@@ -101,39 +120,51 @@ export function ChartSettings({ chartMode, config, onChange }: ChartSettingsProp
                                     onChange={(v) => update('showMovingAverage', v)}
                                 />
                                 <Toggle
-                                    label="Value labels"
-                                    checked={config.showValueLabels}
-                                    onChange={(v) => update('showValueLabels', v)}
+                                    label="Confidence intervals"
+                                    checked={config.showConfidenceIntervals}
+                                    onChange={(v) => update('showConfidenceIntervals', v)}
                                 />
                                 <Toggle
                                     label="Percent stack"
                                     checked={config.percentStack}
                                     onChange={(v) => update('percentStack', v)}
                                 />
+                                <div className="mt-1">
+                                    <div className="mb-1 text-text-secondary">Y-axis unit</div>
+                                    <select
+                                        value={config.yUnit}
+                                        onChange={(e) => update('yUnit', e.target.value as YUnit)}
+                                        className="w-full rounded-md border border-border-primary bg-bg-primary px-2 py-1 text-xs"
+                                    >
+                                        {Y_UNIT_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </>
                         ) : (
                             <>
-                                <div>
-                                    <div className="mb-1 text-text-secondary">Bar layout</div>
-                                    <div className="flex gap-2">
-                                        {(['grouped', 'stacked', 'percent'] as const).map((layout) => (
-                                            <label key={layout} className="inline-flex items-center gap-1">
-                                                <input
-                                                    type="radio"
-                                                    name="bar-layout"
-                                                    checked={config.barLayout === layout}
-                                                    onChange={() => update('barLayout', layout)}
-                                                />
-                                                {layout}
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
                                 <Toggle
                                     label="Value labels"
                                     checked={config.showValueLabels}
                                     onChange={(v) => update('showValueLabels', v)}
                                 />
+                                <div className="mt-1">
+                                    <div className="mb-1 text-text-secondary">Y-axis unit</div>
+                                    <select
+                                        value={config.yUnit}
+                                        onChange={(e) => update('yUnit', e.target.value as YUnit)}
+                                        className="w-full rounded-md border border-border-primary bg-bg-primary px-2 py-1 text-xs"
+                                    >
+                                        {Y_UNIT_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </>
                         )}
                     </div>

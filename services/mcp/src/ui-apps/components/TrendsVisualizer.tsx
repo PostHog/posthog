@@ -9,12 +9,24 @@ import { McpTrendsLineChart } from './McpTrendsLineChart'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
-type ChartMode = 'line' | 'bar'
+type ChartType = 'line' | 'area' | 'bar' | 'stacked-bar'
 
-const CHART_MODE_OPTIONS = [
+const CHART_TYPE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
+    { value: 'area' as const, label: 'Area' },
     { value: 'bar' as const, label: 'Bar' },
+    { value: 'stacked-bar' as const, label: 'Stacked bar' },
 ]
+
+function defaultChartType(displayType: ReturnType<typeof getDisplayType>): ChartType {
+    if (displayType === 'ActionsAreaGraph') {
+        return 'area'
+    }
+    if (isBarChart(displayType)) {
+        return 'bar'
+    }
+    return 'line'
+}
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -33,7 +45,7 @@ function calculateTotal(results: TrendsResultItem[]): number {
 
 export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
-    const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
+    const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState<ChartConfig>(loadChartConfig)
 
     useEffect(() => {
@@ -50,40 +62,63 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
         return <BigNumber value={total} label={label} />
     }
 
+    const isBar = chartType === 'bar' || chartType === 'stacked-bar'
+    const chartFamily = isBar ? 'bar' : 'line'
+
     return (
         <div>
             <div
                 style={{
                     display: 'flex',
-                    justifyContent: 'flex-end',
+                    justifyContent: 'space-between',
                     alignItems: 'center',
                     gap: '0.5rem',
-                    marginBottom: '0.5rem',
+                    marginBottom: '0.75rem',
                 }}
             >
-                {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
-                <ChartSettings chartMode={chartMode} config={chartConfig} onChange={setChartConfig} />
+                <div
+                    style={{
+                        fontSize: '0.875rem',
+                        fontWeight: 600,
+                        color: 'var(--color-text-secondary, #6b7280)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                    }}
+                >
+                    Trends
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {/* eslint-disable-next-line react/forbid-elements */}
+                    <Select value={chartType} onChange={setChartType} options={CHART_TYPE_OPTIONS} />
+                    <ChartSettings chartMode={chartFamily} config={chartConfig} onChange={setChartConfig} />
+                </div>
             </div>
-            {chartMode === 'bar' ? (
-                <McpTrendsBarChart
-                    results={results}
-                    interval={query?.interval}
-                    timezone={timezone}
-                    barLayout={chartConfig.barLayout}
-                    showValueLabels={chartConfig.showValueLabels}
-                />
-            ) : (
-                <McpTrendsLineChart
-                    results={results}
-                    interval={query?.interval}
-                    timezone={timezone}
-                    showTrendLine={chartConfig.showTrendLine}
-                    showMovingAverage={chartConfig.showMovingAverage}
-                    showValueLabels={chartConfig.showValueLabels}
-                    percentStack={chartConfig.percentStack}
-                />
-            )}
+            {/* hog-charts canvas uses flex:1 + minHeight:0 — needs a sized flex column parent. */}
+            <div style={{ display: 'flex', flexDirection: 'column', height: 320 }}>
+                {isBar ? (
+                    <McpTrendsBarChart
+                        results={results}
+                        interval={query?.interval}
+                        timezone={timezone}
+                        barLayout={chartType === 'stacked-bar' ? 'stacked' : 'grouped'}
+                        showValueLabels={chartConfig.showValueLabels}
+                        yUnit={chartConfig.yUnit}
+                    />
+                ) : (
+                    <McpTrendsLineChart
+                        results={results}
+                        interval={query?.interval}
+                        timezone={timezone}
+                        fillArea={chartType === 'area'}
+                        showTrendLine={chartConfig.showTrendLine}
+                        showMovingAverage={chartConfig.showMovingAverage}
+                        showValueLabels={chartConfig.showValueLabels}
+                        showConfidenceIntervals={chartConfig.showConfidenceIntervals}
+                        percentStack={chartConfig.percentStack}
+                        yUnit={chartConfig.yUnit}
+                    />
+                )}
+            </div>
         </div>
     )
 }
