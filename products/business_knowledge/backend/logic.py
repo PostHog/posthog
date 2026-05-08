@@ -191,9 +191,22 @@ def _acquire_source_quota_lock(team_id: int) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
 
 
-def _check_source_quota_locked(team_id: int) -> None:
-    """Acquire the advisory lock, then check the source count. Must be inside a transaction."""
+def _check_source_quota_locked(team_id: int, *, reject_if_processing: bool = False) -> None:
+    """
+    Acquire the advisory lock, then check the source count.
+    Must be inside a transaction.
+
+    When *reject_if_processing* is True, also enforces the per-team
+    concurrency invariant (at most one PROCESSING source) under the
+    same lock — closing the TOCTOU window between the pre-fetch check
+    and the in-txn create.
+    """
     _acquire_source_quota_lock(team_id)
+    if (
+        reject_if_processing
+        and KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.PROCESSING).exists()
+    ):
+        raise SourceBusyError("Another knowledge source is already being processed for this project.")
     if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
         raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
 
@@ -721,7 +734,7 @@ def create_url_source(
         # refresh, or delete it. Returning 201 with an error-state source is
         # better UX than a 400 that orphans a row the client has no ID for.
         with transaction.atomic():
-            _check_source_quota_locked(team_id)
+            _check_source_quota_locked(team_id, reject_if_processing=True)
             now = timezone.now()
             source = KnowledgeSource.objects.create(
                 team_id=team_id,
@@ -739,7 +752,7 @@ def create_url_source(
 
     content_hash = sha256_of(text)
     with transaction.atomic():
-        _check_source_quota_locked(team_id)
+        _check_source_quota_locked(team_id, reject_if_processing=True)
         source = KnowledgeSource.objects.create(
             team_id=team_id,
             created_by_id=created_by_id,
@@ -1050,7 +1063,7 @@ def create_crawl_source(
         now = timezone.now()
         first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
         with transaction.atomic():
-            _check_source_quota_locked(team_id)
+            _check_source_quota_locked(team_id, reject_if_processing=True)
             source = KnowledgeSource.objects.create(
                 team_id=team_id,
                 created_by_id=created_by_id,
@@ -1075,7 +1088,7 @@ def create_crawl_source(
 
     # Step 3: atomic create.
     with transaction.atomic():
-        _check_source_quota_locked(team_id)
+        _check_source_quota_locked(team_id, reject_if_processing=True)
         source = KnowledgeSource.objects.create(
             team_id=team_id,
             created_by_id=created_by_id,

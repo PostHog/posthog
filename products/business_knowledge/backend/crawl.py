@@ -159,7 +159,8 @@ def fetch_many(
     workers = max_workers if max_workers is not None else max(per_host * 4, 8)
 
     results: list[CrawlOutcome] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = {
             pool.submit(_fetch_one, url, etag=(etag_for(url) if etag_for else None), registry=registry): url
             for url in urls
@@ -178,4 +179,8 @@ def fetch_many(
             url = futures[future]
             logger.warning("business_knowledge.crawl.timeout", url=url)
             results.append(CrawlOutcome(url=url, final_url=url, status="error", error="Crawl total timeout exceeded"))
+    finally:
+        # Don't block on still-running threads — let them drain in the
+        # background. cancel_futures=True drops queued-but-not-started work.
+        pool.shutdown(wait=False, cancel_futures=True)
     return results

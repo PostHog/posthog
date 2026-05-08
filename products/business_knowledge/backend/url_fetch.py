@@ -105,6 +105,7 @@ class _PinnedIPAdapter(HTTPAdapter):
     def __init__(self) -> None:
         super().__init__()
         self._pin_map: dict[str, str] = {}
+        self._current_original_host: str | None = None
 
     def pin(self, hostname: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
         self._pin_map[hostname.lower()] = str(ip)
@@ -142,20 +143,20 @@ class _PinnedIPAdapter(HTTPAdapter):
         return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
 
     def cert_verify(self, conn: object, url: str, verify: bool | str, cert: None | str | tuple[str, str]) -> None:
-        super().cert_verify(conn, url, verify, cert)  # type: ignore[arg-type]
+        super().cert_verify(conn, url, verify, cert)
         original = getattr(self, "_current_original_host", None)
         if original:
             # We mutate urllib3 pool internals intentionally — these attributes
             # exist at runtime (verified against urllib3 2.6.3) but aren't
             # visible to static type checkers.
             if hasattr(conn, "assert_hostname"):
-                conn.assert_hostname = original  # type: ignore[union-attr,invalid-assignment]  # ty: ignore[invalid-assignment]
+                conn.assert_hostname = original  # ty: ignore[invalid-assignment]
             # Inject server_hostname into conn_kw so newly created connections
             # use the original hostname for TLS SNI (not the rewritten IP).
             # urllib3 passes **conn_kw to ConnectionCls.__init__, and
             # HTTPSConnection.connect() reads self.server_hostname for SNI.
             if hasattr(conn, "conn_kw") and isinstance(getattr(conn, "conn_kw", None), dict):
-                conn.conn_kw["server_hostname"] = original  # type: ignore[union-attr,invalid-assignment]  # ty: ignore[invalid-assignment]
+                conn.conn_kw["server_hostname"] = original  # ty: ignore[invalid-assignment]
 
 
 # --- Shared SSRF-safe fetch core ---------------------------------------------
