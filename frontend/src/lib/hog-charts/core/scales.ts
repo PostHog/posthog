@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, Series } from './types'
+import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
@@ -57,6 +57,15 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
+/** Round `minPositive` down to the previous decade, `max` up to the next round multiple
+ *  of its top decade (e.g. 740 → 800, 4200 → 5000). */
+export function niceLogDomain(minPositive: number, max: number): [number, number] {
+    const niceMin = Math.pow(10, Math.ceil(Math.log10(minPositive)) - 1)
+    const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
+    const niceMax = Math.ceil(max / maxDecade) * maxDecade
+    return [niceMin, niceMax]
+}
+
 export function createXScale(labels: string[], dimensions: ChartDimensions): d3.ScalePoint<string> {
     return d3
         .scalePoint<string>()
@@ -107,12 +116,9 @@ export function createYScale(
                 .nice(tickCount)
                 .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
         }
-        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
-        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
-        const niceMax = Math.ceil(max / maxDecade) * maxDecade
         return d3
             .scaleLog()
-            .domain([niceMin, niceMax])
+            .domain(niceLogDomain(range.minPositive, max))
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
             .clamp(true)
     }
@@ -242,6 +248,25 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
     return buildStackData(series, labels, d3.stackOffsetExpand)
 }
 
+/** Returns the stacked top of each series so the tooltip anchor lands at the visual
+ *  top of each segment, not the raw series value. Falls back to the raw value when the
+ *  series isn't part of the stack (e.g. trend-line overlays, CI bands). */
+export function buildStackedResolveValue(
+    stackedData: Map<string, StackedBand> | undefined
+): ResolveValueFn | undefined {
+    if (!stackedData) {
+        return undefined
+    }
+    return (s, dataIndex) => {
+        const stacked = stackedData.get(s.key)?.top[dataIndex]
+        if (stacked != null && Number.isFinite(stacked)) {
+            return stacked
+        }
+        const raw = s.data[dataIndex]
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+    }
+}
+
 export interface BarScaleSet {
     band: d3.ScaleBand<string>
     value: D3YScale
@@ -320,10 +345,7 @@ function buildBarValueScale(
     const min = range.min > 0 ? 0 : range.min
     const max = range.max < 0 ? 0 : range.max
     if (scaleType === 'log' && isFinite(range.minPositive)) {
-        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
-        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
-        const niceMax = Math.ceil(max / maxDecade) * maxDecade
-        return d3.scaleLog().domain([niceMin, niceMax]).range(valueRange).clamp(true)
+        return d3.scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
     }
     return d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
 }
@@ -341,4 +363,11 @@ export function autoFormatYTick(value: number, domainMax: number): string {
 export function autoFormatterFor(ticks: number[]): (value: number) => string {
     const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
     return (v) => autoFormatYTick(v, domainMax)
+}
+
+export function resolveYScaleForSeries(
+    scales: Pick<ChartScales, 'y' | 'yAxes'>,
+    series: Pick<Series, 'yAxisId'>
+): (value: number) => number {
+    return scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
 }
