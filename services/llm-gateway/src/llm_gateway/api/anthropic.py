@@ -9,9 +9,13 @@ from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, _sanitize_request_data, handle_llm_request
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
+from llm_gateway.circuit_breaker import get_anthropic_circuit_breaker
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.metrics.prometheus import (
+    ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
+    ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE,
+    ANTHROPIC_CIRCUIT_BREAKER_OPEN,
     BEDROCK_FALLBACK_FAILURE,
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
@@ -111,6 +115,39 @@ async def _send_bedrock_messages(
     )
 
 
+async def _maybe_bypass_anthropic(model: str, product: str, *, use_bedrock_fallback: bool) -> bool:
+    """Consult the circuit breaker and decide whether to bypass Anthropic for this request.
+
+    Bypass requires the caller to have opted in via `use_bedrock_fallback`; without that
+    we never silently change the upstream provider, even if Anthropic looks unhealthy.
+    Also publishes the breaker's open/closed and observed-failure-rate gauges.
+    """
+    breaker = get_anthropic_circuit_breaker()
+    if breaker is None or not use_bedrock_fallback:
+        return False
+
+    bypass, rate, _ = await breaker.should_bypass()
+    open_now, _, _ = await breaker.is_open()
+    ANTHROPIC_CIRCUIT_BREAKER_OPEN.set(1 if open_now else 0)
+    ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE.set(rate)
+    if bypass:
+        logger.info(
+            "anthropic_circuit_breaker_bypass",
+            model=model,
+            product=product,
+            failure_rate=rate,
+        )
+        ANTHROPIC_CIRCUIT_BREAKER_BYPASSED.labels(model=model, product=product).inc()
+    return bypass
+
+
+async def _record_anthropic_outcome(success: bool) -> None:
+    breaker = get_anthropic_circuit_breaker()
+    if breaker is None:
+        return
+    await breaker.record_outcome(success=success)
+
+
 async def _handle_anthropic_messages(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
@@ -124,9 +161,12 @@ async def _handle_anthropic_messages(
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
 
+    if await _maybe_bypass_anthropic(body.model, product, use_bedrock_fallback=use_bedrock_fallback):
+        return await _send_bedrock_messages(data, user, request, body.stream or False, product)
+
     # Anthropic path
     try:
-        return await handle_llm_request(
+        result = await handle_llm_request(
             request_data=data,
             user=user,
             model=body.model,
@@ -136,6 +176,7 @@ async def _handle_anthropic_messages(
             product=product,
         )
     except HTTPException as exc:
+        await _record_anthropic_outcome(success=exc.status_code < 500)
         if not use_bedrock_fallback or exc.status_code < 500:
             raise
 
@@ -157,6 +198,9 @@ async def _handle_anthropic_messages(
             BEDROCK_FALLBACK_FAILURE.labels(model=body.model, product=product).inc()
             logger.exception("Bedrock fallback also failed", model=body.model, product=product)
             raise exc from None
+    else:
+        await _record_anthropic_outcome(success=True)
+        return result
 
 
 async def _handle_count_tokens(
@@ -172,10 +216,14 @@ async def _handle_count_tokens(
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)
 
+    if await _maybe_bypass_anthropic(body.model, product, use_bedrock_fallback=use_bedrock_fallback):
+        return await _bedrock_count_tokens_impl(data, body.model, user, product)
+
     # Anthropic path
     try:
-        return await _anthropic_count_tokens_impl(data, body.model, user, product)
+        result = await _anthropic_count_tokens_impl(data, body.model, user, product)
     except HTTPException as exc:
+        await _record_anthropic_outcome(success=exc.status_code < 500)
         if not use_bedrock_fallback or exc.status_code < 500:
             raise
 
@@ -197,6 +245,9 @@ async def _handle_count_tokens(
             BEDROCK_FALLBACK_FAILURE.labels(model=body.model, product=product).inc()
             logger.exception("Bedrock count_tokens fallback also failed", model=body.model, product=product)
             raise exc from None
+    else:
+        await _record_anthropic_outcome(success=True)
+        return result
 
 
 async def _anthropic_count_tokens_impl(

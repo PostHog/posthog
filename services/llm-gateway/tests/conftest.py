@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
 from llm_gateway.main import http_exception_handler
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
@@ -40,7 +41,9 @@ def create_test_app(
         app.state.http_client = MagicMock()
         app.state.plan_resolver = AsyncMock()
         app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        set_anthropic_circuit_breaker(None)
         yield
+        set_anthropic_circuit_breaker(None)
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
     app.exception_handler(HTTPException)(http_exception_handler)

@@ -927,3 +927,188 @@ class TestAnthropicCountTokensEndpoint:
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
         assert "Expected: true or false" in response.json()["error"]["message"]
+
+
+class TestAnthropicCircuitBreakerIntegration:
+    """End-to-end behavior of the Anthropic->Bedrock circuit breaker in /v1/messages."""
+
+    @pytest.fixture
+    def request_body(self) -> dict[str, Any]:
+        return {"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hi"}]}
+
+    @pytest.fixture
+    def mock_response_dict(self) -> dict[str, Any]:
+        return {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hi!"}],
+            "model": "claude-sonnet-4-6",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    def _install_breaker(self, *, bypass: bool) -> MagicMock:
+        from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
+
+        breaker = MagicMock()
+        breaker.should_bypass = AsyncMock(return_value=(bypass, 0.5 if bypass else 0.0, 30))
+        breaker.is_open = AsyncMock(return_value=(bypass, 0.5 if bypass else 0.0, 30))
+        breaker.record_outcome = AsyncMock()
+        set_anthropic_circuit_breaker(breaker)
+        return breaker
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
+
+        breaker = self._install_breaker(bypass=True)
+        try:
+            mock_response = MagicMock()
+            mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+            mock_anthropic.return_value = mock_response
+
+            with patch(
+                "llm_gateway.api.anthropic.get_settings",
+                return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json=request_body,
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Use-Bedrock-Fallback": "true",
+                    },
+                )
+
+            assert response.status_code == 200
+            assert mock_anthropic.call_count == 1
+            forwarded_model = mock_anthropic.call_args.kwargs["model"]
+            assert forwarded_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
+            breaker.record_outcome.assert_not_called()
+        finally:
+            set_anthropic_circuit_breaker(None)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_without_fallback_still_uses_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
+
+        breaker = self._install_breaker(bypass=True)
+        try:
+            mock_response = MagicMock()
+            mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+            mock_anthropic.return_value = mock_response
+
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+            assert response.status_code == 200
+            forwarded_model = mock_anthropic.call_args.kwargs["model"]
+            assert forwarded_model == "claude-sonnet-4-6"
+            breaker.record_outcome.assert_awaited_with(success=True)
+            breaker.should_bypass.assert_not_called()
+        finally:
+            set_anthropic_circuit_breaker(None)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_closed_breaker_routes_to_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
+
+        breaker = self._install_breaker(bypass=False)
+        try:
+            mock_response = MagicMock()
+            mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+            mock_anthropic.return_value = mock_response
+
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+            assert response.status_code == 200
+            forwarded_model = mock_anthropic.call_args.kwargs["model"]
+            assert forwarded_model == "claude-sonnet-4-6"
+            breaker.record_outcome.assert_awaited_with(success=True)
+        finally:
+            set_anthropic_circuit_breaker(None)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_5xx_records_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        request_body: dict,
+    ) -> None:
+        from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
+
+        breaker = self._install_breaker(bypass=False)
+        try:
+            error = Exception("Internal error")
+            error.status_code = 503  # type: ignore[attr-defined]
+            error.message = "Internal error"  # type: ignore[attr-defined]
+            error.type = "internal_error"  # type: ignore[attr-defined]
+            mock_anthropic.side_effect = error
+
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+            assert response.status_code == 503
+            breaker.record_outcome.assert_awaited_with(success=False)
+        finally:
+            set_anthropic_circuit_breaker(None)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_4xx_recorded_as_success(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        request_body: dict,
+    ) -> None:
+        from llm_gateway.circuit_breaker import set_anthropic_circuit_breaker
+
+        breaker = self._install_breaker(bypass=False)
+        try:
+            error = Exception("bad request")
+            error.status_code = 400  # type: ignore[attr-defined]
+            error.message = "bad request"  # type: ignore[attr-defined]
+            error.type = "invalid_request_error"  # type: ignore[attr-defined]
+            mock_anthropic.side_effect = error
+
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+            assert response.status_code == 400
+            breaker.record_outcome.assert_awaited_with(success=True)
+        finally:
+            set_anthropic_circuit_breaker(None)

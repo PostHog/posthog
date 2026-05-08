@@ -152,6 +152,17 @@ class Settings(BaseSettings):
     plan_cache_ttl: int = 900  # 15 minutes
     billing_period_days: int = 30
 
+    # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic
+    # path crosses `failure_threshold` (with at least `min_requests` observations in the
+    # window), the breaker is "open": each request that has opted in to Bedrock fallback
+    # gets routed straight to Bedrock with probability `bypass_probability`, leaving the
+    # remainder as probe traffic to detect recovery.
+    anthropic_circuit_breaker_enabled: bool = True
+    anthropic_circuit_breaker_failure_threshold: float = 0.25
+    anthropic_circuit_breaker_window_seconds: int = 300
+    anthropic_circuit_breaker_bypass_probability: float = 0.9
+    anthropic_circuit_breaker_min_requests: int = 20
+
     @field_validator("product_cost_limits", mode="before")
     @classmethod
     def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
