@@ -54,6 +54,7 @@ from .automation_service import (
     sync_automation_schedule,
     update_automation_run_result,
 )
+from .constants import CODEX_SERVICE_TIER_CHOICES, SERVICE_TIER_CONFIG_ID
 from .metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
@@ -946,6 +947,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         runtime_adapter = request.validated_data.get("runtime_adapter")
         model = request.validated_data.get("model")
         reasoning_effort = request.validated_data.get("reasoning_effort")
+        service_tier = request.validated_data.get("service_tier")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
         if run_source == RunSource.SIGNAL_REPORT:
@@ -958,6 +960,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "runtime_adapter": runtime_adapter,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "service_tier": service_tier,
         }
 
         extra_state = None
@@ -996,6 +999,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             runtime_adapter = runtime_state_fields["runtime_adapter"]
             model = runtime_state_fields["model"]
             reasoning_effort = runtime_state_fields["reasoning_effort"]
+            service_tier = runtime_state_fields["service_tier"]
             if branch is None and prev_state.pr_base_branch is not None:
                 branch = prev_state.pr_base_branch
 
@@ -1010,6 +1014,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "service_tier": service_tier,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}
@@ -1285,6 +1290,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         runtime_adapter = request.validated_data.get("runtime_adapter")
         model = request.validated_data.get("model")
         reasoning_effort = request.validated_data.get("reasoning_effort")
+        service_tier = request.validated_data.get("service_tier")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
         if run_source == RunSource.SIGNAL_REPORT:
@@ -1304,6 +1310,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "service_tier": service_tier,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}
@@ -2331,6 +2338,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
 
+        if method == "set_config_option":
+            if self._persist_config_option_state(task_run, params):
+                response_payload: dict[str, Any] = {
+                    "jsonrpc": request.validated_data["jsonrpc"],
+                    "result": {"updated": True},
+                }
+                if request_id is not None:
+                    response_payload["id"] = request_id
+                return Response(TaskRunCommandResponseSerializer(response_payload).data)
+
         if method == "user_message":
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
@@ -2446,6 +2463,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _persist_config_option_state(task_run: TaskRun, params: dict[str, Any] | None) -> bool:
+        if not params:
+            return False
+
+        config_id = params.get("configId")
+        value = params.get("value")
+        if config_id != SERVICE_TIER_CONFIG_ID or value not in CODEX_SERVICE_TIER_CHOICES:
+            return False
+
+        TaskRun.update_state_atomic(task_run.id, updates={"service_tier": value})
+        return True
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:

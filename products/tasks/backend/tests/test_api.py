@@ -1388,6 +1388,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "runtime_adapter": "codex",
                 "model": "gpt-5.4",
                 "reasoning_effort": "high",
+                "service_tier": "fast",
                 "initial_permission_mode": "auto",
                 "run_source": "manual",
             },
@@ -1405,8 +1406,10 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["provider"], "openai")
         self.assertEqual(task_run.state["model"], "gpt-5.4")
         self.assertEqual(task_run.state["reasoning_effort"], "high")
+        self.assertEqual(task_run.state["service_tier"], "fast")
         self.assertEqual(task_run.state["initial_permission_mode"], "auto")
         self.assertEqual(task_run.state["run_source"], "manual")
+        self.assertEqual(response.json()["service_tier"], "fast")
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1435,6 +1438,25 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task_run = TaskRun.objects.get(id=response.json()["id"])
         self.assertEqual(get_cached_github_user_token(str(task_run.id)), "ghu_test_token")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_rejects_invalid_service_tier(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "service_tier": "turbo",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1797,6 +1819,35 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("standard",),
+            ("fast",),
+            ("flex",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_codex_service_tier(self, service_tier, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+                "service_tier": service_tier,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["service_tier"] == service_tier
+        assert latest_run["service_tier"] == service_tier
+        mock_workflow.assert_called_once()
+
     @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
@@ -2016,6 +2067,29 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_service_tier_for_claude_runtime(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-6",
+                "service_tier": "fast",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is only supported for runtime_adapter 'codex'.",
+            "attr": "service_tier",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
         task = self.create_task()
 
@@ -2168,6 +2242,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "runtime_adapter": "codex",
                 "model": "gpt-5.3-codex",
                 "reasoning_effort": "medium",
+                "service_tier": "fast",
                 "snapshot_external_id": "snap-1",
             },
         )
@@ -2194,6 +2269,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["provider"] == "openai"
         assert task_run.state["model"] == "gpt-5.3-codex"
         assert task_run.state["reasoning_effort"] == "medium"
+        assert task_run.state["service_tier"] == "fast"
         # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 
@@ -5932,6 +6008,30 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
 
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_persists_service_tier_config_option(self, mock_post):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state["runtime_adapter"] = "codex"
+        run.save(update_fields=["state", "updated_at"])
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "service_tier", "value": "fast"},
+                "id": "req-fast",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"], {"updated": True})
+        run.refresh_from_db()
+        self.assertEqual(run.state["service_tier"], "fast")
+        mock_post.assert_not_called()
+
     def test_command_fails_without_sandbox_url(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -5980,6 +6080,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             (
                 "set_config_option_empty_params",
                 {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
+            ),
+            (
+                "set_config_option_invalid_service_tier",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "set_config_option",
+                    "params": {"configId": "service_tier", "value": "turbo"},
+                },
             ),
         ]
     )

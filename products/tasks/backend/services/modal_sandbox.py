@@ -634,6 +634,7 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
@@ -644,6 +645,7 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -691,6 +693,7 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
@@ -736,6 +739,7 @@ class ModalSandbox(SandboxBase):
             provider,
             model,
             reasoning_effort,
+            service_tier,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,

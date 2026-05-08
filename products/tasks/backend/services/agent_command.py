@@ -312,3 +312,20 @@ def send_refresh_session(
         auth_token=auth_token,
         timeout=timeout,
     )
+
+
+def send_set_config_option(
+    task_run: Any,
+    config_id: str,
+    value: str,
+    auth_token: str | None = None,
+    timeout: int = REFRESH_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Push an agent-server config option before the next turn."""
+    return send_agent_command(
+        task_run,
+        method="set_config_option",
+        params={"configId": config_id, "value": value},
+        auth_token=auth_token,
+        timeout=timeout,
+    )

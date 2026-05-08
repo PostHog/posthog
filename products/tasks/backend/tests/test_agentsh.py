@@ -323,11 +323,13 @@ class TestModalSandboxAgentShWrapping(TestCase):
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            service_tier="fast",
         )
         self.assertIn("POSTHOG_CODE_RUNTIME_ADAPTER=codex", cmd)
         self.assertIn("POSTHOG_CODE_PROVIDER=openai", cmd)
         self.assertIn("POSTHOG_CODE_MODEL=gpt-5.3-codex", cmd)
         self.assertIn("POSTHOG_CODE_REASONING_EFFORT=high", cmd)
+        self.assertIn("POSTHOG_CODE_SERVICE_TIER=fast", cmd)
 
     def test_write_file_uses_filesystem_api_before_rename(self):
         from products.tasks.backend.services.modal_sandbox import ModalSandbox

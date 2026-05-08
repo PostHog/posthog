@@ -537,6 +537,7 @@ class TestDockerSandboxUnit:
                     provider="openai",
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
+                    service_tier="fast",
                     event_ingest_token="ingest-token",
                 )
 
@@ -545,7 +546,33 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+        assert "POSTHOG_CODE_SERVICE_TIER=fast" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
+
+    def test_start_agent_server_omits_standard_service_tier_environment_variable(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    runtime_adapter="codex",
+                    provider="openai",
+                    model="gpt-5.3-codex",
+                    reasoning_effort="medium",
+                    service_tier="standard",
+                )
+
+        command = _agent_server_launch_command(mock_execute)
+        assert "POSTHOG_CODE_SERVICE_TIER" not in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

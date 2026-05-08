@@ -7,12 +7,16 @@ MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
+CodexServiceTier = Literal["standard", "fast", "flex"]
 
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
 CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermissionMode))
 ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
     arg for member in get_args(InitialPermissionMode) for arg in get_args(member)
 ]
+CODEX_SERVICE_TIER_CHOICES: list[str] = list(get_args(CodexServiceTier))
+DEFAULT_CODEX_SERVICE_TIER: CodexServiceTier = "standard"
+SERVICE_TIER_CONFIG_ID = "service_tier"
 
 DEFAULT_TRUSTED_DOMAINS = [
     # PostHog Services

@@ -9,6 +9,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import CODEX_SERVICE_TIER_CHOICES, SERVICE_TIER_CONFIG_ID
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.services.agent_command import (
@@ -16,6 +17,7 @@ from products.tasks.backend.services.agent_command import (
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     send_refresh_session,
+    send_set_config_option,
     send_user_message,
 )
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
@@ -23,6 +25,7 @@ from products.tasks.backend.services.staged_artifacts import get_task_run_artifa
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import (
+    RuntimeAdapter,
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
     mark_mcp_token_issued,
@@ -69,6 +72,10 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         distinct_id = created_by.distinct_id or f"user_{created_by.id}"
         auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
 
+    # Apply stored runtime config before the next turn. This lets config changes
+    # made during an active prompt take effect without interrupting that prompt.
+    _apply_sandbox_service_tier(task_run, auth_token)
+
     # Push a fresh MCP config before the turn so the agent-server rebinds its
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
     # still deliver the follow-up with the existing (possibly stale) creds.
@@ -110,6 +117,35 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         # Propagate failure to the workflow.
         raise RuntimeError(f"send_followup failed: {error_msg}")
+
+
+def _apply_sandbox_service_tier(task_run: TaskRun, auth_token: str | None) -> None:
+    state = task_run.state or {}
+    if state.get("runtime_adapter") != RuntimeAdapter.CODEX.value:
+        return
+
+    service_tier = state.get("service_tier")
+    if service_tier not in CODEX_SERVICE_TIER_CHOICES:
+        return
+
+    result = send_set_config_option(
+        task_run,
+        SERVICE_TIER_CONFIG_ID,
+        service_tier,
+        auth_token=auth_token,
+        timeout=REFRESH_TIMEOUT_SECONDS,
+    )
+    if result.success:
+        logger.info("service_tier_config_delivered", run_id=str(task_run.id), service_tier=service_tier)
+        return
+
+    logger.warning(
+        "service_tier_config_failed",
+        run_id=str(task_run.id),
+        service_tier=service_tier,
+        error=result.error,
+        status_code=result.status_code,
+    )
 
 
 def _refresh_sandbox_mcp(

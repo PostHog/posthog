@@ -37,6 +37,7 @@ def _task_run_log_context(task_run: Any) -> dict[str, Any]:
         "provider": state.get("provider"),
         "model": state.get("model"),
         "reasoning_effort": state.get("reasoning_effort"),
+        "service_tier": state.get("service_tier"),
     }
 
 

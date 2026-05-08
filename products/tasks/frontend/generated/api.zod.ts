@@ -559,6 +559,13 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
                 ),
+            service_tier: zod
+                .enum(['standard', 'fast', 'flex'])
+                .describe('\* `standard` - standard\n\* `fast` - fast\n\* `flex` - flex')
+                .optional()
+                .describe(
+                    'Codex service tier for this run.\n\n\* `standard` - standard\n\* `fast` - fast\n\* `flex` - flex'
+                ),
             github_user_token: zod
                 .string()
                 .optional()
@@ -789,6 +796,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+            ),
+        service_tier: zod
+            .enum(['standard', 'fast', 'flex'])
+            .describe('\* `standard` - standard\n\* `fast` - fast\n\* `flex` - flex')
+            .optional()
+            .describe(
+                "Codex service tier for this run. Use 'standard' for default behavior, 'fast' for Fast Mode, or 'flex' for Flex Mode.\n\n\* `standard` - standard\n\* `fast` - fast\n\* `flex` - flex"
             ),
         github_user_token: zod
             .string()

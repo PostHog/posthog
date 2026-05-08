@@ -3,10 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
-from products.tasks.backend.services.agent_command import CommandResult
+from products.tasks.backend.services.agent_command import REFRESH_TIMEOUT_SECONDS, CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
     SendFollowupToSandboxInput,
+    _apply_sandbox_service_tier,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
 )
@@ -292,6 +293,46 @@ class TestRefreshIntervalGate:
         assert cache.get(_mcp_token_issued_cache_key("run-1")) is None
 
 
+class TestApplySandboxServiceTier:
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_set_config_option")
+    def test_sends_codex_service_tier(self, mock_send_config):
+        mock_send_config.return_value = CommandResult(success=True, status_code=200)
+        task_run = _make_task_run_mock(state={"runtime_adapter": "codex", "service_tier": "fast"})
+
+        _apply_sandbox_service_tier(task_run, auth_token="jwt")
+
+        mock_send_config.assert_called_once_with(
+            task_run,
+            "service_tier",
+            "fast",
+            auth_token="jwt",
+            timeout=REFRESH_TIMEOUT_SECONDS,
+        )
+
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_set_config_option")
+    def test_sends_standard_service_tier_to_apply_toggle_off(self, mock_send_config):
+        mock_send_config.return_value = CommandResult(success=True, status_code=200)
+        task_run = _make_task_run_mock(state={"runtime_adapter": "codex", "service_tier": "standard"})
+
+        _apply_sandbox_service_tier(task_run, auth_token=None)
+
+        mock_send_config.assert_called_once_with(
+            task_run,
+            "service_tier",
+            "standard",
+            auth_token=None,
+            timeout=REFRESH_TIMEOUT_SECONDS,
+        )
+
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_set_config_option")
+    def test_skips_non_codex_runtime(self, mock_send_config):
+        task_run = _make_task_run_mock(state={"runtime_adapter": "claude", "service_tier": "fast"})
+
+        _apply_sandbox_service_tier(task_run, auth_token=None)
+
+        mock_send_config.assert_not_called()
+
+
 class TestSendFollowupActivityRefreshOrdering:
     """Refresh call must precede user_message, and the activity must succeed
     when refresh fails (non-fatal) as long as user_message succeeds."""
@@ -310,6 +351,9 @@ class TestSendFollowupActivityRefreshOrdering:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
             ) as mock_refresh,
             patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._apply_sandbox_service_tier"
+            ) as mock_apply_service_tier,
+            patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
             ) as mock_user_msg,
             patch(
@@ -326,6 +370,7 @@ class TestSendFollowupActivityRefreshOrdering:
 
             yield {
                 "task_run": task_run,
+                "apply_service_tier": mock_apply_service_tier,
                 "refresh": mock_refresh,
                 "user_msg": mock_user_msg,
                 "conn_token": mock_conn_token,
@@ -334,6 +379,9 @@ class TestSendFollowupActivityRefreshOrdering:
     def test_refresh_called_before_user_message(self, _patches):
         call_order: list[str] = []
 
+        def _record_apply_service_tier(*a, **kw):
+            call_order.append("service_tier")
+
         def _record_refresh(*a, **kw):
             call_order.append("refresh")
 
@@ -341,12 +389,13 @@ class TestSendFollowupActivityRefreshOrdering:
             call_order.append("user_message")
             return CommandResult(success=True, status_code=200, data={"result": {"stopReason": "end_turn"}})
 
+        _patches["apply_service_tier"].side_effect = _record_apply_service_tier
         _patches["refresh"].side_effect = _record_refresh
         _patches["user_msg"].side_effect = _record_user_msg
 
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="full"))
 
-        assert call_order == ["refresh", "user_message"]
+        assert call_order == ["service_tier", "refresh", "user_message"]
 
     def test_scopes_flow_from_input_to_refresh(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)

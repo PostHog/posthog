@@ -579,6 +579,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "provider": self.context.provider,
                         "model": self.context.model,
                         "reasoning_effort": self.context.reasoning_effort,
+                        "service_tier": self.context.service_tier,
                         "error_type": type(e).__name__,
                         "error_message": error_message,
                         "sandbox_id": current_sandbox_id,

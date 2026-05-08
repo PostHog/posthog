@@ -15,7 +15,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.constants import CodexServiceTier, InitialPermissionMode
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -184,6 +184,7 @@ class RunState(BaseModel, extra="allow"):
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    service_tier: CodexServiceTier | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
