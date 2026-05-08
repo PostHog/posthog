@@ -100,8 +100,8 @@ export const UsersSignalAutonomyCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
                 .describe('* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4'),
-            zod.enum(['']),
             zod.literal(null),
         ])
         .nullish(),
+    notify_on_slack_when_assigned: zod.boolean().optional(),
 })

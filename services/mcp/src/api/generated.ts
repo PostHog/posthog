@@ -37750,8 +37750,15 @@ export namespace Schemas {
       readonly id: string;
       readonly user: _User;
       autostart_priority?: AutostartPriorityEnum | BlankEnum | NullEnum | null;
+      /** When true, the user receives a Slack DM (via the team's Slack integration) the first time a signal report transitions to ready and lists them as a suggested reviewer. */
+      notify_on_slack_when_assigned?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface SignalUserAutonomyConfigCreate {
+      autostart_priority?: AutostartPriorityEnum | NullEnum | null;
+      notify_on_slack_when_assigned?: boolean;
     }
 
     export interface SlackChannel {

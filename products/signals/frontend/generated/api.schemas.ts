@@ -223,8 +223,15 @@ export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
     autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    /** When true, the user receives a Slack DM (via the team's Slack integration) the first time a signal report transitions to ready and lists them as a suggested reviewer. */
+    notify_on_slack_when_assigned?: boolean
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface SignalUserAutonomyConfigCreateApi {
+    autostart_priority?: AutostartPriorityEnumApi | NullEnumApi | null
+    notify_on_slack_when_assigned?: boolean
 }
 
 export type SignalsProcessingListParams = {

@@ -1134,6 +1134,39 @@ class SlackIntegration:
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
+    def send_dm_to_email(
+        self,
+        email: str,
+        *,
+        text: str,
+        blocks: list[dict] | None = None,
+        timeout: int = 10,
+    ) -> str | None:
+        """Open a DM with the Slack user matching `email` and post a message to it.
+
+        Returns the channel ID the message was sent to, or None if the recipient cannot be reached
+        (no Slack user matches the email, or the bot lacks `users:read.email` / `im:write` /
+        `chat:write` scopes — any `missing_scope` or `users_not_found` from any of the three calls
+        is treated as "deliver-best-effort, skip on failure"). Other Slack errors are re-raised.
+
+        `timeout` overrides slack_sdk's 30s default per HTTP call — keep it tight because callers
+        often run inside Temporal activities with a tight start-to-close budget.
+
+        Requires bot scopes: `users:read.email`, `im:write`, `chat:write`.
+        """
+        client = WebClient(self.integration.sensitive_config["access_token"], timeout=timeout)
+        try:
+            lookup = client.users_lookupByEmail(email=email)
+            slack_user_id = lookup["user"]["id"]
+            opened = client.conversations_open(users=slack_user_id)
+            channel_id = opened["channel"]["id"]
+            client.chat_postMessage(channel=channel_id, text=text, blocks=blocks)
+            return channel_id
+        except SlackApiError as e:
+            if e.response["error"] in ("users_not_found", "missing_scope"):
+                return None
+            raise
+
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy

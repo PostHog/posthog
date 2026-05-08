@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.slack_notifications import notify_assignees_on_slack_for_ready_report
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     RunAgenticReportOutput,
@@ -433,6 +434,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         source_products=input.source_products,
         result="ready",
     )
+    # Only notify on the terminal READY (not when re-promoting due to new signals — avoids spam).
+    if not has_new_signals:
+        await database_sync_to_async(notify_assignees_on_slack_for_ready_report, thread_sensitive=False)(
+            input.team_id, input.report_id
+        )
     logger.debug(
         f"Marked report {input.report_id} as ready",
         report_id=input.report_id,

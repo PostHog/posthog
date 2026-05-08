@@ -161,7 +161,7 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SignalUserAutonomyConfig
-        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        fields = ["id", "user", "autostart_priority", "notify_on_slack_when_assigned", "created_at", "updated_at"]
         read_only_fields = ["id", "user", "created_at", "updated_at"]
 
 
@@ -174,6 +174,7 @@ class SignalReportTaskSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+    notify_on_slack_when_assigned = serializers.BooleanField(required=False)
 
 
 class SignalReportSerializer(serializers.ModelSerializer):

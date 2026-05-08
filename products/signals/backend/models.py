@@ -99,6 +99,13 @@ register_team_extension_signal(SignalTeamConfig, logger=logger)
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
     autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    notify_on_slack_when_assigned = models.BooleanField(
+        default=False,
+        help_text=(
+            "When true, the user receives a Slack DM (via the team's Slack integration) the first time "
+            "a signal report transitions to ready and lists them as a suggested reviewer."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -148,6 +155,9 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # Set the first time Slack DMs are dispatched for this report's READY transition.
+    # Acts as the idempotency token so activity retries / re-promotion-then-ready don't re-DM users.
+    slack_notified_at = models.DateTimeField(null=True, blank=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(

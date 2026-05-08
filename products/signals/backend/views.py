@@ -71,6 +71,7 @@ from products.signals.backend.serializers import (
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
+    SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -926,17 +927,22 @@ class SignalUserAutonomyConfigView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
-    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
+    @extend_schema(
+        request=SignalUserAutonomyConfigCreateSerializer,
+        responses={200: SignalUserAutonomyConfigSerializer},
+    )
     def post(self, request, user_id, **kwargs):
-        from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
-
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        config, _created = SignalUserAutonomyConfig.objects.update_or_create(
-            user=user,
-            defaults={"autostart_priority": serializer.validated_data.get("autostart_priority")},
-        )
+        # PATCH semantics: only write fields the client explicitly sent. Omitting a field preserves
+        # its prior value (or model default for first-time create).
+        defaults: dict = {
+            field: serializer.validated_data[field]
+            for field in ("autostart_priority", "notify_on_slack_when_assigned")
+            if field in serializer.validated_data
+        }
+        config, _created = SignalUserAutonomyConfig.objects.update_or_create(user=user, defaults=defaults)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
     @extend_schema(responses={204: None})
