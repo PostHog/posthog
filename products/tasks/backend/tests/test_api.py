@@ -3472,7 +3472,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        mock_heartbeat.assert_called_once()
+        mock_heartbeat.assert_called_once_with(agent_active=True)
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
