@@ -2,18 +2,29 @@ from __future__ import annotations
 
 import random
 import time
+from dataclasses import dataclass
+from typing import Literal
 
 import structlog
 from redis.asyncio import Redis
 
+from llm_gateway.config import get_settings
+
 logger = structlog.get_logger(__name__)
 
 
-# A sliding window implemented as N fixed-width buckets. Each bucket stores a
-# "S:F" string (successes:failures) and expires after the full window has elapsed.
-# We sum the most recent N buckets to compute the failure rate.
 BUCKET_WIDTH_SECONDS = 30
 KEY_PREFIX = "llm_gateway:cb:anthropic"
+
+_OutcomeField = Literal["s", "f"]
+
+
+@dataclass(frozen=True)
+class BreakerDecision:
+    bypass: bool
+    open: bool
+    failure_rate: float
+    total_requests: int
 
 
 class AnthropicCircuitBreaker:
@@ -21,7 +32,7 @@ class AnthropicCircuitBreaker:
 
     The breaker is *open* when the trailing failure rate over `window_seconds` is at or
     above `failure_threshold`, provided we've seen at least `min_requests` in that window.
-    While open, `should_bypass` returns True with probability `bypass_probability` so we
+    While open, `evaluate` flags `bypass=True` with probability `bypass_probability` so we
     keep a fraction of probe traffic flowing to Anthropic to detect recovery.
     """
 
@@ -53,7 +64,7 @@ class AnthropicCircuitBreaker:
             return
         bucket = self._current_bucket_index()
         key = self._bucket_key(bucket)
-        field = "s" if success else "f"
+        field: _OutcomeField = "s" if success else "f"
         try:
             pipe = self.redis.pipeline()
             pipe.hincrby(key, field, 1)
@@ -63,8 +74,7 @@ class AnthropicCircuitBreaker:
         except Exception:
             logger.exception("circuit_breaker_record_failed", success=success)
 
-    async def get_stats(self) -> tuple[int, int]:
-        """Return (total, failures) summed across the trailing window."""
+    async def _get_stats(self) -> tuple[int, int]:
         if not self.enabled or self.redis is None:
             return 0, 0
         current = self._current_bucket_index()
@@ -88,44 +98,29 @@ class AnthropicCircuitBreaker:
             failures += int(f_raw or 0)
         return successes + failures, failures
 
-    async def get_failure_rate(self) -> tuple[float, int]:
-        total, failures = await self.get_stats()
-        if total == 0:
-            return 0.0, 0
-        return failures / total, total
+    async def evaluate(self) -> BreakerDecision:
+        """Single Redis read producing both the open/closed state and the per-request bypass decision.
 
-    async def is_open(self) -> tuple[bool, float, int]:
-        """Return (open, failure_rate, total_requests_in_window)."""
-        if not self.enabled:
-            return False, 0.0, 0
-        rate, total = await self.get_failure_rate()
-        if total < self.min_requests:
-            return False, rate, total
-        return rate >= self.failure_threshold, rate, total
-
-    async def should_bypass(self) -> tuple[bool, float, int]:
-        """Decide whether to bypass Anthropic for a single request.
-
-        Returns (bypass, failure_rate, total_requests_in_window). The caller is
-        responsible for honoring the per-request `use_bedrock_fallback` opt-in
-        before consulting this — the breaker only opens; it doesn't force fallback
-        on callers that haven't opted in.
+        Caller is responsible for honoring the per-request `use_bedrock_fallback` opt-in
+        before consulting this — the breaker only opens; it doesn't force fallback on
+        callers that haven't opted in.
         """
-        open_, rate, total = await self.is_open()
-        if not open_:
-            return False, rate, total
-        return random.random() < self.bypass_probability, rate, total
+        if not self.enabled:
+            return BreakerDecision(bypass=False, open=False, failure_rate=0.0, total_requests=0)
+
+        total, failures = await self._get_stats()
+        rate = failures / total if total else 0.0
+
+        if total < self.min_requests or rate < self.failure_threshold:
+            return BreakerDecision(bypass=False, open=False, failure_rate=rate, total_requests=total)
+
+        bypass = random.random() < self.bypass_probability
+        return BreakerDecision(bypass=bypass, open=True, failure_rate=rate, total_requests=total)
 
 
-_INSTANCE: AnthropicCircuitBreaker | None = None
-
-
-def init_anthropic_circuit_breaker(redis: Redis[bytes] | None) -> AnthropicCircuitBreaker:
-    from llm_gateway.config import get_settings
-
+def build_anthropic_circuit_breaker(redis: Redis[bytes] | None) -> AnthropicCircuitBreaker:
     settings = get_settings()
-    global _INSTANCE
-    _INSTANCE = AnthropicCircuitBreaker(
+    return AnthropicCircuitBreaker(
         redis=redis,
         failure_threshold=settings.anthropic_circuit_breaker_failure_threshold,
         window_seconds=settings.anthropic_circuit_breaker_window_seconds,
@@ -133,13 +128,3 @@ def init_anthropic_circuit_breaker(redis: Redis[bytes] | None) -> AnthropicCircu
         min_requests=settings.anthropic_circuit_breaker_min_requests,
         enabled=settings.anthropic_circuit_breaker_enabled,
     )
-    return _INSTANCE
-
-
-def get_anthropic_circuit_breaker() -> AnthropicCircuitBreaker | None:
-    return _INSTANCE
-
-
-def set_anthropic_circuit_breaker(breaker: AnthropicCircuitBreaker | None) -> None:
-    global _INSTANCE
-    _INSTANCE = breaker

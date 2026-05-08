@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, get_auth_service
+from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, resolve_product_alias
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
@@ -30,6 +31,10 @@ async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # no
 
 async def get_throttle_runner(request: Request) -> ThrottleRunner:
     return request.app.state.throttle_runner
+
+
+async def get_anthropic_circuit_breaker(request: Request) -> AnthropicCircuitBreaker | None:
+    return getattr(request.app.state, "anthropic_circuit_breaker", None)
 
 
 async def get_authenticated_user(
@@ -199,3 +204,4 @@ DBPool = Annotated[asyncpg.Pool, Depends(get_db_pool)]
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_authenticated_user)]
 ProductAccessUser = Annotated[AuthenticatedUser, Depends(enforce_product_access)]
 RateLimitedUser = Annotated[AuthenticatedUser, Depends(enforce_throttles)]
+AnthropicCircuitBreakerDep = Annotated[AnthropicCircuitBreaker | None, Depends(get_anthropic_circuit_breaker)]

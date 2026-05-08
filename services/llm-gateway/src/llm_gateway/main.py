@@ -21,7 +21,7 @@ from starlette.types import ASGIApp
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
 from llm_gateway.callbacks import init_callbacks
-from llm_gateway.circuit_breaker import init_anthropic_circuit_breaker, set_anthropic_circuit_breaker
+from llm_gateway.circuit_breaker import build_anthropic_circuit_breaker
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
@@ -150,7 +150,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     app.state.cost_gauge_task = asyncio.create_task(publish_product_cost_gauges_loop(product_throttle))
 
-    init_anthropic_circuit_breaker(app.state.redis)
+    app.state.anthropic_circuit_breaker = build_anthropic_circuit_breaker(app.state.redis)
     logger.info(
         "anthropic_circuit_breaker_initialized",
         enabled=settings.anthropic_circuit_breaker_enabled,
@@ -199,7 +199,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await cost_gauge_task
         except asyncio.CancelledError:
             pass
-    set_anthropic_circuit_breaker(None)
     if app.state.http_client:
         await app.state.http_client.aclose()
         logger.info("HTTP client closed")
