@@ -291,6 +291,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             cached = PERSONAL_API_KEY_LOOKUP_CACHE.get(cache_key)
         if cached is not None:
             PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="hit").inc()
+            if source == cls.SOURCE_QUERY_STRING:
+                # Mirror the cold-path increment so query-string usage isn't undercounted on cache hits.
+                PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(cached.user.uuid).inc()
             return cached
         PERSONAL_API_KEY_LOOKUP_CACHE_COUNTER.labels(result="miss").inc()
 
