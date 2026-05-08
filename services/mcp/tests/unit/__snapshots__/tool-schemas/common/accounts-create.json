@@ -1,0 +1,110 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "external_id": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Identifier for the account in an external system (e.g. CRM ID). Optional."
+        },
+        "name": {
+            "description": "Human-readable name of the account.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "properties": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "account_executive": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["id", "email"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "account_owner": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["id", "email"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "csm": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["id", "email"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "group_keys": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "group_type_index": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Typed account properties. `group_type_index` selects which group type the account is attached to and must match the team config. `group_keys` lists the group keys (string identifiers) that belong to this account. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user."
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

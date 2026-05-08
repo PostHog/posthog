@@ -63,6 +63,53 @@ export interface PaginatedAccountListApi {
     results: AccountApi[]
 }
 
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type PatchedAccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null | null
+} | null | null
+
+export interface PatchedAccountApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: PatchedAccountApiProperties
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 export interface CustomerJourneyApi {
     readonly id: string
     insight: number
