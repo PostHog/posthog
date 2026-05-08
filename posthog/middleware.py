@@ -84,6 +84,9 @@ class AllowIPMiddleware:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
+        # Precompute IPv4Network/IPv6Network objects so per-request membership checks
+        # don't re-parse the CIDR strings on every API call.
+        self.ip_networks = [ip_network(block, strict=False) for block in self.ip_blocks]
 
         if settings.TRUSTED_PROXIES:
             self.trusted_proxies = [item.strip() for item in settings.TRUSTED_PROXIES.split(",")]
@@ -134,7 +137,8 @@ class AllowIPMiddleware:
         ip = self.extract_client_ip(request)
         if ip:
             if settings.ALLOWED_IP_BLOCKS:
-                if any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
+                client_ip_obj = ip_address(ip)
+                if any(client_ip_obj in net for net in self.ip_networks):
                     return response
             elif settings.BLOCKED_GEOIP_REGIONS:
                 if get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS:
