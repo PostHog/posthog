@@ -199,34 +199,34 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                 kind: NodeKind.HogQLQuery,
                                 query: `
                                     SELECT
-                                        properties.$ai_trace_id AS trace_id,
+                                        trace_id,
                                         anyIf(
-                                            substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
-                                                AND length(toString(properties.$ai_input_state)) > 0
+                                                AND length(input_state) > 0
                                         ) AS first_input,
                                         anyIf(
-                                            substring(toString(properties.$ai_output_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
-                                                AND length(toString(properties.$ai_output_state)) > 0
+                                                AND length(output_state) > 0
                                         ) AS last_output,
                                         argMinIf(
-                                            substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(input, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
-                                                AND length(toString(properties.$ai_input)) > 0
+                                                AND length(input) > 0
                                         ) AS first_input_fallback,
                                         argMaxIf(
-                                            substring(toString(properties.$ai_output_choices), 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substring(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
-                                                AND length(toString(properties.$ai_output_choices)) > 0
+                                                AND length(output_choices) > 0
                                         ) AS last_output_fallback
-                                    FROM events
+                                    FROM posthog.ai_events AS ai_events
                                     WHERE event IN ('$ai_trace', '$ai_generation')
                                       AND timestamp >= toDateTime('${fromStr}', 'UTC')
                                       AND timestamp <= toDateTime('${toStr}', 'UTC')
-                                      AND properties.$ai_trace_id IN (${idList})
+                                      AND trace_id IN (${idList})
                                     GROUP BY trace_id
                                 `,
                             }
