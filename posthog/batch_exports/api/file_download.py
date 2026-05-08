@@ -253,8 +253,8 @@ class FileDownloadBatchExportOnDemandViewSet(
                 BatchExportFileDownload.objects.filter(
                     batch_export_run=batch_export_run, team=batch_export_run.batch_export_on_demand.team
                 )
-                .order_by("-key")
-                .values("id")
+                .order_by("key")
+                .values_list("id", flat=True)
             )
 
             if not ids.exists():
