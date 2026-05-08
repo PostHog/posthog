@@ -4,8 +4,18 @@ import type { BarScaleSet, StackedBand } from '../../../core/scales'
 import type { Series } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 
-export function barContainsPoint(bar: BarRect, point: { x: number; y: number }): boolean {
-    return point.x >= bar.x && point.x <= bar.x + bar.width && point.y >= bar.y && point.y <= bar.y + bar.height
+/** Grouped-layout hit-test that ignores the value axis so a cursor above (or below) a bar still
+ *  selects the bar whose band-slot it lines up with. Matches chart.js's `mode: 'point', axis: 'x'`
+ *  behaviour — without this, hovering above a short bar in a grouped pair would fail every
+ *  per-bar check, fall back to "highlight all", and visually flag both group-mates at once. */
+export function barContainsPointOnBandAxis(
+    bar: BarRect,
+    point: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    return isHorizontal
+        ? point.y >= bar.y && point.y <= bar.y + bar.height
+        : point.x >= bar.x && point.x <= bar.x + bar.width
 }
 
 export interface SeriesKeysAtCursorArgs {
@@ -41,7 +51,7 @@ export function seriesKeysAtCursor(args: SeriesKeysAtCursorArgs): Set<string> {
             stackedBand,
             isTopOfStack,
         })
-        if (bar && barContainsPoint(bar, cursor)) {
+        if (bar && barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
             hits.add(s.key)
         }
     }
