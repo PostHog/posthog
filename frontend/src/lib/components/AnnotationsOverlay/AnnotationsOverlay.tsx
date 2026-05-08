@@ -15,6 +15,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -306,7 +307,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     return (
         <button
             ref={buttonRef}
-            className={`AnnotationsBadge${dimmed ? ' AnnotationsBadge--dimmed' : ''}`}
+            className={cn('AnnotationsBadge', dimmed && 'AnnotationsBadge--dimmed')}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
