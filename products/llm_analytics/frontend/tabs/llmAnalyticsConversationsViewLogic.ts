@@ -51,7 +51,10 @@ export const llmAnalyticsConversationsViewLogic = kea<llmAnalyticsConversationsV
             },
         ],
         conversationsLoading: [
-            false,
+            // Initialize true so the empty-state UI doesn't flash on the first render
+            // (between the initial paint and `afterMount` dispatching `loadConversations`).
+            // Matches `llmAnalyticsConversationDataLogic.loading`.
+            true,
             {
                 loadConversations: () => true,
                 loadConversationsSuccess: () => false,
