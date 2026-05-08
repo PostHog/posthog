@@ -10,6 +10,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 
 import boto3
+import structlog
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
@@ -25,6 +26,7 @@ from products.batch_exports.backend.service import start_file_download_batch_exp
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
+LOGGER = structlog.get_logger(__name__)
 
 
 class FileDownloadEventsRequestSerializer(serializers.Serializer):
@@ -199,16 +201,30 @@ class FileDownloadBatchExportOnDemandViewSet(
         serializer.is_valid(raise_exception=True)
         instance = serializer.save()
 
-        start_file_download_batch_export(
-            instance.batch_export_on_demand,
-            instance.workflow_id,
-            batch_export_run_id=instance.id,
-            data_interval_start=instance.data_interval_start,
-            data_interval_end=instance.data_interval_end,
-            compression=instance.batch_export_on_demand.destination.config.get("compression", None),
-            format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
-            max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
-        )
+        try:
+            start_file_download_batch_export(
+                instance.batch_export_on_demand,
+                instance.workflow_id,
+                batch_export_run_id=instance.id,
+                data_interval_start=instance.data_interval_start,
+                data_interval_end=instance.data_interval_end,
+                compression=instance.batch_export_on_demand.destination.config.get("compression", None),
+                format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
+                max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
+            )
+        except Exception:
+            LOGGER.exception("batch_export_on_demand.fail_to_start")
+
+            instance.latest_error = "Failed to start"
+            instance.status = BatchExportRun.Status.FAILED
+            instance.save()
+
+            return response.Response(
+                {
+                    "detail": "The batch export failed to start. Check our status page for any ongoing incidents and try again later."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return response.Response({"id": instance.id}, status=status.HTTP_202_ACCEPTED)
 
