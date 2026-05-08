@@ -24,8 +24,6 @@ import {
     type ValueLabelsConfig,
 } from '../utils/use-value-labels'
 
-export type { ValueLabelsConfig }
-
 export interface TimeSeriesBarChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig

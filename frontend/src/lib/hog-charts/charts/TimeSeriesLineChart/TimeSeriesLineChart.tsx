@@ -30,7 +30,6 @@ import {
     type TrendLineConfig,
 } from './utils/use-derived-series'
 
-export type { ValueLabelsConfig }
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {

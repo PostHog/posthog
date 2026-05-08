@@ -9,10 +9,11 @@ import {
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
+    resolveYScaleForSeries,
     yTickCountForHeight,
 } from '../core/scales'
 import type { ScaleSet, StackedBand } from '../core/scales'
-import { DEFAULT_Y_AXIS_ID, resolveYScaleForSeries } from '../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import type {
     ChartDimensions,
     ChartDrawArgs,

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { getTextMeasureCtx, LABEL_FONT } from '../utils/text-measure'
+import { AXIS_LABEL_FONT, getTextMeasureCtx } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
@@ -45,7 +45,7 @@ export function computeVisibleXLabels(
     if (!ctx) {
         return candidates
     }
-    ctx.font = LABEL_FONT
+    ctx.font = AXIS_LABEL_FONT
 
     const widths = candidates.map((c) => ctx.measureText(c.text).width)
 
@@ -72,7 +72,6 @@ const TICK_STYLE_BASE: React.CSSProperties = {
     whiteSpace: 'nowrap',
 }
 
-/** Distance in CSS pixels between the plot edge and the start of the tick label. */
 const TICK_GAP = 8
 
 interface ChartBox {
@@ -83,8 +82,6 @@ interface ChartBox {
     plotHeight: number
 }
 
-/** Tick label sitting alongside a y-axis. `side` picks which axis: `left` anchors to the
- *  right of the plot's left edge; `right` anchors to the left of the plot's right edge. */
 function YTickLabel({
     y,
     side,
@@ -111,7 +108,6 @@ function YTickLabel({
     )
 }
 
-/** Tick label sitting under the x-axis (the chart's bottom edge). */
 function XTickLabel({
     x,
     box,

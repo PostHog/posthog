@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, ResolveValueFn, Series } from './types'
+import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
@@ -57,10 +57,8 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
-/** Nice log-scale domain: round `minPositive` down to the previous decade and `max` up
- *  to the next "round" multiple of its top decade (e.g. 740 → 800, 4200 → 5000). Used by
- *  both linear-axis and bar-axis log scales — the math is identical, only the resulting
- *  d3 scale's range differs. */
+/** Round `minPositive` down to the previous decade, `max` up to the next round multiple
+ *  of its top decade (e.g. 740 → 800, 4200 → 5000). */
 export function niceLogDomain(minPositive: number, max: number): [number, number] {
     const niceMin = Math.pow(10, Math.ceil(Math.log10(minPositive)) - 1)
     const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
@@ -250,11 +248,9 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
     return buildStackData(series, labels, d3.stackOffsetExpand)
 }
 
-/** Builds a {@link ResolveValueFn} that returns the stacked top of each series so the
- *  tooltip anchor lands at the visual top of each segment, not the raw series value.
- *  Falls back to the raw value when the series isn't part of the stack (e.g. trend-line
- *  overlays, CI bands). Returns `undefined` when there is no stacked data — callers can
- *  pass that straight through and the chart will use its default resolver. */
+/** Returns the stacked top of each series so the tooltip anchor lands at the visual
+ *  top of each segment, not the raw series value. Falls back to the raw value when the
+ *  series isn't part of the stack (e.g. trend-line overlays, CI bands). */
 export function buildStackedResolveValue(
     stackedData: Map<string, StackedBand> | undefined
 ): ResolveValueFn | undefined {
@@ -367,4 +363,11 @@ export function autoFormatYTick(value: number, domainMax: number): string {
 export function autoFormatterFor(ticks: number[]): (value: number) => string {
     const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
     return (v) => autoFormatYTick(v, domainMax)
+}
+
+export function resolveYScaleForSeries(
+    scales: Pick<ChartScales, 'y' | 'yAxes'>,
+    series: Pick<Series, 'yAxisId'>
+): (value: number) => number {
+    return scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
 }

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { resolveYScaleForSeries } from '../core/types'
+import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
 

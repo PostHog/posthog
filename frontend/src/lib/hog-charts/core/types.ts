@@ -257,14 +257,3 @@ export interface ChartScales {
      *  Typed as `unknown` so d3-style types don't leak through the public surface. */
     _private?: unknown
 }
-
-/** Returns the y-axis scale a given series maps onto — its declared `yAxisId` when set
- *  and present in `scales.yAxes`, otherwise the default (left) axis. Use this anywhere
- *  you need to convert a series value to a y-pixel; inlining the same fallback in every
- *  chart type and overlay is how subtle drift creeps in. */
-export function resolveYScaleForSeries(
-    scales: Pick<ChartScales, 'y' | 'yAxes'>,
-    series: Pick<Series, 'yAxisId'>
-): (value: number) => number {
-    return scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
-}
