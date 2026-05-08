@@ -1,7 +1,7 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -881,19 +881,21 @@ export const workflowLogic = kea<workflowLogicType>([
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
     }),
-    beforeUnmount(({ values, props }) => {
-        if (
-            values.autoSaveEnabled &&
-            props.id &&
-            props.id !== 'new' &&
-            values.workflow.status !== 'active' &&
-            values.workflowChanged &&
-            !values.workflowHasErrors
-        ) {
-            const workflow = sanitizeWorkflow(values.workflow, values.hogFunctionTemplatesById)
-            api.hogFlows.updateHogFlow(props.id, workflow).catch((e) => {
-                console.error('Failed to auto-save workflow on unmount', e)
-            })
-        }
-    }),
+    beforeUnload((logic) => ({
+        enabled: (newLocation) => {
+            if (!logic.values.hasUnsavedChanges) {
+                return false
+            }
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave workflow?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            if (logic.values.originalWorkflow) {
+                logic.actions.resetWorkflow(logic.values.originalWorkflow)
+            }
+        },
+    })),
 ])
