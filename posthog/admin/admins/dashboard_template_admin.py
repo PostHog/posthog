@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
+@admin.register(DashboardTemplate)
 class DashboardTemplateAdmin(admin.ModelAdmin):
     list_display = (
         "template_name",

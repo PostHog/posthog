@@ -119,6 +119,7 @@ def fix_metric_properties(metric):
     return metric
 
 
+@admin.register(Experiment)
 class ExperimentAdmin(admin.ModelAdmin):
     form = ExperimentAdminForm
     list_display = (

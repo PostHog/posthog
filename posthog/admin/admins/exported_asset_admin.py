@@ -8,6 +8,7 @@ from django.utils.html import format_html
 from posthog.models import ExportedAsset
 
 
+@admin.register(ExportedAsset)
 class ExportedAssetAdmin(admin.ModelAdmin):
     list_display = (
         "id",

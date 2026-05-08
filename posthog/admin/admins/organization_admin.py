@@ -136,6 +136,7 @@ class UsageReportForm(forms.Form):
         return report_date
 
 
+@admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead

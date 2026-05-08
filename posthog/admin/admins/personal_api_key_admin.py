@@ -9,6 +9,7 @@ from posthog.models import PersonalAPIKey
 from posthog.tasks.email import send_personal_api_key_exposed
 
 
+@admin.register(PersonalAPIKey)
 class PersonalAPIKeyAdmin(admin.ModelAdmin):
     change_form_template = "admin/posthog/personal_api_key/change_form.html"
 

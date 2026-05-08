@@ -2,7 +2,10 @@ import json
 
 from django.contrib import admin
 
+from posthog.models import InstanceSetting
 
+
+@admin.register(InstanceSetting)
 class InstanceSettingAdmin(admin.ModelAdmin):
     list_display = (
         "id",

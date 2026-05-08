@@ -9,6 +9,7 @@ from posthog.models.utils import convert_legacy_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric
 
 
+@admin.register(ExperimentSavedMetric)
 class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     list_display = (
         "id",

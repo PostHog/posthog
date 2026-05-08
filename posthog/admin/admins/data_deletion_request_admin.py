@@ -337,6 +337,7 @@ def fetch_deletion_stats(obj: DataDeletionRequest):
     return fetch_event_deletion_stats(obj)
 
 
+@admin.register(DataDeletionRequest)
 class DataDeletionRequestAdmin(admin.ModelAdmin):
     form = DataDeletionRequestForm
     list_display = (

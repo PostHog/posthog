@@ -2,7 +2,10 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.models import OrganizationDomain
 
+
+@admin.register(OrganizationDomain)
 class OrganizationDomainAdmin(admin.ModelAdmin):
     list_display = (
         "domain",

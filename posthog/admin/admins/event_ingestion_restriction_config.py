@@ -87,6 +87,7 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
         return cleaned_data
 
 
+@admin.register(EventIngestionRestrictionConfig)
 class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
     form = EventIngestionRestrictionConfigForm
     list_display = (

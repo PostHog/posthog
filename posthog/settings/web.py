@@ -77,7 +77,11 @@ PRODUCTS_APPS = [
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
-    "django.contrib.admin",
+    # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
+    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
+    # keeps every product/admin import out of `django.setup()`.
+    "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

@@ -14,6 +14,7 @@ from .ducklake_catalog_admin import DuckLakeCatalogAdmin
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from .experiment_admin import ExperimentAdmin
 from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
+from .exported_asset_admin import ExportedAssetAdmin
 from .external_data_schema_admin import ExternalDataSchemaAdmin
 from .feature_flag_admin import FeatureFlagAdmin
 from .group_type_mapping_admin import GroupTypeMappingAdmin
@@ -53,6 +54,7 @@ __all__ = [
     "ExternalDataSchemaAdmin",
     "ExperimentAdmin",
     "ExperimentSavedMetricAdmin",
+    "ExportedAssetAdmin",
     "FeatureFlagAdmin",
     "GroupTypeMappingAdmin",
     "HogFlowAdmin",

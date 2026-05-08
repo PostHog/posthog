@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from posthog.models import FeatureFlag
 
 
+@admin.register(FeatureFlag)
 class FeatureFlagAdmin(admin.ModelAdmin):
     list_display = (
         "id",

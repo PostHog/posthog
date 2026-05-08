@@ -52,6 +52,7 @@ class InsightAdminForm(forms.ModelForm):
         return instance
 
 
+@admin.register(Insight)
 class InsightAdmin(admin.ModelAdmin):
     form = InsightAdminForm
     exclude = ("layouts",)
