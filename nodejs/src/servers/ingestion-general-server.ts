@@ -18,6 +18,12 @@ import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionCo
 import { AnalyticsServerConfig, AnalyticsServerDeps, assembleAnalyticsConsumer } from '../ingestion/analytics/consumer'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import {
+    ClientWarningsOutputsConfig,
+    getDefaultClientWarningsOutputsConfig,
+    registerClientWarningsOutputs,
+} from '../ingestion/clientwarnings/config/outputs'
+import { createClientWarningsConsumer } from '../ingestion/clientwarnings/consumer'
+import {
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
@@ -38,6 +44,12 @@ import {
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
+import {
+    HeatmapsOutputsConfig,
+    getDefaultHeatmapsOutputsConfig,
+    registerHeatmapsOutputs,
+} from '../ingestion/heatmaps/config/outputs'
+import { HeatmapsServerConfig, HeatmapsServerDeps, assembleHeatmapsConsumer } from '../ingestion/heatmaps/consumer'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
@@ -74,6 +86,8 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     KafkaWarpstreamProducerEnvConfig &
     KafkaIngestionProducerEnvConfig &
     IngestionOutputsConfig &
+    HeatmapsOutputsConfig &
+    ClientWarningsOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
@@ -112,6 +126,8 @@ export class IngestionGeneralServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...overrideConfigWithEnv(getDefaultHeatmapsOutputsConfig()),
+            ...overrideConfigWithEnv(getDefaultClientWarningsOutputsConfig()),
             ...config,
         }
         this.lifecycle = new ServerLifecycle(this.config)
@@ -227,16 +243,16 @@ export class IngestionGeneralServer implements NodeServer {
         }
 
         if (isCombinedMode) {
-            // Local dev / hobby: run multiple consumers for all ingestion topics in one process
-            const consumersOptions = [
+            // Local dev / hobby: run multiple consumers for all ingestion topics in one process.
+            // Each topic is dispatched to its purpose-built consumer factory with a per-pipeline
+            // outputs registry — the registries don't share env-var prefixes, so each consumer
+            // can be deployed standalone with only its own keys set.
+            const analyticsConsumerOptions = [
                 { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
                 { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
                 { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-                { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
-                { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
             ]
-
-            for (const consumerOption of consumersOptions) {
+            for (const consumerOption of analyticsConsumerOptions) {
                 serviceLoaders.push(async () => {
                     const consumerConfig: AnalyticsServerConfig = {
                         ...this.config,
@@ -248,6 +264,50 @@ export class IngestionGeneralServer implements NodeServer {
                     return consumer.service
                 })
             }
+
+            const heatmapsOutputs = registerHeatmapsOutputs().build(this.ingestionProducerRegistry!, this.config)
+            const heatmapsServerDeps: HeatmapsServerDeps = {
+                postgres: this.postgres,
+                redisPool: this.redisPool,
+                outputs: heatmapsOutputs,
+                teamManager,
+                groupTypeManager,
+                groupRepository,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(heatmapsOutputs),
+                personRepository,
+                cookielessManager: this.cookielessManager,
+                hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+            }
+            serviceLoaders.push(async () => {
+                const consumerConfig: HeatmapsServerConfig = {
+                    ...this.config,
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'heatmaps_ingestion',
+                    INGESTION_CONSUMER_GROUP_ID: 'heatmaps_ingestion',
+                }
+                const consumer = assembleHeatmapsConsumer(consumerConfig, heatmapsServerDeps)
+                await consumer.start()
+                return consumer.service
+            })
+
+            const clientWarningsOutputs = registerClientWarningsOutputs().build(
+                this.ingestionProducerRegistry!,
+                this.config
+            )
+            serviceLoaders.push(async () => {
+                const consumer = createClientWarningsConsumer(
+                    {
+                        ...this.config,
+                        INGESTION_CONSUMER_CONSUME_TOPIC: 'client_iwarnings_ingestion',
+                        INGESTION_CONSUMER_GROUP_ID: 'client_iwarnings_ingestion',
+                    },
+                    {
+                        outputs: clientWarningsOutputs,
+                        teamManager,
+                    }
+                )
+                await consumer.start()
+                return consumer.service
+            })
         } else {
             // Production ingestion-v2: single consumer using config-provided topic
             serviceLoaders.push(async () => {
