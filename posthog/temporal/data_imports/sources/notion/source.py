@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -133,7 +133,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         return schemas
 
     def validate_credentials(
-        self, config: NotionSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: NotionSourceConfig, team_id: int, schema_name: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
