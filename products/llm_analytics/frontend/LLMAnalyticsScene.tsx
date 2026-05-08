@@ -36,6 +36,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
+import { LLMAnalyticsConversationsScene } from './LLMAnalyticsConversationsScene'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
@@ -49,6 +50,7 @@ import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmAnalyticsConversationsViewLogic } from './tabs/llmAnalyticsConversationsViewLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
@@ -405,6 +407,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     reviews: 'https://posthog.com/docs/llm-analytics/trace-reviews',
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
+    conversations: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
     tools: 'https://posthog.com/docs/llm-analytics',
     sentiment: 'https://posthog.com/docs/llm-analytics',
@@ -420,6 +423,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     tools: 'See which tools your LLMs are calling and how often.',
     sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
     sessions: 'Analyze user sessions containing LLM interactions.',
+    conversations: 'Read what users actually saw.',
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -437,9 +441,11 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
                                     <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
                                         <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                            <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
-                                                <BindLogic logic={llmAnalyticsSentimentLogic} props={{ tabId }}>
-                                                    <LLMAnalyticsSceneContent />
+                                            <BindLogic logic={llmAnalyticsConversationsViewLogic} props={{ tabId }}>
+                                                <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
+                                                    <BindLogic logic={llmAnalyticsSentimentLogic} props={{ tabId }}>
+                                                        <LLMAnalyticsSceneContent />
+                                                    </BindLogic>
                                                 </BindLogic>
                                             </BindLogic>
                                         </BindLogic>
@@ -630,6 +636,20 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
             'data-attr': 'sessions-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CONVERSATIONS_VIEW] || isEarlyAdopter) {
+        tabs.push({
+            key: 'conversations',
+            label: 'Conversations',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsConversationsScene />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsConversations(), searchParams).url,
+            'data-attr': 'conversations-tab',
         })
     }
 

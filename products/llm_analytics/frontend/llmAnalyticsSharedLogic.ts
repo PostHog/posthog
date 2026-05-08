@@ -33,6 +33,7 @@ export type LLMAnalyticsTabId =
     | 'tools'
     | 'sentiment'
     | 'sessions'
+    | 'conversations'
     | 'playground'
     | 'datasets'
     | 'evaluations'
@@ -222,6 +223,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'sentiment'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
+                } else if (sceneKey === 'llmAnalyticsConversations') {
+                    return 'conversations'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
                     return 'playground'
                 } else if (sceneKey === 'llmAnalyticsDatasets') {
@@ -337,6 +340,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [urls.llmAnalyticsTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.llmAnalyticsSentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsConversations()]: (_, searchParams) =>
+                applyNonDashboard(searchParams, { stripStaleParams: false }),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.
