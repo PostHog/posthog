@@ -7,7 +7,7 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, assert_never
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, assert_never
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -544,19 +544,22 @@ def _apply_fallback_tags(tags: QueryTags, mapped: FallbackTags) -> None:
         tags.feature = mapped["feature"]
 
 
-# Order matters: first match wins, so more specific signals (event filters) come before generic ones (tables).
-_HOGQL_FEATURE_TO_TAGS: tuple[tuple[Literal["events", "tables"], frozenset[str], FallbackTags], ...] = (
+# Event-level matches pinpoint a single product; consulted before tables since they're more specific.
+_EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (
-        "events",
         frozenset({"$ai_generation", "$ai_span", "$ai_trace", "$ai_embedding", "$ai_metric", "$ai_feedback"}),
         {"product": Product.LLM_ANALYTICS},
     ),
-    ("events", frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
-    ("events", frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
-    ("events", frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
-    ("tables", frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
-    ("tables", frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
-    ("tables", frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
+    (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
+    (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
+    (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+)
+
+# Table-level fallbacks — only consulted if no event filter narrowed things down.
+_TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
+    (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
+    (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
 )
 
 
@@ -578,11 +581,16 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
         and tags.query_type == NodeKind.HOG_QL_QUERY.value
         and (features := tags.hogql_features) is not None
     ):
-        feature_sets = {"events": set(features.events), "tables": set(features.tables)}
-        for axis, matchers, mapped in _HOGQL_FEATURE_TO_TAGS:
-            if feature_sets[axis] & matchers:
-                _apply_fallback_tags(tags, mapped)
-                break
+        events_set, tables_set = set(features.events), set(features.tables)
+        features_mapped = next(
+            (m for matchers, m in _EVENT_TO_TAGS if events_set & matchers),
+            None,
+        ) or next(
+            (m for matchers, m in _TABLE_TO_TAGS if tables_set & matchers),
+            None,
+        )
+        if features_mapped is not None:
+            _apply_fallback_tags(tags, features_mapped)
 
     from posthog.event_usage import EventSource
 
