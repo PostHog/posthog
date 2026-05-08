@@ -44,7 +44,13 @@ class HogQLFeatureExtractor(TraversingVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
-            for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
+            # Aliases can stack (resolver passes re-wrap), so unroll until we hit a non-Alias node.
+            left, right = node.left, node.right
+            while isinstance(left, ast.Alias):
+                left = left.expr
+            while isinstance(right, ast.Alias):
+                right = right.expr
+            for field_side, value_side in ((left, right), (right, left)):
                 if _looks_like_event_field(field_side):
                     self.events.update(v for v in _iter_string_constants(value_side) if v in _INTERESTING_EVENT_NAMES)
         super().visit_compare_operation(node)
@@ -53,7 +59,6 @@ class HogQLFeatureExtractor(TraversingVisitor):
 def _looks_like_event_field(expr: ast.Expr) -> bool:
     """``True`` iff ``expr`` references the events table's ``event`` column.
     Mirrors ``is_events_only_field`` from the session where-clause extractor."""
-    expr = _strip_aliases(expr)
     if not isinstance(expr, ast.Field) or not expr.chain:
         return False
 
@@ -74,15 +79,8 @@ def _looks_like_event_field(expr: ast.Expr) -> bool:
     return expr.chain[-1] == "event"
 
 
-def _strip_aliases(expr: ast.Expr) -> ast.Expr:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    return expr
-
-
 def _iter_string_constants(expr: ast.Expr):
     """Yield string literals from a constant, tuple, or array — covers ``= 'X'`` and ``IN ('X', 'Y')``."""
-    expr = _strip_aliases(expr)
     if isinstance(expr, ast.Constant):
         if isinstance(expr.value, str):
             yield expr.value
