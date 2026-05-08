@@ -302,17 +302,17 @@ const pathPrefixesOnboardingNotRequiredFor = [
     // /integrations/* — OAuth + third-party round-trips: must complete (callback/landing effects)
     // even when onboarding is incomplete, else /onboarding swallows the response. E.g.
     // /integrations/<kind>/callback (urls.integrationsRedirect), stripe confirm-install, vercel link-error.
-    urls.integrationsRoutesPrefix(),
+    '/integrations',
     // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
-    urls.accountConnectedRoutesPrefix(),
+    '/account-connected',
     // /oauth/authorize and any /oauth/* callback path.
-    urls.oauthRoutesPrefix(),
+    '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
-    urls.connectRoutesPrefix(),
+    '/connect',
     // /agentic/authorize.
-    urls.agenticAuthorize(),
+    '/agentic/authorize',
     // /cli/authorize, /cli/live (CLI auth round-trip).
-    urls.cliRoutesPrefix(),
+    '/cli',
     '/startups',
     '/coupons',
 ]
