@@ -2,7 +2,8 @@ import { type ReactElement, useState } from 'react'
 
 import { EmptyState } from '@posthog/mosaic'
 
-import { BarChart, BigNumber, Select, type Series } from './charts'
+import { BigNumber, Select } from './charts'
+import { McpTrendsBarChart } from './McpTrendsBarChart'
 import { McpTrendsLineChart } from './McpTrendsLineChart'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
@@ -13,37 +14,6 @@ const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'bar' as const, label: 'Bar' },
 ]
-
-function prepareChartData(results: TrendsResultItem[]): {
-    series: Series[]
-    labels: string[]
-    maxValue: number
-} {
-    if (!results || results.length === 0) {
-        return { series: [], labels: [], maxValue: 0 }
-    }
-
-    const labels = results[0]?.days || results[0]?.labels || []
-    let maxValue = 0
-
-    const series = results.map((item, seriesIndex) => {
-        const data = item.data || []
-        const points = data.map((value, i) => {
-            maxValue = Math.max(maxValue, value)
-            return {
-                x: i,
-                y: value,
-                label: labels[i] || `${i}`,
-            }
-        })
-        return {
-            label: getSeriesLabel(item, seriesIndex),
-            points,
-        }
-    })
-
-    return { series, labels, maxValue: maxValue || 1 }
-}
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -58,18 +28,6 @@ function calculateTotal(results: TrendsResultItem[]): number {
         }
         return sum
     }, 0)
-}
-
-function BarBranch({ results }: { results: TrendsResultItem[] }): ReactElement {
-    const { series, labels, maxValue } = prepareChartData(results)
-    return (
-        <BarChart
-            series={series}
-            labels={labels}
-            maxValue={maxValue}
-            yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-        />
-    )
 }
 
 export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerProps): ReactElement {
@@ -99,7 +57,7 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
             {chartMode === 'bar' ? (
-                <BarBranch results={results} />
+                <McpTrendsBarChart results={results} interval={query?.interval} timezone={timezone} />
             ) : (
                 <McpTrendsLineChart results={results} interval={query?.interval} timezone={timezone} />
             )}
