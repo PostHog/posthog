@@ -23,8 +23,8 @@ export interface WoWChangeApi {
     percent: number
     /** Direction of the change relative to the prior period.
 
-* `Up` - Up
-* `Down` - Down */
+  * `Up` - Up
+  * `Down` - Down */
     direction: DirectionEnumApi
     /** Hex color indicating whether the change is a positive or negative signal. */
     color: string

@@ -79,7 +79,10 @@ await buildInParallel(
         },
         {
             name: 'Exporter',
-            entryPoints: { exporter: 'src/exporter/index.tsx' },
+            entryPoints: {
+                exporter: 'src/exporter/index.tsx',
+                exporterSharedChunkAnchors: 'src/sharedChunkAnchors.ts',
+            },
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
@@ -122,6 +125,9 @@ await buildInParallel(
             }
 
             if (config.name === 'Exporter') {
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                }
                 writeExporterHtml(chunks, entrypoints)
             }
 

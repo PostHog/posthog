@@ -17,9 +17,6 @@ import type {
     PaginatedMCPAnalyticsSubmissionListApi,
 } from './api.schemas'
 
-/**
- * List MCP feedback submissions for the current project, newest first.
- */
 export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -36,6 +33,9 @@ export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAn
         : `/api/environments/${projectId}/mcp_analytics/feedback/`
 }
 
+/**
+ * List MCP feedback submissions for the current project, newest first.
+ */
 export const mcpAnalyticsFeedbackList = async (
     projectId: string,
     params?: McpAnalyticsFeedbackListParams,
@@ -47,13 +47,13 @@ export const mcpAnalyticsFeedbackList = async (
     })
 }
 
-/**
- * Create a new MCP feedback submission for the current project.
- */
 export const getMcpAnalyticsFeedbackCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/mcp_analytics/feedback/`
 }
 
+/**
+ * Create a new MCP feedback submission for the current project.
+ */
 export const mcpAnalyticsFeedbackCreate = async (
     projectId: string,
     mCPFeedbackCreateApi: MCPFeedbackCreateApi,
@@ -67,9 +67,6 @@ export const mcpAnalyticsFeedbackCreate = async (
     })
 }
 
-/**
- * List missing capability reports for the current project, newest first.
- */
 export const getMcpAnalyticsMissingCapabilitiesListUrl = (
     projectId: string,
     params?: McpAnalyticsMissingCapabilitiesListParams
@@ -89,6 +86,9 @@ export const getMcpAnalyticsMissingCapabilitiesListUrl = (
         : `/api/environments/${projectId}/mcp_analytics/missing_capabilities/`
 }
 
+/**
+ * List missing capability reports for the current project, newest first.
+ */
 export const mcpAnalyticsMissingCapabilitiesList = async (
     projectId: string,
     params?: McpAnalyticsMissingCapabilitiesListParams,
@@ -103,13 +103,13 @@ export const mcpAnalyticsMissingCapabilitiesList = async (
     )
 }
 
-/**
- * Create a new missing capability report for the current project.
- */
 export const getMcpAnalyticsMissingCapabilitiesCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/mcp_analytics/missing_capabilities/`
 }
 
+/**
+ * Create a new missing capability report for the current project.
+ */
 export const mcpAnalyticsMissingCapabilitiesCreate = async (
     projectId: string,
     mCPMissingCapabilityCreateApi: MCPMissingCapabilityCreateApi,

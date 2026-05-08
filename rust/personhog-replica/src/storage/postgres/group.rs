@@ -433,6 +433,96 @@ impl GroupStorage for PostgresStorage {
         Ok(row)
     }
 
+    async fn list_groups(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key_contains: &str,
+        search: &str,
+        cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        cursor_id: i64,
+        limit: i32,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<(Vec<Group>, bool)> {
+        let client = current_client_name();
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "list_groups".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+
+        let fetch_limit = (limit as i64) + 1;
+        let has_key_filter = !group_key_contains.is_empty();
+        let escaped_key = group_key_contains
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let key_pattern = format!("%{}%", escaped_key);
+        let has_search = !search.is_empty();
+        let escaped_search = search
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let search_pattern = format!("%{}%", escaped_search);
+        let has_cursor = cursor_created_at.is_some();
+
+        let rows = sqlx::query_as!(
+            Group,
+            r#"
+            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                   group_type_index, group_key, group_properties,
+                   created_at,
+                   properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
+                   properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   version
+            FROM posthog_group
+            WHERE team_id = $1
+              AND group_type_index = $2
+              AND (NOT $3 OR group_key ILIKE $4)
+              AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))
+              AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))
+            ORDER BY created_at DESC, id DESC
+            LIMIT $11
+            "#,
+            team_id as i32,
+            group_type_index,
+            has_key_filter,
+            &key_pattern,
+            has_search,
+            &search_pattern,
+            search,
+            has_cursor,
+            cursor_created_at,
+            cursor_id,
+            fetch_limit,
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+
+        let has_more = rows.len() as i64 > limit as i64;
+        let groups: Vec<Group> = if has_more {
+            rows.into_iter().take(limit as usize).collect()
+        } else {
+            rows
+        };
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                ("operation".to_string(), "list_groups".to_string()),
+                ("client".to_string(), client.to_string()),
+            ],
+            groups.len() as f64,
+        );
+
+        Ok((groups, has_more))
+    }
+
     // ============================================================
     // Group writes
     // ============================================================

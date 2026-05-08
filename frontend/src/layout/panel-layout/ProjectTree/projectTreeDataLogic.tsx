@@ -39,7 +39,7 @@ import {
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType, UserShortcutPosition } from '~/types'
+import { UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
@@ -482,13 +482,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
-                        shortcutItem.type ?? 'unknown',
-                        shortcutPath,
-                        isAIFirst
-                    )
-                    lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
+                    lemonToast.success('Added to starred', {
                         button: {
                             label: 'View',
                             dataAttr: 'project-tree-view-shortcuts',
@@ -514,15 +509,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 deleteShortcut: async ({ id }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
-                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
                     eventUsageLogic.actions.reportNavbarStarredItemRemoved(
                         shortcut?.type ?? 'unknown',
-                        shortcut?.path ?? 'unknown',
-                        isAIFirst
+                        shortcut?.path ?? 'unknown'
                     )
-                    if (isAIFirst) {
-                        lemonToast.success('Removed from starred')
-                    }
+                    lemonToast.success('Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
@@ -1104,15 +1095,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
         getCustomProductTreeItems: [
-            (s) => [s.customProducts, s.featureFlags, s.getShortcutTreeItems, s.folderStates, s.users, s.user],
-            (
-                customProducts,
-                featureFlags,
-                getShortcutTreeItems,
-                folderStates,
-                users,
-                user
-            ): ((searchTerm: string) => TreeDataItem[]) => {
+            (s) => [s.customProducts, s.featureFlags, s.folderStates, s.users],
+            (customProducts, featureFlags, folderStates, users): ((searchTerm: string) => TreeDataItem[]) => {
                 return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
                     const allProducts = getDefaultTreeProducts()
                     const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
@@ -1134,51 +1118,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         })
                         .filter((p): p is FileSystemImport => p !== null)
 
-                    const convert = (imports: FileSystemImport[], protocol: string): TreeDataItem[] =>
-                        convertFileSystemEntryToTreeDataItem({
-                            root: protocol,
-                            imports: imports
-                                .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
-                                .map((i) => ({
-                                    ...i,
-                                    protocol,
-                                })),
-                            checkedItems: {},
-                            folderStates,
-                            users,
-                            foldersFirst: false,
-                            searchTerm,
-                        })
-
-                    const isAIFirst = !!featureFlags[FEATURE_FLAGS.AI_FIRST]
-                    const shortcutPosition = (user?.shortcut_position ?? 'above') as UserShortcutPosition
-                    const generateShortcutItemsCategory = (): TreeDataItem[] => {
-                        if (isAIFirst) {
-                            return []
-                        }
-                        const shortcutItems = getShortcutTreeItems(searchTerm, false)
-                        if (shortcutItems.length === 0) {
-                            return []
-                        }
-
-                        return [
-                            {
-                                id: 'custom-products://-shortcuts-category',
-                                name: 'Shortcuts',
-                                displayName: <>Shortcuts</>,
-                                type: 'category',
-                            },
-                            ...shortcutItems,
-                        ]
-                    }
-
-                    const result: TreeDataItem[] = [
-                        ...(shortcutPosition === 'above' ? generateShortcutItemsCategory() : []),
-                        ...convert(selectedProducts, 'custom-products://'),
-                        ...(shortcutPosition === 'below' ? generateShortcutItemsCategory() : []),
-                    ]
-
-                    return result
+                    return convertFileSystemEntryToTreeDataItem({
+                        root: 'custom-products://',
+                        imports: selectedProducts
+                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .map((i) => ({
+                                ...i,
+                                protocol: 'custom-products://',
+                            })),
+                        checkedItems: {},
+                        folderStates,
+                        users,
+                        foldersFirst: false,
+                        searchTerm,
+                    })
                 }
             },
         ],
@@ -1206,10 +1159,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.reorderShortcuts(next)
         },
         reorderShortcutsSuccess: ({ shortcutData }) => {
-            eventUsageLogic.actions.reportNavbarStarredItemsReordered(
-                shortcutData.length,
-                !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
-            )
+            eventUsageLogic.actions.reportNavbarStarredItemsReordered(shortcutData.length, true)
         },
         reorderShortcutsFailure: () => {
             actions.loadShortcuts()
