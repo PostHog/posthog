@@ -160,7 +160,7 @@ class TestCompactIfFragmented:
         ("exactly_at_default_threshold", 2_000, 10, None, False),
     ]
 
-    @parameterized.expand([(c[0], c[1], c[2], c[3], c[4]) for c in _THRESHOLD_CASES])
+    @parameterized.expand(_THRESHOLD_CASES)
     @pytest.mark.asyncio
     async def test_threshold(
         self,
