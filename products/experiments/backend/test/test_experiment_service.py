@@ -1884,27 +1884,43 @@ class TestExperimentService(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.create_notification")
     def test_end_experiment_dispatches_realtime_to_creator(self, mock_create_notification):
+        creator = self._create_user("creator-end@test.com")
         experiment = self._create_running_experiment(name="End Notify", feature_flag_key="end-notify-flag")
+        experiment.created_by = creator
+        experiment.save()
 
         self._service().end_experiment(experiment, request=self._make_request())
 
         assert mock_create_notification.call_count == 1
         data = mock_create_notification.call_args.args[0]
         assert data.notification_type.value == "experiment_concluded"
-        assert data.target_id == str(self.user.id)
+        assert data.target_id == str(creator.id)
         assert data.team_id == self.team.id
         assert data.resource_type == "experiment"
         assert data.resource_id == str(experiment.id)
 
     @patch("products.experiments.backend.experiment_service.create_notification")
     def test_ship_variant_running_dispatches_realtime(self, mock_create_notification):
+        creator = self._create_user("creator-ship@test.com")
         experiment = self._create_running_experiment(name="Ship Notify", feature_flag_key="ship-notify-flag")
+        experiment.created_by = creator
+        experiment.save()
 
         self._service().ship_variant(experiment, variant_key="control", request=self._make_request())
 
         assert mock_create_notification.call_count == 1
         data = mock_create_notification.call_args.args[0]
         assert data.notification_type.value == "experiment_concluded"
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_no_dispatch_when_actor_is_creator(self, mock_create_notification):
+        # If the user ending the experiment is the creator, skip the self-notification.
+        experiment = self._create_running_experiment(name="Self End", feature_flag_key="self-end-flag")
+        assert experiment.created_by_id == self.user.id
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        mock_create_notification.assert_not_called()
 
     @patch("products.experiments.backend.experiment_service.create_notification")
     def test_ship_variant_already_stopped_does_not_dispatch(self, mock_create_notification):
@@ -1931,7 +1947,10 @@ class TestExperimentService(APIBaseTest):
         side_effect=RuntimeError("kafka down"),
     )
     def test_realtime_failure_does_not_block_end_experiment(self, _mock_create_notification):
+        creator = self._create_user("creator-failure@test.com")
         experiment = self._create_running_experiment(name="Notify Failure", feature_flag_key="notify-failure-flag")
+        experiment.created_by = creator
+        experiment.save()
 
         # Must not raise.
         self._service().end_experiment(experiment, request=self._make_request())
@@ -1954,9 +1973,12 @@ class TestExperimentService(APIBaseTest):
         expected_body: str,
         mock_create_notification: MagicMock,
     ) -> None:
+        creator = self._create_user(f"creator-body-{_name}@test.com")
         experiment = self._create_running_experiment(
             name=f"End Body {_name}", feature_flag_key=f"end-body-{_name.replace('_', '-')}-flag"
         )
+        experiment.created_by = creator
+        experiment.save()
         if metric_result is not None:
             assert experiment.metrics is not None
             assert experiment.start_date is not None

@@ -1189,7 +1189,9 @@ class ExperimentService:
             request=request,
         )
 
-        if experiment.created_by_id:
+        # Skip notifying the creator when they're the one ending the experiment —
+        # surfacing a notification for an action they just performed is noise.
+        if experiment.created_by_id and experiment.created_by_id != self.user.id:
             try:
                 significant = completed_metadata.get("significant")
                 body = ""
