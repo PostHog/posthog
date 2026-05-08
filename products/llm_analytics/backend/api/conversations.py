@@ -21,7 +21,9 @@ re-served here — the existing `TraceQuery` endpoint backs the
 # so subsequent return annotations like `list[LLMTrace]` evaluate against the
 # method object and raise `TypeError: 'function' object is not subscriptable`.
 # PEP 563 string-form evaluation defers annotation lookup to runtime where
-# `list` resolves to the builtin again.
+# `list` resolves to the builtin again — so this fixes the runtime crash.
+# mypy, however, still resolves class-scope `list` to the method, so the helper
+# methods below use the module-level `_LLMTraceList` alias instead.
 from __future__ import annotations
 
 import json
@@ -33,6 +35,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.pagination import BasePagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -57,6 +60,10 @@ MAX_LIST_LIMIT = 200
 # Each call is one ClickHouse round-trip; capping protects ClickHouse from a long agent
 # transcript fanning out into dozens of simultaneous queries.
 TRACE_FETCH_CONCURRENCY = 6
+
+# Alias resolved at module scope where `list` is the builtin. Used in class-scope
+# annotations below where `list` is shadowed by `def list(self, ...)`.
+_LLMTraceList = list[LLMTrace]
 
 # ---------------------------------------------------------------------------
 # SQL templates
@@ -200,7 +207,9 @@ def _message_signature(message: dict[str, Any]) -> str:
     try:
         return f"{role}::{json.dumps(content, sort_keys=True)[:200]}"
     except (TypeError, ValueError):
-        return f"{role}::{hashlib.sha1(repr(content).encode()).hexdigest()}"
+        # Structural hash for content that isn't JSON-serializable. Not a security
+        # primitive — sha256 over sha1 just to keep the static-analysis nudge quiet.
+        return f"{role}::{hashlib.sha256(repr(content).encode()).hexdigest()[:40]}"
 
 
 def _last_generation(trace: LLMTrace) -> dict[str, Any] | None:
@@ -401,15 +410,18 @@ def _truncate_title(value: Any) -> str | None:
     return cleaned if len(cleaned) <= 280 else cleaned[:280] + "…"
 
 
-class _UnwrappedListSchemaPaginator:
+class _UnwrappedListSchemaPaginator(BasePagination):
     """drf-spectacular's `def list` heuristic always wraps the response schema in an
     array unless `pagination_class` is set to something with `get_paginated_response_schema`.
     We're not actually paginated — the response is a fixed `{results: [...]}` envelope —
     so this no-op paginator returns the schema unwrapped, which makes the generated OpenAPI
     (and therefore the Orval-generated TypeScript client) match the runtime shape.
 
-    Only `get_paginated_response_schema` is called by drf-spectacular; `paginate_queryset`
-    et al. are never reached because `def list` doesn't go through DRF's pagination path.
+    Inherits from `BasePagination` to satisfy DRF's `pagination_class: type[BasePagination]`
+    typing. Only `get_paginated_response_schema` is called by drf-spectacular at schema time;
+    `paginate_queryset` et al. are never reached because `def list` doesn't go through DRF's
+    pagination path. (BasePagination's defaults raise NotImplementedError for those, which is
+    the correct behavior if anyone ever does try to paginate via this class.)
     """
 
     def get_paginated_response_schema(self, schema: dict) -> dict:
@@ -419,11 +431,6 @@ class _UnwrappedListSchemaPaginator:
         if isinstance(schema, dict) and schema.get("type") == "array" and "items" in schema:
             return schema["items"]
         return schema
-
-    def get_schema_operation_parameters(self, view: Any) -> list:
-        # drf-spectacular calls this for list-action `parameters` (typically `?limit`/`?offset`).
-        # Our pagination params are declared on the @extend_schema decorator instead.
-        return []
 
 
 class LLMAnalyticsConversationsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -573,6 +580,7 @@ class LLMAnalyticsConversationsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         date_from = request.query_params.get("date_from") or "-30d"
         date_to = request.query_params.get("date_to")
 
+        traces: _LLMTraceList
         with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.LLM_ANALYTICS, team_id=self.team_id):
             try:
                 if kind == "session":
@@ -605,8 +613,10 @@ class LLMAnalyticsConversationsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             None,
         )
 
-        total_cost = sum(t.totalCost or 0 for t in traces) or None
-        total_latency = sum(t.totalLatency or 0 for t in traces) or None
+        # Explicit `start=0.0` disambiguates `sum()`'s overload (it would otherwise pick
+        # the bool-iterable variant and reject the `Any | int` element type from mypy).
+        total_cost = sum((t.totalCost or 0 for t in traces), 0.0) or None
+        total_latency = sum((t.totalLatency or 0 for t in traces), 0.0) or None
         first_distinct_id = next((t.distinctId for t in traces if t.distinctId), None)
 
         response_serializer = ConversationDetailResponseSerializer(
@@ -622,7 +632,7 @@ class LLMAnalyticsConversationsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         )
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
-    def _fetch_session_traces(self, session_id: str, date_from: str, date_to: str | None) -> list[LLMTrace]:
+    def _fetch_session_traces(self, session_id: str, date_from: str, date_to: str | None) -> _LLMTraceList:
         traces_query = TracesQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[
@@ -634,8 +644,10 @@ class LLMAnalyticsConversationsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                 }
             ],
         )
-        traces_response = TracesQueryRunner(team=self.team, query=traces_query).calculate()
-        traces_response = cast(CachedTracesQueryResponse, traces_response)
+        traces_response = cast(
+            CachedTracesQueryResponse,
+            TracesQueryRunner(team=self.team, query=traces_query).calculate(),
+        )
         # Newest-first → chronological
         shallow_traces: list[LLMTrace] = list(reversed(traces_response.results or []))
         if not shallow_traces:
@@ -664,7 +676,7 @@ class LLMAnalyticsConversationsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             results = list(pool.map(fetch, shallow_traces))
         return [trace for trace in results if trace is not None]
 
-    def _fetch_orphan_trace(self, trace_id: str, date_from: str, date_to: str | None) -> list[LLMTrace]:
+    def _fetch_orphan_trace(self, trace_id: str, date_from: str, date_to: str | None) -> _LLMTraceList:
         trace = self._fetch_trace(trace_id, date_from, date_to)
         return [trace] if trace is not None else []
 
