@@ -2,8 +2,11 @@ use async_trait::async_trait;
 
 use personhog_common::grpc::current_client_name;
 
+use futures::stream::{self, StreamExt, TryStreamExt};
+
 use super::{
-    ConsistencyLevel, PostgresStorage, BULK_CHUNK_SIZE, DB_QUERY_DURATION, DB_ROWS_RETURNED,
+    ConsistencyLevel, PostgresStorage, BULK_CHUNK_SIZE, BULK_MAX_CONCURRENT_CHUNKS,
+    DB_QUERY_DURATION, DB_ROWS_RETURNED,
 };
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
@@ -105,16 +108,18 @@ impl DistinctIdLookup for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.bulk_pool_for_consistency(consistency);
-
-        let chunk_futures: Vec<_> = person_ids
+        let chunks: Vec<Vec<i64>> = person_ids
             .chunks(BULK_CHUNK_SIZE)
-            .map(|chunk| async move {
-                let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
-                let result = match limit_per_person {
-                    Some(l) => {
-                        sqlx::query_as!(
-                            DistinctIdMapping,
-                            r#"
+            .map(|c| c.to_vec())
+            .collect();
+
+        let rows: Vec<_> = stream::iter(chunks.into_iter().map(|chunk| async move {
+            let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+            let result = match limit_per_person {
+                Some(l) => {
+                    sqlx::query_as!(
+                        DistinctIdMapping,
+                        r#"
                             SELECT l.person_id, l.distinct_id, l.version
                             FROM UNNEST($2::bigint[]) AS pid(id)
                             CROSS JOIN LATERAL (
@@ -124,37 +129,36 @@ impl DistinctIdLookup for PostgresStorage {
                                 LIMIT $3
                             ) l
                             "#,
-                            team_id as i32,
-                            chunk,
-                            l
-                        )
-                        .fetch_all(&mut *conn)
-                        .await?
-                    }
-                    _ => {
-                        sqlx::query_as!(
-                            DistinctIdMapping,
-                            r#"
+                        team_id as i32,
+                        &chunk,
+                        l
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?
+                }
+                _ => {
+                    sqlx::query_as!(
+                        DistinctIdMapping,
+                        r#"
                             SELECT person_id, distinct_id, version
                             FROM posthog_persondistinctid
                             WHERE team_id = $1 AND person_id = ANY($2)
                             "#,
-                            team_id as i32,
-                            chunk
-                        )
-                        .fetch_all(&mut *conn)
-                        .await?
-                    }
-                };
-                Ok::<_, crate::storage::error::StorageError>(result)
-            })
-            .collect();
-
-        let rows: Vec<_> = futures::future::try_join_all(chunk_futures)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?
+                }
+            };
+            Ok::<_, crate::storage::error::StorageError>(result)
+        }))
+        .buffer_unordered(BULK_MAX_CONCURRENT_CHUNKS)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,

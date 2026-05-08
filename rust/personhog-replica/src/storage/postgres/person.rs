@@ -5,7 +5,12 @@ use uuid::Uuid;
 
 use personhog_common::grpc::current_client_name;
 
-use super::{PostgresStorage, BULK_CHUNK_SIZE, DB_QUERY_DURATION, DB_ROWS_RETURNED};
+use futures::stream::{self, StreamExt, TryStreamExt};
+
+use super::{
+    PostgresStorage, BULK_CHUNK_SIZE, BULK_MAX_CONCURRENT_CHUNKS, DB_QUERY_DURATION,
+    DB_ROWS_RETURNED,
+};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::Person;
@@ -98,15 +103,16 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let chunk_futures: Vec<_> = person_ids
+        let chunks: Vec<Vec<i64>> = person_ids
             .chunks(BULK_CHUNK_SIZE)
-            .map(|chunk| async move {
-                let mut conn =
-                    PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL)
-                        .await?;
-                let rows = sqlx::query_as!(
-                    Person,
-                    r#"
+            .map(|c| c.to_vec())
+            .collect();
+        let pool = &self.bulk_replica_pool;
+        let rows: Vec<_> = stream::iter(chunks.into_iter().map(|chunk| async move {
+            let mut conn = PostgresStorage::acquire_timed(pool, BULK_POOL_LABEL).await?;
+            let rows = sqlx::query_as!(
+                Person,
+                r#"
                     SELECT id, uuid, team_id::bigint as "team_id!", properties,
                            properties_last_updated_at, properties_last_operation,
                            created_at, version, is_identified,
@@ -115,20 +121,19 @@ impl PersonLookup for PostgresStorage {
                     FROM posthog_person
                     WHERE team_id = $1 AND id = ANY($2)
                     "#,
-                    team_id as i32,
-                    chunk
-                )
-                .fetch_all(&mut *conn)
-                .await?;
-                Ok::<_, crate::storage::error::StorageError>(rows)
-            })
-            .collect();
-
-        let rows: Vec<_> = futures::future::try_join_all(chunk_futures)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+                team_id as i32,
+                &chunk
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+            Ok::<_, crate::storage::error::StorageError>(rows)
+        }))
+        .buffer_unordered(BULK_MAX_CONCURRENT_CHUNKS)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
@@ -159,15 +164,13 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let chunk_futures: Vec<_> = uuids
-            .chunks(BULK_CHUNK_SIZE)
-            .map(|chunk| async move {
-                let mut conn =
-                    PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL)
-                        .await?;
-                let rows = sqlx::query_as!(
-                    Person,
-                    r#"
+        let chunks: Vec<Vec<Uuid>> = uuids.chunks(BULK_CHUNK_SIZE).map(|c| c.to_vec()).collect();
+        let pool = &self.bulk_replica_pool;
+        let rows: Vec<_> = stream::iter(chunks.into_iter().map(|chunk| async move {
+            let mut conn = PostgresStorage::acquire_timed(pool, BULK_POOL_LABEL).await?;
+            let rows = sqlx::query_as!(
+                Person,
+                r#"
                     SELECT id, uuid, team_id::bigint as "team_id!", properties,
                            properties_last_updated_at, properties_last_operation,
                            created_at, version, is_identified,
@@ -176,20 +179,19 @@ impl PersonLookup for PostgresStorage {
                     FROM posthog_person
                     WHERE team_id = $1 AND uuid = ANY($2)
                     "#,
-                    team_id as i32,
-                    chunk
-                )
-                .fetch_all(&mut *conn)
-                .await?;
-                Ok::<_, crate::storage::error::StorageError>(rows)
-            })
-            .collect();
-
-        let rows: Vec<_> = futures::future::try_join_all(chunk_futures)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+                team_id as i32,
+                &chunk
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+            Ok::<_, crate::storage::error::StorageError>(rows)
+        }))
+        .buffer_unordered(BULK_MAX_CONCURRENT_CHUNKS)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
@@ -263,14 +265,15 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let chunk_futures: Vec<_> = distinct_ids
+        let chunks: Vec<Vec<String>> = distinct_ids
             .chunks(BULK_CHUNK_SIZE)
-            .map(|chunk| async move {
-                let mut conn =
-                    PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL)
-                        .await?;
-                let rows = sqlx::query!(
-                    r#"
+            .map(|c| c.to_vec())
+            .collect();
+        let pool = &self.bulk_replica_pool;
+        let all_rows: Vec<_> = stream::iter(chunks.into_iter().map(|chunk| async move {
+            let mut conn = PostgresStorage::acquire_timed(pool, BULK_POOL_LABEL).await?;
+            let rows = sqlx::query!(
+                r#"
                     SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                            p.properties as "properties!",
                            p.properties_last_updated_at, p.properties_last_operation,
@@ -282,20 +285,19 @@ impl PersonLookup for PostgresStorage {
                     INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
                     WHERE p.team_id = $1 AND d.distinct_id = ANY($2)
                     "#,
-                    team_id as i32,
-                    chunk
-                )
-                .fetch_all(&mut *conn)
-                .await?;
-                Ok::<_, crate::storage::error::StorageError>(rows)
-            })
-            .collect();
-
-        let all_rows: Vec<_> = futures::future::try_join_all(chunk_futures)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+                team_id as i32,
+                &chunk
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+            Ok::<_, crate::storage::error::StorageError>(rows)
+        }))
+        .buffer_unordered(BULK_MAX_CONCURRENT_CHUNKS)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
@@ -520,16 +522,17 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let chunk_futures: Vec<_> = team_distinct_ids
+        let chunks: Vec<Vec<(i64, String)>> = team_distinct_ids
             .chunks(BULK_CHUNK_SIZE)
-            .map(|chunk| async move {
-                let mut conn =
-                    PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL)
-                        .await?;
-                let team_ids: Vec<i32> = chunk.iter().map(|(t, _)| *t as i32).collect();
-                let distinct_ids: Vec<String> = chunk.iter().map(|(_, d)| d.clone()).collect();
-                let rows = sqlx::query!(
-                    r#"
+            .map(|c| c.to_vec())
+            .collect();
+        let pool = &self.bulk_replica_pool;
+        let all_rows: Vec<_> = stream::iter(chunks.into_iter().map(|chunk| async move {
+            let mut conn = PostgresStorage::acquire_timed(pool, BULK_POOL_LABEL).await?;
+            let team_ids: Vec<i32> = chunk.iter().map(|(t, _)| *t as i32).collect();
+            let distinct_ids: Vec<String> = chunk.iter().map(|(_, d)| d.clone()).collect();
+            let rows = sqlx::query!(
+                r#"
                     SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                            p.properties as "properties!",
                            p.properties_last_updated_at, p.properties_last_operation,
@@ -542,20 +545,19 @@ impl PersonLookup for PostgresStorage {
                     INNER JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
                         ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id
                     "#,
-                    &team_ids,
-                    &distinct_ids
-                )
-                .fetch_all(&mut *conn)
-                .await?;
-                Ok::<_, crate::storage::error::StorageError>(rows)
-            })
-            .collect();
-
-        let all_rows: Vec<_> = futures::future::try_join_all(chunk_futures)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+                &team_ids,
+                &distinct_ids
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+            Ok::<_, crate::storage::error::StorageError>(rows)
+        }))
+        .buffer_unordered(BULK_MAX_CONCURRENT_CHUNKS)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,

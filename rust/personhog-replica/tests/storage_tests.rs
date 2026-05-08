@@ -1,9 +1,10 @@
 mod common;
 
 use common::TestContext;
-use personhog_replica::storage::postgres::ConsistencyLevel;
+use personhog_replica::storage::postgres::{ConsistencyLevel, BULK_CHUNK_SIZE};
 use personhog_replica::storage::GroupKey;
 use rand::Rng;
+use rstest::rstest;
 
 #[tokio::test]
 async fn test_get_person_by_id() {
@@ -1056,5 +1057,183 @@ async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
         .execute(&ctx.pool)
         .await
         .ok();
+    ctx.cleanup().await.ok();
+}
+
+// ---------------------------------------------------------------------------
+// Chunked bulk query tests
+//
+// These exercise the buffer_unordered chunking at boundary sizes to ensure
+// results are correctly merged across multiple database round-trips.
+// ---------------------------------------------------------------------------
+
+#[rstest]
+#[case::empty(0)]
+#[case::single(1)]
+#[case::under_chunk(BULK_CHUNK_SIZE - 1)]
+#[case::exact_chunk(BULK_CHUNK_SIZE)]
+#[case::one_over(BULK_CHUNK_SIZE + 1)]
+#[case::two_full_plus_one(BULK_CHUNK_SIZE * 2 + 1)]
+#[tokio::test]
+async fn test_get_persons_by_ids_chunking(#[case] count: usize) {
+    let ctx = TestContext::new().await;
+
+    let mut persons = Vec::with_capacity(count);
+    for i in 0..count {
+        let p = ctx
+            .insert_person(&format!("chunk_id_{i}"), None)
+            .await
+            .expect("insert");
+        persons.push(p);
+    }
+
+    let ids: Vec<i64> = persons.iter().map(|p| p.id).collect();
+    let result = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &ids)
+        .await
+        .expect("get_persons_by_ids");
+
+    assert_eq!(result.len(), count);
+    let returned_ids: std::collections::HashSet<i64> = result.iter().map(|p| p.id).collect();
+    for p in &persons {
+        assert!(returned_ids.contains(&p.id));
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::single(1)]
+#[case::under_chunk(BULK_CHUNK_SIZE - 1)]
+#[case::exact_chunk(BULK_CHUNK_SIZE)]
+#[case::one_over(BULK_CHUNK_SIZE + 1)]
+#[case::two_full_plus_one(BULK_CHUNK_SIZE * 2 + 1)]
+#[tokio::test]
+async fn test_get_persons_by_uuids_chunking(#[case] count: usize) {
+    let ctx = TestContext::new().await;
+
+    let mut persons = Vec::with_capacity(count);
+    for i in 0..count {
+        let p = ctx
+            .insert_person(&format!("chunk_uuid_{i}"), None)
+            .await
+            .expect("insert");
+        persons.push(p);
+    }
+
+    let uuids: Vec<uuid::Uuid> = persons.iter().map(|p| p.uuid).collect();
+    let result = ctx
+        .storage
+        .get_persons_by_uuids(ctx.team_id, &uuids)
+        .await
+        .expect("get_persons_by_uuids");
+
+    assert_eq!(result.len(), count);
+    let returned_uuids: std::collections::HashSet<uuid::Uuid> =
+        result.iter().map(|p| p.uuid).collect();
+    for p in &persons {
+        assert!(returned_uuids.contains(&p.uuid));
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::single(1)]
+#[case::under_chunk(BULK_CHUNK_SIZE - 1)]
+#[case::exact_chunk(BULK_CHUNK_SIZE)]
+#[case::one_over(BULK_CHUNK_SIZE + 1)]
+#[case::two_full_plus_one(BULK_CHUNK_SIZE * 2 + 1)]
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_chunking(#[case] count: usize) {
+    let ctx = TestContext::new().await;
+
+    let mut distinct_ids = Vec::with_capacity(count);
+    for i in 0..count {
+        let did = format!("chunk_did_{i}");
+        ctx.insert_person(&did, None).await.expect("insert");
+        distinct_ids.push(did);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids)
+        .await
+        .expect("get_persons_by_distinct_ids_in_team");
+
+    assert_eq!(result.len(), count);
+    let found_count = result.iter().filter(|(_, p)| p.is_some()).count();
+    assert_eq!(found_count, count);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::single(1)]
+#[case::under_chunk(BULK_CHUNK_SIZE - 1)]
+#[case::exact_chunk(BULK_CHUNK_SIZE)]
+#[case::one_over(BULK_CHUNK_SIZE + 1)]
+#[case::two_full_plus_one(BULK_CHUNK_SIZE * 2 + 1)]
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_cross_team_chunking(#[case] count: usize) {
+    let ctx = TestContext::new().await;
+
+    let mut team_distinct_ids = Vec::with_capacity(count);
+    for i in 0..count {
+        let did = format!("chunk_cross_{i}");
+        ctx.insert_person(&did, None).await.expect("insert");
+        team_distinct_ids.push((ctx.team_id, did));
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_cross_team(&team_distinct_ids)
+        .await
+        .expect("get_persons_by_distinct_ids_cross_team");
+
+    assert_eq!(result.len(), count);
+    let found_count = result.iter().filter(|(_, p)| p.is_some()).count();
+    assert_eq!(found_count, count);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::single(1)]
+#[case::under_chunk(BULK_CHUNK_SIZE - 1)]
+#[case::exact_chunk(BULK_CHUNK_SIZE)]
+#[case::one_over(BULK_CHUNK_SIZE + 1)]
+#[case::two_full_plus_one(BULK_CHUNK_SIZE * 2 + 1)]
+#[tokio::test]
+async fn test_get_distinct_ids_for_persons_chunking(#[case] count: usize) {
+    let ctx = TestContext::new().await;
+
+    let mut person_ids = Vec::with_capacity(count);
+    for i in 0..count {
+        let p = ctx
+            .insert_person(&format!("chunk_did_fwd_{i}"), None)
+            .await
+            .expect("insert");
+        person_ids.push(p.id);
+    }
+
+    let result = ctx
+        .storage
+        .get_distinct_ids_for_persons(ctx.team_id, &person_ids, ConsistencyLevel::Eventual, None)
+        .await
+        .expect("get_distinct_ids_for_persons");
+
+    assert_eq!(result.len(), count);
+    let returned_person_ids: std::collections::HashSet<i64> =
+        result.iter().map(|m| m.person_id).collect();
+    for pid in &person_ids {
+        assert!(returned_person_ids.contains(pid));
+    }
+
     ctx.cleanup().await.ok();
 }
