@@ -61,6 +61,7 @@ import {
     LlmPromptsNameRetrieveQueryParams,
     LlmSkillsCreateBody,
     LlmSkillsListQueryParams,
+    LlmSkillsNameArchiveCreateParams,
     LlmSkillsNameDuplicateCreateBody,
     LlmSkillsNameDuplicateCreateParams,
     LlmSkillsNameFilesCreateBody,
@@ -1147,6 +1148,25 @@ const llmaSentimentCreate = (): ToolBase<typeof LlmaSentimentCreateSchema, Schem
     },
 })
 
+const LlmaSkillArchiveSchema = LlmSkillsNameArchiveCreateParams.omit({ project_id: true }).extend({
+    skill_name: LlmSkillsNameArchiveCreateParams.shape['skill_name'].describe(
+        'The kebab-case name of the skill to archive.'
+    ),
+})
+
+const llmaSkillArchive = (): ToolBase<typeof LlmaSkillArchiveSchema, unknown> => ({
+    name: 'llma-skill-archive',
+    schema: LlmaSkillArchiveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaSkillArchiveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/archive/`,
+        })
+        return result
+    },
+})
+
 const LlmaSkillCreateSchema = LlmSkillsCreateBody
 
 const llmaSkillCreate = (): ToolBase<typeof LlmaSkillCreateSchema, Schemas.LLMSkillCreate> => ({
@@ -1622,6 +1642,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
     'llma-sentiment-create': llmaSentimentCreate,
+    'llma-skill-archive': llmaSkillArchive,
     'llma-skill-create': llmaSkillCreate,
     'llma-skill-duplicate': llmaSkillDuplicate,
     'llma-skill-file-create': llmaSkillFileCreate,
