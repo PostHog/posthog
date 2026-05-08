@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { scaleLinear, scalePoint } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
 import { composeDrawHoverWithCrosshair, drawArea, drawGrid, drawLine, type DrawContext } from './canvas-renderer'
@@ -25,15 +25,15 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
 }
 
 function makeDrawContext(ctx: CanvasRenderingContext2D, labels: string[]): DrawContext {
-    const xScale = d3.scalePoint<string>().domain(labels).range([48, 784]).padding(0)
-    const yScale = d3.scaleLinear().domain([0, 100]).range([368, 16])
+    const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
+    const yScale = scaleLinear().domain([0, 100]).range([368, 16])
     return { ctx, dimensions, xScale, yScale, labels }
 }
 
 /** Builds a DrawContext where specific y-values produce Infinity (simulating gaps). */
 function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[], gapValues: Set<number>): DrawContext {
-    const xScale = d3.scalePoint<string>().domain(labels).range([48, 784])
-    const origYScale = d3.scaleLinear().domain([0, 100]).range([368, 16])
+    const xScale = scalePoint<string>().domain(labels).range([48, 784])
+    const origYScale = scaleLinear().domain([0, 100]).range([368, 16])
     const patchedYScale = (v: number): number => (gapValues.has(v) ? Infinity : origYScale(v))
     Object.assign(patchedYScale, origYScale)
     return { ctx, dimensions, xScale, yScale: patchedYScale as any, labels }

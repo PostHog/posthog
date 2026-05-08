@@ -938,9 +938,21 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
+      d3-color:
+        specifier: ^3.1.0
+        version: 3.1.0
       d3-flame-graph:
         specifier: ^5.0.0
         version: 5.0.0
+      d3-scale:
+        specifier: ^4.0.2
+        version: 4.0.2
+      d3-shape:
+        specifier: ^3.2.0
+        version: 3.2.0
       dayjs:
         specifier: 1.11.11
         version: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
@@ -1221,6 +1233,18 @@ importers:
       '@types/d3':
         specifier: ^7.4.3
         version: 7.4.3
+      '@types/d3-array':
+        specifier: ^3.0.3
+        version: 3.0.3
+      '@types/d3-color':
+        specifier: ^3.1.0
+        version: 3.1.0
+      '@types/d3-scale':
+        specifier: ^4.0.2
+        version: 4.0.2
+      '@types/d3-shape':
+        specifier: ^3.1.0
+        version: 3.1.0
       '@types/dompurify':
         specifier: ^3.0.3
         version: 3.0.3
@@ -3445,6 +3469,18 @@ importers:
       ai:
         specifier: ^6.0.0
         version: 6.0.77(zod@4.3.6)
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
+      d3-color:
+        specifier: ^3.1.0
+        version: 3.1.0
+      d3-scale:
+        specifier: ^4.0.2
+        version: 4.0.2
+      d3-shape:
+        specifier: ^3.2.0
+        version: 3.2.0
       eventsource-parser:
         specifier: ^3.0.0
         version: 3.0.6
@@ -3482,6 +3518,18 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.1.10
         version: 4.2.1
+      '@types/d3-array':
+        specifier: ^3.0.3
+        version: 3.0.3
+      '@types/d3-color':
+        specifier: ^3.1.0
+        version: 3.1.0
+      '@types/d3-scale':
+        specifier: ^4.0.2
+        version: 4.0.2
+      '@types/d3-shape':
+        specifier: ^3.1.0
+        version: 3.1.0
       '@types/dotenv':
         specifier: ^6.1.1
         version: 6.1.1

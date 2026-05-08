@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { scaleLinear } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
 import { type BarRect, drawBarHighlight, drawBars, type DrawContext, traceRoundedBarPath } from './canvas-renderer'
@@ -25,7 +25,7 @@ function makeDrawContext(ctx: CanvasRenderingContext2D, labels: string[]): DrawC
         const idx = labels.indexOf(label)
         return idx < 0 ? undefined : 100 + idx * 60
     }
-    const yScale = d3.scaleLinear().domain([0, 100]).range([368, 16])
+    const yScale = scaleLinear().domain([0, 100]).range([368, 16])
     return { ctx, dimensions, xScale, yScale, labels }
 }
 

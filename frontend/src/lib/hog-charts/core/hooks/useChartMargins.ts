@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { scaleLinear } from 'd3-scale'
 import { useMemo } from 'react'
 
 import { measureLabelWidth } from '../../overlays/AxisLabels'
@@ -46,7 +46,7 @@ function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number
     }
     const min = range.min > 0 ? 0 : range.min
     const max = range.max < 0 ? 0 : range.max
-    const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
+    const ticks = scaleLinear().domain([min, max]).nice(6).ticks(6)
     if (ticks.length === 0) {
         return 0
     }

@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
 import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../../core/bar-layout'
@@ -291,7 +291,7 @@ function BarChartInner<Meta = unknown>({
                     isTopOfStack: isTop,
                 })
                 if (bar) {
-                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
+                    const highlightColor = d3Color(s.color)?.darker(0.6).toString() ?? s.color
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }
