@@ -257,6 +257,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except (logic.UrlFetchFailedError, logic.EmptyContentError):
             raise exceptions.ValidationError({"url": "Could not fetch the URL."})
+        except logic.QuotaExceededError:
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
         if source is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=source).data)
