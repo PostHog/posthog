@@ -1,32 +1,42 @@
+import json
 import asyncio
+import dataclasses
 from datetime import timedelta
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from products.web_analytics.backend.temporal.weekly_digest.activities import (
-        build_and_send_wa_digest_for_org,
-        get_orgs_for_wa_digest,
+        get_org_id_batches,
+        push_wa_digest_metrics_activity,
+        run_wa_digest_batch,
         send_test_wa_digest,
     )
     from products.web_analytics.backend.temporal.weekly_digest.types import (
-        BuildAndSendDigestForOrgInput,
+        WA_DIGEST_THRESHOLD_EXCEEDED_TYPE,
+        DigestBatchInput,
+        DigestBatchResult,
         SendTestDigestInput,
         WAWeeklyDigestInput,
     )
+
+
+ACTIVITY_RETRY_POLICY = common.RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=5),
+)
 
 
 @workflow.defn(name="wa-weekly-digest")
 class WAWeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> WAWeeklyDigestInput:
-        """Parse inputs from the management command CLI."""
         if inputs:
-            import json
-            import dataclasses
-
             data = json.loads(inputs[0])
             return WAWeeklyDigestInput(
                 **{f.name: data[f.name] for f in dataclasses.fields(WAWeeklyDigestInput) if f.name in data}
@@ -34,53 +44,77 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
         return WAWeeklyDigestInput()
 
     @workflow.run
-    async def run(self, input: WAWeeklyDigestInput) -> None:
-        org_ids = await workflow.execute_activity(
-            get_orgs_for_wa_digest,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=common.RetryPolicy(maximum_attempts=3),
+    async def run(self, input: WAWeeklyDigestInput) -> dict:
+        batches = await workflow.execute_activity(
+            get_org_id_batches,
+            input,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=ACTIVITY_RETRY_POLICY,
         )
 
-        if not org_ids:
-            workflow.logger.info("No orgs targeted for WA weekly digest")
-            return
+        if not batches:
+            workflow.logger.info("No org batches for WA weekly digest")
+            return {"orgs": 0, "batches": 0}
 
-        workflow.logger.info("Fanning out WA digest to %d orgs", len(org_ids))
+        workflow.logger.info(
+            "Fanning out WA digest",
+            batches=len(batches),
+            orgs=sum(len(b) for b in batches),
+        )
 
         semaphore = asyncio.Semaphore(input.max_concurrent)
 
-        async def _run_for_org(org_id: str) -> dict:
+        async def _run_batch(batch: list[str]) -> DigestBatchResult:
             async with semaphore:
                 return await workflow.execute_activity(
-                    build_and_send_wa_digest_for_org,
-                    BuildAndSendDigestForOrgInput(org_id=org_id, dry_run=input.dry_run),
+                    run_wa_digest_batch,
+                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
                     start_to_close_timeout=timedelta(minutes=30),
                     heartbeat_timeout=timedelta(minutes=5),
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=2),
-                    ),
+                    retry_policy=ACTIVITY_RETRY_POLICY,
                 )
 
         results = await asyncio.gather(
-            *[_run_for_org(org_id) for org_id in org_ids],
+            *[_run_batch(b) for b in batches],
             return_exceptions=True,
         )
 
-        successes = 0
-        failures = 0
-        for org_id, result in zip(org_ids, results):
-            if isinstance(result, BaseException):
-                failures += 1
-                workflow.logger.error("WA digest failed for org %s: %s", org_id, str(result))
+        totals = DigestBatchResult()
+        failed_batches = 0
+        for batch, r in zip(batches, results):
+            if isinstance(r, BaseException):
+                failed_batches += 1
+                totals += DigestBatchResult(batch_size=len(batch), orgs_failed=len(batch))
+                workflow.logger.error("WA digest batch failed: %s", str(r))
             else:
-                successes += 1
+                totals += r
 
-        workflow.logger.info(
-            "WA weekly digest complete: %d succeeded, %d failed",
-            successes,
-            failures,
+        threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
+
+        await workflow.execute_activity(
+            push_wa_digest_metrics_activity,
+            args=[dataclasses.asdict(totals), not threshold_exceeded],
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=ACTIVITY_RETRY_POLICY,
         )
+
+        if threshold_exceeded:
+            raise ApplicationError(
+                f"WA weekly digest: {totals.orgs_failed:,}/{totals.batch_size:,} orgs failed "
+                f"({totals.failure_rate:.1%}), exceeds threshold {input.failure_threshold:.1%} "
+                f"(skipped={totals.orgs_skipped:,} not counted toward failure rate)",
+                type=WA_DIGEST_THRESHOLD_EXCEEDED_TYPE,
+                non_retryable=True,
+            )
+
+        return {
+            "orgs": totals.batch_size,
+            "batches": len(batches),
+            "failed_batches": failed_batches,
+            "emails_sent": totals.emails_sent,
+            "emails_failed": totals.emails_failed,
+            "cumulative_duration_seconds": totals.total_duration,
+        }
 
 
 @workflow.defn(name="wa-weekly-digest-test")
@@ -95,8 +129,6 @@ class WAWeeklyDigestTestWorkflow(PostHogWorkflow):
           manage.py start_temporal_workflow wa-weekly-digest-test '{"email": "you@example.com"}'
           manage.py start_temporal_workflow wa-weekly-digest-test '{"email": "you@example.com", "team_id": 1}'
         """
-        import json
-
         data = json.loads(inputs[0])
         return SendTestDigestInput(
             email=data["email"],

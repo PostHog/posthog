@@ -41,6 +41,7 @@ service PersonHogReplica {
   rpc GetGroup(personhog.types.v1.GetGroupRequest) returns (personhog.types.v1.GetGroupResponse);
   rpc GetGroups(personhog.types.v1.GetGroupsRequest) returns (personhog.types.v1.GroupsResponse);
   rpc GetGroupsBatch(personhog.types.v1.GetGroupsBatchRequest) returns (personhog.types.v1.GetGroupsBatchResponse);
+  rpc ListGroups(personhog.types.v1.ListGroupsRequest) returns (personhog.types.v1.ListGroupsResponse);
 
   // Group type mappings
   rpc GetGroupTypeMappingsByTeamId(personhog.types.v1.GetGroupTypeMappingsByTeamIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);

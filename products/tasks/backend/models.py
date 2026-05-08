@@ -321,6 +321,16 @@ class Task(DeletedMetaFields, models.Model):
             )
             if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
+        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+            # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
+            # then use the user_id BOT provided and get user's GitHub Integration instead
+            user_github_integration = resolve_user_github_integration_for_task(
+                task_stub,
+                repository=repository,
+                allow_refresh=True,
+            )
+            if user_github_integration is not None:
+                github_user_integration = user_github_integration.integration
 
         if repository:
             if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
