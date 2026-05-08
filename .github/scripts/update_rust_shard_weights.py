@@ -11,12 +11,12 @@ If --run-id is not given, fetches the N most recent successful Rust CI runs
 on master and averages across them.
 """
 
-import argparse
+import re
+import sys
 import json
 import math
-import re
+import argparse
 import subprocess
-import sys
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -178,7 +178,7 @@ def parse_detailed_timings(logs: str) -> dict[str, float]:
                 # Distribute shard duration proportionally to the gap between
                 # each package's compile "Finished" marker and the next one.
                 gaps = [compile_times[i + 1] - compile_times[i] for i in range(len(compile_times) - 1)]
-                pkg_times = gaps[: len(packages) - 1] + [total_compile_span - sum(gaps[: len(packages) - 1])]
+                pkg_times = [*gaps[: len(packages) - 1], total_compile_span - sum(gaps[: len(packages) - 1])]
                 scale = duration / max(sum(pkg_times), 1)
                 for pkg, t in zip(packages, pkg_times):
                     package_durations[pkg] = max(1.0, t * scale)
@@ -216,12 +216,12 @@ def update_workflow_file(weights: dict[str, int], dry_run: bool = False) -> bool
     content = WORKFLOW_FILE.read_text()
 
     # Find the packages dict in the file
-    packages_start = content.find('packages = {')
+    packages_start = content.find("packages = {")
     if packages_start == -1:
         print("ERROR: Could not find 'packages = {' in ci-rust.yml", file=sys.stderr)
         return False
 
-    packages_end = content.find('}', packages_start)
+    packages_end = content.find("}", packages_start)
     if packages_end == -1:
         print("ERROR: Could not find closing '}' for packages dict", file=sys.stderr)
         return False
@@ -237,7 +237,7 @@ def update_workflow_file(weights: dict[str, int], dry_run: bool = False) -> bool
     lines.append(f"{actual_indent}}}")
     new_packages = "\n".join(lines)
 
-    new_content = content[:packages_start] + new_packages[len(actual_indent):] + content[packages_end:]
+    new_content = content[:packages_start] + new_packages[len(actual_indent) :] + content[packages_end:]
 
     if new_content == content:
         print("No changes needed — weights are already up to date.")
@@ -271,9 +271,7 @@ def main():
         default=3,
         help="Number of recent runs to average (default: 3)",
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Print weights without modifying files"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="Print weights without modifying files")
     args = parser.parse_args()
 
     if args.run_id:
@@ -317,7 +315,7 @@ def main():
     print(f"With TARGET_MINUTES={target_minutes}: {num_shards} shards")
 
     # Update the workflow file
-    changed = update_workflow_file(final_weights, dry_run=args.dry_run)
+    update_workflow_file(final_weights, dry_run=args.dry_run)
     sys.exit(0)
 
 

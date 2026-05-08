@@ -348,6 +348,7 @@ select = [
 # descriptors into the pool before AddSerializedFile() — ruff must not strip them.
 "posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
 "posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+".github/scripts/*.py" = ["T201"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
