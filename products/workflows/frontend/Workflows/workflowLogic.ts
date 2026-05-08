@@ -178,6 +178,7 @@ export const workflowLogic = kea<workflowLogicType>([
         duplicate: true,
         autoSaveWorkflow: true,
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
+        setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -356,6 +357,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflowSuccess: () => false,
                 saveWorkflowFailure: () => false,
                 resetWorkflow: () => false,
+            },
+        ],
+        autoSaveEnabled: [
+            true as boolean,
+            {
+                setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
     }),
@@ -764,19 +771,22 @@ export const workflowLogic = kea<workflowLogicType>([
         autoSaveWorkflow: async (_, breakpoint) => {
             await breakpoint(3000)
 
+            if (!values.autoSaveEnabled) {
+                return
+            }
             if (!props.id || props.id === 'new') {
                 return
             }
             if (props.editTemplateId) {
                 return
             }
+            if (values.workflow.status === 'active') {
+                return
+            }
             if (!values.workflowChanged) {
                 return
             }
             if (values.workflowHasErrors) {
-                return
-            }
-            if (values.workflow.status === 'active' && values.workflowHasActionErrors) {
                 return
             }
 
@@ -866,7 +876,14 @@ export const workflowLogic = kea<workflowLogicType>([
         actions.loadHogFunctionTemplatesById()
     }),
     beforeUnmount(({ values, props }) => {
-        if (props.id && props.id !== 'new' && values.workflowChanged && !values.workflowHasErrors) {
+        if (
+            values.autoSaveEnabled &&
+            props.id &&
+            props.id !== 'new' &&
+            values.workflow.status !== 'active' &&
+            values.workflowChanged &&
+            !values.workflowHasErrors
+        ) {
             const workflow = sanitizeWorkflow(values.workflow, values.hogFunctionTemplatesById)
             api.hogFlows.updateHogFlow(props.id, workflow).catch((e) => {
                 console.error('Failed to auto-save workflow on unmount', e)

@@ -1,9 +1,9 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -76,8 +76,10 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending } = useValues(logic)
+    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } = useValues(logic)
+    const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
+    const isDraft = originalWorkflow?.status === 'draft'
 
     const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
 
@@ -149,9 +151,23 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         rightSlot={
-                            showSaving ? (
-                                <span className="text-xs text-tertiary flex items-center gap-1">
-                                    <Spinner textColored /> Saving…
+                            isDraft ? (
+                                <span className="flex items-center gap-3">
+                                    {autoSaveEnabled && showSaving ? (
+                                        <span className="text-xs text-tertiary flex items-center gap-1">
+                                            <Spinner textColored /> Saving…
+                                        </span>
+                                    ) : lastSavedAt ? (
+                                        <span className="text-xs text-tertiary">
+                                            Last saved <RelativeTime timestamp={lastSavedAt} />
+                                        </span>
+                                    ) : null}
+                                    <LemonSwitch
+                                        checked={autoSaveEnabled}
+                                        onChange={setAutoSaveEnabled}
+                                        label="Auto-save"
+                                        size="small"
+                                    />
                                 </span>
                             ) : lastSavedAt ? (
                                 <span className="text-xs text-tertiary">
