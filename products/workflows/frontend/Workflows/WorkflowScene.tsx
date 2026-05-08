@@ -3,12 +3,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -145,13 +147,20 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                             Last saved <RelativeTime timestamp={lastSavedAt} />
                                         </span>
                                     ) : null}
-                                    <LemonSwitch
-                                        checked={autoSaveEnabled}
-                                        onChange={setAutoSaveEnabled}
-                                        label="Auto-save"
-                                        size="small"
-                                        tooltip="Automatically saves draft workflows as you edit"
-                                    />
+                                    <span className="flex items-center gap-1">
+                                        <LemonSwitch
+                                            checked={autoSaveEnabled}
+                                            onChange={setAutoSaveEnabled}
+                                            label="Auto-save"
+                                            size="small"
+                                        />
+                                        <Tooltip
+                                            title="Auto-save is only available for draft workflows. Active workflows require an explicit save to prevent unintended changes to live behavior."
+                                            placement="bottom"
+                                        >
+                                            <IconInfo className="text-tertiary size-4" />
+                                        </Tooltip>
+                                    </span>
                                 </span>
                             ) : lastSavedAt ? (
                                 <span className="text-xs text-tertiary">
