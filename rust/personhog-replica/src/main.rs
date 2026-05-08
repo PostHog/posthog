@@ -42,6 +42,9 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
             };
 
             let bulk_primary_pool_config = PoolConfig {
+                min_connections: config
+                    .min_pg_connections
+                    .min(config.bulk_max_pg_connections),
                 max_connections: config.bulk_max_pg_connections,
                 acquire_timeout: config.bulk_acquire_timeout(),
                 statement_timeout_ms: config.bulk_statement_timeout(),

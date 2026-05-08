@@ -98,7 +98,8 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
 
         let rows = sqlx::query_as!(
             Person,
@@ -146,7 +147,8 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
 
         let rows = sqlx::query_as!(
             Person,
@@ -237,7 +239,8 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
         let rows = sqlx::query!(
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
@@ -480,7 +483,8 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, BULK_POOL_LABEL).await?;
 
         let team_ids: Vec<i32> = team_distinct_ids.iter().map(|(t, _)| *t as i32).collect();
         let distinct_ids: Vec<String> = team_distinct_ids.iter().map(|(_, d)| d.clone()).collect();
