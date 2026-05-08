@@ -46,6 +46,8 @@ function copyPostHogJsFiles(): void {
         'exception-autocapture.js.map',
         'web-vitals.js',
         'web-vitals.js.map',
+        'web-vitals-with-attribution.js',
+        'web-vitals-with-attribution.js.map',
         'tracing-headers.js',
         'tracing-headers.js.map',
         'dead-clicks-autocapture.js',
