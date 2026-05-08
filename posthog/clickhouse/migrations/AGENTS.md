@@ -22,6 +22,8 @@ The main clusters are:
 - sessions 1x2
 - ops 1x2
 
+These satellite clusters are single-shard (1 shard × 2 replicas) and use different routing for ALTER operations than the main multi-shard DATA cluster.
+
 ## EU Production
 
 The main cluster is:
@@ -62,6 +64,7 @@ Parameters:
   - `[NodeRole.DATA]`: Data/worker nodes
   - `[NodeRole.INGESTION_SMALL]`: Ingestion layer nodes
   - `[NodeRole.ALL]`: Rarely used, all nodes
+  - `[NodeRole.AI_EVENTS]`, `[NodeRole.AUX]`, `[NodeRole.OPS]`, `[NodeRole.SESSIONS]`: Satellite cluster roles (single-shard replicated clusters)
 - `sharded`: Set to `True` when operating on sharded tables (ensures one operation per shard)
 - `is_alter_on_replicated_table`: Set to `True` for ALTER on replicated tables (runs on one host per shard)
 
@@ -301,6 +304,21 @@ run_sql_with_exceptions(
 ```
 
 The `sharded=True` flag ensures the ALTER runs once per shard.
+
+## Satellite cluster tables (sharded)
+
+Satellite clusters (AI_EVENTS, AUX, OPS, SESSIONS) are single-shard replicated clusters. For ALTER operations on these clusters:
+
+```python
+run_sql_with_exceptions(
+    "ALTER TABLE IF EXISTS satellite_table ADD COLUMN ...",
+    node_roles=[NodeRole.AI_EVENTS],  # or AUX, OPS, SESSIONS
+    sharded=True,
+    is_alter_on_replicated_table=True
+)
+```
+
+Despite using `sharded=True`, satellite clusters use `any_host_by_roles()` routing (not `map_one_host_per_shard()`) because they are single-shard. The ALTER runs on one host and ZooKeeper replication propagates it to other replicas.
 
 ## Distributed tables
 
