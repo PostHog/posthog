@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "disabled_data": {},
+        "filters": {},
+        "id": {
+            "description": "A UUID string identifying this error tracking grouping rule.",
+            "type": "string"
+        },
+        "order_key": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        }
+    },
+    "required": ["id", "filters", "order_key"],
+    "type": "object"
+}
