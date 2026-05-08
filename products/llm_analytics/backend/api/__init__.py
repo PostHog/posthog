@@ -1,6 +1,7 @@
 from .clustering import LLMAnalyticsClusteringRunViewSet
 from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
+from .conversations import LLMAnalyticsConversationsViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
 from .evaluation_config import EvaluationConfigViewSet
 from .evaluation_reports import EvaluationReportViewSet
@@ -42,6 +43,7 @@ __all__ = [
     "ReviewQueueViewSet",
     "ReviewQueueItemViewSet",
     "ScoreDefinitionViewSet",
+    "LLMAnalyticsConversationsViewSet",
     "LLMAnalyticsSentimentViewSet",
     "LLMAnalyticsOfflineEvaluationsViewSet",
     "TaggerViewSet",

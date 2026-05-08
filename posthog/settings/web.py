@@ -452,6 +452,10 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        # `ConversationListItemSerializer.kind` and `ConversationDetailResponseSerializer.kind`
+        # share the same {session, trace} choice set; without an override, drf-spectacular
+        # autonames them with collision-disambiguating suffixes (e.g. `Kind9ceEnum`).
+        "ConversationKindEnum": ["session", "trace"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
