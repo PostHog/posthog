@@ -15,8 +15,6 @@ from types import SimpleNamespace
 from django.db import models
 from django.test import SimpleTestCase
 
-from parameterized import parameterized
-
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -54,9 +52,10 @@ class TestFailClosedIntrospection(SimpleTestCase):
     def _has_team_scoped_manager(model: type[models.Model]) -> bool:
         return any(isinstance(m, TeamScopedManager) for m in model._meta.managers)
 
-    @parameterized.expand([(ProductTeamModel,), (TeamScopedRootMixin,)])
-    def test_mixin_is_detected(self, model_cls: type[models.Model]) -> None:
-        self.assertTrue(self._has_team_scoped_manager(model_cls))
+    def test_mixin_is_detected(self) -> None:
+        for model_cls in (ProductTeamModel, TeamScopedRootMixin):
+            with self.subTest(mixin=model_cls.__name__):
+                self.assertTrue(self._has_team_scoped_manager(model_cls))
 
     def test_adhoc_declaration_is_detected(self) -> None:
         """A bare `objects = TeamScopedManager()` on a model that doesn't inherit
