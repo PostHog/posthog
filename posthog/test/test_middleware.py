@@ -1904,7 +1904,13 @@ def test_chqueries_middleware_api_latency_histogram_scope(name, path, should_emi
 
     from posthog.middleware import CHQueries
 
-    labels = {"view": "project_query-list", "method": "GET", "source": "web", "access_method": ""}
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": "2xx",
+    }
 
     def sample_count() -> float:
         return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
@@ -1944,6 +1950,7 @@ def test_chqueries_middleware_api_latency_labels(name, user_agent, access_method
         "method": "GET",
         "source": expected_source,
         "access_method": expected_access,
+        "status_class": "2xx",
     }
 
     def sample_count() -> float:
@@ -1963,6 +1970,77 @@ def test_chqueries_middleware_api_latency_labels(name, user_agent, access_method
     CHQueries(get_response)(request)
 
     assert sample_count() - before == 1.0, f"{name}: histogram not observed for labels {labels}"
+
+
+@parameterized.expand(
+    [
+        ("ok_2xx", 200, "2xx"),
+        ("redirect_3xx", 301, "3xx"),
+        ("client_error_4xx", 404, "4xx"),
+        ("server_error_5xx", 503, "5xx"),
+    ]
+)
+def test_chqueries_middleware_api_latency_status_class(name, status_code, expected_class):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": expected_class,
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(lambda r: HttpResponse("body", status=status_code))(request)
+
+    assert sample_count() - before == 1.0, f"{name}: expected 1 observation at status_class={expected_class}"
+
+
+def test_chqueries_middleware_api_latency_records_on_raise():
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": "error",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    def boom(req):
+        raise RuntimeError("view exploded")
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    with pytest.raises(RuntimeError, match="view exploded"):
+        CHQueries(boom)(request)
+
+    assert sample_count() - before == 1.0, "exception path must still record latency at status_class=error"
 
 
 def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:

@@ -367,7 +367,10 @@ class AutoProjectMiddleware:
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
-    labelnames=["view", "method", "source", "access_method"],
+    # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
+    # or "error" when the view raised before producing one — keeps error-path
+    # latency from polluting success buckets while still recording it.
+    labelnames=["view", "method", "source", "access_method", "status_class"],
     # Same buckets as django_prometheus' default so we line up with
     # django_http_requests_latency_seconds_by_view_method.
     buckets=(
@@ -427,15 +430,22 @@ class CHQueries:
         )
 
         start = time.perf_counter()
+        # Stays "error" if get_response raises — observed in the finally below.
+        status_class = "error"
 
         try:
             response: HttpResponse = self.get_response(request)
+            status_class = f"{response.status_code // 100}xx"
 
             if is_api_request:
                 statsd.incr(
                     "http_api_request_response",
                     tags={"id": route_id, "status_code": response.status_code},
                 )
+
+            return response
+        finally:
+            if is_api_request:
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # Three-step fallback: DRF viewset name first (api:viewset-action),
                     # Django URL name next, view function name as last resort. Bounded
@@ -446,10 +456,8 @@ class CHQueries:
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
                     source=get_query_tag_value("source") or "",
                     access_method=get_query_tag_value("access_method") or "",
+                    status_class=status_class,
                 ).observe(time.perf_counter() - start)
-
-            return response
-        finally:
             reset_query_tags()
 
     def _get_param(self, request: HttpRequest, name: str):
