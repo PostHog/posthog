@@ -34,10 +34,10 @@ export type ErrorTrackingConsumerConfig = {
      * When true (default, matching the previous hardcoded behavior), redirects
      * to the overflow lane keep the event's original partition key. When
      * false, the overflow producer emits with a null key and Kafka spreads
-     * the events across partitions. Cymbal cache locality is enforced one
-     * layer down — by team_id consistent hashing inside `CymbalClient` — so
-     * the partition key on the overflow lane doesn't affect symbolication
-     * cache hits.
+     * events across overflow-topic partitions. Cymbal cache locality is
+     * enforced one layer down — by team_id consistent hashing inside
+     * `CymbalClient` — so the partition key on the overflow lane doesn't
+     * affect symbolication cache hits.
      */
     ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
 
