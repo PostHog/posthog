@@ -370,7 +370,15 @@
             "description": "Enables displaying surveys via posthog-js on allowed origins."
         },
         "test_account_filters": {
-            "description": "Filter groups that identify internal/test traffic to be excluded from insights."
+            "description": "Property filters that identify internal/test traffic to exclude from insights.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
         },
         "test_account_filters_default_checked": {
             "anyOf": [
