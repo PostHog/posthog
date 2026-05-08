@@ -348,9 +348,6 @@ setup_worktree_environment() {
     echo "To start working:"
     print_color blue "  cd ${worktree_path}"
     print_color blue "  bin/start"
-    echo ""
-    print_color yellow "💡 Tip: For auto-cd functionality, add this to your shell profile:"
-    print_color yellow "   source $(dirname "$0")/phw"
 }
 
 # Function to list all worktrees
@@ -438,8 +435,5 @@ case "$COMMAND" in
         echo "  - Set POSTHOG_WORKTREE_BASE to customize worktree location"
         echo "  - Default: ~/.worktrees/posthog"
         echo ""
-        print_color yellow "💡 For auto-cd functionality, add to ~/.zshrc or ~/.bashrc:"
-        print_color yellow "   source $(dirname "$0")/phw"
-        print_color yellow "   Then use 'phw' instead of '$0'"
         ;;
 esac
