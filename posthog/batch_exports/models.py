@@ -5,6 +5,7 @@ from math import ceil
 from zoneinfo import ZoneInfo
 
 from django.db import models
+from django.db.models import Q
 
 import pytz
 
@@ -111,12 +112,22 @@ class BatchExportDestination(UUIDTModel):
 
 
 class BatchExportRun(UUIDTModel):
-    """A model of a single run of a PostHog BatchExport given a time interval.
+    """A single run of a PostHog batch export defined by its data interval bounds.
 
-    It is used to keep track of the status and progress of the export
-    between the specified time interval, as well as communicating any errors
-    that may have occurred during the process.
+    It is used to keep track of the status of the export and once it finishes to
+    store any result metadata, and errors that may have occurred during the process.
     """
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    Q(batch_export__isnull=False, batch_export_on_demand__isnull=True)
+                    | Q(batch_export__isnull=True, batch_export_on_demand__isnull=False)
+                ),
+                name="run_has_exactly_one_parent_batch_export_or_batch_export_on_demand",
+            )
+        ]
 
     class Status(models.TextChoices):
         """Possible states of the BatchExportRun."""
@@ -135,7 +146,14 @@ class BatchExportRun(UUIDTModel):
     batch_export = models.ForeignKey(
         "BatchExport",
         on_delete=models.CASCADE,
-        help_text="The BatchExport this run belongs to.",
+        null=True,
+        help_text="The `BatchExport` this run belongs to.",
+    )
+    batch_export_on_demand = models.ForeignKey(
+        "BatchExportOnDemand",
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="The `BatchExportOnDemand` this run belongs to.",
     )
     status = models.CharField(choices=Status, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
@@ -177,8 +195,13 @@ class BatchExportRun(UUIDTModel):
 
     @property
     def workflow_id(self) -> str:
-        """Return the Workflow id that corresponds to this BatchExportRun model."""
-        return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+        """Return the Workflow id that corresponds to this model."""
+        if self.batch_export is not None:
+            return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+        if self.batch_export_on_demand is not None:
+            return f"{self.batch_export_on_demand.id}-{self.data_interval_start:%Y-%m-%dT%H:%M:%S}Z-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+
+        raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
 BATCH_EXPORT_INTERVALS = [
@@ -197,15 +220,21 @@ BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
 
 
 class BatchExport(ModelActivityMixin, UUIDTModel):
-    """
-    Defines the configuration of PostHog to export data to a destination,
-    either on a schedule (via the interval parameter), or manually by a
-    "backfill". Specific instances of a unit process of exporting data is called
-    a BatchExportRun.
+    """A model for a PostHog batch export that runs on a schedule.
+
+    A batch export exports data from PostHog to the configured destination on a
+    schedule given by its `interval`, `interval_offset`, and `timezone`.
+
+    An instance of a batch export for a particular period of the schedule is called a
+    "run", and runs are modelled by the `BatchExportRun` model.
+
+    Old periods of time can be re-exported by executing a "backfill", even periods from
+    before the batch export was created. Backfills are modelled via the
+    `BatchExportBackfill` model.
     """
 
     class Model(models.TextChoices):
-        """Possible models that this BatchExport can export."""
+        """Possible data models that this BatchExport can export."""
 
         EVENTS = "events"
         PERSONS = "persons"
@@ -526,3 +555,43 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
             threshold_delta = threshold
 
         return threshold_delta > delta
+
+
+class BatchExportOnDemand(ModelActivityMixin, UUIDTModel):
+    """A model for a PostHog batch export triggered on demand.
+
+    Shares a lot of similarities with a `BatchExport`, with the big difference that
+    an on demand batch export does not run on a schedule.
+    """
+
+    class Model(models.TextChoices):
+        """Possible data models that this BatchExport can export."""
+
+        EVENTS = "events"
+        PERSONS = "persons"
+        SESSIONS = "sessions"
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    destination = models.ForeignKey(
+        "BatchExportDestination",
+        on_delete=models.CASCADE,
+        help_text="The destination to export data to.",
+    )
+    deleted = models.BooleanField(default=False, help_text="Whether this is deleted or not.")
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this was last updated.",
+    )
+    model = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        choices=Model,
+        default=Model.EVENTS,
+        help_text="Which model this batch export is exporting.",
+    )
+    filters = models.JSONField(null=True, blank=True)

@@ -1,9 +1,14 @@
 # Need to skip autoimporting because this file is severely prone to circular imports errors
 # You should try and make them alphabetically sorted manually if possible
 # isort: skip_file
-
-from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
-
+from ..batch_exports.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportFileDownload,
+    BatchExportDestination,
+    BatchExportRun,
+    BatchExportOnDemand,
+)
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
@@ -123,6 +128,8 @@ __all__ = [
     "BatchExportBackfill",
     "BatchExportDestination",
     "BatchExportRun",
+    "BatchExportFileDownload",
+    "BatchExportOnDemand",
     "BatchImport",
     "CIMDVerificationToken",
     "Cohort",
