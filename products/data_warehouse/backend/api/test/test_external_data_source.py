@@ -2278,6 +2278,181 @@ class TestExternalDataSource(APIBaseTest):
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
         assert schema.enabled_columns == expected_persisted
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_does_not_rename_legacy_warehouse_rows(self, mock_get_source):
+        # A pre-PR warehouse Postgres source had `schema=public` on the source config and
+        # `ExternalDataSchema.name="auth_group"` (no schema prefix). After this PR, discovery
+        # returns the qualified `public.auth_group`. We MUST NOT rename the row — renaming changes
+        # the Delta path on the next sync and orphans the existing data. Instead, we populate
+        # `schema_metadata` so `source_for_pipeline` continues routing to the right physical table.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="legacy",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        legacy_table = DataWarehouseTable.objects.create(
+            name="legacypostgres_auth_group",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            url_pattern="https://bucket/team_X_postgres_auth_group/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}},
+        )
+        legacy_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="auth_group",
+            should_sync=True,
+            table=legacy_table,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        legacy_schema.refresh_from_db()
+        legacy_table.refresh_from_db()
+        # Name preserved -> Delta path on next sync stays at the original location.
+        assert legacy_schema.name == "auth_group"
+        # schema_metadata pinned so source_for_pipeline knows the canonical (schema, table) tuple.
+        metadata = legacy_schema.sync_type_config.get("schema_metadata") or {}
+        assert metadata.get("source_schema") == "public"
+        assert metadata.get("source_table_name") == "auth_group"
+        # DataWarehouseTable link + url_pattern untouched.
+        assert legacy_schema.table_id == legacy_table.id
+        assert legacy_table.name == "legacypostgres_auth_group"
+        assert legacy_table.url_pattern == "https://bucket/team_X_postgres_auth_group/*"
+        # Discovery returned `public.auth_group` but we should NOT have created a duplicate row
+        # — the existing `auth_group` row already represents that source-side table.
+        live_schemas = ExternalDataSchema.objects.filter(
+            team_id=self.team.pk, source_id=source.pk, deleted=False
+        ).values_list("name", flat=True)
+        assert list(live_schemas) == ["auth_group"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_idempotent_on_legacy_warehouse_rows(self, mock_get_source):
+        # Calling refresh_schemas twice on a legacy row should be a no-op on the second call —
+        # name stays put, schema_metadata stays put, no thrash of updated_at.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="legacy",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="auth_group",
+            should_sync=True,
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        names = list(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, deleted=False
+            ).values_list("name", flat=True)
+        )
+        assert names == ["auth_group"]
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="auth_group")
+        metadata = schema.sync_type_config.get("schema_metadata") or {}
+        assert metadata.get("source_schema") == "public"
+        assert metadata.get("source_table_name") == "auth_group"
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
+        # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
+        # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans
+        # data. This is the long-standing behavior we MUST preserve for direct sources.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="direct",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        legacy_table = DataWarehouseTable.objects.create(
+            name="auth_group",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}},
+        )
+        legacy_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="auth_group",
+            should_sync=True,
+            table=legacy_table,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        legacy_schema.refresh_from_db()
+        # Direct mode renames the row to the qualified discovered name.
+        assert legacy_schema.name == "public.auth_group"
+        assert legacy_schema.table_id == legacy_table.id
+
     def test_create_direct_non_postgres_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",

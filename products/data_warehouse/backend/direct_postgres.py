@@ -375,7 +375,22 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
     source: ExternalDataSource,
     source_schemas: list[SourceSchema],
     team_id: int,
-) -> None:
+    allow_rename: bool = True,
+) -> dict[str, str]:
+    """Match discovered source schemas back to existing rows so a multi-schema discovery doesn't
+    soft-delete the unqualified row and orphan its DataWarehouseTable.
+
+    Returns a ``{discovered_name: existing_row_name}`` map so the caller can substitute the
+    discovered names before invoking ``sync_old_schemas_with_new_schemas`` — without that
+    substitution, the unqualified row would be soft-deleted and a fresh qualified row would be
+    created in its place, breaking the legacy DataWarehouseTable link.
+
+    When ``allow_rename`` is ``False`` we leave ``ExternalDataSchema.name`` alone but still
+    populate ``schema_metadata`` so ``source_for_pipeline`` routes the sync to the right physical
+    table. Renaming the row changes the Delta path that ``pipeline_sync`` writes to on the next
+    sync, which orphans pre-existing Delta files for warehouse-mode sources. Direct-query mode
+    (which has always eager-renamed) opts in via ``allow_rename=True``.
+    """
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
     default_schema = (source.job_inputs or {}).get("schema")
@@ -395,6 +410,7 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
         schema_models_by_location.setdefault(location, []).append(schema_model)
 
     renamed_schema_ids: set[str] = set()
+    name_substitutions: dict[str, str] = {}
 
     for source_schema in source_schemas:
         if source_schema.name in schema_models_by_name:
@@ -420,6 +436,31 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
         if rename_candidate is None:
             continue
 
+        if not allow_rename:
+            # Pre-pin the source-side identity so reconcile_postgres_schemas treats the existing
+            # row as the canonical match for this discovered table even though the names differ.
+            sync_type_config = rename_candidate.sync_type_config or {}
+            existing_metadata = sync_type_config.get("schema_metadata")
+            if not isinstance(existing_metadata, dict) or not existing_metadata.get("source_table_name"):
+                rename_candidate.sync_type_config = {
+                    **sync_type_config,
+                    "schema_metadata": postgres_schema_metadata(
+                        source_schema.columns,
+                        source_schema.foreign_keys,
+                        source_catalog=source_schema.source_catalog,
+                        source_schema=source_schema.source_schema,
+                        source_table_name=source_schema.source_table_name,
+                    ),
+                }
+                rename_candidate.save(update_fields=["sync_type_config", "updated_at"])
+            # Tell the caller "discovered name X already maps to existing row named Y" so the
+            # downstream sync_old_schemas_with_new_schemas pass doesn't try to create a duplicate
+            # qualified row or soft-delete the legacy unqualified one.
+            name_substitutions[source_schema.name] = rename_candidate.name
+            schema_models_by_name[source_schema.name] = rename_candidate
+            renamed_schema_ids.add(str(rename_candidate.id))
+            continue
+
         old_name = rename_candidate.name
         rename_candidate.name = source_schema.name
         rename_candidate.save(update_fields=["name", "updated_at"])
@@ -427,3 +468,5 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
         schema_models_by_name.pop(old_name, None)
         schema_models_by_name[source_schema.name] = rename_candidate
         renamed_schema_ids.add(str(rename_candidate.id))
+
+    return name_substitutions

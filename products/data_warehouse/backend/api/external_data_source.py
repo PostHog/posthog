@@ -679,11 +679,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             with transaction.atomic():
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                rename_direct_postgres_schemas_to_match_source_schemas(
+                name_substitutions = rename_direct_postgres_schemas_to_match_source_schemas(
                     source=updated_source,
                     source_schemas=discovered_schemas,
                     team_id=instance.team_id,
+                    # Warehouse-mode renames change the Delta path on the next sync and orphan
+                    # pre-existing data, so only direct-query mode auto-renames here.
+                    allow_rename=updated_source.is_direct_query,
                 )
+                if name_substitutions:
+                    schema_names = {
+                        name_substitutions.get(name, name): label for name, label in schema_names.items()
+                    }
+                    descriptions = {
+                        name_substitutions.get(name, name): description
+                        for name, description in descriptions.items()
+                    }
                 sync_old_schemas_with_new_schemas(
                     schema_names,
                     source_id=str(updated_source.id),
@@ -1458,13 +1469,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # the old `foo` row and create a new `public.foo` row, orphaning the DataWarehouseTable
             # already attached to the old row. Direct mode has always done this on update; we now
             # also do it on refresh, for both modes.
+            name_substitutions: dict[str, str] = {}
             if instance.source_type == ExternalDataSourceType.POSTGRES:
-                rename_direct_postgres_schemas_to_match_source_schemas(
+                name_substitutions = rename_direct_postgres_schemas_to_match_source_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,
+                    # Warehouse-mode renames change the Delta path on the next sync and orphan
+                    # pre-existing data, so only direct-query mode auto-renames here.
+                    allow_rename=instance.is_direct_query,
                 )
 
+            # Apply any name substitutions returned by the rename helper so sync_old_schemas_with_new_schemas
+            # treats existing legacy rows (e.g. "auth_group") as already covering the discovered qualified
+            # name (e.g. "public.auth_group"). Without this, the legacy row gets soft-deleted.
+            if name_substitutions:
+                schema_names = {
+                    name_substitutions.get(name, name): label for name, label in schema_names.items()
+                }
+                descriptions = {
+                    name_substitutions.get(name, name): description for name, description in descriptions.items()
+                }
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
