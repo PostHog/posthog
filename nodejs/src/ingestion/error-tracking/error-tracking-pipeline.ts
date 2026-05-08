@@ -72,6 +72,16 @@ export interface ErrorTrackingPipelineConfig {
     groupTypeManager: GroupTypeManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
+    /**
+     * When true, overflow redirects (both restriction-driven force-overflow
+     * and rate-limit-to-overflow) keep the original partition key. When
+     * false, redirects emit with a null key so Kafka spreads load across
+     * overflow-topic partitions. Cymbal cache locality is enforced one layer
+     * down (team_id consistent hashing inside `CymbalClient`), so the
+     * partition key on the overflow lane doesn't affect symbolication cache
+     * hits.
+     */
+    preservePartitionLocality: boolean
     /** Service for rate limiting and redirecting to overflow (main lane only). */
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
@@ -155,6 +165,7 @@ export function createErrorTrackingPipeline(
         groupTypeManager,
         eventIngestionRestrictionManager,
         overflowEnabled,
+        preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         preCymbalRateLimiters,
@@ -180,7 +191,7 @@ export function createErrorTrackingPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                preservePartitionLocality: true,
+                                preservePartitionLocality,
                             })
                         )
                         // Parse Kafka message body [REUSE]
@@ -222,7 +233,7 @@ export function createErrorTrackingPipeline(
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
-                                            true, // preservePartitionLocality
+                                            preservePartitionLocality,
                                             overflowRedirectService
                                         )
                                     )

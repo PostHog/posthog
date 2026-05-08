@@ -53,6 +53,12 @@ export interface ErrorTrackingConsumerOptions {
     statefulOverflowEnabled: boolean
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
+    /**
+     * When true, overflow redirects keep the original partition key. When
+     * false (default), the overflow producer emits with a null key. Applies
+     * to both restriction-driven force-overflow and rate-limit-to-overflow.
+     */
+    preservePartitionLocality: boolean
     pipeline: string
     rateLimiterEnabled: boolean
     rateLimiterReportingMode: boolean
@@ -259,6 +265,7 @@ export class ErrorTrackingConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.config.overflowEnabled,
+            preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
