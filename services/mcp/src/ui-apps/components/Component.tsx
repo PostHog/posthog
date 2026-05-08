@@ -4,6 +4,7 @@ import { EmptyState } from '@posthog/mosaic'
 
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
+import { RetentionVisualizer } from './RetentionVisualizer'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type {
@@ -12,11 +13,13 @@ import type {
     HogQLResult,
     LifecycleQuery,
     LifecycleResult,
+    RetentionQuery,
+    RetentionResult,
     TrendsQuery,
     TrendsResult,
 } from './types'
 
-type VisualizationType = 'trends' | 'funnel' | 'lifecycle' | 'table'
+type VisualizationType = 'trends' | 'funnel' | 'lifecycle' | 'retention' | 'table'
 
 /**
  * Lifecycle results share the trends shape but each item carries a `status` field
@@ -80,6 +83,25 @@ function isFunnelResult(results: unknown): results is FunnelResult {
 }
 
 /**
+ * Retention results are arrays of cohorts where each item has `values: [{ count, ... }]`
+ * and a `date`/`label`. Distinct from trends (which uses `data`/`labels`/`days`).
+ */
+function isRetentionResult(results: unknown): results is RetentionResult {
+    if (!Array.isArray(results) || results.length === 0) {
+        return false
+    }
+    const first = results[0] as Record<string, unknown>
+    if (typeof first !== 'object' || first === null) {
+        return false
+    }
+    if (!Array.isArray(first.values)) {
+        return false
+    }
+    const firstValue = first.values[0] as Record<string, unknown> | undefined
+    return typeof firstValue === 'object' && firstValue !== null && 'count' in firstValue && 'date' in first
+}
+
+/**
  * Check if results look like HogQLResult (object with columns and results arrays).
  */
 function isHogQLResult(results: unknown): results is HogQLResult {
@@ -107,6 +129,10 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
     if (isHogQLResult(results)) {
         return 'table'
     }
+    // Retention must come before trends — its cohort rows could otherwise be misread.
+    if (isRetentionResult(results)) {
+        return 'retention'
+    }
     // Lifecycle must come before trends — its rows pass `isTrendsResult` too.
     if (isLifecycleResult(results)) {
         return 'lifecycle'
@@ -129,6 +155,9 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
     if (query?.kind === 'FunnelsQuery') {
         return 'funnel'
     }
+    if (query?.kind === 'RetentionQuery') {
+        return 'retention'
+    }
     if (query?.kind === 'HogQLQuery') {
         return 'table'
     }
@@ -138,8 +167,8 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 
 /** Data payload from MCP tools */
 interface DataPayload {
-    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | Record<string, unknown>
-    results: TrendsResult | FunnelResult | LifecycleResult | HogQLResult
+    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | Record<string, unknown>
+    results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | HogQLResult
     _posthogUrl?: string
 }
 
@@ -199,6 +228,14 @@ export function Component({ data }: ComponentProps): ReactElement {
                     />
                 )
 
+            case 'retention':
+                return (
+                    <RetentionVisualizer
+                        query={payload.query as RetentionQuery}
+                        results={payload.results as RetentionResult}
+                    />
+                )
+
             case 'table':
                 return <TableVisualizer results={payload.results as HogQLResult} />
 
@@ -219,6 +256,8 @@ export function Component({ data }: ComponentProps): ReactElement {
                 return 'Funnel'
             case 'lifecycle':
                 return 'Lifecycle'
+            case 'retention':
+                return 'Retention'
             case 'table':
                 return 'Query results'
             default:
