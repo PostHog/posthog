@@ -37,7 +37,7 @@ export interface CreateRepoInputApi {
 /**
  * @nullable
  */
-export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
+export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null
 
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */

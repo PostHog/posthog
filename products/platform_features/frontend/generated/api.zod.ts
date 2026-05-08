@@ -52,18 +52,18 @@ export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Approve a change request.
 If quorum is reached, automatically applies the change immediately.
  */
-export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({})
+export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
  * Cancel a change request.
 Only the requester can cancel their own pending change request.
  */
-export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.object({})
+export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
  * Reject a change request.
  */
-export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({})
+export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const createBodyNameMax = 64
 
@@ -77,13 +77,13 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     is_ai_data_processing_approved: zod.boolean().nullish(),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -107,13 +107,13 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     is_ai_data_processing_approved: zod.boolean().nullish(),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -137,13 +137,13 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     is_ai_data_processing_approved: zod.boolean().nullish(),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -159,14 +159,14 @@ export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
+        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
 export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
+        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
 export const rolesCreateBodyNameMax = 200
@@ -199,6 +199,9 @@ export const advancedActivityLogsExportCreateBodyUserLastNameMax = 150
 
 export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
 
+export const advancedActivityLogsExportCreateBodyTeamIdMin = 0
+export const advancedActivityLogsExportCreateBodyTeamIdMax = 2147483647
+
 export const advancedActivityLogsExportCreateBodyClientMax = 32
 
 export const advancedActivityLogsExportCreateBodyActivityMax = 79
@@ -222,13 +225,18 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
                 zod
                     .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
                     .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
                     ),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish(),
+            .optional(),
     }),
+    team_id: zod
+        .number()
+        .min(advancedActivityLogsExportCreateBodyTeamIdMin)
+        .max(advancedActivityLogsExportCreateBodyTeamIdMax)
+        .nullish(),
     organization_id: zod.uuid().nullish(),
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
@@ -236,8 +244,8 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     activity: zod.string().max(advancedActivityLogsExportCreateBodyActivityMax),
     item_id: zod.string().max(advancedActivityLogsExportCreateBodyItemIdMax).nullish(),
     scope: zod.string().max(advancedActivityLogsExportCreateBodyScopeMax),
-    detail: zod.unknown().nullish(),
-    created_at: zod.iso.datetime({}).optional(),
+    detail: zod.unknown().optional(),
+    created_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
 export const commentsCreateBodyIsTaskDefault = false
@@ -256,9 +264,9 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
             'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
         ),
     content: zod.string().nullish(),
-    rich_content: zod.unknown().nullish(),
+    rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().nullish(),
+    item_context: zod.unknown().optional(),
     scope: zod.string().max(commentsCreateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
@@ -279,9 +287,9 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
             'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
         ),
     content: zod.string().nullish(),
-    rich_content: zod.unknown().nullish(),
+    rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().nullish(),
+    item_context: zod.unknown().optional(),
     scope: zod.string().max(commentsUpdateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
@@ -302,9 +310,9 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
         ),
     content: zod.string().nullish(),
-    rich_content: zod.unknown().nullish(),
+    rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().nullish(),
+    item_context: zod.unknown().optional(),
     scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
 })
@@ -324,7 +332,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe(
-                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                     ),
                 search: zod
                     .string()
@@ -358,7 +366,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .nullish()
                     .describe(
-                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                     ),
                 sceneKey: zod
                     .string()
@@ -383,68 +391,73 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged.'
         ),
     homepage: zod
-        .object({
-            id: zod
-                .string()
-                .optional()
-                .describe('Stable identifier for the tab. Generated client-side; safe to omit on create.'),
-            pathname: zod
-                .string()
-                .optional()
-                .describe(
-                    'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
-                ),
-            search: zod
-                .string()
-                .optional()
-                .describe(
-                    'Query string portion of the URL, including the leading `?`. Empty string when there is no query.'
-                ),
-            hash: zod
-                .string()
-                .optional()
-                .describe(
-                    'Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.'
-                ),
-            title: zod
-                .string()
-                .optional()
-                .describe('Default tab title derived from the destination scene. Used when `customTitle` is not set.'),
-            customTitle: zod
-                .string()
-                .nullish()
-                .describe('Optional user-provided title that overrides `title` in the navigation UI.'),
-            iconType: zod
-                .string()
-                .optional()
-                .describe(
-                    'Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.'
-                ),
-            sceneId: zod
-                .string()
-                .nullish()
-                .describe(
-                    'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
-                ),
-            sceneKey: zod
-                .string()
-                .nullish()
-                .describe(
-                    'Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.'
-                ),
-            sceneParams: zod
-                .unknown()
-                .optional()
-                .describe(
-                    'Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.'
-                ),
-            pinned: zod
-                .boolean()
-                .optional()
-                .describe('Whether this entry is pinned. Always coerced to true on save — pass true or omit.'),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                id: zod
+                    .string()
+                    .optional()
+                    .describe('Stable identifier for the tab. Generated client-side; safe to omit on create.'),
+                pathname: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                    ),
+                search: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Query string portion of the URL, including the leading `?`. Empty string when there is no query.'
+                    ),
+                hash: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.'
+                    ),
+                title: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Default tab title derived from the destination scene. Used when `customTitle` is not set.'
+                    ),
+                customTitle: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional user-provided title that overrides `title` in the navigation UI.'),
+                iconType: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.'
+                    ),
+                sceneId: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
+                    ),
+                sceneKey: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.'
+                    ),
+                sceneParams: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.'
+                    ),
+                pinned: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether this entry is pinned. Always coerced to true on save — pass true or omit.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe(
-            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
+            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `\/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
         ),
 })
