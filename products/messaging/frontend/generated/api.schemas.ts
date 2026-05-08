@@ -43,6 +43,29 @@ export interface PaginatedMessageCategoryListApi {
     results: MessageCategoryApi[]
 }
 
+export interface AddOptOutApi {
+    /**
+     * The recipient identifier (typically an email address) to opt out.
+     * @maxLength 512
+     */
+    identifier: string
+    /**
+     * Optional message category key. If omitted, the recipient is opted out of all marketing communications.
+     * @nullable
+     */
+    category_key?: string | null
+}
+
+export interface MessagePreferencesApi {
+    readonly id: string
+    /** The recipient identifier (typically an email address). */
+    identifier: string
+    /** When the recipient's preferences were last updated. */
+    updated_at: string
+    /** Map of message category id (or '$all' for the global marketing opt-out) to OPTED_IN/OPTED_OUT/NO_PREFERENCE. */
+    preferences: unknown
+}
+
 /**
  * * `hog` - hog
  * `liquid` - liquid

@@ -114,6 +114,24 @@ export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zo
     deleted: zod.boolean().optional(),
 })
 
+/**
+ * Manually opt an identifier out of a category (or all marketing communications if no category is given).
+ */
+export const messagingPreferencesOptOutsCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesOptOutsCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesOptOutsCreateBodyIdentifierMax)
+        .describe('The recipient identifier (typically an email address) to opt out.'),
+    category_key: zod
+        .string()
+        .nullish()
+        .describe(
+            'Optional message category key. If omitted, the recipient is opted out of all marketing communications.'
+        ),
+})
+
 export const messagingTemplatesCreateBodyNameMax = 400
 
 export const messagingTemplatesCreateBodyTypeMax = 24

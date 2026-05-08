@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddOptOutApi,
     MessageCategoryApi,
+    MessagePreferencesApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
     MessagingTemplatesListParams,
@@ -283,6 +285,26 @@ export const messagingPreferencesOptOutsRetrieve = async (projectId: string, opt
     return apiMutator<void>(getMessagingPreferencesOptOutsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMessagingPreferencesOptOutsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_preferences/opt_outs/`
+}
+
+/**
+ * Manually opt an identifier out of a category (or all marketing communications if no category is given).
+ */
+export const messagingPreferencesOptOutsCreate = async (
+    projectId: string,
+    addOptOutApi: AddOptOutApi,
+    options?: RequestInit
+): Promise<MessagePreferencesApi> => {
+    return apiMutator<MessagePreferencesApi>(getMessagingPreferencesOptOutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addOptOutApi),
     })
 }
 
