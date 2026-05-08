@@ -128,10 +128,19 @@ A grouping rule is worth creating when both are true:
 - You can describe the pattern with property filters that won't accidentally
   swallow unrelated errors
 
+The canonical exception properties are plural arrays — `$exception_types`,
+`$exception_values` (messages), `$exception_sources` (file paths),
+`$exception_functions` (function names). Filter engines handle array
+containment, so a scalar `value` with `exact`/`icontains`/`regex` matches if
+any element does. Singular forms (`$exception_type`, `$exception_message`) and
+`$exception_stack_trace_raw` are not emitted by the modern ingestion path —
+filtering on them produces a rule that silently never matches.
+
 If the volatility is in the message (e.g.,
-`TypeError at /static/main.<hash>.js`), a regex filter on `$exception_message`
-or `$exception_stack_trace_raw` works. If the volatility is in line numbers
-within a known file, an `icontains` on the file path does.
+`TypeError at /static/main.<hash>.js`), a regex filter on `$exception_values`
+works. If the volatility is in line numbers within a known file, `icontains`
+on `$exception_sources` does. `$exception_handled` is also a useful narrowing
+dimension — separate handled vs unhandled rather than mixing them.
 
 Skip the grouping rule when:
 
@@ -150,13 +159,13 @@ posthog:error-tracking-grouping-rules-create
     "values": [
       {
         "type": "event",
-        "key": "$exception_type",
+        "key": "$exception_types",
         "operator": "exact",
         "value": "TypeError"
       },
       {
         "type": "event",
-        "key": "$exception_message",
+        "key": "$exception_values",
         "operator": "icontains",
         "value": "Cannot read property"
       }
@@ -186,9 +195,10 @@ the grouping rule's filter is too narrow — widen it.
   resulting issue.
 - Don't merge issues that "look similar" without inspecting events. Two
   `TypeError`s in different files are different bugs.
-- Stack frames are usually the strongest grouping signal. If the top frame's
-  file and function match, the bug is almost always the same — even when
-  messages diverge.
+- Stack frames are the canonical grouping signal — ingestion already
+  fingerprints on the stack, so a stable stack groups itself. A grouping rule
+  is for cases where the natural fingerprint sprays (volatile filenames,
+  hashed function names, dynamic line numbers) and you need to override it.
 - Disabling or tightening a grouping rule does not retroactively un-group
   existing events; future events route correctly, past events stay where they
   are. Use `error-tracking-issues-split-create` if you need to surgically
