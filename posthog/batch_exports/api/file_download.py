@@ -135,7 +135,7 @@ class CreateOutputSerializer(serializers.Serializer):
 class RetrieveBasicOutputSerializer(serializers.Serializer):
     """Typed output for view set `retrieve` with any of the statuses without extra output."""
 
-    status = serializers.ChoiceField(choices=["Starting", "Running"])
+    status = serializers.ChoiceField(choices=["Starting", "Running", "Cancelled"])
 
 
 class RetrieveCompletedOutputSerializer(serializers.Serializer):
