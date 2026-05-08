@@ -56,6 +56,87 @@ pub struct Config {
     // Invalid JSON or invalid team_id key fails startup.
     #[envconfig(default = "")]
     pub team_overrides: TeamOverridesEnv,
+
+    // Rollout gate. Default off so deploying without the env vars is a no-op.
+    #[envconfig(default = "false")]
+    pub rollout_enabled: bool,
+
+    // Unioned with the percentage bucket below.
+    #[envconfig(default = "")]
+    pub rollout_teams: RolloutTeams,
+
+    // Sticky: in at X% stays in at every Y > X%.
+    #[envconfig(default = "0")]
+    pub rollout_percentage: RolloutPercentage,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum RolloutTeams {
+    #[default]
+    None,
+    All,
+    Specific(HashSet<i32>),
+}
+
+impl RolloutTeams {
+    pub fn contains(&self, id: i32) -> bool {
+        match self {
+            RolloutTeams::None => false,
+            RolloutTeams::All => true,
+            RolloutTeams::Specific(set) => set.contains(&id),
+        }
+    }
+}
+
+impl FromStr for RolloutTeams {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Ok(RolloutTeams::None);
+        }
+        if trimmed == "*" {
+            return Ok(RolloutTeams::All);
+        }
+        let mut teams = HashSet::new();
+        for raw in trimmed.split(',') {
+            let t = raw.trim();
+            if t.is_empty() {
+                continue;
+            }
+            teams.insert(t.parse()?);
+        }
+        if teams.is_empty() {
+            Ok(RolloutTeams::None)
+        } else {
+            Ok(RolloutTeams::Specific(teams))
+        }
+    }
+}
+
+/// Out-of-range fails at parse, not silently clamped at decide-time.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RolloutPercentage(pub u8);
+
+#[derive(Debug, thiserror::Error)]
+pub enum RolloutPercentageParseError {
+    #[error("invalid integer: {0}")]
+    Int(#[from] ParseIntError),
+    #[error("rollout percentage {0} out of range [0, 100]")]
+    OutOfRange(u32),
+}
+
+impl FromStr for RolloutPercentage {
+    type Err = RolloutPercentageParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let n: u32 = s.trim().parse()?;
+        if n > 100 {
+            return Err(RolloutPercentageParseError::OutOfRange(n));
+        }
+        Ok(RolloutPercentage(n as u8))
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -225,5 +306,59 @@ mod tests {
                 .unwrap();
         assert_eq!(parsed.overrides[&42].rate, 0.0);
         assert_eq!(parsed.overrides[&99].rate, 1.0);
+    }
+
+    // ---- RolloutTeams parser ----
+
+    #[test]
+    fn rollout_teams_empty_is_none() {
+        let parsed: RolloutTeams = "".parse().unwrap();
+        assert!(matches!(parsed, RolloutTeams::None));
+        let parsed: RolloutTeams = "  ".parse().unwrap();
+        assert!(matches!(parsed, RolloutTeams::None));
+    }
+
+    #[test]
+    fn rollout_teams_wildcard() {
+        let parsed: RolloutTeams = "*".parse().unwrap();
+        assert!(matches!(parsed, RolloutTeams::All));
+        assert!(parsed.contains(2));
+        assert!(parsed.contains(99999));
+    }
+
+    #[test]
+    fn rollout_teams_specific_ids() {
+        let parsed: RolloutTeams = "2, 42 ,99".parse().unwrap();
+        assert!(parsed.contains(2));
+        assert!(parsed.contains(42));
+        assert!(parsed.contains(99));
+        assert!(!parsed.contains(3));
+    }
+
+    #[test]
+    fn rollout_teams_rejects_non_numeric() {
+        assert!("2,abc".parse::<RolloutTeams>().is_err());
+    }
+
+    // ---- RolloutPercentage parser ----
+
+    #[test]
+    fn rollout_percentage_in_range() {
+        for n in [0u8, 1, 50, 99, 100] {
+            let parsed: RolloutPercentage = n.to_string().parse().unwrap();
+            assert_eq!(parsed.0, n);
+        }
+    }
+
+    #[test]
+    fn rollout_percentage_rejects_above_100() {
+        let err = "101".parse::<RolloutPercentage>().unwrap_err();
+        assert!(matches!(err, RolloutPercentageParseError::OutOfRange(101)));
+    }
+
+    #[test]
+    fn rollout_percentage_rejects_negative_and_non_numeric() {
+        assert!("-1".parse::<RolloutPercentage>().is_err());
+        assert!("abc".parse::<RolloutPercentage>().is_err());
     }
 }

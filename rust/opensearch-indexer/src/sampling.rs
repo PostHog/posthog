@@ -13,7 +13,10 @@ use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tracing::{info, warn};
 
-use crate::{config::Config, types::IndexDoc};
+use crate::{
+    config::{Config, RolloutTeams},
+    types::IndexDoc,
+};
 
 /// Shared registry of in-flight per-decision HINCRBY tasks. Wired into
 /// `SamplingConfig` so `spawn_per_decision_write` can register each spawn for
@@ -78,14 +81,10 @@ pub struct TeamOverride {
     pub rate: f64,
 }
 
-/// Outcome of the sampling decision. Variants distinguish *why* the event
-/// indexes (or doesn't) so callers can label per-decision metrics without
-/// reclassifying.
-///
-/// `Deny` and `Drop` both result in the event not being indexed but are kept
-/// distinct so ops can see how much volume a deny rule is suppressing
-/// (`team_decisions:{team}:{date} deny`) versus how much sampling dropped
-/// above the floor (`team_decisions:{team}:{date} drop`).
+/// Variants distinguish *why* the event indexes (or doesn't) so callers can
+/// label per-decision metrics without reclassifying. `Deny`/`Drop`/`NotEnrolled`
+/// all skip indexing but stay distinct so ops can tell rollout state from
+/// active suppression from rate-based sampling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Decision {
     Drop,
@@ -93,6 +92,7 @@ pub(crate) enum Decision {
     IndexSample,
     IndexError,
     Deny,
+    NotEnrolled,
 }
 
 impl Decision {
@@ -107,6 +107,7 @@ impl Decision {
             Decision::IndexSample => "sample",
             Decision::IndexError => "error",
             Decision::Deny => "deny",
+            Decision::NotEnrolled => "not_enrolled",
         }
     }
 }
@@ -126,6 +127,11 @@ pub struct SamplingConfig {
     /// the writer falls back to plain `tokio::spawn` and the runtime cancels
     /// any in-flight task at exit.
     pub(crate) decision_writes: Option<DecisionWriteJoinSet>,
+
+    /// When disabled, the fast path skips Redis entirely (env var is the visibility).
+    pub(crate) rollout_enabled: bool,
+    pub(crate) rollout_teams: RolloutTeams,
+    pub(crate) rollout_percentage: u8,
 }
 
 impl std::fmt::Debug for SamplingConfig {
@@ -136,6 +142,9 @@ impl std::fmt::Debug for SamplingConfig {
             .field("deny_teams", &self.deny_teams)
             .field("overrides", &self.overrides)
             .field("decision_writes_attached", &self.decision_writes.is_some())
+            .field("rollout_enabled", &self.rollout_enabled)
+            .field("rollout_teams", &self.rollout_teams)
+            .field("rollout_percentage", &self.rollout_percentage)
             .finish()
     }
 }
@@ -149,6 +158,9 @@ impl SamplingConfig {
             overrides: c.team_overrides.overrides.clone(),
             now_utc: Utc::now,
             decision_writes: None,
+            rollout_enabled: c.rollout_enabled,
+            rollout_teams: c.rollout_teams.clone(),
+            rollout_percentage: c.rollout_percentage.0,
         }
     }
 
@@ -165,6 +177,18 @@ impl SamplingConfig {
             .map(|o| (o.floor, o.rate))
             .unwrap_or((self.default_floor, self.default_above_floor_rate))
     }
+
+    /// Master `rollout_enabled` is the caller's responsibility; this only
+    /// handles the teams-OR-percentage union.
+    pub(crate) fn is_team_enrolled(&self, team_id: i32) -> bool {
+        self.rollout_teams.contains(team_id) || knuth_bucket_100(team_id) < self.rollout_percentage
+    }
+}
+
+/// Stable, monotonic per team_id; matches the ai_events percentage rollout shape.
+fn knuth_bucket_100(team_id: i32) -> u8 {
+    const KNUTH: u32 = 2_654_435_761;
+    ((team_id as u32).wrapping_mul(KNUTH) % 100) as u8
 }
 
 /// 0..1000 bucket for the given key. Stable across processes within a single
@@ -185,6 +209,24 @@ pub(crate) async fn decide(
 ) -> Result<Decision, CustomRedisError> {
     let now = (config.now_utc)();
     let date = now.format("%Y-%m-%d").to_string();
+
+    // Master off: skip Redis write, env var is the visibility.
+    if !config.rollout_enabled {
+        return Ok(Decision::NotEnrolled);
+    }
+
+    // Skip floor INCR so a future-enrolled team doesn't inherit a burnt budget.
+    if !config.is_team_enrolled(doc.team_id) {
+        spawn_per_decision_write(
+            config.decision_writes.as_ref(),
+            Arc::clone(&redis),
+            doc.team_id,
+            &date,
+            Decision::NotEnrolled,
+        )
+        .await;
+        return Ok(Decision::NotEnrolled);
+    }
 
     if config.deny_teams.contains(&doc.team_id) {
         // Deny is observable so ops can see how much volume the rule is
@@ -346,6 +388,7 @@ mod tests {
     }
 
     fn config_with(floor: u64, rate: f64, overrides: HashMap<i32, TeamOverride>) -> SamplingConfig {
+        // Default permissive so existing deny/floor/sample tests stay valid.
         SamplingConfig {
             default_floor: floor,
             default_above_floor_rate: rate,
@@ -353,6 +396,9 @@ mod tests {
             overrides,
             now_utc: Utc::now,
             decision_writes: None,
+            rollout_enabled: true,
+            rollout_teams: RolloutTeams::All,
+            rollout_percentage: 0,
         }
     }
 
@@ -972,5 +1018,100 @@ mod tests {
             start.elapsed()
         );
         assert_eq!(joinset.lock().await.len(), 0);
+    }
+
+    // ---- Rollout gate tests ----
+
+    #[tokio::test]
+    async fn rollout_disabled_returns_not_enrolled_without_redis() {
+        let redis = MockRedisClient::new();
+        let mut config = config_with(10, 0.5, HashMap::new());
+        config.rollout_enabled = false;
+
+        let doc = fixture_doc(42, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        flush_spawned().await;
+        assert_eq!(decision, Decision::NotEnrolled);
+        assert!(
+            redis.get_calls().is_empty(),
+            "rollout-disabled fast path must not touch Redis at all"
+        );
+    }
+
+    #[tokio::test]
+    async fn rollout_enabled_team_not_in_allowlist_or_pct_returns_not_enrolled() {
+        let redis = MockRedisClient::new();
+        let mut config = config_with(10, 0.5, HashMap::new());
+        config.rollout_enabled = true;
+        config.rollout_teams = RolloutTeams::Specific(HashSet::from([2]));
+        config.rollout_percentage = 0;
+
+        let doc = fixture_doc(99, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        flush_spawned().await;
+        assert_eq!(decision, Decision::NotEnrolled);
+        assert!(
+            redis.get_calls().iter().all(|c| c.op != "incr_with_expire"),
+            "not-enrolled path must not consume floor budget"
+        );
+    }
+
+    #[tokio::test]
+    async fn rollout_team_in_allowlist_passes_gate() {
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(2), Ok(5));
+        let mut config = config_with(10, 0.0, HashMap::new());
+        config.rollout_enabled = true;
+        config.rollout_teams = RolloutTeams::Specific(HashSet::from([2]));
+        config.rollout_percentage = 0;
+
+        let doc = fixture_doc(2, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::IndexFloor);
+    }
+
+    #[tokio::test]
+    async fn rollout_wildcard_lets_every_team_pass() {
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(12345), Ok(1));
+        let mut config = config_with(10, 0.0, HashMap::new());
+        config.rollout_enabled = true;
+        config.rollout_teams = RolloutTeams::All;
+        config.rollout_percentage = 0;
+
+        let doc = fixture_doc(12345, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::IndexFloor);
+    }
+
+    #[test]
+    fn knuth_bucket_is_stable_per_team_id() {
+        // Without stability, a team could oscillate in and out across events.
+        for team_id in [1, 2, 42, 99, 12345, i32::MAX, i32::MIN] {
+            assert_eq!(knuth_bucket_100(team_id), knuth_bucket_100(team_id));
+        }
+    }
+
+    #[test]
+    fn knuth_bucket_in_range() {
+        for team_id in [0, 1, 2, 42, 99, i32::MAX, i32::MIN, -1, -42] {
+            assert!(knuth_bucket_100(team_id) < 100);
+        }
+    }
+
+    #[test]
+    fn rollout_percentage_is_monotonic() {
+        // In at X% => in at every Y > X%.
+        for team_id in (1..=200).chain([42, 1234, 99999]) {
+            let bucket = knuth_bucket_100(team_id);
+            for x in 0u8..=100 {
+                let in_at_x = bucket < x;
+                for y in x..=100 {
+                    let in_at_y = bucket < y;
+                    assert!(
+                        !in_at_x || in_at_y,
+                        "team {team_id} (bucket {bucket}) was in at {x}% but out at {y}%",
+                    );
+                }
+            }
+        }
     }
 }
