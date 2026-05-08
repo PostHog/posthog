@@ -530,7 +530,7 @@ class TestQueryRunner(BaseTest):
         [
             (
                 "user_access_control_error",
-                lambda: UserAccessControlError("query", "read", None),
+                lambda: UserAccessControlError("query", "viewer", None),
                 SloOutcome.SUCCESS,
                 "user_error",
             ),
