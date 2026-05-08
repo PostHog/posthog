@@ -157,7 +157,7 @@ class RetrieveCompletedOutputSerializer(serializers.Serializer):
 class RetrieveFailedOutputSerializer(serializers.Serializer):
     """Typed output for view set `retrieve` with any of the failed statuses."""
 
-    status = serializers.ChoiceField(choices=["Failed", "FailedRetryable", "Terminated", "TimedOut"])
+    status = serializers.ChoiceField(choices=["Failed", "FailedRetryable", "FailedBilling", "Terminated", "TimedOut"])
     error = serializers.CharField()
 
 
