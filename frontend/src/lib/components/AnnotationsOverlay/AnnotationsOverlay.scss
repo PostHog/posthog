@@ -25,6 +25,17 @@
         transform: scale(var(--annotations-badge-scale));
         transform-origin: center;
     }
+
+    // Mirrors the 0.5 alpha applied to previous-period bars in compare-against-previous
+    // layouts so previous-period annotations read as subordinate at a glance.
+    &--dimmed > .LemonBadge {
+        opacity: 0.5;
+    }
+
+    &--dimmed:hover > .LemonBadge,
+    &--dimmed:focus-visible > .LemonBadge {
+        opacity: 1;
+    }
 }
 
 .AnnotationsPopover {

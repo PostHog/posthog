@@ -46,6 +46,9 @@ interface AnnotationBadgeCluster {
     annotations: DatedAnnotationType[]
     leftPx: number
     rightPx: number
+    /** Dim the badge when every annotation in the cluster comes from the previous-period
+     *  track. Mixed clusters render at full opacity since they include current data. */
+    allFromPreviousTrack: boolean
 }
 
 function getInterpolatedDataPointX(dataIndex: number, getDataPointX: (index: number) => number | null): number | null {
@@ -69,9 +72,13 @@ export interface AnnotationsOverlayProps {
     chartWidth: number
     chartHeight: number
     datasetIndex?: number
-    /** Forwarded to the kea logic key so multiple overlays on the same insight don't
-     *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
-    kind?: string
+    /** Optional secondary timeline for compare-against-previous bar charts. Annotations whose
+     *  date_marker falls in this range are anchored via `getPreviousDataPointX` instead of the
+     *  primary chart metaset. */
+    previousDates?: string[]
+    /** Resolves pixel x for a fractional dataIndex within the previous-period timeline.
+     *  Required when `previousDates` is provided. */
+    getPreviousDataPointX?: (dataIndex: number) => number | null
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
@@ -87,7 +94,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     dates,
     insightNumericId,
     datasetIndex = 0,
-    kind,
+    previousDates,
+    getPreviousDataPointX,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(
@@ -117,7 +125,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         insightNumericId,
         dates,
         ticks: prevTicksRef.current,
-        kind,
+        previousDates,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations } = useValues(logic)
@@ -139,8 +147,9 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
 
     const clusters = React.useMemo<AnnotationBadgeCluster[]>(() => {
         const positioned = annotationBadgeDataIndices
-            .map(({ dateKey, date, dataIndex }) => {
-                const absoluteX = getInterpolatedDataPointX(dataIndex, getDataPointX)
+            .map(({ dateKey, date, dataIndex, trackIndex }) => {
+                const resolveX = trackIndex === 1 && getPreviousDataPointX ? getPreviousDataPointX : getDataPointX
+                const absoluteX = getInterpolatedDataPointX(dataIndex, resolveX)
                 if (absoluteX === null) {
                     return null
                 }
@@ -148,6 +157,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                     date,
                     leftPx: absoluteX - chartAreaLeft,
                     annotations: groupedAnnotations[dateKey] || [],
+                    fromPreviousTrack: trackIndex === 1,
                 }
             })
             .filter((b): b is NonNullable<typeof b> => b !== null)
@@ -160,6 +170,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 last.annotations = [...last.annotations, ...badge.annotations]
                 last.dateRange = [last.dateRange[0], badge.date]
                 last.rightPx = badge.leftPx
+                last.allFromPreviousTrack = last.allFromPreviousTrack && badge.fromPreviousTrack
             } else {
                 out.push({
                     date: badge.date,
@@ -167,11 +178,12 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                     annotations: badge.annotations,
                     leftPx: badge.leftPx,
                     rightPx: badge.leftPx,
+                    allFromPreviousTrack: badge.fromPreviousTrack,
                 })
             }
         }
         return out
-    }, [annotationBadgeDataIndices, getDataPointX, chartAreaLeft, groupedAnnotations])
+    }, [annotationBadgeDataIndices, getDataPointX, getPreviousDataPointX, chartAreaLeft, groupedAnnotations])
 
     const clusterByKey = React.useMemo(() => {
         const m = new Map<string, AnnotationBadgeCluster>()
@@ -225,6 +237,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                         widthPx={MIN_BADGE_SPACING_PX}
                         annotations={cluster.annotations}
                         badgeRefs={badgeRefs}
+                        dimmed={cluster.allFromPreviousTrack}
                     />
                 ))}
                 {activeBadgeElement && (
@@ -251,6 +264,9 @@ interface AnnotationsBadgeProps {
     widthPx: number
     annotations: DatedAnnotationType[]
     badgeRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>
+    /** Render at reduced opacity so it visually defers to current-period badges. Matches the
+     *  comparison-dimming applied to the previous-period bars themselves. */
+    dimmed?: boolean
 }
 
 interface AnnotationsBadgeCSSProperties extends React.CSSProperties {
@@ -265,6 +281,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     widthPx,
     annotations,
     badgeRefs,
+    dimmed = false,
 }: AnnotationsBadgeProps): JSX.Element {
     const { isDateLocked, activeDate, isPopoverShown } = useValues(annotationsOverlayLogic)
     const { activateDate, deactivateDate, lockDate, unlockDate } = useActions(annotationsOverlayLogic)
@@ -289,7 +306,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     return (
         <button
             ref={buttonRef}
-            className="AnnotationsBadge"
+            className={`AnnotationsBadge${dimmed ? ' AnnotationsBadge--dimmed' : ''}`}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {

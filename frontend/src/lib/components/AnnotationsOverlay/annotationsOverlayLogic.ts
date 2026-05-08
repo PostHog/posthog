@@ -29,13 +29,13 @@ import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
     dashboardId: DashboardType['id'] | undefined
     insightNumericId: QueryBasedInsightModel['id'] | 'new'
+    /** Primary timeline (current period). */
     dates: string[]
     ticks: { value: number }[]
-    /** Disambiguator for charts that mount more than one overlay against the same insight
-     *  (e.g. compare-against-previous renders one layer per period). Without it, both layers
-     *  would share the same kea instance and the second mount's `dates`/`ticks` would
-     *  overwrite the first. */
-    kind?: string
+    /** Optional secondary timeline. Used by compare-against-previous bar charts so a single
+     *  overlay handles both periods — annotations in this date range get `trackIndex: 1`
+     *  and the consumer anchors them via a separate getDataPointX. */
+    previousDates?: string[]
 }
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
@@ -75,7 +75,7 @@ function hasPersonPropertyFiltersOrBreakdown(
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({ dashboardId: undefined } as AnnotationsOverlayLogicProps),
-    key(({ insightNumericId, kind }) => (kind ? `${insightNumericId}::${kind}` : insightNumericId)),
+    key(({ insightNumericId }) => insightNumericId),
     connect(() => ({
         values: [
             insightLogic,
@@ -144,14 +144,40 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             (timezone, dates, tickPositions): Dayjs[] =>
                 tickPositions.map((dateIndex) => parseDateInTimezone(dates[dateIndex], timezone)),
         ],
+        /** One date range per track. Index 0 is the primary timeline; index 1 (if present)
+         *  is the previous period for compare-against-previous bar charts. */
+        trackDateRanges: [
+            (s) => [
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                (_, props: AnnotationsOverlayLogicProps) => props.previousDates,
+                s.intervalUnit,
+            ],
+            (timezone, dates, previousDates, intervalUnit): Array<[Dayjs, Dayjs] | null> => {
+                const ranges: Array<[Dayjs, Dayjs] | null> = []
+                const trackInputs = previousDates ? [dates, previousDates] : [dates]
+                for (const trackDates of trackInputs) {
+                    if (trackDates.length === 0) {
+                        ranges.push(null)
+                        continue
+                    }
+                    const first = parseDateInTimezone(trackDates[0], timezone)
+                    const last = parseDateInTimezone(trackDates[trackDates.length - 1], timezone).add(1, intervalUnit)
+                    ranges.push([first, last])
+                }
+                return ranges
+            },
+        ],
+        /** Union of all track ranges; used to filter annotations once before per-track routing. */
         dateRange: [
-            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.intervalUnit],
-            (timezone, dates, intervalUnit): [Dayjs, Dayjs] | null => {
-                if (dates.length === 0) {
+            (s) => [s.trackDateRanges],
+            (trackDateRanges): [Dayjs, Dayjs] | null => {
+                const present = trackDateRanges.filter((r): r is [Dayjs, Dayjs] => r !== null)
+                if (present.length === 0) {
                     return null
                 }
-                const first = parseDateInTimezone(dates[0], timezone)
-                const last = parseDateInTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
+                const first = present.reduce((acc, r) => (r[0].isBefore(acc) ? r[0] : acc), present[0][0])
+                const last = present.reduce((acc, r) => (r[1].isAfter(acc) ? r[1] : acc), present[0][1])
                 return [first, last]
             },
         ],
@@ -250,30 +276,46 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         /** Fractional data-point indices for annotation badges, e.g. Dec 15 on a monthly chart
-         *  lands at index ~0.48 between the Dec 1 and Jan 1 data points. */
+         *  lands at index ~0.48 between the Dec 1 and Jan 1 data points. `trackIndex` selects
+         *  which timeline (and consumer-side anchor function) the badge belongs to. */
         annotationBadgeDataIndices: [
             (s) => [
                 s.groupedAnnotations,
                 s.intervalUnit,
                 s.timezone,
+                s.trackDateRanges,
                 (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                (_, props: AnnotationsOverlayLogicProps) => props.previousDates,
             ],
             (
                 groupedAnnotations,
                 intervalUnit,
                 timezone,
-                dates
-            ): Array<{ dateKey: string; date: Dayjs; dataIndex: number }> => {
+                trackDateRanges,
+                dates,
+                previousDates
+            ): Array<{ dateKey: string; date: Dayjs; dataIndex: number; trackIndex: number }> => {
                 if (dates.length === 0) {
                     return []
                 }
+                const trackInputs = previousDates ? [dates, previousDates] : [dates]
                 // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
                 // drift Monday-aligned dates backward and bias every fractional index by 1/7.
-                const firstDate = parseDateInTimezone(dates[0], timezone)
-                const lastIndex = dates.length - 1
+                const trackFirstDates = trackInputs.map((d) => parseDateInTimezone(d[0], timezone))
+                const trackLastIndices = trackInputs.map((d) => d.length - 1)
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
+                        // Route to the track whose date range contains this annotation. If both
+                        // contain it (unlikely outside overlapping periods), prefer track 0.
+                        const trackIndex = trackDateRanges.findIndex(
+                            (range) => range !== null && date >= range[0] && date < range[1]
+                        )
+                        if (trackIndex === -1) {
+                            return null
+                        }
+                        const firstDate = trackFirstDates[trackIndex]
+                        const lastIndex = trackLastIndices[trackIndex]
                         const wholeIndex = date.diff(firstDate, intervalUnit)
                         const intervalStart = firstDate.add(wholeIndex, intervalUnit)
                         const intervalEnd = intervalStart.add(1, intervalUnit)
@@ -283,9 +325,14 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                         // Clamp to lastIndex so annotations past the final data point snap onto
                         // it rather than extrapolating off the canvas.
                         const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
-                        return { dateKey, date, dataIndex }
+                        if (dataIndex < 0) {
+                            return null
+                        }
+                        return { dateKey, date, dataIndex, trackIndex }
                     })
-                    .filter(({ dataIndex }) => dataIndex >= 0)
+                    .filter(
+                        (b): b is { dateKey: string; date: Dayjs; dataIndex: number; trackIndex: number } => b !== null
+                    )
                     .sort((a, b) => a.dataIndex - b.dataIndex)
             },
         ],
