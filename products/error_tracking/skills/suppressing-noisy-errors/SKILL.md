@@ -119,16 +119,26 @@ Match on the most specific property combination you can:
 | Noise pattern                       | Recommended filter                                                                                                                                                                                           |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Browser extension errors            | `$exception_sources icontains "chrome-extension://"`                                                                                                                                                         |
-| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` AND `$exception_types exact "Error"`                                                                                                                     |
-| Cross-origin "Script error."        | `$exception_values exact "Script error."` AND `$exception_types exact "Error"`                                                                                                                               |
+| ResizeObserver loop                 | `$exception_values icontains "ResizeObserver loop"` (the message is specific; a type filter is optional)                                                                                                     |
+| Cross-origin "Script error."        | `$exception_values icontains "Script error."` AND `$exception_types regex '"Error"'`                                                                                                                         |
 | Bot user agents                     | `$raw_user_agent regex "(HeadlessChrome\|bot\|crawler\|spider)"` (case-insensitive — `$user_agent` works too, but the raw header is more reliable for crawler markers since parsers can normalize them away) |
-| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND specific type                                                                                                                                           |
+| Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND a type filter via `icontains` or `regex`                                                                                                                |
 
-The canonical exception properties are plural arrays (`$exception_types`,
-`$exception_values`, `$exception_sources`) — set on ~100% of events. The
-singular forms (`$exception_type`, `$exception_message`) and
-`$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
-filtering on them produces a rule that silently never matches.
+The canonical exception properties (`$exception_types`, `$exception_values`,
+`$exception_sources`, `$exception_functions`) are arrays at capture time but
+are materialized as JSON-encoded strings in ClickHouse — the stored column
+literal for a TypeError is `["TypeError"]`, not `TypeError`. That changes
+which operators work:
+
+- `icontains` and `regex` work — they substring/match against the JSON literal
+  (`icontains "TypeError"` becomes `ILIKE '%TypeError%'`).
+- `exact` and `is_not` do **not** work for matching individual elements:
+  `exact "TypeError"` compiles to `column = 'TypeError'` and never matches
+  `["TypeError"]`. Use `regex '"TypeError"'` (with quotes inside the pattern)
+  when you need exact-element precision — it scopes to the JSON-quoted token.
+- The singular forms (`$exception_type`, `$exception_message`) and
+  `$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
+  filtering on them produces a rule that silently never matches.
 
 Whenever possible, AND together two or more conditions — type plus message, or
 message plus URL pattern — so the rule is specific to the real noise.
@@ -168,7 +178,7 @@ posthog:error-tracking-suppression-rules-create
       {
         "type": "event",
         "key": "$exception_types",
-        "operator": "exact",
+        "operator": "icontains",
         "value": "Error"
       },
       {
