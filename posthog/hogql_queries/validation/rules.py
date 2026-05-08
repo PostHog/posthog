@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery
+from posthog.schema import EntityType, FunnelsQuery, LifecycleQuery, RetentionQuery, StickinessQuery, TrendsQuery
 
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
@@ -27,9 +27,10 @@ class DisallowUnsupportedDataWarehouseSettings:
     code = "data_warehouse_series_unsupported_settings"
 
     def validate(
-        self, context: QueryValidationContext[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery]
+        self,
+        context: QueryValidationContext[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery | RetentionQuery],
     ) -> None:
-        if not has_data_warehouse_node(context.query.series):
+        if not _query_has_data_warehouse_series(context.query):
             return
 
         unsupported_settings: list[str] = []
@@ -47,3 +48,15 @@ class DisallowUnsupportedDataWarehouseSettings:
                 f"{settings.capitalize()} {verb} not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
                 code=self.code,
             )
+
+
+def _query_has_data_warehouse_series(
+    query: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery | RetentionQuery,
+) -> bool:
+    if isinstance(query, RetentionQuery):
+        return any(
+            entity is not None and entity.type == EntityType.DATA_WAREHOUSE
+            for entity in (query.retentionFilter.targetEntity, query.retentionFilter.returningEntity)
+        )
+
+    return has_data_warehouse_node(query.series)

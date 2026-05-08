@@ -14,6 +14,10 @@ from posthog.hogql.database.schema.sessions_v2 import (
     get_lazy_session_table_properties_v2,
     get_lazy_session_table_values_v2,
 )
+from posthog.hogql.database.schema.sessions_v3 import (
+    get_lazy_session_table_properties_v3,
+    get_lazy_session_table_values_v3,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
@@ -52,10 +56,12 @@ class SessionViewSet(
             span.set_attribute("has_search_term", search_term is not None)
 
             modifiers = create_default_modifiers_for_team(team)
-            if (
-                modifiers.sessionTableVersion == SessionTableVersion.V2
-                or modifiers.sessionTableVersion == SessionTableVersion.AUTO
-            ):
+            version = modifiers.sessionTableVersion
+
+            if version == SessionTableVersion.V3:
+                span.set_attribute("session_table_version", "v3")
+                result = get_lazy_session_table_values_v3(key, search_term=search_term, team=team)
+            elif version == SessionTableVersion.V2 or version == SessionTableVersion.AUTO:
                 span.set_attribute("session_table_version", "v2")
                 result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
             else:
@@ -87,10 +93,10 @@ class SessionViewSet(
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
         modifiers = create_default_modifiers_for_team(self.team)
-        if (
-            modifiers.sessionTableVersion == SessionTableVersion.V2
-            or modifiers.sessionTableVersion == SessionTableVersion.AUTO
-        ):
+        version = modifiers.sessionTableVersion
+        if version == SessionTableVersion.V3:
+            results = get_lazy_session_table_properties_v3(search)
+        elif version == SessionTableVersion.V2 or version == SessionTableVersion.AUTO:
             results = get_lazy_session_table_properties_v2(search)
         else:
             results = get_lazy_session_table_properties_v1(search)

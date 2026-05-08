@@ -152,6 +152,7 @@ def task_context(test_task, test_task_run) -> TaskProcessingContext:
         github_integration_id=test_task.github_integration_id,
         repository=test_task.repository,
         distinct_id=test_task.created_by.distinct_id or "test-distinct-id",
+        task_created_by_id=test_task.created_by_id,
     )
 
 

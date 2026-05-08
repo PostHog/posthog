@@ -58,9 +58,9 @@ jobs:
                   ls | grep -v foss-release-image-publish.yml | xargs rm
 
             - name: Commit "Sync and remove all non-FOSS parts"
-              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+              uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
               with:
                   message: 'Sync and remove all non-FOSS parts'
-                  remove: '["-r ee/ .github/dependabot.yml"]'
+                  remove: '-r ee/ .github/dependabot.yml'
                   default_author: github_actions
                   github_token: ${{ steps.app-token.outputs.token }}

@@ -250,6 +250,20 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.services.agent_command.requests.post")
+    def test_no_active_session_400_is_retryable(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {"error": "No active session for this run"}
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+        assert not result.success
+        assert result.retryable
+        assert result.error == "No active session for this run"
+
+    @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.services.agent_command.requests.post")
     def test_jsonrpc_error_in_200_response_is_detected(self, mock_post, mock_validate):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -269,14 +283,31 @@ class TestSendAgentCommand:
 
 class TestSendUserMessage:
     @patch("products.tasks.backend.services.agent_command.send_agent_command")
-    def test_sends_user_message_method(self, mock_send):
+    @pytest.mark.parametrize(
+        "message,artifacts,expected_params",
+        [
+            ("hello world", None, {"content": "hello world"}),
+            (
+                None,
+                [{"id": "artifact-1", "name": "notes.txt"}],
+                {"artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
+            ),
+            (
+                "hello world",
+                [{"id": "artifact-1", "name": "notes.txt"}],
+                {"content": "hello world", "artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
+            ),
+        ],
+        ids=["message_only", "artifacts_only", "message_and_artifacts"],
+    )
+    def test_sends_user_message_method(self, mock_send, message, artifacts, expected_params):
         mock_send.return_value = CommandResult(success=True, status_code=200)
         task_run = MagicMock()
-        result = send_user_message(task_run, "hello world")
+        result = send_user_message(task_run, message, artifacts=artifacts)
         mock_send.assert_called_once_with(
             task_run,
             method="user_message",
-            params={"content": "hello world"},
+            params=expected_params,
             auth_token=None,
             timeout=15,
         )

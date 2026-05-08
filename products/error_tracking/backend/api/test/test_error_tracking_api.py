@@ -2,12 +2,13 @@ import os
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, Mock, patch
 
 from boto3 import resource
 from botocore.config import Config
 from rest_framework import status
 
+from posthog.models import User
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -330,6 +331,105 @@ class TestErrorTracking(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets")
         self.assertEqual(len(response.json()["results"]), 2)
 
+    def test_fetching_symbol_sets_filters_by_status_ref_and_order(self) -> None:
+        ErrorTrackingSymbolSet.objects.create(ref="source_b", team=self.team, storage_ptr="symbolsets/source_b")
+        ErrorTrackingSymbolSet.objects.create(
+            ref="source_a", team=self.team, storage_ptr=None, failure_reason="Source map not found"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"status": "valid", "order_by": "ref"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_b"])
+        self.assertEqual([symbol_set["has_uploaded_file"] for symbol_set in response.json()["results"]], [True])
+        self.assertNotIn("storage_ptr", response.json()["results"][0])
+        self.assertNotIn("content_hash", response.json()["results"][0])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"ref": "source_a"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
+
+    def test_fetching_symbol_set_by_id(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        other_symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=other_team, storage_ptr=None)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(symbol_set.id))
+        self.assertEqual(response.json()["ref"], "source_1")
+        self.assertEqual(response.json()["has_uploaded_file"], False)
+        self.assertNotIn("storage_ptr", response.json())
+        self.assertNotIn("content_hash", response.json())
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{other_symbol_set.id}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_symbol_set_list_query_validation_does_not_apply_to_retrieve(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"order_by": "storage_ptr"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+            data={"order_by": "storage_ptr"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_symbol_set_storage_ptr_is_read_only(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+            data={"storage_ptr": "symbolsets/other_team_file"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        symbol_set.refresh_from_db()
+        self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
+
+    @patch("products.error_tracking.backend.api.symbol_sets.object_storage.get_presigned_url")
+    def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
+        patched_get_presigned_url.return_value = "https://example.com/source.map"
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"url": "https://example.com/source.map"})
+        patched_get_presigned_url.assert_called_once_with(file_key="symbolsets/source_1", expiration=3600)
+
+    def test_download_symbol_set_without_file_returns_404(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), {"detail": "Symbol set has no uploaded file."})
+
     def test_fetching_stack_frames(self):
         other_team = self.create_team_with_organization(organization=self.organization)
         symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
@@ -419,6 +519,18 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")
+    def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
+        issue = self.create_issue()
+        other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": other_user.id, "type": "user"}},
+        )
+        assert response.status_code in (200, 202), response.json()
+        mock_realtime.assert_called_once()
 
     def test_error_tracking_issue_bulk_resolve(self):
         issue_one = self.create_issue()

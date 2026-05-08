@@ -18,7 +18,14 @@ import {
     getSurveyIdBasedResponseKey,
 } from 'scenes/surveys/utils'
 
-import { HogFunctionTemplateType, HogFunctionType, IntegrationType, Survey, SurveyQuestionType } from '~/types'
+import {
+    HogFunctionTemplateType,
+    HogFunctionType,
+    IntegrationType,
+    Survey,
+    SurveyEventProperties,
+    SurveyQuestionType,
+} from '~/types'
 
 import type { surveyNotificationModalLogicType } from './surveyNotificationModalLogicType'
 
@@ -38,7 +45,6 @@ export type SurveyQuestionForNotification = {
 
 export interface SurveyNotificationForm {
     destination: DestinationKey
-    onlyCompletedResponses: boolean
     slackIntegrationId: number | null
     slackChannel: string | null
     slackMessage: string
@@ -57,15 +63,23 @@ export interface SurveyNotificationModalLogicProps {
 }
 
 type SurveyMessageField = 'slackMessage' | 'discordMessage' | 'teamsMessage'
+type HogFunctionInputValue = HogFunctionType['inputs'] extends Record<string, infer T> | null | undefined ? T : never
+export type SurveyNotificationModalIntent = 'add' | 'edit' | 'copy'
+export type OpenSurveyNotificationDialogPayload = {
+    notification?: HogFunctionType | null
+    intent?: SurveyNotificationModalIntent
+}
 type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
 type SurveyNotificationFormErrors = Partial<Record<keyof SurveyNotificationForm, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3
 export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
 export const SURVEY_ID_TOKEN = "{event.properties['$survey_id']}"
+export const SURVEY_EVENT_TOKEN = '{event.event}'
 export const RESPONDENT_NAME_TOKEN = '{person.name}'
 export const RESPONDENT_EMAIL_TOKEN = '{person.properties.email}'
 export const RESPONDENT_DETAILS_LINE = `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`
+export const SURVEY_STATUS_TOKEN = `{event.event == 'survey dismissed' ? (event.properties['${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'] ? 'Dismissed after a partial response' : 'Dismissed before completion') : 'Completed response'}`
 
 function getResponseToken(questionId: string): string {
     return `{event.properties['${getSurveyIdBasedResponseKey(questionId)}']}`
@@ -85,7 +99,8 @@ export function getDefaultSurveyMessage(questions: SurveyQuestionForNotification
         .slice(0, MAX_EXAMPLE_QUESTIONS)
 
     return [
-        `*New response on ${SURVEY_NAME_TOKEN}*`,
+        `*Survey update on ${SURVEY_NAME_TOKEN}*`,
+        SURVEY_STATUS_TOKEN,
         RESPONDENT_DETAILS_LINE,
         ...(exampleQuestions.length > 0
             ? ['', '*Responses*', ...exampleQuestions.map((question, index) => getQuestionLine(question, index))]
@@ -163,6 +178,10 @@ function buildSlackBlocks(message: string, includeButtons: boolean): Record<stri
 
 function buildWebhookBodyTemplate(questions: SurveyQuestionForNotification[]): Record<string, unknown> {
     return {
+        event: {
+            name: SURVEY_EVENT_TOKEN,
+            status: SURVEY_STATUS_TOKEN,
+        },
         survey: {
             id: SURVEY_ID_TOKEN,
             name: SURVEY_NAME_TOKEN,
@@ -187,7 +206,6 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
 
     return {
         destination: 'slack',
-        onlyCompletedResponses: true,
         slackIntegrationId: null,
         slackChannel: null,
         slackMessage: defaultMessage,
@@ -217,6 +235,195 @@ function notificationNameFor(destination: DestinationKey, surveyName?: string | 
     return `${baseName} → ${destinationLabel}`
 }
 
+function getSurveyResponseKeysInOrder(value: unknown): string[] {
+    const keys: string[] = []
+    const seenKeys = new Set<string>()
+
+    const collectKeys = (candidate: unknown): void => {
+        if (typeof candidate === 'string') {
+            const responseKeyRegex = /\$survey_response_[^'"\]\s,}:]+/g
+            for (const match of candidate.matchAll(responseKeyRegex)) {
+                const key = match[0]
+                if (!seenKeys.has(key)) {
+                    seenKeys.add(key)
+                    keys.push(key)
+                }
+            }
+            return
+        }
+
+        if (Array.isArray(candidate)) {
+            candidate.forEach(collectKeys)
+            return
+        }
+
+        if (candidate && typeof candidate === 'object') {
+            for (const [key, nestedValue] of Object.entries(candidate)) {
+                collectKeys(key)
+                collectKeys(nestedValue)
+            }
+        }
+    }
+
+    collectKeys(value)
+    return keys
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function replaceSurveyResponseKeys(
+    value: string,
+    responseKeyMap: Map<string, string>,
+    unmappedResponseKeys: Set<string>
+): string {
+    let nextValue = value
+    for (const [sourceKey, targetKey] of responseKeyMap) {
+        nextValue = nextValue.replaceAll(sourceKey, targetKey)
+    }
+    for (const sourceKey of unmappedResponseKeys) {
+        nextValue = nextValue.replace(
+            new RegExp(`\\{event\\.properties\\[['"]${escapeRegExp(sourceKey)}['"]\\]\\}`, 'g'),
+            ''
+        )
+        nextValue = nextValue.replaceAll(sourceKey, '')
+    }
+    return nextValue
+}
+
+export function remapSurveyResponseProperties<T>(value: T, survey: SurveyNotificationContext): T {
+    const targetResponseKeys = survey.questions
+        .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
+        .map((question) => getSurveyIdBasedResponseKey(question.id!))
+    const sourceResponseKeys = getSurveyResponseKeysInOrder(value)
+    const responseKeyMap = new Map<string, string>()
+    const unmappedResponseKeys = new Set<string>()
+
+    sourceResponseKeys.forEach((sourceKey, index) => {
+        const targetKey = targetResponseKeys[index]
+        if (targetKey) {
+            responseKeyMap.set(sourceKey, targetKey)
+        } else {
+            unmappedResponseKeys.add(sourceKey)
+        }
+    })
+
+    const remapValue = (candidate: unknown): unknown => {
+        if (typeof candidate === 'string') {
+            return replaceSurveyResponseKeys(candidate, responseKeyMap, unmappedResponseKeys)
+        }
+
+        if (Array.isArray(candidate)) {
+            return candidate.map(remapValue)
+        }
+
+        if (candidate && typeof candidate === 'object') {
+            const remappedEntries: [string, unknown][] = []
+            for (const [key, nestedValue] of Object.entries(candidate)) {
+                const remappedKey = replaceSurveyResponseKeys(key, responseKeyMap, unmappedResponseKeys)
+                if (remappedKey) {
+                    remappedEntries.push([remappedKey, remapValue(nestedValue)])
+                }
+            }
+            return Object.fromEntries(remappedEntries)
+        }
+
+        return candidate
+    }
+
+    return remapValue(value) as T
+}
+
+function getInputValue(inputs: HogFunctionType['inputs'], key: string): unknown {
+    return inputs?.[key]?.value
+}
+
+function getInputString(inputs: HogFunctionType['inputs'], key: string): string {
+    const value = getInputValue(inputs, key)
+    return typeof value === 'string' ? value : ''
+}
+
+function getInputNumber(inputs: HogFunctionType['inputs'], key: string): number | null {
+    const value = getInputValue(inputs, key)
+    return typeof value === 'number' ? value : null
+}
+
+function getDestinationForNotification(notification: HogFunctionType): DestinationKey {
+    const templateId = notification.template_id || notification.template?.id
+    return DESTINATION_OPTIONS.find((option) => option.templateId === templateId)?.value ?? 'webhook'
+}
+
+function getSlackMessageFromNotification(notification: HogFunctionType, defaultMessage: string): string {
+    const text = getInputString(notification.inputs, 'text')
+    if (text) {
+        return text
+    }
+
+    const blocks = getInputValue(notification.inputs, 'blocks')
+    if (!Array.isArray(blocks)) {
+        return defaultMessage
+    }
+
+    const section = blocks.find((block): block is { text?: { text?: unknown } } => {
+        return (
+            typeof block === 'object' &&
+            block !== null &&
+            'type' in block &&
+            (block as { type?: unknown }).type === 'section'
+        )
+    })
+    const sectionText = section?.text?.text
+    return typeof sectionText === 'string' ? sectionText : defaultMessage
+}
+
+function getSlackIncludeButtons(notification: HogFunctionType): boolean {
+    const blocks = getInputValue(notification.inputs, 'blocks')
+    return Array.isArray(blocks)
+        ? blocks.some((block) => {
+              return (
+                  typeof block === 'object' &&
+                  block !== null &&
+                  'type' in block &&
+                  (block as { type?: unknown }).type === 'actions'
+              )
+          })
+        : false
+}
+
+function buildSurveyNotificationFormFromNotification(
+    notification: HogFunctionType,
+    survey: SurveyNotificationContext,
+    remapResponses: boolean
+): SurveyNotificationForm {
+    const defaults = buildSurveyNotificationForm(survey)
+    const destination = getDestinationForNotification(notification)
+    const remappedInputs = remapResponses
+        ? remapSurveyResponseProperties(notification.inputs, survey)
+        : notification.inputs
+    const remappedNotification = { ...notification, inputs: remappedInputs }
+
+    return {
+        ...defaults,
+        destination,
+        slackIntegrationId: getInputNumber(remappedInputs, 'slack_workspace'),
+        slackChannel: getInputString(remappedInputs, 'channel') || null,
+        slackMessage: getSlackMessageFromNotification(remappedNotification, defaults.slackMessage),
+        includeSlackButtons: getSlackIncludeButtons(remappedNotification),
+        discordWebhookUrl: getInputString(remappedInputs, 'webhookUrl'),
+        discordMessage: getInputString(remappedInputs, 'content') || defaults.discordMessage,
+        teamsWebhookUrl: getInputString(remappedInputs, 'webhookUrl'),
+        teamsMessage: getInputString(remappedInputs, 'text') || defaults.teamsMessage,
+        webhookUrl: getInputString(remappedInputs, 'url'),
+        webhookMethod: getInputString(remappedInputs, 'method') || defaults.webhookMethod,
+        webhookBody: JSON.stringify(
+            getInputValue(remappedInputs, 'body') ?? buildWebhookBodyTemplate(survey.questions),
+            null,
+            2
+        ),
+    }
+}
+
 export function destinationDeliveryDescription(destination: DestinationKey): string {
     switch (destination) {
         case 'slack':
@@ -235,14 +442,12 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
-    canNotifyOnPartialResponses,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
-    canNotifyOnPartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -300,12 +505,99 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(
-            surveyId,
-            canNotifyOnPartialResponses ? form.onlyCompletedResponses : true
-        ),
+        filters: getSurveyNotificationFilters(surveyId),
         hog: template.code,
         icon_url: template.icon_url,
+        enabled: true,
+    }
+}
+
+function updateSurveyNotificationPayload({
+    notification,
+    template,
+    destination,
+    surveyId,
+    form,
+}: {
+    notification: HogFunctionType
+    template: HogFunctionTemplateType
+    destination: DestinationKey
+    surveyId: string
+    form: SurveyNotificationForm
+}): Partial<HogFunctionType> {
+    const payload = createSurveyNotificationPayload({
+        template,
+        destination,
+        surveyName: null,
+        surveyId,
+        form,
+    })
+
+    return {
+        template_id: notification.template_id ?? notification.template?.id ?? payload.template_id,
+        type: notification.type,
+        name: notification.name,
+        description: notification.description,
+        inputs_schema: notification.inputs_schema ?? payload.inputs_schema,
+        enabled: notification.enabled,
+        inputs: {
+            ...notification.inputs,
+            ...(payload.inputs as Record<string, HogFunctionInputValue>),
+        },
+        mappings: notification.mappings,
+        masking: notification.masking,
+        filters: notification.filters ?? payload.filters,
+        hog: notification.hog ?? payload.hog,
+        icon_url: notification.icon_url ?? payload.icon_url,
+    }
+}
+
+function getSurveyNotificationDestinationLabel(notification: HogFunctionType): string {
+    const templateId = notification.template_id ?? notification.template?.id
+    return DESTINATION_OPTIONS.find((option) => option.templateId === templateId)?.label ?? 'Notification'
+}
+
+function createCopiedSurveyNotificationPayload({
+    notification,
+    template,
+    destination,
+    survey,
+    form,
+}: {
+    notification: HogFunctionType
+    template: HogFunctionTemplateType
+    destination: DestinationKey
+    survey: SurveyNotificationContext
+    form: SurveyNotificationForm
+}): Partial<HogFunctionType> {
+    const payload = createSurveyNotificationPayload({
+        template,
+        destination,
+        surveyName: survey.name,
+        surveyId: survey.id,
+        form,
+    })
+
+    return {
+        template_id: notification.template_id ?? notification.template?.id,
+        type: notification.type,
+        name: notificationNameFor(destination, survey.name),
+        description:
+            notification.description ||
+            `Survey notification for ${getSurveyNotificationDestinationLabel(notification)}`,
+        inputs_schema: notification.inputs_schema ?? template.inputs_schema,
+        inputs: {
+            ...(remapSurveyResponseProperties(notification.inputs ?? {}, survey) as Record<
+                string,
+                HogFunctionInputValue
+            >),
+            ...(payload.inputs as Record<string, HogFunctionInputValue>),
+        },
+        mappings: remapSurveyResponseProperties(notification.mappings, survey),
+        masking: notification.masking,
+        filters: getSurveyNotificationFilters(survey.id),
+        hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,
+        icon_url: notification.icon_url ?? template.icon_url,
         enabled: true,
     }
 }
@@ -370,12 +662,29 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     })),
 
     actions({
-        openDialog: true,
+        openDialog: (payload: OpenSurveyNotificationDialogPayload = {}) => ({
+            notification: payload.notification ?? null,
+            intent: payload.intent ?? 'add',
+        }),
         closeDialog: true,
         setNotificationSubmissionError: (error: string | null) => ({ error }),
     }),
 
     reducers({
+        editingNotification: [
+            null as HogFunctionType | null,
+            {
+                openDialog: (_, { notification, intent }) => (intent === 'edit' ? notification : null),
+                closeDialog: () => null,
+            },
+        ],
+        copiedNotification: [
+            null as HogFunctionType | null,
+            {
+                openDialog: (_, { notification, intent }) => (intent === 'copy' ? notification : null),
+                closeDialog: () => null,
+            },
+        ],
         isOpen: [
             false,
             {
@@ -407,16 +716,35 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
                 const template = await api.hogFunctions.getTemplate(templateId || 'template-slack')
 
-                const payload = createSurveyNotificationPayload({
-                    template,
-                    destination: form.destination,
-                    surveyName: values.survey.name,
-                    surveyId: values.survey.id,
-                    canNotifyOnPartialResponses: values.survey.enable_partial_responses === true,
-                    form,
-                })
+                const payload = values.editingNotification
+                    ? updateSurveyNotificationPayload({
+                          notification: values.editingNotification,
+                          template,
+                          destination: form.destination,
+                          surveyId: values.survey.id,
+                          form,
+                      })
+                    : values.copiedNotification
+                      ? createCopiedSurveyNotificationPayload({
+                            notification: values.copiedNotification,
+                            template,
+                            destination: form.destination,
+                            survey: values.survey,
+                            form,
+                        })
+                      : createSurveyNotificationPayload({
+                            template,
+                            destination: form.destination,
+                            surveyName: values.survey.name,
+                            surveyId: values.survey.id,
+                            form,
+                        })
 
-                await api.hogFunctions.create(payload)
+                if (values.editingNotification) {
+                    await api.hogFunctions.update(values.editingNotification.id, payload)
+                } else {
+                    await api.hogFunctions.create(payload)
+                }
             },
         },
     })),
@@ -433,23 +761,31 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 integrations?.find((integration: IntegrationType) => integration.id === form.slackIntegrationId) ??
                 null,
         ],
-        canNotifyOnPartialResponses: [
-            (s) => [s.survey],
-            (survey: SurveyNotificationContext) => survey.enable_partial_responses === true,
-        ],
         templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
         submitDisabledReason: [
-            (s) => [s.survey, s.notificationFormErrors, s.isNotificationFormSubmitting],
+            (s) => [
+                s.survey,
+                s.notificationFormErrors,
+                s.isNotificationFormSubmitting,
+                s.editingNotification,
+                s.copiedNotification,
+            ],
             (
                 survey: SurveyNotificationContext,
                 errors: SurveyNotificationFormErrors,
-                isSubmitting: boolean
+                isSubmitting: boolean,
+                editingNotification: HogFunctionType | null,
+                copiedNotification: HogFunctionType | null
             ): string | undefined => {
                 if (survey.id === NEW_SURVEY.id) {
                     return 'Save the survey before creating notifications.'
                 }
                 if (isSubmitting) {
-                    return 'Creating notification...'
+                    return editingNotification
+                        ? 'Updating notification...'
+                        : copiedNotification
+                          ? 'Copying notification...'
+                          : 'Creating notification...'
                 }
                 return (Object.values(errors).find(Boolean) as string | undefined) ?? undefined
             },
@@ -457,26 +793,34 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     }),
 
     listeners(({ actions, values }) => ({
-        openDialog: () => {
+        openDialog: ({ notification, intent }) => {
             actions.resetNotificationForm()
-            actions.setNotificationFormValues(buildSurveyNotificationForm(values.survey))
-            if (values.survey.enable_partial_responses !== true) {
-                actions.setNotificationFormValue('onlyCompletedResponses', true)
-            }
+            actions.setNotificationFormValues(
+                notification
+                    ? buildSurveyNotificationFormFromNotification(notification, values.survey, intent === 'copy')
+                    : buildSurveyNotificationForm(values.survey)
+            )
         },
         closeDialog: () => {
             actions.resetNotificationForm()
         },
         submitNotificationFormSuccess: async () => {
+            const updatedNotification = values.editingNotification
+            const copiedNotification = values.copiedNotification
             await actions.loadSurveyNotifications()
             actions.closeDialog()
             lemonToast.success(
-                `Notification "${notificationNameFor(values.notificationForm.destination, values.survey.name)}" created`
+                updatedNotification
+                    ? `Notification "${updatedNotification.name}" updated`
+                    : copiedNotification
+                      ? `Notification "${notificationNameFor(values.notificationForm.destination, values.survey.name)}" copied`
+                      : `Notification "${notificationNameFor(values.notificationForm.destination, values.survey.name)}" created`
             )
         },
         submitNotificationFormFailure: ({ error }) => {
+            const action = values.editingNotification ? 'update' : values.copiedNotification ? 'copy' : 'create'
             actions.setNotificationSubmissionError(
-                error instanceof Error ? error.message : 'Failed to create notification. Please try again.'
+                error instanceof Error ? error.message : `Failed to ${action} notification. Please try again.`
             )
         },
     })),

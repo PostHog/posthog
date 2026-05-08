@@ -47,7 +47,7 @@ class SlackThreadContext:
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
 
-    def __init__(self, context: SlackThreadContext):
+    def __init__(self, context: SlackThreadContext) -> None:
         self.context = context
         self._integration: Integration | None = None
         self._client: WebClient | None = None
@@ -59,7 +59,7 @@ class SlackThreadHandler:
             self._integration = Integration.objects.get(id=self.context.integration_id)
         return self._integration
 
-    def _get_client(self):
+    def _get_client(self) -> WebClient:
         if self._client is None:
             integration = self._get_integration()
             self._client = SlackIntegration(integration).client
@@ -87,7 +87,7 @@ class SlackThreadHandler:
                 ts=self.context.thread_ts,
                 limit=50,
             )
-            messages = response.get("messages", [])
+            messages: list[dict[str, Any]] = response.get("messages", [])
 
             for msg in messages:
                 if msg.get("user") == bot_user_id and PROGRESS_MESSAGE_MARKER in msg.get("text", ""):
@@ -132,7 +132,11 @@ class SlackThreadHandler:
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View agent logs",
+                                "emoji": True,
+                            },
                             "url": task_url,
                         }
                     ],
@@ -171,12 +175,20 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View PR",
+                            "emoji": True,
+                        },
                         "url": pr_url,
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Open in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],
@@ -197,12 +209,20 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View PR",
+                            "emoji": True,
+                        },
                         "url": pr_url,
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Open in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],
@@ -244,12 +264,20 @@ class SlackThreadHandler:
         buttons: list[dict[str, Any]] = []
         if pr_url:
             buttons.append(
-                {"type": "button", "text": {"type": "plain_text", "text": "View PR", "emoji": True}, "url": pr_url}
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                    "url": pr_url,
+                }
             )
         buttons.append(
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                "text": {
+                    "type": "plain_text",
+                    "text": "Open in PostHog",
+                    "emoji": True,
+                },
                 "url": task_url,
             }
         )
@@ -271,7 +299,11 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "See details in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "See details in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],
@@ -291,7 +323,11 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Open in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],

@@ -35,7 +35,10 @@ LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
-# The GH client secret is only available with "Request user authorization during installation" enabled, it's for OAuth
+# OAuth *secret* for the same GitHub App as above - generated in the App's settings
+# when "Request user authorization during installation" is enabled.
+# Used with GITHUB_APP_CLIENT_ID to exchange an authorization code for a user access token,
+# which is separate from the private key used for App-as-App JWT signing.
 GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
@@ -68,13 +71,17 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 # with our internal OAuth system to allow the Stripe app to make API calls to users' PostHog instances.
 # We also support their agentic provisioning protocol which requires us to check even more stuff
 # - STRIPE_APP_CLIENT_ID: The app's public client ID, used in the OAuth authorize redirect URL
+# - STRIPE_APP_SANDBOX_CLIENT_ID: Separate client ID Stripe issues for sandbox installs of the same app
 # - STRIPE_APP_OVERRIDE_AUTHORIZE_URL: Optional override for testing (e.g., with a channel link URL)
-# - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during token exchange/refresh
+# - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during live token exchange/refresh
+# - STRIPE_APP_SANDBOX_SECRET_KEY: API secret key used to redeem sandbox-issued OAuth codes (sk_test_*)
 # - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication for Stripe to authenticate with PostHog APIs
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
+STRIPE_APP_SANDBOX_CLIENT_ID = get_from_env("STRIPE_APP_SANDBOX_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
+STRIPE_APP_SANDBOX_SECRET_KEY = get_from_env("STRIPE_APP_SANDBOX_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
@@ -90,3 +97,12 @@ CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", ""
 # Recall.ai (for desktop recordings product)
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
+
+# PandaDoc (for legal documents: BAA/DPA). One template per document variant.
+# Each call needs the matching template id, so we keep them as separate env vars —
+# rotating one (e.g., when Legal updates the DPA copy) doesn't touch the others.
+PANDADOC_API_BASE_URL = get_from_env("PANDADOC_API_BASE_URL", "https://api.pandadoc.com")
+PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
+PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
+PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
+PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")

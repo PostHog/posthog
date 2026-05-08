@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,7 +22,7 @@ export interface LoadFlagsResult {
     results: FeatureFlagType[]
 }
 
-const storageKey = (teamId: number | null): string => `ff-projects-grid.picked-teams.${teamId ?? 'unknown'}`
+const storageKey = (teamId: number): string => `ff-projects-grid.picked-teams.${teamId}`
 
 export const projectsGridLogic = kea<projectsGridLogicType>([
     path(['scenes', 'feature-flags', 'projects-grid', 'projectsGridLogic']),
@@ -158,14 +159,14 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             await drainQueue(values, actions)
         },
         setPickedTeamIds: ({ teamIds }) => {
-            localStorage.setItem(storageKey(values.currentTeamId), JSON.stringify(teamIds))
+            localStorage.setItem(storageKey(getCurrentTeamId()), JSON.stringify(teamIds))
         },
         resetPickedTeamIds: () => {
-            localStorage.removeItem(storageKey(values.currentTeamId))
+            localStorage.removeItem(storageKey(getCurrentTeamId()))
         },
     })),
-    afterMount(({ actions, values }) => {
-        const raw = localStorage.getItem(storageKey(values.currentTeamId))
+    afterMount(({ actions }) => {
+        const raw = localStorage.getItem(storageKey(getCurrentTeamId()))
         if (raw) {
             try {
                 const parsed = JSON.parse(raw)

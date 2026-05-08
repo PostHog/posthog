@@ -24,11 +24,10 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         values: [userLogic, ['user']],
     })),
     actions({
-        setScopes: (scopes: string[]) => ({ scopes }),
         setState: (state: string) => ({ state }),
         cancel: true,
     }),
-    loaders({
+    loaders(({ values }) => ({
         allTeams: [
             null as TeamBasicType[] | null,
             {
@@ -37,14 +36,16 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 },
             },
         ],
-    }),
-    reducers({
-        scopes: [
-            [] as string[],
+        pendingAuth: [
+            null as { partner_name: string; scopes: string[] } | null,
             {
-                setScopes: (_, { scopes }) => scopes,
+                loadPendingAuth: async () => {
+                    return await api.get(`api/agentic/authorize/pending/?state=${encodeURIComponent(values.state)}`)
+                },
             },
         ],
+    })),
+    reducers({
         state: [
             '' as string,
             {
@@ -102,7 +103,19 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 if (!selectedOrgId) {
                     return []
                 }
-                return allTeams.filter((team) => String(team.organization) === String(selectedOrgId))
+                return allTeams.filter((team) => String(team.organization) === String(selectedOrgId) && !team.is_demo)
+            },
+        ],
+        partnerName: [
+            (s) => [s.pendingAuth],
+            (pendingAuth: { partner_name: string; scopes: string[] } | null): string => {
+                return pendingAuth?.partner_name ?? 'the requesting app'
+            },
+        ],
+        scopes: [
+            (s) => [s.pendingAuth],
+            (pendingAuth: { partner_name: string; scopes: string[] } | null): string[] => {
+                return pendingAuth?.scopes ?? []
             },
         ],
         scopeDescriptions: [
@@ -119,10 +132,11 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 return
             }
             const state = (searchParams['state'] as string) ?? ''
-            const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
 
             actions.setState(state)
-            actions.setScopes(requestedScopes)
+            if (state) {
+                actions.loadPendingAuth()
+            }
             actions.loadAllTeams()
         }
 

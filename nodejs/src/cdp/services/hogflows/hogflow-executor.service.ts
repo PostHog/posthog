@@ -42,13 +42,12 @@ import {
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
-// 1 day in seconds - ghost runs reach the same action step within minutes of each other,
-// so this TTL has large margin. Also covers potential Kafka at-least-once redelivery.
-const DEDUP_TTL_SECONDS = 24 * 60 * 60
+const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
 
-const hogflowDedupBlockedTotal = new Counter({
-    name: 'hogflow_action_dedup_blocked_total',
-    help: 'Total workflow action executions blocked by deduplication',
+const hogflowDuplicateInvocationDetectedTotal = new Counter({
+    name: 'hogflow_duplicate_invocation_detected_total',
+    help: 'Fired once per action reached by a duplicate invocation of the same (workflow, event). Inflated by N actions per duplicate pair - treat as trend signal, not exact count.',
+    labelNames: ['workflow_id'],
 })
 
 export function createHogFlowInvocation(
@@ -160,6 +159,31 @@ export class HogFlowExecutorService {
             invocations,
             metrics,
             logs,
+        }
+    }
+
+    private async observeDuplicateInvocation(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<void> {
+        const eventUuid = invocation.state?.event?.uuid
+        if (!this.redis || !eventUuid) {
+            return
+        }
+        const key = `hogflow:observe:${invocation.functionId}:${eventUuid}:${currentAction.id}`
+        try {
+            await this.redis.useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
+                const wasSet = await client.set(key, invocation.id, 'EX', DUPLICATE_OBSERVATION_TTL_SECONDS, 'NX')
+                if (wasSet) {
+                    return
+                }
+                const existingId = await client.get(key)
+                if (existingId && existingId !== invocation.id) {
+                    hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
+                }
+            })
+        } catch (error) {
+            logger.debug('🦔', '[HogFlowExecutor] Duplicate observer failed', { error: String(error) })
         }
     }
 
@@ -353,10 +377,7 @@ export class HogFlowExecutorService {
                 return result
             }
 
-            const dedupResult = await this.checkActionDeduplication(invocation, currentAction)
-            if (dedupResult) {
-                return dedupResult
-            }
+            await this.observeDuplicateInvocation(invocation, currentAction)
 
             result.logs.push({
                 level: 'debug',
@@ -425,81 +446,6 @@ export class HogFlowExecutorService {
         }
 
         return result
-    }
-
-    /**
-     * Prevents the same action from executing twice for the same event across
-     * different workflow invocations. This handles ghost runs from the March 18-19
-     * Cyclotron cross-routing incident where duplicate invocations were created.
-     *
-     * Returns a finished result if this is a duplicate execution, null otherwise.
-     * Legitimate retries (same invocation ID) are allowed through.
-     */
-    private async checkActionDeduplication(
-        invocation: CyclotronJobInvocationHogFlow,
-        currentAction: HogFlowAction
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
-        if (!this.redis) {
-            return null
-        }
-
-        const eventUuid = invocation.state?.event?.uuid
-        if (!eventUuid) {
-            return null
-        }
-
-        const dedupKey = `hogflow:dedup:${invocation.functionId}:${eventUuid}:${currentAction.id}`
-        const invocationId = invocation.id
-
-        try {
-            // Returns the existing invocation ID if this is a duplicate, null otherwise
-            const existingInvocationId = await this.redis.useClient(
-                { name: 'hogflow-dedup', failOpen: true },
-                async (client) => {
-                    // Atomically set the key only if it doesn't exist
-                    const wasSet = await client.set(dedupKey, invocationId, 'EX', DEDUP_TTL_SECONDS, 'NX')
-                    if (wasSet) {
-                        // We're the first invocation to reach this action for this event
-                        return null
-                    }
-
-                    // Key exists - check if it's our own invocation (legitimate retry)
-                    const existingId = await client.get(dedupKey)
-                    if (existingId === null) {
-                        // Key expired between SET and GET - fail open
-                        return null
-                    }
-                    return existingId !== invocationId ? existingId : null
-                }
-            )
-
-            if (existingInvocationId) {
-                hogflowDedupBlockedTotal.inc()
-                logger.warn('🦔', '[HogFlowExecutor] Duplicate execution blocked', {
-                    invocationId,
-                    existingInvocationId,
-                    eventUuid,
-                    actionId: currentAction.id,
-                    actionType: currentAction.type,
-                    hogFlowId: invocation.functionId,
-                    teamId: invocation.teamId,
-                })
-                const dedupResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
-                dedupResult.finished = true
-                this.logAction(
-                    dedupResult,
-                    currentAction,
-                    'warn',
-                    `Skipped: duplicate execution detected for event ${eventUuid}. Another invocation (${existingInvocationId}) already executed this action.`
-                )
-                return dedupResult
-            }
-        } catch (error) {
-            // On Redis failure, allow execution to proceed rather than blocking legitimate runs
-            logger.warn('🦔', '[HogFlowExecutor] Action deduplication check failed, allowing execution', { error })
-        }
-
-        return null
     }
 
     private goToNextAction(

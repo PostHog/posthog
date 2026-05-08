@@ -12,11 +12,14 @@ import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -195,7 +198,15 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert payload == {
             "incremental_fields": [
-                {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": True,
+                    # Table has no index on `id`, so the warning UI will fire for this field.
+                    "is_indexed": False,
+                }
             ],
             "incremental_available": True,
             "append_available": True,
@@ -1371,3 +1382,110 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["detail"] == "No running sync to cancel."
         mock_cancel.assert_not_called()
+
+
+class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
+    def _make_api_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test",
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"stripe_secret_key": "123"},
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=self.source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+        self.client.force_authenticate(None)
+
+    @parameterized.expand(
+        [
+            ("external_data_source:read", "GET", "list", True),
+            ("external_data_source:read", "GET", "retrieve", True),
+            ("external_data_source:read", "PATCH", "partial_update", False),
+            ("external_data_source:write", "GET", "list", True),
+            ("external_data_source:write", "PATCH", "partial_update", True),
+            ("other_scope:read", "GET", "list", False),
+            ("other_scope:write", "PATCH", "partial_update", False),
+        ]
+    )
+    def test_api_key_scope_gating(self, scope, method, action, should_have_access):
+        api_key = self._make_api_key([scope])
+        headers = {"authorization": f"Bearer {api_key}"}
+
+        if action == "list":
+            url = f"/api/environments/{self.team.pk}/external_data_schemas/"
+            response = self.client.get(url, headers=headers)
+        elif action == "retrieve":
+            url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/"
+            response = self.client.get(url, headers=headers)
+        elif action == "partial_update":
+            url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/"
+            response = self.client.patch(url, {"should_sync": False}, format="json", headers=headers)
+        else:
+            self.fail(f"Unknown action: {action}")
+
+        if should_have_access:
+            self.assertNotEqual(
+                response.status_code,
+                status.HTTP_403_FORBIDDEN,
+                f"Expected access but got 403 for {scope} on {method} {action}",
+            )
+        else:
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_403_FORBIDDEN,
+                f"Expected 403 but got {response.status_code} for {scope} on {method} {action}",
+            )
+
+
+class TestExternalDataSchemaSerializerValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"stripe_secret_key": "123"},
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=self.source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+    def test_update_sync_type_null_clears_existing_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+            {"sync_type": None},
+            format="json",
+        )
+        assert response.status_code == 200
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type is None
+
+    def test_update_absent_sync_type_preserves_existing_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+            {"should_sync": True},
+            format="json",
+        )
+        assert response.status_code == 200
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL

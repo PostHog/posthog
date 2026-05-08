@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic } from './llmPlaygroundRunLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
@@ -602,6 +602,60 @@ describe('llmPlaygroundLogic', () => {
             llmPlaygroundPromptsLogic.actions.updateMessage(10, { content: 'Should not update' })
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
         })
+
+        it('should append a result as an assistant message and start the next user turn', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Hello' }])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Hi there!')
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+                { role: 'user', content: '' },
+            ])
+        })
+
+        it('should append a result to the targeted prompt without changing other prompt columns', () => {
+            llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+                createPromptConfig({
+                    id: 'prompt-one',
+                    messages: [{ role: 'user', content: 'First prompt' }],
+                }),
+                createPromptConfig({
+                    id: 'prompt-two',
+                    messages: [{ role: 'user', content: 'Second prompt' }],
+                }),
+            ])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', 'prompt-two')
+
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toMatchObject([
+                {
+                    id: 'prompt-one',
+                    messages: [{ role: 'user', content: 'First prompt' }],
+                },
+                {
+                    id: 'prompt-two',
+                    messages: [
+                        { role: 'user', content: 'Second prompt' },
+                        { role: 'assistant', content: 'Second response' },
+                        { role: 'user', content: '' },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            ['empty string', ''],
+            ['whitespace only', '   \n  '],
+        ])('should ignore %s responses so the action cannot add blank assistant turns', (_, response) => {
+            const original = [{ role: 'user' as const, content: 'Hello' }]
+            llmPlaygroundPromptsLogic.actions.setMessages(original)
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation(response)
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(original)
+        })
     })
 
     describe('effectiveModelOptions', () => {
@@ -1002,6 +1056,91 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('[Tool result]\nSome result')
+        })
+
+        it('should handle OpenAI Responses API top-level function_call and function_call_output items in input', () => {
+            // The Responses API sends function_call and function_call_output items at the top level
+            // of the conversation array alongside regular role-bearing messages, but with no `role`.
+            const input = [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'user', content: 'What is the weather?' },
+                {
+                    type: 'function_call',
+                    name: 'ask_clarification',
+                    call_id: 'call_abc123',
+                    arguments: '{"question":"Which city?","options":["London","Paris"]}',
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_abc123',
+                    output: 'London',
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            // system is extracted, function_call_output merges into the assistant turn
+            expect(messages).toHaveLength(2)
+            expect(messages[0]).toEqual({ role: 'user', content: 'What is the weather?' })
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Function call: ask_clarification]')
+            expect(messages[1].content).toContain('[Function output for call_abc123]')
+            expect(messages[1].content).toContain('London')
+        })
+
+        it('should handle OpenAI Responses API function_call item in output', () => {
+            // Matches $ai_output_choices shape when the model responds with a tool call
+            const input = [{ role: 'user', content: 'Find me some products' }]
+            const output = [
+                {
+                    type: 'function_call',
+                    name: 'search_products',
+                    call_id: 'call_def456',
+                    arguments: '{"queries":["blue widgets"]}',
+                    id: 'fc_001',
+                    status: 'completed',
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            expect(messages).toHaveLength(2)
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Function call: search_products]')
+            expect(messages[1].content).toContain('blue widgets')
+        })
+
+        it('should merge function_call_output in output into preceding assistant turn', () => {
+            // A function_call followed immediately by function_call_output in $ai_output_choices —
+            // the output item should be folded into the assistant turn, not emitted as a user bubble.
+            const input = [{ role: 'user', content: 'What is the weather in Paris?' }]
+            const output = [
+                {
+                    type: 'function_call',
+                    name: 'get_weather',
+                    call_id: 'call_ghi789',
+                    arguments: '{"city":"Paris"}',
+                    status: 'completed',
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_ghi789',
+                    output: '22°C, sunny',
+                    status: 'completed',
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            // function_call_output should merge into the function_call's assistant turn
+            expect(messages).toHaveLength(2)
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Function call: get_weather]')
+            expect(messages[1].content).toContain('[Function output for call_ghi789]')
+            expect(messages[1].content).toContain('22°C, sunny')
         })
 
         it('should not produce "null" string for messages with null content', () => {

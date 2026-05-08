@@ -47,8 +47,35 @@ Key files:
 - `src/posthog/auth.ts` — reads/writes/clears credentials in Stripe's Secret Store
 - `src/posthog/client.ts` — authenticated HTTP client for PostHog APIs
 - `src/components/PostHogConnect.tsx` — connection status UI + dev-mode token entry
-- `src/views/` — Stripe Dashboard view entry points (Home, Settings, Onboarding)
+- `src/views/` — Stripe Dashboard view entry points (Home, FullPage, Settings, Onboarding)
+- `src/fullPage/` — tabs, data fetching, and helper components for the full-page view
 - `src/constants.ts` — typed access to manifest constants (PostHog URLs)
+
+### Full Page view
+
+The full-page view (`stripe.dashboard.fullpage` viewport, entry in `src/views/FullPage.tsx`)
+renders a five-tab PostHog dashboard inside Stripe: Overview, Events, Experiments,
+Feature flags, Sessions. Overview shows web-analytics-style stat cards (visitors / views /
+sessions / bounce rate) wired to the PostHog `WebOverviewQuery`, plus trends/funnel/lists.
+Experiments and Feature flags are wired to real PostHog API endpoints; Events and Sessions
+are mock fixtures that can be swapped for real data later.
+
+This viewport is part of Stripe's **alpha**-stage Full Page Apps feature and is gated per
+`app_id` + `account_id`. If the dashboard redirects to home when visiting
+`/app/com.posthog.stripe`, ask Stripe to enable the feature flag for your merchant account.
+
+Real data paths require two things in Stripe's Secret Store:
+
+| Secret name          | Value                                         |
+| -------------------- | --------------------------------------------- |
+| `posthog_project_id` | Numeric PostHog project ID used for API calls |
+
+…in addition to the OAuth credentials above. The PostHog backend writes `posthog_project_id`
+alongside the tokens. When missing, the Experiments / Feature flags tabs render a "not linked"
+banner and the Overview falls back to mock summaries.
+
+In dev mode, open the Stripe Dashboard and navigate to `/app/com.posthog.stripe` (append a
+tab id like `/app/com.posthog.stripe/overview` to deep-link directly into a tab).
 
 ### Manifest files
 

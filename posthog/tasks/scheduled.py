@@ -10,12 +10,7 @@ from celery.schedules import crontab
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.tasks.alerts.checks import (
-    alerts_backlog_task,
-    check_alerts_task,
-    checks_cleanup_task,
-    reset_stuck_alerts_task,
-)
+from posthog.tasks.alerts.checks import alerts_backlog_task, checks_cleanup_task, reset_stuck_alerts_task
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
     send_error_tracking_weekly_digest,
@@ -43,6 +38,7 @@ from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
+    capture_task_run_state_metrics,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -55,9 +51,11 @@ from posthog.tasks.tasks import (
     clickhouse_part_count,
     clickhouse_row_count,
     clickhouse_send_license_usage,
+    delete_expired_delegation_invites,
     delete_expired_exported_assets,
     find_flags_with_enriched_analytics,
     ingestion_lag,
+    kill_stale_queued_task_runs,
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
@@ -169,6 +167,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     if not settings.DEBUG:
         sender.add_periodic_task(10, redis_celery_queue_depth.s(), name="10 sec queue probe")
 
+    sender.add_periodic_task(
+        60,
+        capture_task_run_state_metrics.s(),
+        name="tasks run state metrics",
+    )
+
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
     sender.add_periodic_task(
         QueryStatusManager.POLL_INTERVAL_SECONDS,
@@ -194,6 +198,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    # Stale QUEUED task run cleanup - hourly
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="0"),
+        kill_stale_queued_task_runs.s(),
+        name="kill stale queued task runs",
     )
 
     # Flags cache sync - hourly
@@ -485,12 +497,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="*/2"),
-        check_alerts_task.s(),
-        name="check_alerts_task",
-    )
-
-    sender.add_periodic_task(
         crontab(hour="*", minute="*/12"),
         alerts_backlog_task.s(),
         name="alerts_backlog_task",
@@ -550,6 +556,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(hour="0", minute=str(randrange(0, 40))),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
+        )
+
+        # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables
+        # the delegator's onboarding, so a missed sweep strands delegators on the "waiting
+        # for teammate" screen forever.
+        sender.add_periodic_task(
+            crontab(hour="1", minute=str(randrange(0, 40))),
+            delete_expired_delegation_invites.s(),
+            name="delete expired delegation invites",
         )
 
         from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs

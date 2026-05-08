@@ -79,7 +79,7 @@ export function DataPipelinesNewScene(): JSX.Element {
     const humanizedKind = humanizeHogFunctionType(kind)
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name={`New ${humanizedKind}`}
                 resourceType={{

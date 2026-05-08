@@ -1,4 +1,3 @@
-import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
@@ -12,21 +11,29 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
-    isActorsQuery,
     isDataTableNode,
     isEventsQuery,
     isHogQLQuery,
     isInsightVizNode,
     isNodeWithSource,
     isSavedInsightNode,
+    isActorsQuery,
 } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import {
+    getSqlEditorSourceQuery,
+    EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+    NotebookSQLEditorOutput,
+    NotebookSQLEditorSettings,
+} from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { UnsupportedNodePlaceholder } from './sharedNodeSupport'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 export const DEFAULT_QUERY: QuerySchema = {
@@ -46,14 +53,29 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, notebookLogic } = useValues(nodeLogic)
+    const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
+    const {
+        editingNodeIds,
+        isShared,
+        getSharedCachedInsight,
+        getSharedCachedInlineQueryResults,
+        canvasFiltersOverride,
+    } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
-    const { canvasFiltersOverride } = useValues(notebookLogic)
+    const sharedCachedInsight = query.kind === NodeKind.SavedInsightNode ? getSharedCachedInsight(query.shortId) : null
+    const sharedCachedInlineResults =
+        query.kind !== NodeKind.SavedInsightNode ? getSharedCachedInlineQueryResults(resolvedNodeId) : null
 
-    const insightLogicProps = {
-        dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
-    }
+    const insightLogicProps: InsightLogicProps = sharedCachedInsight
+        ? {
+              dashboardItemId: sharedCachedInsight.short_id,
+              cachedInsight: sharedCachedInsight,
+              doNotLoad: true,
+          }
+        : {
+              dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
+          }
     const { insightName } = useValues(insightLogic(insightLogicProps))
 
     useEffect(() => {
@@ -113,10 +135,63 @@ const Component = ({
         }
 
         return modifiedQuery
-    }, [query]) // oxlint-disable-line react-hooks/exhaustive-deps
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [query])
 
     if (!expanded) {
         return null
+    }
+
+    // Shared notebook fast paths. The render order below is deliberate:
+    //   1. Saved insight with a pre-computed result → render via insightLogic + cachedResults.
+    //   2. Inline query with a pre-computed result → render the original query with cachedResults.
+    //   3. Otherwise (no cached result for this node, e.g. backend execution failed) → placeholder.
+    // We never fall through to the live `<Query>` path in shared mode because `dataNodeLogic`
+    // would issue a POST that the sharing token can't authenticate.
+    if (isShared) {
+        if (sharedCachedInsight) {
+            return (
+                <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+                    <BindLogic logic={insightLogic} props={insightLogicProps}>
+                        <Query
+                            uniqueKey={nodeId + '-shared'}
+                            query={sharedCachedInsight.query as QuerySchema}
+                            cachedResults={sharedCachedInsight}
+                            embedded
+                            readOnly
+                            inSharedMode
+                        />
+                    </BindLogic>
+                </div>
+            )
+        }
+        if (sharedCachedInlineResults) {
+            return (
+                <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+                    <Query
+                        uniqueKey={nodeId + '-shared-inline'}
+                        query={query}
+                        cachedResults={sharedCachedInlineResults}
+                        embedded
+                        readOnly
+                        inSharedMode
+                    />
+                </div>
+            )
+        }
+        return <UnsupportedNodePlaceholder />
+    }
+
+    if (getSqlEditorSourceQuery(query)) {
+        return (
+            <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+                <NotebookSQLEditorOutput
+                    attributes={attributes}
+                    updateAttributes={updateAttributes}
+                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
+                />
+            </div>
+        )
     }
 
     const isInsightViz = isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)
@@ -229,6 +304,8 @@ export const Settings = ({
         }
     }
 
+    const isSqlEditorQuery = !!getSqlEditorSourceQuery(query)
+
     return isSavedInsightNode(attributes.query) ? (
         <div className="p-3 deprecated-space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
@@ -258,6 +335,8 @@ export const Settings = ({
                 </LemonButton>
             </div>
         </div>
+    ) : isSqlEditorQuery ? (
+        <NotebookSQLEditorSettings attributes={attributes} updateAttributes={updateAttributes} />
     ) : (
         <div className="p-3">
             <Query
@@ -282,8 +361,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
     Component,
-    heightEstimate: 500,
-    minHeight: 200,
+    heightEstimate: EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
     attributes: {
@@ -331,17 +410,3 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         return text
     },
 })
-
-export function buildInsightVizQueryContent(source: InsightQueryNode): JSONContent {
-    return buildNodeQueryContent({ kind: NodeKind.InsightVizNode, source: source })
-}
-
-export function buildNodeQueryContent(query: QuerySchema): JSONContent {
-    return {
-        type: NotebookNodeType.Query,
-        attrs: {
-            query: query,
-            showSettings: true,
-        },
-    }
-}

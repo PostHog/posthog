@@ -1,7 +1,8 @@
+import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogPermissionError } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -16,6 +17,17 @@ import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
+
+// Default overall timeout for an SSE stream (wall-clock cap from connect to close).
+// Sized to comfortably cover the slowest known caller (session summarization, ~5 min
+// average) with headroom for cold-cache LLM calls.
+const SSE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
+
+// Per-read inactivity timeout: if no chunk (not even a keepalive comment) arrives
+// within this window, the server is assumed dead. Must comfortably exceed the
+// server-side keepalive interval — kept in sync with `SSE_KEEPALIVE_INTERVAL = 15s`
+// in `ee/api/session_summaries.py`. If you change one, check the other.
+const SSE_READ_TIMEOUT_MS = 30_000
 
 export interface GroupType {
     group_type: string
@@ -59,6 +71,7 @@ export interface ApiConfig {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    mcpConsumer?: string | undefined
     oauthClientName?: string | undefined
 }
 
@@ -85,7 +98,7 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent(this.config.clientUserAgent),
+            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
             ...(this.config.clientUserAgent
                 ? {
                       // Forward the originating client's User-Agent as a custom header so the
@@ -100,6 +113,7 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
+            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
             'X-PostHog-Client': 'mcp',
         }
@@ -174,6 +188,92 @@ export class ApiClient {
         return result.data as T
     }
 
+    /**
+     * Open a Server-Sent Events (text/event-stream) connection and invoke `onEvent`
+     * for each parsed event. Resolves when the server closes the stream, throws on
+     * HTTP error, missing body, per-read inactivity, or overall stream timeout.
+     *
+     * Used by tools that consume long-running streaming endpoints (e.g. session
+     * summarization) where a synchronous request would exceed gateway timeouts.
+     */
+    async requestSSE<T = unknown>(opts: {
+        method: 'GET' | 'POST'
+        path: string
+        body?: Record<string, unknown>
+        onEvent: (event: string, data: T) => void
+        timeoutMs?: number
+    }): Promise<void> {
+        const url = `${this.baseUrl}${opts.path}`
+        const fetchOptions: RequestInit = {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            headers: {
+                Accept: 'text/event-stream',
+            },
+        }
+
+        const response = await this.fetch(url, fetchOptions)
+
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(
+                `SSE request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+            )
+        }
+
+        if (!response.body) {
+            throw new Error(`SSE response has no body: ${opts.method} ${url}`)
+        }
+
+        const timeoutMs = opts.timeoutMs ?? SSE_DEFAULT_TIMEOUT_MS
+        const readTimeoutMs = SSE_READ_TIMEOUT_MS
+        const startTime = Date.now()
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+
+        const parser = createParser({
+            onEvent: ({ event, data }) => {
+                const eventType = event ?? 'message'
+                try {
+                    const parsed = JSON.parse(data) as T
+                    opts.onEvent(eventType, parsed)
+                } catch {
+                    // Non-JSON data, pass as-is
+                    opts.onEvent(eventType, data as T)
+                }
+            },
+        })
+
+        try {
+            while (true) {
+                if (Date.now() - startTime > timeoutMs) {
+                    throw new Error(`SSE stream timed out after ${timeoutMs}ms`)
+                }
+
+                let readTimeoutId: ReturnType<typeof setTimeout>
+                const readResult = await Promise.race([
+                    reader.read(),
+                    new Promise<never>((_, reject) => {
+                        readTimeoutId = setTimeout(
+                            () => reject(new Error(`SSE read timed out — no data received for ${readTimeoutMs}ms`)),
+                            readTimeoutMs
+                        )
+                    }),
+                ])
+                clearTimeout(readTimeoutId!)
+                const { done, value } = readResult
+                if (done) {
+                    break
+                }
+
+                parser.feed(decoder.decode(value, { stream: true }))
+            }
+        } finally {
+            await reader.cancel()
+            reader.releaseLock()
+        }
+    }
+
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const maxRetries = 3
         const baseBackoffMs = 2000
@@ -229,7 +329,9 @@ export class ApiClient {
                     if (response.status === 403 && errorData?.code === 'permission_denied') {
                         const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
                         const missingScope = scopeMatch?.[1]
-                        console.error(
+                        // Warn, not error: PostHogPermissionError is thrown and handled by callers,
+                        // and a missing scope is a user-config issue rather than a service bug.
+                        console.warn(
                             `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
                         )
                         throw new PostHogPermissionError({
@@ -242,9 +344,29 @@ export class ApiClient {
 
                     if (errorData.type === 'validation_error') {
                         const detail = errorData.detail || errorData.code || 'unknown'
-                        const attr = errorData.attr ? ` (field: ${errorData.attr})` : ''
-                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attr}`)
-                        throw new Error(`Validation error: ${detail}${attr}`)
+                        const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+                        throw new PostHogValidationError({
+                            detail,
+                            attr: errorData.attr ?? undefined,
+                            code: errorData.code ?? undefined,
+                            extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
+                            url,
+                            method,
+                        })
+                    }
+
+                    if (response.status === 404) {
+                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                        if (experimentMatch) {
+                            const experimentId = experimentMatch[1]
+                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+                            throw new Error(
+                                `Experiment ${experimentId} not found in this project. ` +
+                                    `If the id is correct, the experiment may belong to a different project — ` +
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
+                            )
+                        }
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
@@ -711,12 +833,32 @@ export class ApiClient {
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
+            get: async ({
+                insightId,
+                variables_override,
+                filters_override,
+            }: {
+                insightId: string
+                variables_override?: string
+                filters_override?: string
+            }): Promise<Result<Schemas.Insight>> => {
+                const params = new URLSearchParams()
+                if (variables_override) {
+                    params.set('variables_override', variables_override)
+                }
+                if (filters_override) {
+                    params.set('filters_override', filters_override)
+                }
+
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
                 if (isShortId(insightId)) {
-                    const searchParams = new URLSearchParams({ short_id: insightId })
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
+                    // The list endpoint accepts ?short_id=... and runs the same
+                    // InsightSerializer.to_representation, which applies
+                    // variables_override / filters_override from query_params. So
+                    // short_id resolution + override application happen in one hop.
+                    params.set('short_id', insightId)
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
 
                     const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
 
@@ -737,8 +879,9 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
+                const queryString = params.toString() ? `?${params}` : ''
                 return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
                 )
             },
 
@@ -829,6 +972,41 @@ export class ApiClient {
                 })
             },
 
+            validate: async ({
+                query,
+                language,
+                connectionId,
+            }: {
+                query: string
+                language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+                connectionId?: string
+            }): Promise<
+                Result<{
+                    isValid: boolean
+                    query: string
+                    errors: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    warnings: Array<{
+                        message: string
+                        start?: number | null
+                        end?: number | null
+                        fix?: string | null
+                    }>
+                    notices: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    table_names: string[]
+                    ch_table_names?: string[] | null
+                }>
+            > => {
+                const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                const queryBody: Record<string, unknown> = { kind: 'HogQLMetadata', language, query }
+                if (connectionId) {
+                    queryBody.connectionId = connectionId
+                }
+                return this.fetchJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ query: queryBody }),
+                })
+            },
+
             sqlInsight: async ({ query }: { query: string }): Promise<Result<any[]>> => {
                 const requestBody = {
                     query: query,
@@ -910,10 +1088,14 @@ export class ApiClient {
                 hasMore: boolean
                 offset: number
             }> => {
+                const normalized = normalizeQuery(query)
+                const includeRecordings = Boolean(normalized.includeRecordings)
                 const wrappedQuery = {
                     kind: 'ActorsQuery',
-                    source: normalizeQuery(query),
-                    select: ['actor', 'event_count'],
+                    source: normalized,
+                    select: includeRecordings
+                        ? ['actor', 'event_count', 'matched_recordings']
+                        : ['actor', 'event_count'],
                     orderBy: ['event_count DESC', 'actor_id DESC'],
                     limit: 100,
                 }
@@ -928,17 +1110,29 @@ export class ApiClient {
                     body: { query: wrappedQuery },
                 })
 
-                const results = (response.results ?? []).map(([actor, count]) => {
+                const baseUrl = this.getProjectBaseUrl(projectId)
+                const results = (response.results ?? []).map((row) => {
+                    const [actor, count] = row
                     const properties = actor.properties ?? {}
                     const distinctId = actor.distinct_ids?.[0] ?? null
-                    return [distinctId, properties.email, properties.name, count]
+                    const base = [distinctId, properties.email, properties.name, count]
+                    if (includeRecordings) {
+                        const recordingLinks = (row[2] ?? [])
+                            .map((r: any) => r.session_id)
+                            .filter(Boolean)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
+                        return [...base, recordingLinks]
+                    }
+                    return base
                 })
 
                 return {
                     query: wrappedQuery,
                     results: {
-                        columns: ['distinct_id', 'email', 'name', 'event_count'],
-                        results: results,
+                        columns: includeRecordings
+                            ? ['distinct_id', 'email', 'name', 'event_count', 'recordings']
+                            : ['distinct_id', 'email', 'name', 'event_count'],
+                        results,
                     },
                     hasMore: response.hasMore ?? false,
                     offset: response.offset ?? 0,

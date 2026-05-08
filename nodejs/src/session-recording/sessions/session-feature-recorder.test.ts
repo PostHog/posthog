@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { defaultConfig } from '../../config/config'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '../rrweb-types'
-import { SessionFeatureRecorder } from './session-feature-recorder'
+import { MAX_UNIQUE_VALUES, SessionFeatureRecorder, md5Hex } from './session-feature-recorder'
 
 jest.mock('../../config/config', () => ({
     defaultConfig: {
@@ -737,7 +737,19 @@ describe('SessionFeatureRecorder', () => {
             recorder.recordMessage(createMessage(events))
             const result = recorder.end()!
 
-            expect(result.visitedUrls).toEqual(['https://example.com/', 'https://example.com/about'])
+            expect(result.visitedUrls).toEqual([md5Hex('https://example.com/'), md5Hex('https://example.com/about')])
+        })
+
+        it('should cap unique visited URLs at MAX_UNIQUE_VALUES', () => {
+            const events = Array.from({ length: MAX_UNIQUE_VALUES + 50 }, (_, i) =>
+                makeNavigationEvent(1000 + i, `https://example.com/page-${i}`)
+            )
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.visitedUrls).toHaveLength(MAX_UNIQUE_VALUES)
+            expect(result.pageVisitCount).toBe(MAX_UNIQUE_VALUES + 50)
+            expect(result.visitedUrls[0]).toMatch(/^[0-9a-f]{32}$/)
         })
 
         it('should count quickBack when a different URL is navigated to within 2000ms', () => {
@@ -1083,6 +1095,17 @@ describe('SessionFeatureRecorder', () => {
 
             expect(result.clickTargetIds).toEqual(expect.arrayContaining([5, 15]))
             expect(result.clickTargetIds).toHaveLength(2)
+        })
+
+        it('should cap unique click target ids at MAX_UNIQUE_VALUES', () => {
+            const events = Array.from({ length: MAX_UNIQUE_VALUES + 50 }, (_, i) =>
+                makeClickEventWithTarget(1000 + i, i)
+            )
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.clickTargetIds).toHaveLength(MAX_UNIQUE_VALUES)
+            expect(result.clickCount).toBe(MAX_UNIQUE_VALUES + 50)
         })
     })
 

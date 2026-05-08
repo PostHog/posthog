@@ -42,6 +42,8 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
@@ -147,7 +149,9 @@ class DataWarehouseSavedQuerySerializerMixin:
         ]
 
 
-class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQueryMinimalSerializer(
+    DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -178,11 +182,14 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "origin",
             "is_test",
             "expires_at",
+            "user_access_level",
         ]
         read_only_fields = fields
 
 
-class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQuerySerializer(
+    DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
@@ -243,6 +250,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "origin",
             "is_test",
             "expires_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -255,6 +263,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "folder_name",
             "latest_error",
             "latest_history_id",
+            "user_access_level",
             "is_materialized",
             "origin",
             "expires_at",
@@ -584,14 +593,14 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
-class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
+class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     view_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = DataWarehouseSavedQueryFolder
-        fields = ["id", "name", "created_at", "created_by", "view_count"]
-        read_only_fields = ["id", "created_at", "created_by", "view_count"]
+        fields = ["id", "name", "created_at", "created_by", "view_count", "user_access_level"]
+        read_only_fields = ["id", "created_at", "created_by", "view_count", "user_access_level"]
         extra_kwargs = {
             "name": {
                 "help_text": "Display name for the folder used to organize saved queries in the SQL editor sidebar."
@@ -615,7 +624,7 @@ class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
     serializer_class = DataWarehouseSavedQueryFolderSerializer
@@ -667,7 +676,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.Mode
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
@@ -761,7 +770,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             team_id=self.team_id, name=request.data.get("name")
         ).first()
         if saved_query:
-            # Update logic
+            # The UPSERT branch updates an existing row without going through get_object(),
+            # so run object-level permission checks explicitly to honor per-object access controls.
+            self.check_object_permissions(request, saved_query)
             serializer = self.get_serializer(saved_query, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)

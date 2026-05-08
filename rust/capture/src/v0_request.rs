@@ -168,6 +168,12 @@ pub enum DataType {
     SnapshotMain,
 }
 
+impl DataType {
+    pub fn is_analytics_pipeline(self) -> bool {
+        matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessedEvent {
     pub metadata: ProcessedEventMetadata,

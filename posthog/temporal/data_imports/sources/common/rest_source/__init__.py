@@ -46,21 +46,42 @@ def convert_types(
 
 
 def rest_api_resource(
-    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
+    config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+    initial_paginator_state: Optional[dict[str, Any]] = None,
 ) -> Resource:
     """Creates a single resource from a REST API configuration.
 
     Most sources define exactly one resource. Use ``rest_api_resources``
     (plural) only when the config contains multiple resources (e.g. date
     chunked report endpoints or parent/child fanout).
+
+    ``resume_hook`` and ``initial_paginator_state`` enable integration with
+    ``ResumableSourceManager``. They are only supported for non-dependent
+    resources (no ``data_from`` parent/child fanout).
     """
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
     assert len(resources) == 1, f"Expected 1 resource, got {len(resources)}"
     return resources[0]
 
 
 def rest_api_resources(
-    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
+    config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+    initial_paginator_state: Optional[dict[str, Any]] = None,
 ) -> list[Resource]:
     """Creates a list of resources from a REST API configuration.
 
@@ -89,6 +110,8 @@ def rest_api_resources(
         team_id=team_id,
         job_id=job_id,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
     )
 
     return list(resources.values())
@@ -156,6 +179,8 @@ def create_resources(
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any] = None,
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+    initial_paginator_state: Optional[dict[str, Any]] = None,
 ) -> dict[str, Resource]:
     resources: dict[str, Resource] = {}
 
@@ -223,6 +248,8 @@ def create_resources(
                 incremental_object: Optional[Incremental] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
+                resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = resume_hook,
+                initial_paginator_state: Optional[dict[str, Any]] = initial_paginator_state,
             ) -> Iterator[list[Any]]:
                 if incremental_object:
                     params = _set_incremental_params(
@@ -241,6 +268,8 @@ def create_resources(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
+                    resume_hook=resume_hook,
+                    initial_paginator_state=initial_paginator_state,
                 ):
                     yield list(convert_types(page, columns_config))
 
@@ -261,6 +290,10 @@ def create_resources(
             )
 
         else:
+            if resume_hook is not None or initial_paginator_state is not None:
+                raise NotImplementedError(
+                    f"Resume is not supported for dependent REST resources (resource={resource_name!r})"
+                )
             predecessor = resources[resolved_param.resolve_config["resource"]]
 
             base_params = exclude_keys(request_params, {resolved_param.param_name})

@@ -480,6 +480,35 @@ class TestResolver(BaseTest):
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
+    def test_unknown_table_suggests_close_matches(self):
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT 1 FROM event"),  # typo: 'event' singular
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unknown table `event`", message)
+        self.assertIn("Did you mean:", message)
+        self.assertIn("events", message)
+
+    def test_unresolved_field_suggests_close_matches(self):
+        # user_id isn't on events, but distinct_id and person_id are close enough to suggest
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT user_id FROM events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unable to resolve field: user_id", message)
+        self.assertIn("Did you mean:", message)
+        # At least one of the obvious suggestions should show up
+        self.assertTrue(
+            "distinct_id" in message or "person_id" in message,
+            f"expected a plausible suggestion in: {message}",
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
@@ -1769,9 +1798,14 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
 
     def test_limit_with_ties_postgres_error(self):
+        # WITH TIES is rejected by the Postgres printer's ``_assert_with_ties_supported`` hook
+        # rather than by the resolver, so we need to run the full print pipeline to observe it.
         with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
-            expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
-            resolve_types(expr, self.context, dialect="postgres")
+            prepare_and_print_ast(
+                self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES"),
+                self.context,
+                "postgres",
+            )
 
     def test_positional_refs_postgres(self):
         expr = self._select("SELECT #1, #2 FROM events")

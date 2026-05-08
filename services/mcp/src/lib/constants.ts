@@ -6,13 +6,20 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
-export function getUserAgent(clientUserAgent?: string): string {
+export interface GetUserAgentOptions {
+    clientUserAgent?: string | undefined
+}
+
+export function getUserAgent(opts: GetUserAgentOptions = {}): string {
+    const { clientUserAgent } = opts
+
     if (clientUserAgent) {
         const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
         if (match) {
             return `${USER_AGENT}; for ${match[0]}`
         }
     }
+
     return USER_AGENT
 }
 
@@ -62,78 +69,7 @@ export const OAUTH_AUTHORIZATION_SERVER_URL =
 
 export const MCP_DOCS_URL = 'https://posthog.com/docs/model-context-protocol'
 
-// OAuth Protected Resource Metadata (RFC 9728)
-// Scopes that this resource server supports
-export const OAUTH_SCOPES_SUPPORTED = [
-    'openid',
-    'profile',
-    'email',
-    'introspection',
-    'alert:read',
-    'alert:write',
-    'annotation:read',
-    'annotation:write',
-    'action:read',
-    'action:write',
-    'activity_log:read',
-    'approvals:read',
-    'comment:read',
-    'cohort:read',
-    'cohort:write',
-    'dashboard:read',
-    'dashboard:write',
-    'early_access_feature:read',
-    'early_access_feature:write',
-    'endpoint:read',
-    'endpoint:write',
-    'error_tracking:read',
-    'error_tracking:write',
-    'event_definition:read',
-    'event_definition:write',
-    'evaluation:read',
-    'evaluation:write',
-    'experiment:read',
-    'experiment:write',
-    'feature_flag:read',
-    'feature_flag:write',
-    'group:read',
-    'hog_flow:read',
-    'hog_function:read',
-    'hog_function:write',
-    'insight:read',
-    'insight:write',
-    'integration:read',
-    'integration:write',
-    'llm_analytics:read',
-    'llm_analytics:write',
-    'llm_prompt:read',
-    'llm_prompt:write',
-    'llm_skill:read',
-    'llm_skill:write',
-    'logs:read',
-    'logs:write',
-    'notebook:read',
-    'notebook:write',
-    'organization:read',
-    'organization:write',
-    'organization_member:read',
-    'person:read',
-    'person:write',
-    'project:read',
-    'property_definition:read',
-    'query:read',
-    'session_recording:read',
-    'session_recording:write',
-    'session_recording_playlist:read',
-    'session_recording_playlist:write',
-    'subscription:read',
-    'subscription:write',
-    'survey:read',
-    'survey:write',
-    'ticket:read',
-    'ticket:write',
-    'user:read',
-    'warehouse_table:read',
-    'warehouse_view:read',
-    'warehouse_view:write',
-] as const
+// OAuth Protected Resource Metadata (RFC 9728). Generated from posthog/scopes.py
+// to match what the authorization server actually advertises. See
+// oauth-scopes.generated.ts and bin/build-mcp-oauth-scopes.py.
+export { OAUTH_SCOPES_SUPPORTED, type OAuthScope } from './oauth-scopes.generated'

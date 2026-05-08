@@ -1,1 +1,1 @@
-0005_remove_oauth_provider_kind
+0011_normalize_mcp_template_icon_keys

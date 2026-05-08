@@ -8,17 +8,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type {
-    WebAnalyticsBreakdownResponseApi,
-    WebAnalyticsBreakdownRetrieveParams,
-    WebAnalyticsOverviewResponseApi,
-    WebAnalyticsOverviewRetrieveParams,
-} from './api.schemas'
+import type { WebAnalyticsWeeklyDigestParams, WeeklyDigestResponseApi } from './api.schemas'
 
-/**
- * This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get a breakdown by a property (e.g. browser, device type, country, etc.).
- */
-export const getWebAnalyticsBreakdownRetrieveUrl = (projectId: string, params: WebAnalyticsBreakdownRetrieveParams) => {
+export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -30,46 +22,20 @@ export const getWebAnalyticsBreakdownRetrieveUrl = (projectId: string, params: W
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/web_analytics/breakdown/?${stringifiedParams}`
-        : `/api/projects/${projectId}/web_analytics/breakdown/`
-}
-
-export const webAnalyticsBreakdownRetrieve = async (
-    projectId: string,
-    params: WebAnalyticsBreakdownRetrieveParams,
-    options?: RequestInit
-): Promise<WebAnalyticsBreakdownResponseApi> => {
-    return apiMutator<WebAnalyticsBreakdownResponseApi>(getWebAnalyticsBreakdownRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
+        ? `/api/environments/${projectId}/web_analytics/weekly_digest/?${stringifiedParams}`
+        : `/api/environments/${projectId}/web_analytics/weekly_digest/`
 }
 
 /**
- * This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
+ * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
+ * @summary Summarize web analytics
  */
-export const getWebAnalyticsOverviewRetrieveUrl = (projectId: string, params: WebAnalyticsOverviewRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/web_analytics/overview/?${stringifiedParams}`
-        : `/api/projects/${projectId}/web_analytics/overview/`
-}
-
-export const webAnalyticsOverviewRetrieve = async (
+export const webAnalyticsWeeklyDigest = async (
     projectId: string,
-    params: WebAnalyticsOverviewRetrieveParams,
+    params?: WebAnalyticsWeeklyDigestParams,
     options?: RequestInit
-): Promise<WebAnalyticsOverviewResponseApi> => {
-    return apiMutator<WebAnalyticsOverviewResponseApi>(getWebAnalyticsOverviewRetrieveUrl(projectId, params), {
+): Promise<WeeklyDigestResponseApi> => {
+    return apiMutator<WeeklyDigestResponseApi>(getWebAnalyticsWeeklyDigestUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

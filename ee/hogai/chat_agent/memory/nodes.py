@@ -51,6 +51,7 @@ from ee.models.assistant import CoreMemory
 from .parsers import check_memory_collection_completed, compressed_memory_parser
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
+    ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
     INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
@@ -159,12 +160,13 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
         retrieved_prop = await self._aretrieve_context(config=config)
 
-        # No host or app bundle ID found
+        # No host or app bundle ID found - tell the user we couldn't crawl their site
+        # so the silent fallback to question-based onboarding doesn't read as a failure.
         if not retrieved_prop:
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content=ENQUIRY_INITIAL_MESSAGE,
+                        content=ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
                         id=str(uuid4()),
                     )
                 ]

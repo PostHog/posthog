@@ -1,6 +1,6 @@
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::{Context, ContextLine, Frame},
+    frames::{record_frame_resolution_failure, Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
@@ -227,11 +227,26 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             .map(context_likely_minified)
             .unwrap_or_default();
 
+        let resolved = !was_minified;
+
+        // Only record a frame-resolution-failure when the frame is actually unresolved —
+        // when context heuristics say "not minified", the dispatcher emits `FRAME_RESOLVED`
+        // and firing here too would double-count.
+        if !resolved {
+            record_frame_resolution_failure(
+                "javascript",
+                resolve_err.metric_reason(),
+                &resolve_err,
+            );
+        }
+
         let resolved_name = if was_minified {
             None
         } else {
             Some(raw_frame.function.clone())
         };
+
+        let resolve_failure = Some(resolve_err.to_string());
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -242,11 +257,11 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
-            resolved: !was_minified,
+            resolved,
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(FrameError::from(resolve_err)),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             context: raw_frame.get_context(),

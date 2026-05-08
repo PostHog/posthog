@@ -223,7 +223,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
 
             result = get_top_sources(self.team)
 
-        sources = [r["source"] for r in result]
+        sources = [r["name"] for r in result]
         assert sources == ["google.com"]
         assert all(r["visitors"] > 0 for r in result)
         assert "change" in result[0]
@@ -244,7 +244,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
 
             result = get_top_sources(self.team)
 
-        assert all(r["source"] != "" for r in result)
+        assert all(r["name"] != "" for r in result)
 
     def test_returns_empty_for_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):

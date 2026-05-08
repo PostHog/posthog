@@ -1,6 +1,9 @@
 import re
 import hashlib
+from collections.abc import Callable
+from datetime import date, datetime
 from typing import ClassVar
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
@@ -16,6 +19,8 @@ from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_RENAMES_LOWER,
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
+
+from posthog.models.utils import UUIDT
 
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
@@ -128,13 +133,17 @@ class PostgresPrinter(BasePrinter):
                 f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
             )
 
+        function_renames = self._get_function_renames()
+        function_handlers = self._get_function_handlers()
+        passthrough_functions = self._get_passthrough_functions()
+
         if node.order_by:
             # ORDER BY in function calls is only supported for passthrough functions.
             func_name = node.name.lower()
             if (
-                func_name not in POSTGRES_PASSTHROUGH_FUNCTIONS
-                and func_name not in POSTGRES_FUNCTION_HANDLERS_LOWER
-                and func_name not in POSTGRES_FUNCTION_RENAMES_LOWER
+                func_name not in passthrough_functions
+                and func_name not in function_handlers
+                and func_name not in function_renames
             ):
                 raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
 
@@ -148,17 +157,17 @@ class PostgresPrinter(BasePrinter):
 
         func_name = node.name.lower()
 
-        handler = POSTGRES_FUNCTION_HANDLERS_LOWER.get(func_name)
+        handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
                 raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
             return handler(args)
 
-        pg_name = POSTGRES_FUNCTION_RENAMES_LOWER.get(func_name)
-        if pg_name is not None:
-            return f"{pg_name}({', '.join(args)}{order_by_part})"
+        renamed = function_renames.get(func_name)
+        if renamed is not None:
+            return f"{renamed}({', '.join(args)}{order_by_part})"
 
-        if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
+        if func_name in passthrough_functions:
             return f"{func_name}({', '.join(args)}{order_by_part})"
 
         if func_name in self._connection_supported_functions:
@@ -167,13 +176,43 @@ class PostgresPrinter(BasePrinter):
 
         raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
 
+    def _get_function_renames(self) -> dict[str, str]:
+        """Lowercased HogQL-name → target-name map for simple function renames. Overridable by subclasses."""
+        return POSTGRES_FUNCTION_RENAMES_LOWER
+
+    def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
+        """Lowercased HogQL-name → handler-callable map for functions that need custom rendering."""
+        return POSTGRES_FUNCTION_HANDLERS_LOWER
+
+    def _get_passthrough_functions(self) -> frozenset[str]:
+        """Lowercased function names that are emitted verbatim without renaming."""
+        return POSTGRES_PASSTHROUGH_FUNCTIONS
+
     def visit_array_slice(self, node: ast.ArraySlice):
         start = self.visit(node.start_expr) if node.start_expr is not None else ""
         end = self.visit(node.end_expr) if node.end_expr is not None else ""
         return f"{self.visit(node.array)}[{start}:{end}]"
 
     def visit_try_cast(self, node: ast.TryCast):
-        return f"TRY_CAST({self.visit(node.expr)} AS {node.type_name})"
+        return f"TRY_CAST({self.visit(node.expr)} AS {self._print_identifier(node.type_name)})"
+
+    def visit_constant(self, node: ast.Constant):
+        # Parameterize string (and other complex-typed) constants via ``context.add_value`` so
+        # psycopg binds them safely at ``cursor.execute(sql, values)`` time. Inlining them
+        # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
+        # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection.
+        if (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
+        ):
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.
+                raise QueryError(f"Invalid character '%' in constant: {value}")
+            return value
+        return self.context.add_value(node.value)
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]

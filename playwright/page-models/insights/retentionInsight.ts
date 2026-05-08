@@ -82,13 +82,16 @@ export class RetentionInsight extends ChartInsightBase {
     }
 
     async toggleCumulative(): Promise<void> {
+        await this.page.getByTestId('editor-filter-group-collapse-calculation-options').click()
         const toggle = this.optionsPanel.locator('.LemonSegmentedButton li', { hasText: 'on or after' })
-        await toggle.scrollIntoViewIfNeeded()
+        await toggle.waitFor({ state: 'visible' })
         await toggle.click()
         await this.waitForChart()
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.page.getByTestId('editor-filter-group-collapse-breakdown').click()
+        await this.breakdownButton.waitFor({ state: 'visible' })
         await expect(async () => {
             await this.page.keyboard.press('Escape')
             await this.breakdownButton.click()

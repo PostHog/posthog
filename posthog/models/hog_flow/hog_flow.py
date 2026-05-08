@@ -56,7 +56,7 @@ class HogFlow(UUIDTModel):
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=State.choices, default=State.DRAFT)
+    status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -65,7 +65,7 @@ class HogFlow(UUIDTModel):
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
-    exit_condition = models.CharField(max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION)
+    exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)

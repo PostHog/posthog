@@ -111,7 +111,7 @@
             <tbody>
                 {% for source in section.top_sources %}
                 <tr style="border-bottom: 1px solid #f3f4f6;">
-                    <td align="left" style="padding: 10px 8px 10px 0; vertical-align: middle; text-align: left; font-size: 0.9em; color: #111827;">{{ source.source|truncatechars:60 }}</td>
+                    <td align="left" style="padding: 10px 8px 10px 0; vertical-align: middle; text-align: left; font-size: 0.9em; color: #111827;">{{ source.name|truncatechars:60 }}</td>
                     <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">{{ source.visitors|compact_number }}</td>
                     {% include "email/_weekly_digest_change_cell.html" with change=source.change %}
                 </tr>

@@ -1,4 +1,5 @@
-hogli dev:setup now lets you configure which services to start
-Use 'hogli dev:explain' to see why each service is running
-hogli now collects anonymous usage data - run 'hogli telemetry:status' for details
-Press 't' in phrocs to toggle services on or off — replaces hogli dev:setup
+2026-05-05
+check product maturity: hogli product:maturity <product>, or --all for a leaderboard
+
+2026-04-30
+hogli now supports detached mode: hogli up -d, then hogli wait / hogli down

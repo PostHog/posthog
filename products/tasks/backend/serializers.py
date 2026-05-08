@@ -1,3 +1,5 @@
+import base64
+import binascii
 from zoneinfo import available_timezones
 
 from django.core.cache import cache
@@ -11,6 +13,7 @@ from rest_framework import serializers
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
+from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReportTask
@@ -31,13 +34,62 @@ from .temporal.process_task.utils import (
     RuntimeAdapter,
     get_reasoning_effort_error,
     parse_run_state,
+    resolve_user_github_integration_for_task,
 )
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
+TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
+TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES = 10 * 1024 * 1024
+TASK_RUN_ARTIFACT_TYPE_CHOICES = [
+    "plan",
+    "context",
+    "reference",
+    "output",
+    "artifact",
+    "tree_snapshot",
+    "user_attachment",
+]
+TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
+
+
+def get_task_run_artifact_max_size_bytes(
+    artifact_name: str | None,
+    content_type: str | None,
+    artifact_type: str | None = None,
+) -> int:
+    if artifact_type != "user_attachment":
+        return TASK_RUN_ARTIFACT_MAX_SIZE_BYTES
+
+    normalized_name = (artifact_name or "").lower()
+    normalized_content_type = (content_type or "").split(";")[0].strip().lower()
+
+    if normalized_name.endswith(".pdf") or normalized_content_type == "application/pdf":
+        return TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES
+
+    return TASK_RUN_ARTIFACT_MAX_SIZE_BYTES
+
+
+def build_task_run_artifact_size_error(
+    artifact_name: str | None,
+    max_size_bytes: int,
+) -> str:
+    max_mb = max_size_bytes // (1024 * 1024)
+
+    if (artifact_name or "").lower().endswith(".pdf"):
+        return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit for PDFs in cloud runs"
+
+    return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
 
 
 class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    # UserIntegration is scoped to request.user in validate_github_user_integration.
+    github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=UserIntegration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="User-scoped GitHub integration to use for user-authored cloud runs.",
+    )
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -70,6 +122,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "github_user_integration",
             "signal_report",
             "signal_report_task_relationship",
             "json_schema",
@@ -103,6 +156,14 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Integration must belong to the same team")
         return value
 
+    def validate_github_user_integration(self, value):
+        """Validate that the GitHub user integration belongs to the authenticated user."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value and value.user_id != getattr(user, "id", None):
+            raise serializers.ValidationError("User integration must belong to the authenticated user")
+        return value
+
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
@@ -130,10 +191,18 @@ class TaskSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
                 )
+        if (
+            attrs.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+            and attrs.get("github_user_integration") is not None
+        ):
+            raise serializers.ValidationError(
+                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
         return attrs
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
+        validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
@@ -148,6 +217,22 @@ class TaskSerializer(serializers.ModelSerializer):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
+
+        if (
+            validated_data.get("repository")
+            and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
+            and not validated_data.get("github_user_integration")
+        ):
+            task_stub = Task(
+                team=self.context["team"],
+                created_by=validated_data.get("created_by"),
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=validated_data["repository"],
+                github_integration=validated_data.get("github_integration"),
+            )
+            github_user_integration = resolve_user_github_integration_for_task(task_stub, allow_refresh=False)
+            if github_user_integration is not None:
+                validated_data["github_user_integration"] = github_user_integration.integration
 
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):
@@ -202,14 +287,31 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     )
     output = serializers.JSONField(required=False, allow_null=True, help_text="Output from the run")
     state = serializers.JSONField(required=False, help_text="State of the run")
+    state_remove_keys = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="State keys to remove atomically before applying any state updates.",
+    )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
+    )
+    environment = serializers.ChoiceField(
+        choices=["local"],
+        required=False,
+        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
     )
 
 
 class TaskRunArtifactResponseSerializer(serializers.Serializer):
+    id = serializers.CharField(required=False, help_text="Stable identifier for the artifact within this run")
     name = serializers.CharField(help_text="Artifact file name")
     type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
+    source = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        allow_blank=True,
+        help_text="Source of the artifact, such as agent_output or user_attachment",
+    )
     size = serializers.IntegerField(required=False, help_text="Artifact size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
@@ -359,8 +461,17 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField(help_text="Error message")
+class TaskRunErrorResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField(required=False, help_text="Human-readable validation error")
+    error = serializers.CharField(required=False, help_text="Human-readable error message")
+    type = serializers.CharField(required=False, help_text="Machine-readable error type")
+    code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    attr = serializers.CharField(required=False, help_text="Request field associated with the error")
+    missing_artifact_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Artifact ids that could not be resolved for the run",
+    )
 
 
 class AgentListResponseSerializer(serializers.Serializer):
@@ -390,17 +501,52 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
-    ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact", "tree_snapshot"]
-
     name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
-    type = serializers.ChoiceField(choices=ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
-    content = serializers.CharField(help_text="Raw file contents (UTF-8 string or base64 data)")
+    type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
+    source = serializers.CharField(  # type: ignore[assignment]
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional source label for the artifact, such as agent_output or user_attachment",
+    )
+    content = serializers.CharField(help_text="Artifact contents encoded according to content_encoding")
+    content_encoding = serializers.ChoiceField(
+        choices=TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES,
+        required=False,
+        default="utf-8",
+        help_text="Encoding used for content. Use base64 for binary files and utf-8 for text payloads.",
+    )
     content_type = serializers.CharField(
         max_length=255,
         required=False,
         allow_blank=True,
         help_text="Optional MIME type for the artifact",
     )
+
+    def validate(self, attrs):
+        content = attrs["content"]
+        content_encoding = attrs.get("content_encoding", "utf-8")
+
+        if content_encoding == "base64":
+            try:
+                attrs["content_bytes"] = base64.b64decode(content, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise serializers.ValidationError({"content": "Invalid base64 content"}) from exc
+        else:
+            attrs["content_bytes"] = content.encode("utf-8")
+
+        max_size_bytes = get_task_run_artifact_max_size_bytes(
+            attrs.get("name"),
+            attrs.get("content_type"),
+            attrs.get("type"),
+        )
+        if len(attrs["content_bytes"]) > max_size_bytes:
+            raise serializers.ValidationError(
+                {"content": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+            )
+
+        return attrs
 
 
 class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
@@ -416,6 +562,218 @@ class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
 
 
+class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
+    type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
+    source = serializers.CharField(  # type: ignore[assignment]
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional source label for the artifact, such as agent_output or user_attachment",
+    )
+    size = serializers.IntegerField(
+        min_value=1,
+        max_value=TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
+        help_text=f"Expected upload size in bytes (max {TASK_RUN_ARTIFACT_MAX_SIZE_BYTES} bytes)",
+    )
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional MIME type for the artifact upload",
+    )
+
+    def validate(self, attrs):
+        max_size_bytes = get_task_run_artifact_max_size_bytes(
+            attrs.get("name"),
+            attrs.get("content_type"),
+            attrs.get("type"),
+        )
+        if attrs["size"] > max_size_bytes:
+            raise serializers.ValidationError(
+                {"size": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+            )
+        return attrs
+
+
+class TaskRunArtifactsPrepareUploadRequestSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactPrepareUploadSerializer(many=True, help_text="Array of artifacts to prepare")
+
+    def validate_artifacts(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one artifact is required")
+        return value
+
+
+class S3PresignedPostSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Presigned S3 POST URL")
+    fields = serializers.DictField(  # type: ignore[assignment]
+        child=serializers.CharField(),
+        help_text="Form fields that must be submitted verbatim with the file upload",
+    )
+
+
+class TaskRunArtifactPrepareUploadResponseSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable identifier for the prepared artifact within this run")
+    name = serializers.CharField(help_text="Artifact file name")
+    type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
+    source = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        allow_blank=True,
+        help_text="Source of the artifact, such as agent_output or user_attachment",
+    )
+    size = serializers.IntegerField(help_text="Expected upload size in bytes")
+    content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
+    storage_path = serializers.CharField(help_text="S3 object key reserved for the artifact")
+    expires_in = serializers.IntegerField(help_text="Presigned POST expiry in seconds")
+    presigned_post = S3PresignedPostSerializer(help_text="Presigned S3 POST configuration for uploading the file")
+
+
+class TaskRunArtifactsPrepareUploadResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactPrepareUploadResponseSerializer(
+        many=True, help_text="Prepared uploads for the requested artifacts"
+    )
+
+
+class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable identifier returned by the prepare upload endpoint")
+    name = serializers.CharField(max_length=255, help_text="File name associated with the artifact")
+    type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
+    source = serializers.CharField(  # type: ignore[assignment]
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional source label for the artifact, such as agent_output or user_attachment",
+    )
+    storage_path = serializers.CharField(max_length=500, help_text="S3 object key returned by the prepare step")
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional MIME type recorded for the artifact",
+    )
+
+
+class TaskRunArtifactsFinalizeUploadRequestSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactFinalizeUploadSerializer(many=True, help_text="Array of uploaded artifacts to finalize")
+
+    def validate_artifacts(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one artifact is required")
+        return value
+
+
+class TaskRunArtifactsFinalizeUploadResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskStagedArtifactPrepareUploadSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="File name to associate with the staged artifact")
+    type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
+    source = serializers.CharField(  # type: ignore[assignment]
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional source label for the artifact, such as agent_output or user_attachment",
+    )
+    size = serializers.IntegerField(
+        min_value=1,
+        max_value=TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
+        help_text=f"Expected upload size in bytes (max {TASK_RUN_ARTIFACT_MAX_SIZE_BYTES} bytes)",
+    )
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional MIME type for the artifact upload",
+    )
+
+    def validate(self, attrs):
+        max_size_bytes = get_task_run_artifact_max_size_bytes(
+            attrs.get("name"),
+            attrs.get("content_type"),
+            attrs.get("type"),
+        )
+        if attrs["size"] > max_size_bytes:
+            raise serializers.ValidationError(
+                {"size": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+            )
+        return attrs
+
+
+class TaskStagedArtifactsPrepareUploadRequestSerializer(serializers.Serializer):
+    artifacts = TaskStagedArtifactPrepareUploadSerializer(
+        many=True, help_text="Array of staged artifacts to prepare before creating a run"
+    )
+
+    def validate_artifacts(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one artifact is required")
+        return value
+
+
+class TaskStagedArtifactPrepareUploadResponseSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable identifier for the prepared staged artifact within this task")
+    name = serializers.CharField(help_text="Artifact file name")
+    type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
+    source = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        allow_blank=True,
+        help_text="Source of the artifact, such as agent_output or user_attachment",
+    )
+    size = serializers.IntegerField(help_text="Expected upload size in bytes")
+    content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
+    storage_path = serializers.CharField(help_text="S3 object key reserved for the staged artifact")
+    expires_in = serializers.IntegerField(help_text="Presigned POST expiry in seconds")
+    presigned_post = S3PresignedPostSerializer(help_text="Presigned S3 POST configuration for uploading the file")
+
+
+class TaskStagedArtifactsPrepareUploadResponseSerializer(serializers.Serializer):
+    artifacts = TaskStagedArtifactPrepareUploadResponseSerializer(
+        many=True, help_text="Prepared staged uploads for the requested artifacts"
+    )
+
+
+class TaskStagedArtifactFinalizeUploadSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable identifier returned by the staged prepare upload endpoint")
+    name = serializers.CharField(max_length=255, help_text="File name associated with the staged artifact")
+    type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
+    source = serializers.CharField(  # type: ignore[assignment]
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional source label for the artifact, such as agent_output or user_attachment",
+    )
+    storage_path = serializers.CharField(max_length=500, help_text="S3 object key returned by the prepare step")
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional MIME type recorded for the artifact",
+    )
+
+
+class TaskStagedArtifactsFinalizeUploadRequestSerializer(serializers.Serializer):
+    artifacts = TaskStagedArtifactFinalizeUploadSerializer(
+        many=True, help_text="Array of staged artifacts to finalize after upload"
+    )
+
+    def validate_artifacts(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one artifact is required")
+        return value
+
+
+class TaskStagedArtifactsFinalizeUploadResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(
+        many=True, help_text="Finalized staged artifacts available for attachment to a new run"
+    )
+
+
 class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
     storage_path = serializers.CharField(
         max_length=500,
@@ -428,6 +786,39 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+TASK_SUMMARIES_MAX_IDS = 5000
+
+
+class TaskSummariesRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=TASK_SUMMARIES_MAX_IDS,
+        help_text=(
+            f"Task IDs to fetch summaries for (max {TASK_SUMMARIES_MAX_IDS}). Response is paginated; "
+            f"follow the `next` cursor to retrieve all results."
+        ),
+    )
+
+
+class TaskRunSummarySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=TaskRun.Status.choices, allow_null=True)
+    environment = serializers.ChoiceField(choices=TaskRun.Environment.choices, allow_null=True)
+
+
+class TaskSummarySerializer(serializers.ModelSerializer):
+    latest_run = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = ["id", "title", "repository", "created_at", "updated_at", "latest_run"]
+        read_only_fields = fields
+
+    @extend_schema_field(TaskRunSummarySerializer(allow_null=True))
+    def get_latest_run(self, obj):
+        return getattr(obj, "_latest_run", None)
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
@@ -438,8 +829,26 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+    )
+    status = serializers.ChoiceField(
+        required=False,
+        choices=[choice.value for choice in TaskRun.Status],
+        help_text="Filter tasks by the status of their most recent run.",
+    )
     internal = serializers.BooleanField(
-        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+        required=False,
+        help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+    )
+
+
+class TaskRepositoriesResponseSerializer(serializers.Serializer):
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
     )
 
 
@@ -525,8 +934,159 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
     pending_user_message = serializers.CharField(
         required=False,
         default=None,
-        allow_blank=False,
+        allow_blank=True,
         help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    pending_user_artifact_ids = serializers.ListField(
+        required=False,
+        default=list,
+        child=serializers.CharField(max_length=128),
+        help_text="Identifiers for staged task artifacts that should be attached to the initial run prompt.",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    pr_authorship_mode = serializers.ChoiceField(
+        choices=PR_AUTHORSHIP_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    run_source = serializers.ChoiceField(
+        choices=RUN_SOURCE_CHOICES,
+        required=False,
+        default=None,
+        help_text="High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.",
+    )
+    signal_report_id = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Optional signal report identifier when this run was started from Inbox.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=RUNTIME_ADAPTER_CHOICES,
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the selected runtime.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=REASONING_EFFORT_CHOICES,
+        required=False,
+        default=None,
+        help_text="Reasoning effort to request for models that expose an effort control.",
+    )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text=(
+            "Initial permission mode for the agent session. Claude runtimes accept "
+            "'default', 'acceptEdits', 'plan', 'bypassPermissions', and 'auto'. "
+            "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
+        ),
+    )
+
+    def validate(self, attrs):
+        errors: dict[str, str] = {}
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        runtime_adapter = attrs.get("runtime_adapter")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
+        pending_user_message = attrs.get("pending_user_message")
+        pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
+        if pending_user_message is not None:
+            trimmed_message = pending_user_message.strip()
+            attrs["pending_user_message"] = trimmed_message or None
+        if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
+            attrs.pop("pending_user_message", None)
+
+        runtime_fields = ("runtime_adapter", "model")
+        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+
+        if not has_runtime_selection:
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
+
+        for field in runtime_fields:
+            if attrs.get(field) is None:
+                errors[field] = "This field is required when selecting a cloud runtime."
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=attrs.get("runtime_adapter"),
+            model=attrs.get("model"),
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
+
+
+class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
+    """Request body for creating a task run without starting execution yet."""
+
+    PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+    RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
+    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+
+    environment = serializers.ChoiceField(
+        choices=[environment.value for environment in TaskRun.Environment],
+        required=False,
+        default=TaskRun.Environment.LOCAL,
+        help_text="Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.",
+    )
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
     )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
@@ -610,7 +1170,6 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
-
         if not has_runtime_selection:
             if errors:
                 raise serializers.ValidationError(errors)
@@ -630,6 +1189,29 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
 
         if errors:
             raise serializers.ValidationError(errors)
+
+        return attrs
+
+
+class TaskRunStartRequestSerializer(serializers.Serializer):
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        help_text="Initial or follow-up user message to include in the run prompt.",
+    )
+    pending_user_artifact_ids = serializers.ListField(
+        required=False,
+        default=list,
+        child=serializers.CharField(max_length=128),
+        help_text="Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.",
+    )
+
+    def validate(self, attrs):
+        pending_user_message = attrs.get("pending_user_message")
+        if pending_user_message is not None:
+            trimmed_message = pending_user_message.strip()
+            attrs["pending_user_message"] = trimmed_message or None
 
         return attrs
 
@@ -725,7 +1307,11 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
     )
 
 
@@ -785,7 +1371,33 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         method = attrs["method"]
         params = attrs.get("params", {})
         if method == "user_message":
-            self._require_nonempty_string(params, "content")
+            content = params.get("content")
+            artifact_ids = params.get("artifact_ids")
+
+            normalized_content = None
+            if content is not None:
+                if not isinstance(content, str):
+                    raise serializers.ValidationError({"params": "content must be a string when provided"})
+                normalized_content = content.strip()
+                if normalized_content:
+                    params["content"] = normalized_content
+                else:
+                    params.pop("content", None)
+
+            if artifact_ids is None:
+                normalized_artifact_ids: list[str] = []
+            elif not isinstance(artifact_ids, list) or not all(
+                isinstance(value, str) and value.strip() for value in artifact_ids
+            ):
+                raise serializers.ValidationError({"params": "artifact_ids must be a list of non-empty strings"})
+            else:
+                normalized_artifact_ids = [value.strip() for value in artifact_ids]
+                params["artifact_ids"] = normalized_artifact_ids
+
+            if not normalized_content and not normalized_artifact_ids:
+                raise serializers.ValidationError(
+                    {"params": "user_message requires a non-empty content string, artifact_ids, or both"}
+                )
         elif method == "permission_response":
             self._require_nonempty_string(params, "requestId")
             self._require_nonempty_string(params, "optionId")

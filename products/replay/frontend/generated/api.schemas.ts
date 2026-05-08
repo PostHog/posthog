@@ -7,6 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface SessionSummariesApi {
+    /**
+     * List of session IDs to summarize (max 300)
+     * @minItems 1
+     * @maxItems 300
+     */
+    session_ids: string[]
+    /**
+     * Optional focus area for the summarization
+     * @maxLength 500
+     */
+    focus_area?: string
+}
+
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -36,14 +50,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +73,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -109,9 +119,9 @@ export interface SessionRecordingPlaylistApi {
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+  * `collection` - Collection
+  * `filters` - Filters */
+    type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
@@ -159,9 +169,9 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+  * `collection` - Collection
+  * `filters` - Filters */
+    type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
@@ -234,8 +244,10 @@ export interface SessionRecordingApi {
     person?: MinimalPersonApi
     /** @nullable */
     readonly retention_period_days: number | null
-    readonly expiry_time: string
-    readonly recording_ttl: string
+    /** @nullable */
+    readonly expiry_time: string | null
+    /** @nullable */
+    readonly recording_ttl: number | null
     /** @nullable */
     readonly snapshot_source: string | null
     /** @nullable */
@@ -292,8 +304,10 @@ export interface PatchedSessionRecordingApi {
     person?: MinimalPersonApi
     /** @nullable */
     readonly retention_period_days?: number | null
-    readonly expiry_time?: string
-    readonly recording_ttl?: string
+    /** @nullable */
+    readonly expiry_time?: string | null
+    /** @nullable */
+    readonly recording_ttl?: number | null
     /** @nullable */
     readonly snapshot_source?: string | null
     /** @nullable */

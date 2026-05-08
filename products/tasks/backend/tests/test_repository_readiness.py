@@ -221,6 +221,7 @@ class TestComputeRepositoryReadiness(TestCase):
     def _mock_integration(self, mock_integration_cls: MagicMock) -> MagicMock:
         integration = MagicMock()
         integration.id = 1
+        integration.kind = "github"
         integration.sensitive_config = {"access_token": "ghp_test"}
         mock_integration_cls.objects.filter.return_value.first.return_value = integration
         return integration

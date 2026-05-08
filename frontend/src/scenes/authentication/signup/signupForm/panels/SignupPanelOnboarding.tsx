@@ -31,6 +31,7 @@ export function SignupPanelOnboarding(): JSX.Element | null {
                 <LemonField name="name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"
+                        autoFocus
                         data-attr="signup-name"
                         placeholder="Jane Doe"
                         disabled={isSignupPanelOnboardingSubmitting}

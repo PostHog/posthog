@@ -13,7 +13,14 @@ import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/q
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
+import {
+    ExperimentSavedMetric,
+    ExperimentWarning,
+    classifyError,
+    experimentLogic,
+    extractErrorDetailString,
+    getDisplayOrderedIndices,
+} from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -142,26 +149,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadPrimaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setPrimaryMetricsResultsLoading', 'setLegacyPrimaryMetricsResults'])
-                .toMatchValues({
-                    legacyPrimaryMetricsResults: [],
-                    primaryMetricsResultsLoading: true,
-                    primaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setPrimaryMetricsResultsLoading']).toMatchValues({
+                primaryMetricsResultsLoading: true,
+                primaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setPrimaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacyPrimaryMetricsResults: [
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                        null,
-                    ],
                     primaryMetricsResultsLoading: false,
                     primaryMetricsResultsErrors: [
                         null,
@@ -220,26 +217,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadSecondaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricsResults'])
-                .toMatchValues({
-                    legacySecondaryMetricsResults: [],
-                    secondaryMetricsResultsLoading: true,
-                    secondaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setSecondaryMetricsResultsLoading']).toMatchValues({
+                secondaryMetricsResultsLoading: true,
+                secondaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacySecondaryMetricsResults: [
-                        null,
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                    ],
                     secondaryMetricsResultsLoading: false,
                     secondaryMetricsResultsErrors: [
                         {
@@ -287,16 +274,76 @@ describe('experimentLogic', () => {
 
             await logic.asyncActions.refreshExperimentResults(true, 'manual')
 
+            // Verify loading states are properly reset after refresh completes
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+        })
+    })
 
-            const successfulCount =
-                logic.values.legacyPrimaryMetricsResults.filter(Boolean).length +
-                logic.values.primaryMetricsResults.filter(Boolean).length +
-                logic.values.legacySecondaryMetricsResults.filter(Boolean).length +
-                logic.values.secondaryMetricsResults.filter(Boolean).length
+    describe('currentRefresh tracking', () => {
+        it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
+            logic.actions.setExperiment(experiment)
 
-            expect(successfulCount).toBeGreaterThan(0)
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: experimentMetricResultsSuccessJson.query_status,
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+
+            const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
+            expect(logic.values.currentRefresh).toMatchObject({
+                state: 'in_progress',
+                triggered_by: 'manual',
+            })
+            expect(logic.values.currentRefresh?.refresh_id).toEqual(expect.any(String))
+
+            await promise
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                state: 'completed',
+                triggered_by: 'manual',
+            })
+        })
+
+        it.each(['completed', 'partial', 'errored'] as const)(
+            'transitions to %s when markRefreshFinished fires with that state',
+            (finalState) => {
+                logic.actions.markRefreshStarted('refresh-1', 'manual')
+                expect(logic.values.currentRefresh?.state).toBe('in_progress')
+
+                logic.actions.markRefreshFinished('refresh-1', finalState)
+
+                expect(logic.values.currentRefresh).toMatchObject({
+                    refresh_id: 'refresh-1',
+                    state: finalState,
+                    triggered_by: 'manual',
+                })
+            }
+        )
+
+        it('ignores markRefreshFinished for a stale refresh_id and preserves the in-flight snapshot', () => {
+            logic.actions.markRefreshStarted('refresh-1', 'manual')
+            logic.actions.markRefreshStarted('refresh-2', 'auto_refresh')
+
+            // Late completion from the previous refresh shouldn't clobber the new one.
+            logic.actions.markRefreshFinished('refresh-1', 'completed')
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                refresh_id: 'refresh-2',
+                state: 'in_progress',
+                triggered_by: 'auto_refresh',
+            })
         })
     })
 
@@ -1468,6 +1515,83 @@ describe('experimentLogic', () => {
         it('returns all indices exactly once', () => {
             const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
             expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
+        })
+    })
+
+    describe('classifyError', () => {
+        it.each([
+            // [description, errorDetail, errorMessage, errorCode, statusCode, expected]
+            ['504 gateway timeout', null, null, null, 504, 'timeout'],
+            ['408 request timeout', null, null, null, 408, 'timeout'],
+            ['query timeout body marker', 'Query timed out', null, null, 200, 'timeout'],
+            ['memory-limit error code', null, null, 'memory_limit_exceeded', 500, 'out_of_memory'],
+            ['OOM message pattern', null, 'Memory limit exceeded while running', null, 500, 'out_of_memory'],
+            ['generic 500', null, null, null, 500, 'server_error'],
+            ['503 unavailable', null, null, null, 503, 'server_error'],
+            ['status 0 is network', null, null, null, 0, 'network_error'],
+            ['TypeError: Failed to fetch', null, 'TypeError: Failed to fetch', null, null, 'network_error'],
+            ['TypeError: Load failed', null, 'TypeError: Load failed', null, null, 'network_error'],
+            [
+                "TypeError: Failed to execute 'fetch'",
+                null,
+                "TypeError: Failed to execute 'fetch' on 'Window'",
+                null,
+                null,
+                'network_error',
+            ],
+            ['NetworkError with null status', null, 'NetworkError when fetching', null, null, 'network_error'],
+            ['404 not_found', null, 'Experiment with id 123 not found', 'not_found', 404, 'not_found'],
+            ['401 unauthenticated', null, null, null, 401, 'authentication'],
+            ['403 not_authenticated code', null, null, 'not_authenticated', 403, 'authentication'],
+            ['403 permission_denied', null, null, 'permission_denied', 403, 'authorization'],
+            ['plain 403', null, null, null, 403, 'authorization'],
+            ['400 parse_error', null, null, 'parse_error', 400, 'validation_error'],
+            ['400 invalid_input', null, null, 'invalid_input', 400, 'validation_error'],
+            ['null status, no marker', null, 'Something odd', null, null, 'unknown'],
+            ['418 teapot falls through', null, null, null, 418, 'unknown'],
+        ] as const)('%s', (_desc, errorDetail, errorMessage, errorCode, statusCode, expected) => {
+            expect(classifyError(errorDetail, errorMessage, errorCode, statusCode)).toEqual(expected)
+        })
+
+        it('prefers timeout over 5xx server_error (504 overlap)', () => {
+            expect(classifyError(null, null, null, 504)).toEqual('timeout')
+        })
+
+        it('prefers out_of_memory over generic server_error', () => {
+            expect(classifyError(null, null, 'query_memory_limit_exceeded', 500)).toEqual('out_of_memory')
+        })
+
+        it('does not treat fetch-style messages as network errors when an HTTP status was returned', () => {
+            // A 400 response whose body happens to mention "Failed to fetch" should still classify by status, not network.
+            expect(classifyError(null, 'Failed to fetch remote config', null, 400)).toEqual('validation_error')
+        })
+    })
+
+    describe('extractErrorDetailString', () => {
+        it.each([
+            ['null → null', null, null],
+            ['undefined → null', undefined, null],
+            ['string passes through', 'Experiment with id 79259 not found', 'Experiment with id 79259 not found'],
+            ['DRF {detail: "..."} unwraps the inner string', { detail: 'Not found.' }, 'Not found.'],
+            [
+                'object without string detail falls back to JSON',
+                { 'no-exposures': true, 'no-control-variant': false },
+                '{"no-exposures":true,"no-control-variant":false}',
+            ],
+            [
+                'nested detail that is not a string falls back to JSON',
+                { detail: { nested: 1 } },
+                '{"detail":{"nested":1}}',
+            ],
+            ['array falls back to JSON', [1, 2, 3], '[1,2,3]'],
+        ] as const)('%s', (_desc, input, expected) => {
+            expect(extractErrorDetailString(input)).toEqual(expected)
+        })
+
+        it('returns null for values that cannot be stringified (circular refs)', () => {
+            const circular: Record<string, unknown> = {}
+            circular.self = circular
+            expect(extractErrorDetailString(circular)).toBeNull()
         })
     })
 })
