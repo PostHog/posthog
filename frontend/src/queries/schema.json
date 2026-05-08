@@ -468,6 +468,9 @@
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantTrendsQuery"
                 },
                 {
@@ -2317,6 +2320,30 @@
             "required": ["id", "kind", "name"],
             "type": "object"
         },
+        "AssistantLifecycleActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no per-actor `event_count` or matched recordings are projected — the underlying lifecycle runner does not surface a `matching_events` column.\n\nUse the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight is a 4-row stack (new / returning / resurrecting / dormant) per day.\n\nNote: lifecycle insights only support a single series and do not expose `compareFilter`, so `series` and `compare` selectors are intentionally omitted.",
+            "properties": {
+                "day": {
+                    "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantLifecycleQuery",
+                    "description": "The source lifecycle insight query whose bucket we are drilling into."
+                },
+                "status": {
+                    "$ref": "#/definitions/AssistantLifecycleStatus",
+                    "description": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+                }
+            },
+            "required": ["kind", "source", "day", "status"],
+            "type": "object"
+        },
         "AssistantLifecycleEventsNode": {
             "additionalProperties": false,
             "properties": {
@@ -2426,7 +2453,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
-                    "maxLength": 1,
+                    "maxItems": 1,
                     "type": "array"
                 }
             },
@@ -2442,6 +2469,11 @@
                     "$ref": "#/definitions/AssistantLifecycleActionsNode"
                 }
             ]
+        },
+        "AssistantLifecycleStatus": {
+            "description": "A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`.",
+            "enum": ["new", "returning", "resurrecting", "dormant"],
+            "type": "string"
         },
         "AssistantMessage": {
             "additionalProperties": false,
@@ -3470,7 +3502,8 @@
                 "finalize_plan",
                 "call_mcp_server",
                 "search_llm_traces",
-                "run_hog_eval_test"
+                "run_hog_eval_test",
+                "diagnose_proxy"
             ],
             "type": "string"
         },
@@ -3733,7 +3766,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -11166,6 +11199,10 @@
             "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
+        "DashboardAutoRefreshInterval": {
+            "const": 1800,
+            "type": "number"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12783,6 +12820,10 @@
                             "type": "object"
                         }
                     ]
+                },
+                "showAbsoluteTime": {
+                    "description": "Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative (\"X ago\"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.",
+                    "type": "boolean"
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -17488,7 +17529,7 @@
             "additionalProperties": false,
             "properties": {
                 "feature_flag_variants": {
-                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
                         "$ref": "#/definitions/ExperimentVariant"
                     },
@@ -18066,7 +18107,7 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                     "type": "string"
                 },
                 "name": {
@@ -23266,6 +23307,10 @@
                 "ID",
                 "Campaign",
                 "Source",
+                "Ad group",
+                "Ad group ID",
+                "Ad",
+                "Ad ID",
                 "Cost",
                 "Clicks",
                 "Impressions",
@@ -23289,7 +23334,11 @@
                 "impressions",
                 "source",
                 "reported_conversion",
-                "reported_conversion_value"
+                "reported_conversion_value",
+                "ad_group_id",
+                "ad_group_name",
+                "ad_id",
+                "ad_name"
             ],
             "type": "string"
         },
@@ -23359,13 +23408,16 @@
                         "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
                     },
                     "type": "array"
+                },
+                "excludesConversionGoals": {
+                    "type": "boolean"
                 }
             },
             "required": ["columnAlias", "excludedBaseColumns"],
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
+            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -32747,8 +32799,8 @@
                 },
                 "aggregationPropertyType": {
                     "default": "event",
-                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "description": "The type of property to aggregate on (event, person or data_warehouse). Defaults to event.",
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
@@ -34076,6 +34128,10 @@
                 },
                 "shortId": {
                     "$ref": "#/definitions/InsightShortId"
+                },
+                "showAbsoluteTime": {
+                    "description": "Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative (\"X ago\"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.",
+                    "type": "boolean"
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -35742,6 +35798,18 @@
         "SourceMap": {
             "additionalProperties": false,
             "properties": {
+                "ad_group_id": {
+                    "type": "string"
+                },
+                "ad_group_name": {
+                    "type": "string"
+                },
+                "ad_id": {
+                    "type": "string"
+                },
+                "ad_name": {
+                    "type": "string"
+                },
                 "campaign": {
                     "type": "string"
                 },
@@ -40263,6 +40331,22 @@
                 }
             },
             "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "getEffectiveExcludedColumns": {
+            "$comment": "(\n    level: MarketingAnalyticsDrillDownLevel) => Set<MarketingAnalyticsBaseColumns>",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "level": {
+                            "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel"
+                        }
+                    },
+                    "required": ["level"],
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "integer": {

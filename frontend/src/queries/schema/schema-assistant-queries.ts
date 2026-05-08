@@ -435,7 +435,7 @@ export interface AssistantBreakdownFilter {
 export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Use this field to define breakdowns.
-     * @maxLength 3
+     * @maxItems 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
     /**
@@ -1208,7 +1208,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 
     /**
      * Event or action to analyze. Lifecycle insights only support a single series.
-     * @maxLength 1
+     * @maxItems 1
      */
     series: AssistantLifecycleSeriesNode[]
 
@@ -1251,6 +1251,37 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+}
+
+/** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
+export type AssistantLifecycleStatus = 'new' | 'returning' | 'resurrecting' | 'dormant'
+
+/**
+ * Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows
+ * are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no
+ * per-actor `event_count` or matched recordings are projected — the underlying lifecycle
+ * runner does not surface a `matching_events` column.
+ *
+ * Use the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight
+ * is a 4-row stack (new / returning / resurrecting / dormant) per day.
+ *
+ * Note: lifecycle insights only support a single series and do not expose `compareFilter`, so
+ * `series` and `compare` selectors are intentionally omitted.
+ */
+export interface AssistantLifecycleActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source lifecycle insight query whose bucket we are drilling into. */
+    source: AssistantLifecycleQuery
+
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+
+    /**
+     * Lifecycle status to drill into for the given day. Must be one of the bucket names visible
+     * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
+     */
+    status: AssistantLifecycleStatus
 }
 
 /**

@@ -3,6 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    InsightsActivityRetrieveParams,
+    InsightsActivityRetrieveQueryParams,
+    InsightsAllActivityRetrieveQueryParams,
     InsightsCreateBody,
     InsightsDestroyParams,
     InsightsListQueryParams,
@@ -10,7 +13,9 @@ import {
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
     InsightsRetrieveQueryParams,
+    InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -291,7 +296,78 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
     },
 })
 
-const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true })
+const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
+    InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
+)
+
+const insightsActivityRetrieve = (): ToolBase<
+    typeof InsightsActivityRetrieveSchema,
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
+> => ({
+    name: 'insights-activity-retrieve',
+    schema: InsightsActivityRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsActivityRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
+    },
+})
+
+const InsightsAllActivityRetrieveSchema = InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+
+const insightsAllActivityRetrieve = (): ToolBase<
+    typeof InsightsAllActivityRetrieveSchema,
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
+> => ({
+    name: 'insights-all-activity-retrieve',
+    schema: InsightsAllActivityRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsAllActivityRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
+    },
+})
+
+const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
+    limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
+})
 
 const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Schemas.PaginatedInsightList>> => ({
     name: 'insights-list',
@@ -355,10 +431,67 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
     },
 })
 
+const InsightsTrendingRetrieveSchema = InsightsTrendingRetrieveQueryParams.omit({ format: true })
+
+const insightsTrendingRetrieve = (): ToolBase<
+    typeof InsightsTrendingRetrieveSchema,
+    WithPostHogUrl<Schemas.PaginatedTrendingInsightList>
+> => ({
+    name: 'insights-trending-retrieve',
+    schema: InsightsTrendingRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsTrendingRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTrendingInsightList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
+            query: {
+                days: params.days,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'short_id',
+                    'name',
+                    'derived_name',
+                    'description',
+                    'tags',
+                    'favorited',
+                    'dashboards',
+                    'created_at',
+                    'created_by',
+                    'last_modified_at',
+                    'last_modified_by',
+                    'last_viewed_at',
+                    'view_count',
+                    'viewers',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                ),
+            },
+            '/insights'
+        )
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
     'insight-update': insightUpdate,
+    'insights-activity-retrieve': insightsActivityRetrieve,
+    'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,
+    'insights-trending-retrieve': insightsTrendingRetrieve,
 }

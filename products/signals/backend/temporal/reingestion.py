@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 import temporalio
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -15,6 +16,7 @@ from posthog.hogql import ast
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -52,6 +54,7 @@ class SoftDeleteReportSignalsInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def soft_delete_report_signals_activity(input: SoftDeleteReportSignalsInput) -> None:
     """Soft-delete all ClickHouse signals for a report by re-emitting with metadata.deleted=True."""
     team = await Team.objects.aget(pk=input.team_id)
@@ -74,6 +77,7 @@ class DeleteReportInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def delete_report_activity(input: DeleteReportInput) -> None:
     """Transition a report to DELETED status in Postgres. Idempotent — no-ops if already deleted."""
 
@@ -99,6 +103,7 @@ class ReingestSignalsInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
     """Re-emit all signals via emit_signal() through the active Signals pipeline."""
     team = await Team.objects.aget(pk=input.team_id)
@@ -156,6 +161,7 @@ class DeleteTeamReportsInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInput) -> ProcessTeamSignalsBatchOutput:
     team = await Team.objects.aget(pk=input.team_id)
 
@@ -253,6 +259,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def pause_grouping_until_activity(input: PauseGroupingUntilInput) -> None:
     await TeamSignalGroupingV2Workflow.pause_until(input.team_id, input.timestamp)
     logger.info(
@@ -263,11 +270,13 @@ async def pause_grouping_until_activity(input: PauseGroupingUntilInput) -> None:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def get_grouping_paused_state_activity(input: GetGroupingPausedStateInput) -> datetime | None:
     return await TeamSignalGroupingV2Workflow.paused_state(input.team_id)
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def restore_grouping_pause_activity(input: RestoreGroupingPauseInput) -> None:
     if input.paused_until is not None and input.paused_until > datetime.now(tz=UTC):
         await TeamSignalGroupingV2Workflow.pause_until(input.team_id, input.paused_until)
@@ -283,6 +292,7 @@ async def restore_grouping_pause_activity(input: RestoreGroupingPauseInput) -> N
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def delete_team_reports_activity(input: DeleteTeamReportsInput) -> None:
     def do_delete() -> tuple[int, int]:
         artefact_count = SignalReportArtefact.objects.filter(team_id=input.team_id).count()
@@ -317,6 +327,13 @@ class SignalReportReingestionWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportReingestionWorkflowInputs) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", inputs.team_id)
+            posthoganalytics.tag("report_id", inputs.report_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(inputs)
+
+    async def _run_impl(self, inputs: SignalReportReingestionWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
@@ -439,6 +456,12 @@ class TeamSignalReingestionWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: TeamSignalReingestionWorkflowInputs) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", inputs.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(inputs)
+
+    async def _run_impl(self, inputs: TeamSignalReingestionWorkflowInputs) -> None:
         original_paused_until: datetime | None = await workflow.execute_activity(
             get_grouping_paused_state_activity,
             GetGroupingPausedStateInput(team_id=inputs.team_id),

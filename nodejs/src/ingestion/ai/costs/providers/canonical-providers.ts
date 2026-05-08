@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-05 20:19:56 UTC
+// Generated at: 2026-05-08 10:30:47 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -16,12 +16,12 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-fast'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
@@ -45,7 +45,6 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
-    | 'dekallm-fp4'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -71,7 +70,6 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-int4'
-    | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'

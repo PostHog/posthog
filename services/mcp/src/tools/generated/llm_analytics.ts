@@ -37,6 +37,13 @@ import {
     LlmAnalyticsReviewQueuesPartialUpdateBody,
     LlmAnalyticsReviewQueuesPartialUpdateParams,
     LlmAnalyticsReviewQueuesRetrieveParams,
+    LlmAnalyticsScoreDefinitionsCreateBody,
+    LlmAnalyticsScoreDefinitionsListQueryParams,
+    LlmAnalyticsScoreDefinitionsNewVersionCreateBody,
+    LlmAnalyticsScoreDefinitionsNewVersionCreateParams,
+    LlmAnalyticsScoreDefinitionsPartialUpdateBody,
+    LlmAnalyticsScoreDefinitionsPartialUpdateParams,
+    LlmAnalyticsScoreDefinitionsRetrieveParams,
     LlmAnalyticsSentimentCreateBody,
     LlmAnalyticsSummarizationCreateBody,
     LlmAnalyticsTraceReviewsCreateBody,
@@ -54,6 +61,7 @@ import {
     LlmPromptsNameRetrieveQueryParams,
     LlmSkillsCreateBody,
     LlmSkillsListQueryParams,
+    LlmSkillsNameArchiveCreateParams,
     LlmSkillsNameDuplicateCreateBody,
     LlmSkillsNameDuplicateCreateParams,
     LlmSkillsNameFilesCreateBody,
@@ -69,7 +77,7 @@ import {
     LlmSkillsNameRetrieveParams,
     LlmSkillsNameRetrieveQueryParams,
 } from '@/generated/llm_analytics/api'
-import { PromptListInputSchema } from '@/schema/tool-inputs'
+import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -974,6 +982,140 @@ const llmaReviewQueueUpdate = (): ToolBase<
     },
 })
 
+const LlmaScoreDefinitionCreateSchema = LlmAnalyticsScoreDefinitionsCreateBody.extend({
+    config: ScoreDefinitionConfigSchema,
+})
+
+const llmaScoreDefinitionCreate = (): ToolBase<typeof LlmaScoreDefinitionCreateSchema, Schemas.ScoreDefinition> => ({
+    name: 'llma-score-definition-create',
+    schema: LlmaScoreDefinitionCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaScoreDefinitionCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.ScoreDefinition>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaScoreDefinitionGetSchema = LlmAnalyticsScoreDefinitionsRetrieveParams.omit({ project_id: true })
+
+const llmaScoreDefinitionGet = (): ToolBase<typeof LlmaScoreDefinitionGetSchema, Schemas.ScoreDefinition> => ({
+    name: 'llma-score-definition-get',
+    schema: LlmaScoreDefinitionGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaScoreDefinitionGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoreDefinition>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaScoreDefinitionListSchema = LlmAnalyticsScoreDefinitionsListQueryParams
+
+const llmaScoreDefinitionList = (): ToolBase<
+    typeof LlmaScoreDefinitionListSchema,
+    WithPostHogUrl<Schemas.PaginatedScoreDefinitionList>
+> => ({
+    name: 'llma-score-definition-list',
+    schema: LlmaScoreDefinitionListSchema,
+    mcpVersion: 1,
+    handler: async (context: Context, params: z.infer<typeof LlmaScoreDefinitionListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedScoreDefinitionList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
+            query: {
+                archived: params.archived,
+                kind: params.kind,
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/llm-analytics')
+    },
+})
+
+const LlmaScoreDefinitionNewVersionSchema = LlmAnalyticsScoreDefinitionsNewVersionCreateParams.omit({
+    project_id: true,
+})
+    .extend(LlmAnalyticsScoreDefinitionsNewVersionCreateBody.shape)
+    .extend({ config: ScoreDefinitionConfigSchema })
+
+const llmaScoreDefinitionNewVersion = (): ToolBase<
+    typeof LlmaScoreDefinitionNewVersionSchema,
+    Schemas.ScoreDefinition
+> => ({
+    name: 'llma-score-definition-new-version',
+    schema: LlmaScoreDefinitionNewVersionSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaScoreDefinitionNewVersionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ScoreDefinition>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/${encodeURIComponent(String(params.id))}/new_version/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaScoreDefinitionUpdateSchema = LlmAnalyticsScoreDefinitionsPartialUpdateParams.omit({
+    project_id: true,
+}).extend(LlmAnalyticsScoreDefinitionsPartialUpdateBody.shape)
+
+const llmaScoreDefinitionUpdate = (): ToolBase<typeof LlmaScoreDefinitionUpdateSchema, Schemas.ScoreDefinition> => ({
+    name: 'llma-score-definition-update',
+    schema: LlmaScoreDefinitionUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaScoreDefinitionUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
+        const result = await context.api.request<Schemas.ScoreDefinition>({
+            method: 'PATCH',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaSentimentCreateSchema = LlmAnalyticsSentimentCreateBody
 
 const llmaSentimentCreate = (): ToolBase<typeof LlmaSentimentCreateSchema, Schemas.SentimentBatchResponse> => ({
@@ -1001,6 +1143,25 @@ const llmaSentimentCreate = (): ToolBase<typeof LlmaSentimentCreateSchema, Schem
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/sentiment/`,
             body,
+        })
+        return result
+    },
+})
+
+const LlmaSkillArchiveSchema = LlmSkillsNameArchiveCreateParams.omit({ project_id: true }).extend({
+    skill_name: LlmSkillsNameArchiveCreateParams.shape['skill_name'].describe(
+        'The kebab-case name of the skill to archive.'
+    ),
+})
+
+const llmaSkillArchive = (): ToolBase<typeof LlmaSkillArchiveSchema, unknown> => ({
+    name: 'llma-skill-archive',
+    schema: LlmaSkillArchiveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaSkillArchiveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/archive/`,
         })
         return result
     },
@@ -1475,7 +1636,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-review-queue-item-update': llmaReviewQueueItemUpdate,
     'llma-review-queue-list': llmaReviewQueueList,
     'llma-review-queue-update': llmaReviewQueueUpdate,
+    'llma-score-definition-create': llmaScoreDefinitionCreate,
+    'llma-score-definition-get': llmaScoreDefinitionGet,
+    'llma-score-definition-list': llmaScoreDefinitionList,
+    'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
+    'llma-score-definition-update': llmaScoreDefinitionUpdate,
     'llma-sentiment-create': llmaSentimentCreate,
+    'llma-skill-archive': llmaSkillArchive,
     'llma-skill-create': llmaSkillCreate,
     'llma-skill-duplicate': llmaSkillDuplicate,
     'llma-skill-file-create': llmaSkillFileCreate,

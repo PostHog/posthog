@@ -32,10 +32,10 @@ export const CoreEventsCreateBody = /* @__PURE__ */ zod.object({
             'reactivation',
         ])
         .describe(
-            '* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            '\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         )
         .describe(
-            'Lifecycle category for this core event\n\n* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            'Lifecycle category for this core event\n\n\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         ),
     filter: zod.unknown().describe('Filter configuration - event, action, or data warehouse node'),
 })
@@ -63,10 +63,10 @@ export const CoreEventsUpdateBody = /* @__PURE__ */ zod.object({
             'reactivation',
         ])
         .describe(
-            '* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            '\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         )
         .describe(
-            'Lifecycle category for this core event\n\n* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            'Lifecycle category for this core event\n\n\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         ),
     filter: zod.unknown().describe('Filter configuration - event, action, or data warehouse node'),
 })
@@ -94,11 +94,11 @@ export const CoreEventsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'reactivation',
         ])
         .describe(
-            '* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            '\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         )
         .optional()
         .describe(
-            'Lifecycle category for this core event\n\n* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            'Lifecycle category for this core event\n\n\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         ),
     filter: zod.unknown().optional().describe('Filter configuration - event, action, or data warehouse node'),
 })

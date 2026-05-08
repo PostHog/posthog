@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildAppStubHtml } from '@/resources/ui-apps'
+import { UI_APPS } from '@/resources/ui-apps.generated'
 
 describe('ui-apps', () => {
     describe('buildAppStubHtml', () => {
@@ -101,7 +102,7 @@ describe('ui-apps', () => {
 
             await registerUiAppResources(server as any, context as any)
 
-            expect(server.registerResource).toHaveBeenCalledTimes(24)
+            expect(server.registerResource).toHaveBeenCalledTimes(UI_APPS.length)
         })
 
         it('registers apps with correct names and URIs', async () => {

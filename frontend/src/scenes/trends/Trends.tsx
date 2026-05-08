@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -124,7 +125,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         <>
             {series && (
                 <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
-                    <Suspense fallback={null}>{renderViz()}</Suspense>
+                    <Suspense
+                        fallback={
+                            <WrappingLoadingSkeleton fullWidth>
+                                <span className="block w-full h-72" />
+                            </WrappingLoadingSkeleton>
+                        }
+                    >
+                        {renderViz()}
+                    </Suspense>
                 </div>
             )}
             {!embedded &&

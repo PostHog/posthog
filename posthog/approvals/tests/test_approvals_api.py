@@ -345,6 +345,65 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["can_cancel"] is True
 
+    def test_can_approve_true_when_user_in_approver_role(self):
+        from ee.models.rbac.role import Role, RoleMembership
+
+        role = Role.objects.create(organization=self.organization, name="Approvers")
+        approver = User.objects.create(email="approver@posthog.com")
+        approver.join(organization=self.organization)
+        RoleMembership.objects.create(user=approver, role=role)
+
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [], "roles": [str(role.id)], "allow_self_approve": False},
+        )
+
+        self.client.force_login(approver)
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_approve"] is True
+
+    def test_can_approve_false_when_user_not_in_approver_role(self):
+        from ee.models.rbac.role import Role
+
+        role = Role.objects.create(organization=self.organization, name="Approvers")
+        outsider = User.objects.create(email="outsider@posthog.com")
+        outsider.join(organization=self.organization)
+
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [], "roles": [str(role.id)], "allow_self_approve": False},
+        )
+
+        self.client.force_login(outsider)
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_approve"] is False
+
+    @patch("posthog.approvals.services.apply_change_request")
+    def test_approve_succeeds_when_user_in_approver_role(self, mock_apply):
+        from ee.models.rbac.role import Role, RoleMembership
+
+        mock_apply.return_value = type("obj", (object,), {"id": 123, "version": 1})()
+
+        role = Role.objects.create(organization=self.organization, name="Approvers")
+        approver = User.objects.create(email="approver@posthog.com")
+        approver.join(organization=self.organization)
+        RoleMembership.objects.create(user=approver, role=role)
+
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [], "roles": [str(role.id)], "allow_self_approve": False},
+        )
+
+        self.client.force_login(approver)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            {"reason": "Looks good"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert Approval.objects.filter(change_request=cr, created_by=approver).exists()
+
 
 class TestApprovalPolicyViewSet(APIBaseTest):
     def setUp(self):

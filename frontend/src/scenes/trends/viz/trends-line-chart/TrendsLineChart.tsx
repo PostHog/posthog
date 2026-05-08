@@ -3,17 +3,8 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
-import type {
-    ConfidenceIntervalConfig,
-    MovingAverageConfig,
-    PointClickData,
-    Series,
-    TimeSeriesLineChartConfig,
-    TooltipContext,
-    TrendLineConfig,
-} from 'lib/hog-charts'
-import { ciRanges } from 'lib/statistics'
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
+import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -29,18 +20,20 @@ import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsChartClick } from '../handleTrendsChartClick'
-import { AnnotationsLayer } from './AnnotationsLayer'
-import { schemaGoalLinesToConfigs } from './goalLinesAdapter'
-import { TrendsAlertOverlays } from './TrendsAlertOverlays'
-import { buildTrendsYAxisConfig } from './trendsAxisFormat'
-import { buildTrendsSeries } from './trendsChartTransforms'
-import type { TrendsSeriesMeta } from './trendsSeriesMeta'
-import { TrendsTooltip } from './TrendsTooltip'
+import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
+import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { buildDerivedConfigs, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
 }
+
+const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -130,16 +123,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    const xTickFormatter = useMemo(
-        () =>
-            createXAxisTickCallback({
-                interval: interval ?? 'day',
-                allDays: currentPeriodResult?.days ?? [],
-                timezone,
-            }),
-        [interval, currentPeriodResult?.days, timezone]
-    )
-
     const yAxisConfig = useMemo(
         () =>
             buildTrendsYAxisConfig(trendsFilter, isPercentStackView, baseCurrency, {
@@ -156,97 +139,71 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const confidenceIntervals: ConfidenceIntervalConfig[] | undefined = useMemo(() => {
-        if (!showConfidenceIntervals || !indexedResults?.length) {
-            return undefined
-        }
-        const ci = (confidenceLevel ?? 95) / 100
-        return indexedResults.map((r) => {
-            const [lower, upper] = ciRanges(r.data, ci)
-            return { seriesKey: String(r.id), lower, upper }
-        })
-    }, [showConfidenceIntervals, confidenceLevel, indexedResults])
+    const derivedConfigs = useMemo(
+        () =>
+            buildDerivedConfigs(indexedResults ?? [], {
+                showConfidenceIntervals,
+                confidenceLevel,
+                showMovingAverage,
+                movingAverageIntervals,
+                showTrendLines,
+                isStickiness,
+                incompletenessOffsetFromEnd,
+                getHidden: getTrendsHidden,
+            }),
+        [
+            indexedResults,
+            showConfidenceIntervals,
+            confidenceLevel,
+            showMovingAverage,
+            movingAverageIntervals,
+            showTrendLines,
+            isStickiness,
+            incompletenessOffsetFromEnd,
+            getTrendsHidden,
+        ]
+    )
 
-    const movingAverage: MovingAverageConfig[] | undefined = useMemo(() => {
-        if (!showMovingAverage || movingAverageIntervals === undefined || !indexedResults?.length) {
-            return undefined
-        }
-        return indexedResults
-            .filter((r) => r.data.length >= movingAverageIntervals)
-            .map((r) => ({ seriesKey: String(r.id), window: movingAverageIntervals }))
-    }, [showMovingAverage, movingAverageIntervals, indexedResults])
-
-    const trendLines: TrendLineConfig[] | undefined = useMemo(() => {
-        if (!showTrendLines || !indexedResults?.length) {
-            return undefined
-        }
-        const out: TrendLineConfig[] = []
-        const includeMa = showMovingAverage && movingAverageIntervals !== undefined
-        for (const r of indexedResults) {
-            if (getTrendsHidden(r)) {
-                continue
-            }
-            const isActiveSeries = !r.compare || r.compare_label !== 'previous'
-            const isInProgress =
-                !isStickiness && incompletenessOffsetFromEnd !== undefined && incompletenessOffsetFromEnd < 0
-            const fitUpTo = isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
-            out.push({ seriesKey: String(r.id), kind: 'linear', fitUpTo })
-            if (includeMa && r.data.length >= movingAverageIntervals) {
-                out.push({
-                    seriesKey: `${r.id}-ma`,
-                    kind: 'linear',
-                    label: `${r.label ?? ''} (Moving avg)`,
-                })
-            }
-        }
-        return out.length ? out : undefined
-    }, [
-        showTrendLines,
-        showMovingAverage,
-        movingAverageIntervals,
-        indexedResults,
-        getTrendsHidden,
-        isStickiness,
-        incompletenessOffsetFromEnd,
-    ])
-
-    // Compare-previous dimming flows through `buildMainTrendsSeries` for now; a
-    // follow-up PR (the buildDerivedConfigs extraction) moves it to the library's
-    // `comparisonOf` pass. Visual parity preserved either way.
     const chartConfig: TimeSeriesLineChartConfig = useMemo(
         () => ({
             xAxis: {
-                tickFormatter: xTickFormatter,
+                timezone,
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
             },
             yAxis: yAxisConfig,
             valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
             goalLines: goalLineConfigs,
-            confidenceIntervals,
-            movingAverage,
-            trendLines,
+            ...derivedConfigs,
             percentStackView: isPercentStackView,
             showCrosshair: true,
-            tooltip: { pinnable: true, placement: 'top' },
+            tooltip: TOOLTIP_CONFIG,
         }),
         [
-            xTickFormatter,
+            timezone,
+            interval,
+            currentPeriodResult?.days,
             yAxisConfig,
             showValuesOnSeries,
             valueLabelFormatter,
             goalLineConfigs,
-            confidenceIntervals,
-            movingAverage,
-            trendLines,
+            derivedConfigs,
             isPercentStackView,
         ]
     )
 
+    const indexByResult = useMemo(() => {
+        const m = new Map<IndexedTrendResult, number>()
+        ;(indexedResults ?? []).forEach((r, i) => m.set(r, i))
+        return m
+    }, [indexedResults])
+
     const getYAxisId = useCallback(
         (r: IndexedTrendResult) => {
-            const idx = (indexedResults ?? []).indexOf(r)
+            const idx = indexByResult.get(r) ?? 0
             return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
         },
-        [indexedResults, showMultipleYAxes]
+        [indexByResult, showMultipleYAxes]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -355,13 +312,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     isHidden={getTrendsHidden}
                 />
             ) : null}
-            {showAnnotations && (
-                <AnnotationsLayer
-                    insightNumericId={insight.id || 'new'}
-                    dates={annotationsDates}
-                    xTickFormatter={xTickFormatter}
-                />
-            )}
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
         </TimeSeriesLineChart>
     )
 }

@@ -10,6 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -37,6 +38,30 @@ export const OAuthAuthorizeSuccess = ({ appName }: { appName: string }): JSX.Ele
             <div className="text-sm text-muted text-center">
                 <p>{appName} has been authorized.</p>
                 <p className="mt-2">You can close this window.</p>
+            </div>
+        </div>
+    )
+}
+
+export const OAuthAuthorizeRedirecting = ({
+    appName,
+    redirectUrl,
+}: {
+    appName: string
+    redirectUrl: string
+}): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center justify-center h-full gap-4 py-12 px-4">
+            <Spinner className="text-3xl" />
+            <div className="text-xl font-semibold">Redirecting to {appName}…</div>
+            <div className="text-sm text-muted text-center max-w-md">
+                <p>This usually only takes a moment.</p>
+                <p className="mt-2">
+                    Not redirected automatically? <Link to={redirectUrl}>Click here</Link>.
+                </p>
+                <p className="mt-2">
+                    If {appName} has already finished authorizing on your end, you can safely close this window.
+                </p>
             </div>
         </div>
     )
@@ -108,6 +133,8 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectDomain,
         requiredAccessLevel,
         authorizationComplete,
+        isRedirecting,
+        redirectUrl,
         scopesWereDefaulted,
         isMcpResource,
         resourceScopesLoading,
@@ -191,6 +218,10 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     if (authorizationComplete) {
         return <OAuthAuthorizeSuccess appName={oauthApplication.name} />
+    }
+
+    if (isRedirecting) {
+        return <OAuthAuthorizeRedirecting appName={oauthApplication.name} redirectUrl={redirectUrl} />
     }
 
     return (

@@ -46,7 +46,6 @@ depends_on = [
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",
-    "products.product_tours",
     "products.replay",
     "products.revenue_analytics",
     "products.surveys",
@@ -86,7 +85,6 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.product_tours",
-    "products.query_performance_ai",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
@@ -206,7 +204,6 @@ path = "products.error_tracking"
 depends_on = [
     "ee",
     "posthog",
-    "products.logs",
     "products.notifications",
 ]
 layer = "modules"
@@ -224,6 +221,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.event_definitions",
+    "products.notifications",
     "products.product_tours",
     "products.surveys",
 ]
@@ -344,6 +342,8 @@ layer = "modules"
 [[modules]]
 path = "products.platform_features"
 depends_on = [
+    "ee",
+    "posthog",
 ]
 layer = "modules"
 
@@ -374,8 +374,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.query_performance_ai"
-depends_on = [
-    "posthog",
+depends_on = ["products.tasks",
 ]
 layer = "modules"
 
@@ -409,7 +408,6 @@ layer = "modules"
 [[modules]]
 path = "products.slack_app"
 depends_on = [
-    "ee",
     "posthog",
     "products.dashboards",
 ]
@@ -491,7 +489,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -565,4 +563,18 @@ expose = [
 ]
 from = [
     "products.access_control",
+]
+
+[[modules]]
+path = "products.business_knowledge"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.business_knowledge",
 ]

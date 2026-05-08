@@ -46,14 +46,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -73,7 +69,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -153,7 +149,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `apns` - Apple Push
+ * * `anthropic` - Anthropic
+ * `apns` - Apple Push
  * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
@@ -191,6 +188,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Anthropic: 'anthropic',
     Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
@@ -416,7 +414,8 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 
 export type IntegrationsListParams = {
     /**
-     * * `apns` - Apple Push
+     * * `anthropic` - Anthropic
+     * `apns` - Apple Push
      * `azure-blob` - Azure Blob
      * `bing-ads` - Bing Ads
      * `clickup` - Clickup
@@ -465,6 +464,7 @@ export type IntegrationsListParams = {
 export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof IntegrationsListKind]
 
 export const IntegrationsListKind = {
+    Anthropic: 'anthropic',
     Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',

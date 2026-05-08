@@ -47,7 +47,7 @@ const AssistantTrendsBreakdownFilter = z.object({
             "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings."
         )
         .optional(),
-    breakdowns: z.array(AssistantMultipleBreakdownFilter).describe('Use this field to define breakdowns.'),
+    breakdowns: z.array(AssistantMultipleBreakdownFilter).max(3).describe('Use this field to define breakdowns.'),
 })
 
 const CompareFilter = z.object({
@@ -447,6 +447,7 @@ const AssistantTrendsGroupNode = z.object({
     name: z.string().describe('Display name for the combined series.').optional(),
     nodes: z
         .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
+        .min(2)
         .describe(
             "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time."
         ),
@@ -717,6 +718,7 @@ const AssistantFunnelsGroupNode = z.object({
     name: z.string().describe('Display name for the combined step.').optional(),
     nodes: z
         .array(z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]))
+        .min(2)
         .describe(
             'Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.'
         ),
@@ -1129,6 +1131,7 @@ const AssistantLifecycleQuery = z.object({
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
         .array(AssistantLifecycleSeriesNode)
+        .max(1)
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
@@ -1199,6 +1202,19 @@ const AssistantTrendsActorsQuery = z.object({
     source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
 })
 
+const AssistantLifecycleStatus = z.enum(['new', 'returning', 'resurrecting', 'dormant'])
+
+const AssistantLifecycleActorsQuery = z.object({
+    day: z
+        .string()
+        .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    source: AssistantLifecycleQuery.describe('The source lifecycle insight query whose bucket we are drilling into.'),
+    status: AssistantLifecycleStatus.describe(
+        "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+    ),
+})
+
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
@@ -1260,6 +1276,16 @@ const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
 })
 
 const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryLifecycleActorsSchema = AssistantLifecycleActorsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
         .default('optimized')
@@ -1337,6 +1363,14 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
         schema: QueryTrendsActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+        mcpVersion: 2,
+    }),
+    'query-lifecycle-actors': createQueryWrapper({
+        name: 'query-lifecycle-actors',
+        schema: QueryLifecycleActorsSchema,
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
