@@ -26,7 +26,7 @@ Map intent to table:
 
 Search rules:
 
-1. **Discover columns first.** Before the first `execute-sql` against any `system.*` table, call `read-data-warehouse-schema` to confirm the table's columns. Column sets differ per table (not every entity has `last_modified_at`, `description`, or `short_id`) and drift over time — guessing produces queries that fail or silently return wrong rows. One `read-data-warehouse-schema` call covers the whole search session.
+1. **Discover columns first — every run, no shortcuts.** Before the first `execute-sql` against any `system.*` table, call `read-data-warehouse-schema` to confirm the table's columns. Column sets differ per table (not every entity has `last_modified_at`, `description`, or `short_id`) and drift over time — guessing produces queries that fail or silently return wrong rows. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — call the tool. One `read-data-warehouse-schema` call covers the whole search session.
 2. **One query, multiple columns.** Combine `name ILIKE '%term%' OR description ILIKE '%term%'` rather than running separate queries — using only columns confirmed in step 1.
 3. **Filter `NOT deleted`** — every `system.*` table has soft-deletes.
 4. **Order by recency** (`last_modified_at DESC` or `created_at DESC`, whichever the schema confirms) and `LIMIT 20-50` so the most relevant rows surface first.
@@ -45,6 +45,12 @@ Assistant: [Calls `read-data-warehouse-schema` once to confirm `system.insights`
 User: Find me a graph of MAUs.
 Assistant: [Calls `execute-sql` with `SELECT * FROM system.insights WHERE id = 33800 LIMIT 1` after a search SELECT already surfaced id 33800]
 WRONG — verify with `insight-get` (passing `id: 33800`) instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
+</bad-example>
+
+<bad-example>
+User: rename the MAU insight…
+Assistant: [Calls `execute-sql` against `system.insights` directly, OR reads `models-dashboards-insights.md` from a skill and treats that as the schema, then calls `execute-sql`]
+WRONG — both paths skip the mandatory `read-data-warehouse-schema` call. Skill docs are documentation, not a substitute; guessing columns that happen to exist is luck, not correctness. Call `read-data-warehouse-schema` BEFORE the first `execute-sql` against `system.*`, every run.
 </bad-example>
 
 #### Available insight query tools
