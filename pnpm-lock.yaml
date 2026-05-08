@@ -3088,6 +3088,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/replay_vision: {}
+
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
