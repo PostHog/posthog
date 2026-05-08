@@ -62,7 +62,7 @@ def print_collection_summary(traces, metadata):
     print(f"  Total latency: {sum(as_float(t.get('totalLatency')) for t in traces):.2f}s")
     print(f"  Total cost: ${sum(as_float(t.get('totalCost')) for t in traces):.6f}")
     print(f"  Tokens in: {int(sum(as_float(t.get('inputTokens')) for t in traces))}")
-    print(f"  Tokens out:{int(sum(as_float(t.get('outputTokens')) for t in traces))}")
+    print(f"  Tokens out: {int(sum(as_float(t.get('outputTokens')) for t in traces))}")
     print(f"  Errors:    {int(sum(as_float(t.get('errorCount')) for t in traces))}")
     if metadata.get("_posthogUrl"):
         print(f"  PostHog URL: {metadata['_posthogUrl']}")
