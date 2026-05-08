@@ -618,9 +618,9 @@ def create_url_source(
     try:
         result, title, text = _fetch_and_parse(normalized, etag=None)
     except (UrlFetchFailedError, EmptyContentError) as exc:
-        # Create the source in ERROR state so the user can see what happened
-        # and retry via refresh. Keeping it visible is better UX than a
-        # silent 4xx that vanishes.
+        # Create the source in ERROR state so the user can see it, retry via
+        # refresh, or delete it. Returning 201 with an error-state source is
+        # better UX than a 400 that orphans a row the client has no ID for.
         with transaction.atomic():
             now = timezone.now()
             source = KnowledgeSource.objects.create(
@@ -635,7 +635,7 @@ def create_url_source(
                 last_refresh_status=RefreshStatus.ERROR,
                 last_refresh_error=str(exc),
             )
-        raise UrlFetchFailedError(str(exc)) from exc
+        return get_for_team(source.id, team_id) or source
 
     content_hash = sha256_of(text)
     with transaction.atomic():
@@ -922,11 +922,10 @@ def create_crawl_source(
     ok_outcomes = [o for o in outcomes if o.status == "ok"]
 
     if not ok_outcomes:
-        # Persist the failure so the UI has something to show.
         now = timezone.now()
         first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
         with transaction.atomic():
-            KnowledgeSource.objects.create(
+            source = KnowledgeSource.objects.create(
                 team_id=team_id,
                 created_by_id=created_by_id,
                 name=name,
@@ -940,7 +939,7 @@ def create_crawl_source(
                 last_refresh_status=RefreshStatus.ERROR,
                 last_refresh_error=first_error,
             )
-        raise UrlFetchFailedError(first_error)
+        return get_for_team(source.id, team_id) or source
 
     # Pre-chunk budget estimate. We still do the post-insert exact check
     # inside the transaction.

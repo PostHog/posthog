@@ -11,8 +11,6 @@ Security notes:
 - ZIP-based formats (DOCX) are checked for decompressed size before parsing
   to guard against zip bombs.
 - Encrypted PDFs are rejected with a clear error.
-- pypdf and python-docx are imported lazily so the module loads fast when
-  only text/URL sources are in use.
 """
 
 from __future__ import annotations
@@ -89,10 +87,12 @@ def detect_content_type(data: bytes, filename: str) -> str:
         return "application/pdf"
 
     if data[:2] == b"PK":
+        _check_zip_bomb(data)
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 if "[Content_Types].xml" in zf.namelist():
-                    ct = zf.read("[Content_Types].xml").decode("utf-8", errors="replace")
+                    with zf.open("[Content_Types].xml") as ct_file:
+                        ct = ct_file.read(4096).decode("utf-8", errors="replace")
                     if "wordprocessingml" in ct:
                         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         except (zipfile.BadZipFile, KeyError, OSError):
@@ -187,8 +187,6 @@ def _parse_pdf(data: bytes, filename: str) -> ParsedFile:
 
 
 def _parse_docx(data: bytes, filename: str) -> ParsedFile:
-    _check_zip_bomb(data)
-
     try:
         doc = Document(io.BytesIO(data))
     except PackageNotFoundError as exc:

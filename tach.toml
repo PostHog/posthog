@@ -60,6 +60,7 @@ depends_on = [
     "products.access_control",
     "products.analytics_platform",
     "products.batch_exports",
+    "products.business_knowledge",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -573,7 +574,7 @@ layer = "modules"
 expose = [
     "backend\\.api.*",
     "backend\\.logic.*",
-    "backend\\.enums.*",
+    "backend\\.constants.*",
     "backend\\.models.*",
 ]
 from = [
