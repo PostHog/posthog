@@ -21,7 +21,6 @@ from products.business_knowledge.backend import url_fetch
 from products.business_knowledge.backend.logic import (
     InvalidUrlError,
     SourceBusyError,
-    UrlFetchFailedError,
     create_url_source,
     refresh_source,
 )
@@ -180,18 +179,15 @@ class TestCreateUrlSource(BaseTest):
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
     def test_fetch_failure_persists_error_source(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
         mock_fetch.side_effect = url_fetch.UrlFetchError("Remote responded with status 503.")
-        with self.assertRaises(UrlFetchFailedError):
-            create_url_source(
-                team_id=self.team.id,
-                created_by_id=self.user.id,
-                name="Flaky",
-                url="https://flaky.example.com/",
-            )
-        # We want users to see the failed source in the UI, not have it
-        # silently vanish.
-        errored = KnowledgeSource.objects.get(team=self.team, name="Flaky")
-        assert errored.status == SourceStatus.ERROR
-        assert errored.last_refresh_status == RefreshStatus.ERROR
+        source = create_url_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Flaky",
+            url="https://flaky.example.com/",
+        )
+        assert source.status == SourceStatus.ERROR
+        assert source.last_refresh_status == RefreshStatus.ERROR
+        assert source.error_message == "Remote responded with status 503."
 
 
 class TestRefreshSource(BaseTest):

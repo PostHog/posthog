@@ -697,9 +697,30 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
         source.status = SourceStatus.PROCESSING
         source.save(update_fields=["status", "updated_at"])
 
-    if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
-        return _refresh_crawl_source(source=source, team_id=team_id)
-    return _refresh_single_source(source=source, team_id=team_id)
+    try:
+        if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
+            return _refresh_crawl_source(source=source, team_id=team_id)
+        return _refresh_single_source(source=source, team_id=team_id)
+    except QuotaExceededError:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
+            fresh.last_refresh_at = timezone.now()
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = "Quota exceeded"
+            if fresh.status == SourceStatus.ERROR:
+                fresh.error_message = "Quota exceeded"
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+        raise
 
 
 def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
