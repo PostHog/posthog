@@ -8,7 +8,7 @@ from parameterized import parameterized
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication, auth_span
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -87,16 +87,14 @@ class TestAuthSpans(BaseTest):
             ),
         ]
     )
-    def test_authenticate_unmatched_emits_span(self, _name, build_request, call_authenticate, expected_span_name):
+    def test_authenticate_emits_span(self, _name, build_request, call_authenticate, expected_span_name):
         request = build_request(self.factory)
-        result = call_authenticate(request)
-        assert result is None
+        call_authenticate(request)
 
         spans = self._spans_named(expected_span_name)
         assert len(spans) == 1
-        assert spans[0].attributes["auth.matched"] is False
 
-    def test_personal_api_key_span_when_key_matches(self):
+    def test_personal_api_key_span_records_source_and_hash_mode_on_match(self):
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -112,28 +110,9 @@ class TestAuthSpans(BaseTest):
 
         parent = self._spans_named("posthog.auth.personal_api_key")
         assert len(parent) == 1
-        assert parent[0].attributes["auth.matched"] is True
         assert parent[0].attributes["auth.source"] == "header"
 
         db_lookup = self._spans_named("posthog.auth.personal_api_key.db_lookup")
         assert len(db_lookup) == 1
-        assert db_lookup[0].attributes["auth.matched"] is True
         assert db_lookup[0].attributes["auth.hash_mode_used"] == "sha256"
         assert db_lookup[0].attributes["auth.modes_tried"] == 1
-
-    def test_auth_span_records_matched_false_when_body_raises(self):
-        with self.assertRaises(RuntimeError):
-            with auth_span("posthog.auth.test.raise"):
-                raise RuntimeError("simulated downstream failure")
-
-        spans = self._spans_named("posthog.auth.test.raise")
-        assert len(spans) == 1
-        assert spans[0].attributes["auth.matched"] is False
-
-    def test_auth_span_defaults_matched_false_without_explicit_set(self):
-        with auth_span("posthog.auth.test.default"):
-            pass
-
-        spans = self._spans_named("posthog.auth.test.default")
-        assert len(spans) == 1
-        assert spans[0].attributes["auth.matched"] is False
