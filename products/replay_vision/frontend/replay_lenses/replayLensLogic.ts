@@ -97,7 +97,7 @@ export const replayLensLogic = kea<replayLensLogicType>([
                     if (props.id === 'new') {
                         // nosemgrep: prefer-codegen-api
                         const response = await api.create(`/api/environments/${teamId}/vision/lenses/`, lens)
-                        router.actions.replace(urls.replayLens(response.id))
+                        router.actions.replace(urls.replayVision(response.id))
                         lemonToast.success('Lens created')
                     } else {
                         // nosemgrep: prefer-codegen-api
@@ -213,7 +213,10 @@ export const replayLensLogic = kea<replayLensLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         actions.loadLens()
+        if (props.id !== 'new') {
+            actions.loadObservations()
+        }
     }),
 ])

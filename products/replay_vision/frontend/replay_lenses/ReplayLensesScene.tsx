@@ -97,7 +97,7 @@ export function ReplayLensesScene(): JSX.Element {
             sorter: (a, b) => a.name.localeCompare(b.name),
             render: (_, lens) => (
                 <div className="flex flex-col">
-                    <Link to={urls.replayLens(lens.id)} className="font-semibold text-primary">
+                    <Link to={urls.replayVision(lens.id)} className="font-semibold text-primary">
                         {lens.name || '(untitled)'}
                     </Link>
                     {lens.description && <div className="text-muted text-sm">{lens.description}</div>}
@@ -160,7 +160,7 @@ export function ReplayLensesScene(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(urls.replayLens(lens.id))}
+                            onClick={() => push(urls.replayVision(lens.id))}
                             tooltip="Edit"
                         />
                     </AccessControlAction>
@@ -222,7 +222,7 @@ export function ReplayLensesScene(): JSX.Element {
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={() => push(urls.replayLens('new'))}
+                            onClick={() => push(urls.replayVision('new'))}
                             data-attr="create-replay-lens"
                         >
                             New lens
@@ -278,7 +278,7 @@ export function ReplayLensesScene(): JSX.Element {
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
-                                    onClick={() => push(urls.replayLens('new'))}
+                                    onClick={() => push(urls.replayVision('new'))}
                                 >
                                     Create your first lens
                                 </LemonButton>

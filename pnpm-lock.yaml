@@ -707,6 +707,9 @@ importers:
       '@posthog/products-replay':
         specifier: workspace:*
         version: link:../products/replay
+      '@posthog/products-replay-vision':
+        specifier: workspace:*
+        version: link:../products/replay_vision
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics

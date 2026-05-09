@@ -8,7 +8,7 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'ReplayVision',
     scenes: {
-        ReplayLenses: {
+        ReplayVision: {
             name: 'Replay vision',
             import: () => import('./frontend/replay_lenses/ReplayLensesScene'),
             projectBased: true,
@@ -17,8 +17,8 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
-        ReplayLens: {
-            name: 'Lens',
+        ReplayVisionLens: {
+            name: 'Replay vision lens',
             import: () => import('./frontend/replay_lenses/ReplayLens'),
             projectBased: true,
             iconType: 'replay_vision',
@@ -26,15 +26,14 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/replay-lenses': ['ReplayLenses', 'replayLenses'],
-        '/replay-lenses/:id': ['ReplayLens', 'replayLens'],
+        '/replay-vision': ['ReplayVision', 'replayVision'],
+        '/replay-vision/:id': ['ReplayVisionLens', 'replayVision'],
     },
     redirects: {},
     urls: {
-        replayLenses: (): string => '/replay-lenses',
-        replayLens:
-            /** @param id A UUID or 'new'. */
-            (id: string): string => `/replay-lenses/${id}`,
+        replayVision:
+            /** @param id A UUID or 'new'. Omit for the lens list page. */
+            (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -49,10 +48,10 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-light)',
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
-            href: urls.replayLenses(),
+            href: urls.replayVision(),
             tags: ['alpha'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
-            sceneKey: 'ReplayLenses',
+            sceneKey: 'ReplayVision',
         },
     ],
 }

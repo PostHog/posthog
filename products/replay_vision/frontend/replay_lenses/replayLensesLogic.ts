@@ -233,7 +233,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
 
     tabAwareActionToUrl(({ values }) => {
         const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => [
-            urls.replayLenses(),
+            urls.replayVision(),
             {
                 ...router.values.searchParams,
                 search: values.search || undefined,
@@ -252,7 +252,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.replayLenses()]: (_, searchParams) => {
+        [urls.replayVision()]: (_, searchParams) => {
             const search = typeof searchParams.search === 'string' ? searchParams.search : ''
             if (search !== values.search) {
                 actions.setSearch(search)

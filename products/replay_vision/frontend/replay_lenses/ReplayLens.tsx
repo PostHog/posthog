@@ -130,7 +130,7 @@ export function ReplayLensSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <div className="flex gap-2">
-                        <LemonButton type="tertiary" onClick={() => push(urls.replayLenses())}>
+                        <LemonButton type="tertiary" onClick={() => push(urls.replayVision())}>
                             Cancel
                         </LemonButton>
                         {!isNew && hasUnsavedChanges && originalLens && (

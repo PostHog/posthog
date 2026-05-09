@@ -42,7 +42,7 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
         setActiveTab: () => {
             const tab = values.activeTab === 'configuration' ? undefined : values.activeTab
             return [
-                urls.replayLens(values.lensId),
+                urls.replayVision(values.lensId),
                 { ...router.values.searchParams, tab },
                 undefined,
                 { replace: true },
@@ -51,7 +51,7 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
     })),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.replayLens(':id')]: ({ id }, searchParams) => {
+        [urls.replayVision(':id')]: ({ id }, searchParams) => {
             const lensId = id || 'new'
             if (lensId !== values.lensId) {
                 actions.setLensId(lensId)
