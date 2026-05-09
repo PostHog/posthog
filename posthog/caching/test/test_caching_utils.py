@@ -1,16 +1,24 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.caching.utils import IN_A_DAY, RECENTLY_ACCESSED_TEAMS_REDIS_KEY, is_team_active
+from posthog.caching.utils import (
+    IN_A_DAY,
+    RECENTLY_ACCESSED_TEAMS_POPULATED_KEY,
+    RECENTLY_ACCESSED_TEAMS_REDIS_KEY,
+    active_teams,
+    is_team_active,
+)
 from posthog.redis import get_client
 
 
 @pytest.fixture(autouse=True)
-def clear_redis_key():
+def clear_redis_keys():
     redis = get_client()
     redis.delete(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
+    redis.delete(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
     yield
     redis.delete(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
+    redis.delete(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
 
 
 @pytest.mark.parametrize(
@@ -25,6 +33,7 @@ def clear_redis_key():
 def test_is_team_active_with_existing_key(members, expected):
     redis = get_client()
     redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, members)
+    redis.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1")
 
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
         assert is_team_active(42) is expected
@@ -39,21 +48,61 @@ def test_is_team_active_populates_when_key_missing():
 
 
 def test_is_team_active_returns_false_when_clickhouse_empty():
-    redis = get_client()
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
         mock_sync_execute.return_value = []
         assert is_team_active(42) is False
-        # no populate should have happened — key still missing, no TTL set
-        assert not redis.exists(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
+        mock_sync_execute.assert_called_once()
 
 
-def test_populate_sets_24h_ttl():
+def test_is_team_active_caches_empty_clickhouse_result():
+    """Regression: signal-fired sync_insight_caching_state used to re-run the SELECT for
+    every firing on a team without recent events because empty results weren't cached."""
+    redis = get_client()
+    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
+        mock_sync_execute.return_value = []
+
+        assert is_team_active(42) is False
+        assert is_team_active(43) is False
+        assert is_team_active(44) is False
+
+        # One ClickHouse roundtrip serves all three lookups.
+        assert mock_sync_execute.call_count == 1
+        # And the populated marker outlives the empty zset (which never gets created).
+        assert redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
+
+
+def test_active_teams_caches_empty_clickhouse_result():
+    """Same regression as is_team_active, on the batch-iteration path."""
+    redis = get_client()
+    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
+        mock_sync_execute.return_value = []
+
+        assert active_teams() == set()
+        assert active_teams() == set()
+
+        assert mock_sync_execute.call_count == 1
+        assert redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
+
+
+def test_populate_sets_24h_ttl_on_both_keys():
     redis = get_client()
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
         mock_sync_execute.return_value = [(42, 10.0), (43, 20.0)]
         is_team_active(42)
 
-    ttl = redis.ttl(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
-    # TTL is approximate due to the brief gap between EXPIRE and TTL calls
+    for key in (RECENTLY_ACCESSED_TEAMS_REDIS_KEY, RECENTLY_ACCESSED_TEAMS_POPULATED_KEY):
+        ttl = redis.ttl(key)
+        # TTL is approximate due to the brief gap between EXPIRE and TTL calls
+        assert 0 < ttl <= IN_A_DAY, f"{key} ttl={ttl}"
+        assert ttl >= IN_A_DAY - 5, f"{key} ttl={ttl}"
+
+
+def test_populate_sets_24h_ttl_on_marker_when_clickhouse_empty():
+    redis = get_client()
+    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
+        mock_sync_execute.return_value = []
+        is_team_active(42)
+
+    ttl = redis.ttl(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
     assert 0 < ttl <= IN_A_DAY
     assert ttl >= IN_A_DAY - 5

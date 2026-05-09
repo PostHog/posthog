@@ -13,6 +13,9 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS"
+# Companion marker key so we remember "we already populated, the answer was empty" without
+# storing a sentinel into the zset (which would leak into `active_teams()` iteration).
+RECENTLY_ACCESSED_TEAMS_POPULATED_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS_POPULATED"
 
 IN_A_DAY = 86_400
 
@@ -51,11 +54,14 @@ def _populate_active_teams(redis) -> dict[int, float]:
         ORDER BY age;
     """
     )
-    if not teams_by_recency:
-        return {}
     teams = dict(teams_by_recency)
-    redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
-    redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
+    if teams:
+        redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
+        redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
+    # Always set the "populated" marker, even when the query returned nothing. Otherwise
+    # signal-fired hot-path callers re-run the SELECT for every signal firing on every
+    # team that has no recent events.
+    redis.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=IN_A_DAY)
     return teams
 
 
@@ -69,9 +75,10 @@ def is_team_active(team_id: int) -> bool:
     score = redis.zscore(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, team_id)
     if score is not None:
         return True
-    # ZSCORE None: either the team isn't recently active, or the key has expired /
-    # doesn't exist yet. EXISTS disambiguates.
-    if redis.exists(RECENTLY_ACCESSED_TEAMS_REDIS_KEY):
+    # ZSCORE None: either the team isn't recently active, or we haven't populated yet.
+    # The populated marker disambiguates without re-querying ClickHouse — and crucially
+    # exists even when the populated zset would be empty.
+    if redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY):
         return False
     populated = _populate_active_teams(redis)
     return team_id in populated
@@ -93,11 +100,12 @@ def active_teams() -> set[int]:
     """
     redis = get_client()
     all_teams: list[tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
-    if not all_teams:
-        teams = _populate_active_teams(redis)
-        return set(teams.keys())
-
-    return {int(team_id) for team_id, _ in all_teams}
+    if all_teams:
+        return {int(team_id) for team_id, _ in all_teams}
+    if redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY):
+        return set()
+    teams = _populate_active_teams(redis)
+    return set(teams.keys())
 
 
 def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:
