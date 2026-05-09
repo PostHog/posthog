@@ -1882,13 +1882,13 @@ function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrac
                     label: 'Copy to clipboard',
                     icon: <IconCopy />,
                     onClick: () => void exportTraceToClipboard(trace, tree),
-                    'data-attr': 'copy-trace-json',
+                    'data-attr': 'llma-trace-share-copy',
                 },
                 {
                     label: 'Download file',
                     icon: <IconDownload />,
                     onClick: () => exportTraceToFile(trace, tree),
-                    'data-attr': 'download-trace-json',
+                    'data-attr': 'llma-trace-share-download',
                 },
             ]}
             placement="bottom-end"
@@ -1899,7 +1899,7 @@ function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrac
                 icon={<IconShare />}
                 sideIcon={<IconChevronDown />}
                 tooltip="Share trace JSON"
-                data-attr="share-trace-json"
+                data-attr="llma-trace-share-button"
             >
                 Share
             </LemonButton>
