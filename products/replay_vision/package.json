@@ -2,5 +2,16 @@
     "name": "@posthog/products-replay-vision",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "react": "*",
+        "typescript": "*"
     }
 }

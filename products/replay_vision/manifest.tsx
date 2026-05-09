@@ -1,23 +1,56 @@
-/**
- * Product manifest for replay_vision.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
-import { ProductManifest } from '../../frontend/src/types'
+import { urls } from 'scenes/urls'
+
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'ReplayVision',
     scenes: {
-        // Define scenes here
+        ReplayLenses: {
+            name: 'Replay vision',
+            import: () => import('./frontend/replay_lenses/ReplayLensesScene'),
+            projectBased: true,
+            description:
+                'Configure named lenses that PostHog applies to completed session recordings. Results land as queryable events.',
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayLens: {
+            name: 'Lens',
+            import: () => import('./frontend/replay_lenses/ReplayLens'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
     },
     routes: {
-        // Define routes here
+        '/replay-lenses': ['ReplayLenses', 'replayLenses'],
+        '/replay-lenses/:id': ['ReplayLens', 'replayLens'],
     },
     redirects: {},
     urls: {
-        // Define URL helpers here
+        replayLenses: (): string => '/replay-lenses',
+        replayLens:
+            /** @param id A UUID or 'new'. */
+            (id: string): string => `/replay-lenses/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Replay vision',
+            category: ProductItemCategory.BEHAVIOR,
+            intents: [ProductKey.REPLAY_VISION],
+            type: 'replay_vision',
+            iconType: 'replay_vision' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-session-replay-light)',
+                'var(--color-product-session-replay-dark)',
+            ] as FileSystemIconColor,
+            href: urls.replayLenses(),
+            tags: ['alpha'],
+            sceneKey: 'ReplayLenses',
+        },
+    ],
 }
