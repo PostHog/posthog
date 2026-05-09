@@ -41,9 +41,10 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         setQuery: ({ query }) => {
-            actions.setSavedQueryForTab(props.tabId, 'sessions', query)
+            const isDefault = objectsEqual(query, values.defaultQuery)
+            actions.setSavedQueryForTab(props.tabId, 'sessions', isDefault ? null : query)
         },
     })),
     selectors({

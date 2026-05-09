@@ -19,7 +19,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
             rowIndex,
         }),
         clearTabUiState: (tabId: string) => ({ tabId }),
-        setSavedQueryForTab: (tabId: string | undefined, sceneKey: string, query: Node) => ({
+        setSavedQueryForTab: (tabId: string | undefined, sceneKey: string, query: Node | null) => ({
             tabId: tabId ?? NO_TAB,
             sceneKey,
             query,
@@ -54,10 +54,27 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
         savedQueriesByTabAndScene: [
             {} as SavedQueriesByTabAndScene,
             {
-                setSavedQueryForTab: (state, { tabId, sceneKey, query }) => ({
-                    ...state,
-                    [tabId]: { ...state[tabId], [sceneKey]: query },
-                }),
+                setSavedQueryForTab: (state, { tabId, sceneKey, query }) => {
+                    if (query === null) {
+                        // Clear: drop the scene slot, and the whole tab entry if it becomes empty.
+                        const tabState = state[tabId]
+                        if (!tabState || !(sceneKey in tabState)) {
+                            return state
+                        }
+                        const nextTabState = { ...tabState }
+                        delete nextTabState[sceneKey]
+                        if (Object.keys(nextTabState).length === 0) {
+                            const next = { ...state }
+                            delete next[tabId]
+                            return next
+                        }
+                        return { ...state, [tabId]: nextTabState }
+                    }
+                    return {
+                        ...state,
+                        [tabId]: { ...state[tabId], [sceneKey]: query },
+                    }
+                },
                 clearTabUiState: (state, { tabId }) => {
                     if (!(tabId in state)) {
                         return state

@@ -211,7 +211,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
+            if (values.mode === 'idle') {
+                actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
+            }
         },
         returnToIdle: () => {
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')

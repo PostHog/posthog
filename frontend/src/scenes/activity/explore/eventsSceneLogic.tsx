@@ -45,9 +45,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         setQuery: ({ query }) => {
-            actions.setSavedQueryForTab(props.tabId, 'events', query)
+            const isDefault = objectsEqual(query, values.defaultQuery)
+            actions.setSavedQueryForTab(props.tabId, 'events', isDefault ? null : query)
         },
     })),
     selectors({
