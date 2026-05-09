@@ -17,6 +17,7 @@ import type {
     ElementApi,
     ElementsListParams,
     InsightApi,
+    InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
     InsightsAnalyzeRetrieveParams,
@@ -902,12 +903,11 @@ export const getInsightsViewedCreateUrl = (projectId: string, params?: InsightsV
 }
 
 /**
- * Update insight view timestamps.
-Expects: {"insight_ids": [1, 2, 3, ...]}
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreate = async (
     projectId: string,
-    insightApi?: NonReadonly<InsightApi>,
+    insightViewedRequestApi: InsightViewedRequestApi,
     params?: InsightsViewedCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -915,6 +915,6 @@ export const insightsViewedCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightApi),
+        body: JSON.stringify(insightViewedRequestApi),
     })
 }

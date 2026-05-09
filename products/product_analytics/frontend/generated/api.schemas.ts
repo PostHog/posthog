@@ -7091,6 +7091,11 @@ export interface PaginatedTrendingInsightListApi {
     results: TrendingInsightApi[]
 }
 
+export interface InsightViewedRequestApi {
+    /** Insight IDs that were just viewed by the current user. */
+    insight_ids: number[]
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
