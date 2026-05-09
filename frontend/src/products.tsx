@@ -1722,6 +1722,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.replayLenses(),
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.REPLAY_VISION,
         sceneKey: 'ReplayLenses',
         sceneKeys: ['ReplayLenses', 'ReplayLens'],
     },

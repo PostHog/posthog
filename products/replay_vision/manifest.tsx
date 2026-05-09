@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -50,6 +51,7 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             href: urls.replayLenses(),
             tags: ['alpha'],
+            flag: FEATURE_FLAGS.REPLAY_VISION,
             sceneKey: 'ReplayLenses',
         },
     ],
