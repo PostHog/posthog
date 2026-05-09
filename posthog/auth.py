@@ -5,6 +5,9 @@ import hashlib
 import logging
 import functools
 from abc import abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse
@@ -63,6 +66,40 @@ logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
+
+
+@dataclass
+class _AuthSpanRecorder:
+    """Recorder yielded by `auth_span`. Default `matched=False`; the success path
+    sets `matched=True`. Use `set_attribute` to add auth-class-specific attributes.
+    """
+
+    span: trace.Span
+    matched: bool = False
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.span.set_attribute(key, value)
+
+
+@contextmanager
+def auth_span(name: str) -> Iterator[_AuthSpanRecorder]:
+    """Wrap a DRF `authenticate()` body so `auth.matched` is recorded exactly once.
+
+    Default is `matched=False`; the call site sets `recorder.matched = True` only
+    on the success path. Exceptions automatically record `matched=False` before
+    propagating — a credential was found and rejected, so we still report the
+    span attribute consistently with the non-exception paths.
+    """
+    with tracer.start_as_current_span(name) as span:
+        recorder = _AuthSpanRecorder(span=span)
+        try:
+            yield recorder
+        except BaseException:
+            span.set_attribute("auth.matched", False)
+            raise
+        else:
+            span.set_attribute("auth.matched", recorder.matched)
+
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
@@ -161,17 +198,16 @@ class SessionAuthentication(authentication.SessionAuthentication):
     """
 
     def authenticate(self, request):
-        with tracer.start_as_current_span("posthog.auth.session") as span:
+        with auth_span("posthog.auth.session") as a:
             auth_result = super().authenticate(request)
 
             if not auth_result:
-                span.set_attribute("auth.matched", False)
                 return None
 
             user, auth = auth_result
             enforce_two_factor(request, user)
 
-            span.set_attribute("auth.matched", True)
+            a.matched = True
             return (user, auth)
 
     def authenticate_header(self, request):
@@ -292,14 +328,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return personal_api_key_object
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        with tracer.start_as_current_span("posthog.auth.personal_api_key") as span:
+        with auth_span("posthog.auth.personal_api_key") as a:
             personal_api_key_with_source = self.find_key_with_source(request)
             if not personal_api_key_with_source:
-                span.set_attribute("auth.matched", False)
                 return None
 
             _, source = personal_api_key_with_source
-            span.set_attribute("auth.source", source)
+            a.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
@@ -324,7 +359,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
 
-            span.set_attribute("auth.matched", True)
+            a.matched = True
             return personal_api_key_object.user, None
 
     @classmethod
@@ -426,7 +461,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        with tracer.start_as_current_span("posthog.auth.jwt") as span:
+        with auth_span("posthog.auth.jwt") as a:
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
                 if authorization_match:
@@ -434,20 +469,17 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
-                        span.set_attribute("auth.matched", True)
+                        a.matched = True
                         return (user, None)
                     except jwt.DecodeError:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
-                        span.set_attribute("auth.matched", False)
                         return None
                     except Exception:
                         raise AuthenticationFailed(detail=f"Token invalid.")
                 else:
                     # We don't throw so that the PersonalAPIKeyAuthentication can have a go
-                    span.set_attribute("auth.matched", False)
                     return None
 
-            span.set_attribute("auth.matched", False)
             return None
 
     @classmethod
@@ -616,11 +648,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     access_token: OAuthAccessToken
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        with tracer.start_as_current_span("posthog.auth.oauth") as span:
+        with auth_span("posthog.auth.oauth") as a:
             authorization_token = self._extract_token(request)
 
             if not authorization_token:
-                span.set_attribute("auth.matched", False)
                 return None
 
             try:
@@ -637,14 +668,12 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     access_method="oauth",
                 )
 
-                span.set_attribute("auth.matched", True)
+                a.matched = True
                 return access_token.user, None
 
             except AuthenticationFailed:
-                span.set_attribute("auth.matched", False)
                 raise
             except Exception:
-                span.set_attribute("auth.matched", False)
                 raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:

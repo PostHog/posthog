@@ -8,7 +8,7 @@ from parameterized import parameterized
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication, auth_span
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -117,3 +117,20 @@ class TestAuthSpans(BaseTest):
         assert db_lookup[0].attributes["auth.matched"] is True
         assert db_lookup[0].attributes["auth.hash_mode_used"] == "sha256"
         assert db_lookup[0].attributes["auth.modes_tried"] == 1
+
+    def test_auth_span_records_matched_false_when_body_raises(self):
+        with self.assertRaises(RuntimeError):
+            with auth_span("posthog.auth.test.raise"):
+                raise RuntimeError("simulated downstream failure")
+
+        spans = self._spans_named("posthog.auth.test.raise")
+        assert len(spans) == 1
+        assert spans[0].attributes["auth.matched"] is False
+
+    def test_auth_span_defaults_matched_false_without_explicit_set(self):
+        with auth_span("posthog.auth.test.default"):
+            pass
+
+        spans = self._spans_named("posthog.auth.test.default")
+        assert len(spans) == 1
+        assert spans[0].attributes["auth.matched"] is False
