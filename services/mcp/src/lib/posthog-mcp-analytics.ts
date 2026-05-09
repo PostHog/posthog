@@ -7,9 +7,10 @@ export type PostHogMcpAnalyticsIdentityProvider = McpCatIdentityProvider
 
 export type PostHogMcpAnalyticsOptions = {
     contextEnabled: boolean
-    // Gate `get_more_tools` registration on single-exec mode. Outside single-exec
-    // the model already sees every tool individually, so the extra discovery tool
-    // is just noise — keep it tied to the `exec` wrapper where it earns its keep.
+    // Gate `get_more_tools` registration on non-single-exec mode. With the full
+    // tool roster registered, a missing-tool report maps to a real gap in the
+    // catalog. In single-exec mode the wrapper handles every call, so the
+    // signal has nothing to map to and the extra slot is just noise.
     reportMissingEnabled: boolean
 }
 
