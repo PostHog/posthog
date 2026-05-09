@@ -173,7 +173,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayLens
-                              |ReplayLensObservation
+                              |ReplayObservation
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -385,7 +385,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayLens
-                        |ReplayLensObservation
+                        |ReplayObservation
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
