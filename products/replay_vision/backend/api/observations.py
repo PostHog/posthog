@@ -11,7 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.lenses import VISION_TAG
+from products.replay_vision.backend.api.tags import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_lens import ReplayLens
 from products.replay_vision.backend.models.replay_observation import (

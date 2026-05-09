@@ -1,21 +1,30 @@
 from typing import Any, NoReturn, cast
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import QuerySet
 
 import django_filters
+from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
+from posthog.temporal.common.client import async_connect
 
+from products.replay_vision.backend.api.observations import ReplayObservationSerializer
+from products.replay_vision.backend.api.tags import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType, ReplayLens
-
-VISION_TAG = "replay_vision"
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.temporal.types import ApplyLensInputs
 
 
 class ReplayLensSerializer(serializers.ModelSerializer):
@@ -185,3 +194,54 @@ class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayLens]) -> QuerySet[ReplayLens]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+
+    @extend_schema(
+        request=inline_serializer(
+            "ObserveLensRequest",
+            {
+                "session_id": serializers.CharField(
+                    max_length=200, help_text="Session recording id to apply this lens to."
+                )
+            },
+        ),
+        responses={201: ReplayObservationSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="observe")
+    def observe(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lens = self.get_object()
+        session_id = request.data.get("session_id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise serializers.ValidationError({"session_id": "session_id is required and must be a non-empty string."})
+        session_id = session_id.strip()
+
+        observation = ReplayObservation.objects.create(
+            lens=lens,
+            session_id=session_id,
+            lens_version=lens.lens_version,
+            lens_config_snapshot=lens.lens_config,
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            triggered_by_user=cast(User, request.user),
+        )
+
+        async def _start() -> str:
+            client = await async_connect()
+            handle = await client.start_workflow(
+                "apply-lens",
+                ApplyLensInputs(
+                    observation_id=observation.id,
+                    lens_id=lens.id,
+                    session_id=session_id,
+                    team_id=lens.team_id,
+                    user_id=request.user.id,  # type: ignore[union-attr]
+                ),
+                id=f"apply-lens_{observation.id}",
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+            )
+            return handle.id
+
+        workflow_id = async_to_sync(_start)()
+        observation.workflow_id = workflow_id
+        observation.save(update_fields=["workflow_id"])
+
+        return Response(ReplayObservationSerializer(observation).data, status=status.HTTP_201_CREATED)
