@@ -43,6 +43,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
@@ -132,6 +133,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "deleted",
+            "enabled",
             "title",
             "summary",
             "next_delivery_date",
@@ -171,6 +173,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
+            "enabled": {
+                "help_text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid."
+            },
         }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
@@ -197,7 +202,41 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         self._validate_dashboard_export_subscription(attrs)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
-        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+        # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
+        # body falls through to the validation below — `or` would silently coalesce
+        # to the stale instance value and pass `validate_re_enable` with the wrong id.
+        integration_id = (
+            attrs["integration_id"]
+            if "integration_id" in attrs
+            else (self.instance.integration_id if self.instance else None)
+        )
+
+        # Reject re-enables of subscriptions whose delivery prerequisite is still
+        # permanently broken — otherwise the next delivery would just auto-disable
+        # them again.
+        is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
+        if is_re_enabling:
+            error_message = validate_re_enable(target_type, integration_id)
+            if error_message:
+                raise ValidationError({"enabled": [error_message]})
+
+        # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
+        # with a null next_delivery_date is invisible to the scheduler (the
+        # `__lte=now` filter in `fetch_due_subscriptions_activity` drops nulls).
+        # Three reachable paths: re-enable an exhausted sub, create one with a bad
+        # rrule, or PATCH an active sub's schedule into exhaustion.
+        check_schedule = (
+            is_re_enabling
+            or self.instance is None
+            or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
+        )
+        if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+            base = "Subscription schedule has reached its end date. Extend until_date or remove count"
+            if is_re_enabling:
+                raise ValidationError({"enabled": [f"{base} before re-enabling."]})
+            if self.instance is None:
+                raise ValidationError({"start_date": [f"{base}."]})
+            raise ValidationError(f"{base}.")
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
@@ -408,6 +447,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
+        # Skip the workflow trigger when the new subscription is created in a disabled
+        # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
+        # for a subscription that won't fire on its schedule either.
+        if not instance.enabled:
+            return instance
+
         with slo_operation(
             spec=SloSpec(
                 distinct_id=str(request.user.distinct_id),
@@ -457,6 +502,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
         previous_value = instance.target_value
+        was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
@@ -490,6 +536,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        # Re-enabling clears the stale next_delivery_date that was frozen while
+        # disabled. Without this, the scheduler picks the sub up on its next tick
+        # (the past date matches `next_delivery_date__lte=now`) and fires a second
+        # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
+        if was_disabled and instance.enabled:
+            instance.set_next_delivery_date()
+            instance.save(update_fields=["next_delivery_date"])
+
+        # Skip the workflow trigger when the resulting state is disabled. No delivery
+        # should fire for a disabled subscription regardless of whether it was just
+        # disabled or already disabled. Re-enabling (`enabled: false → true`) DOES
+        # trigger the workflow so the user gets immediate confirmation delivery.
+        if not instance.enabled:
+            return instance
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
@@ -686,6 +747,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        if not subscription.enabled:
+            return Response(
+                {"detail": "Subscription is disabled. Re-enable it before sending a test delivery."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         temporal = sync_connect()
         workflow_id = f"test-delivery-subscription-{subscription.id}"

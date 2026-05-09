@@ -10,15 +10,15 @@ from posthog.resource_limits.registry import REGISTRY, LimitDefinition
 
 class TestGetLimit(BaseTest):
     def test_returns_catalog_default(self) -> None:
-        assert get_limit(team=self.team, key=LimitKey.MAX_DASHBOARDS_PER_TEAM) == 500
+        assert get_limit(team=self.team, key=LimitKey.MAX_DASHBOARDS_PER_TEAM) == 5000
 
 
 class TestCheckCountLimit(BaseTest):
     @parameterized.expand(
         [
             ("below_threshold", 10, False, None),
-            ("one_below_threshold", 499, True, True),
-            ("at_threshold", 500, True, False),
+            ("one_below_threshold", 4999, True, True),
+            ("at_threshold", 5000, True, False),
             ("far_above_threshold", 10_000, True, False),
         ]
     )
@@ -45,7 +45,7 @@ class TestCheckCountLimit(BaseTest):
         assert args[1] == "resource limit hit"
         properties = args[2]
         assert properties["limit_key"] == LimitKey.MAX_DASHBOARDS_PER_TEAM
-        assert properties["limit"] == 500
+        assert properties["limit"] == 5000
         assert properties["current_count"] == current_count
         assert properties["crossing_threshold"] is expect_crossing
         assert properties["team_id"] == self.team.id
@@ -65,9 +65,9 @@ class TestCheckCountLimit(BaseTest):
 class TestGetOrganizationLimit(BaseTest):
     @parameterized.expand(
         [
-            ("free_no_features", [], 10),
-            ("paid_with_subscriptions", [{"key": AvailableFeature.SUBSCRIPTIONS}], 20),
-            ("enterprise_with_saml", [{"key": AvailableFeature.SAML}], 100),
+            ("free_no_features", [], 20),
+            ("paid_with_subscriptions", [{"key": AvailableFeature.SUBSCRIPTIONS}], 40),
+            ("enterprise_with_saml", [{"key": AvailableFeature.SAML}], 200),
         ]
     )
     def test_resolves_tiered_limit(
@@ -95,7 +95,7 @@ class TestGetOrganizationLimit(BaseTest):
                 organization=self.organization,
                 key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
             )
-            == 500
+            == 5000
         )
 
 

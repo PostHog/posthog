@@ -47,6 +47,9 @@ class Notifications(TypedDict, total=False):
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
+    realtime_notifications_disabled: dict[
+        str, dict[str, bool]
+    ]  # Maps notification_type (str) to {team_id (str) -> disabled (True = muted)}. Absence = enabled (opt-out default).
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -61,6 +64,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
+    "realtime_notifications_disabled": {},  # No opt-outs by default
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -390,15 +394,21 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         """Resolve this user's GitHub login.
 
         Precedence:
-        1. `UserIntegration` (kind=github) - the user's own GitHub integration
-        2. `UserSocialAuth` (provider=github) - fallback for users who log in with GitHub but haven't set up a `UserIntegration` yet
-        3. Team `Integration` `connecting_user_github_login` - legacy fallback from before the user integration model existed
+        1. `UserIntegration` (kind=github) — user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
+        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
+           team's GitHub integration (e.g. captured at install). Still a supported integration path,
+           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
         """
-        from posthog.models.integration import Integration
-        from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+        from posthog.models.user_integration import UserGitHubIntegration
 
-        user_integration = UserIntegration.objects.filter(user=self, kind="github").first()
-        if user_integration:
+        prefetched_user_integrations = getattr(self, "_prefetched_github_user_integrations", None)
+        if prefetched_user_integrations is not None:
+            user_integrations = prefetched_user_integrations
+        else:
+            user_integrations = self.integrations.filter(kind="github")[:1]
+
+        for user_integration in user_integrations:
             login = UserGitHubIntegration(user_integration).github_login
             if login:
                 return login
@@ -414,7 +424,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
 
-        # Fall back to team Integration identity captured at install time.
+        # Team-level GitHub integration: connecting_user_github_login from install / configuration.
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         if prefetched_integrations is not None:
             for integration in prefetched_integrations:
@@ -422,14 +432,16 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
         else:
-            login = (
-                Integration.objects.filter(kind="github", created_by=self)
-                .values_list("config__connecting_user_github_login", flat=True)
+            team_github_integration = (
+                self.integration_set.filter(kind="github")
                 .exclude(config__connecting_user_github_login=None)
+                .only("config")
                 .first()
             )
-            if login:
-                return str(login)
+            if team_github_integration and isinstance(team_github_integration.config, dict):
+                login_val = team_github_integration.config.get("connecting_user_github_login")
+                if login_val:
+                    return str(login_val)
 
         return None
 

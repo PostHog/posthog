@@ -25,6 +25,8 @@ STUCK_RASTERIZE_THRESHOLD = 3
 STUCK_RASTERIZE_LOOKBACK = timedelta(hours=2)
 
 CH_QUERY_MAX_EXECUTION_SECONDS = 180
+# Two CH queries fire under FIND_ACTIVITY_TIMEOUT; the second must fit in what's left.
+EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS = 60
 
 # Must exceed FIND_ACTIVITY_TIMEOUT + child-start fan-out. Children are
 # ABANDONED so their execution does not count against this budget.

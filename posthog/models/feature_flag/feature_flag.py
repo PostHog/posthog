@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -131,6 +132,17 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
+
+    def clean(self) -> None:
+        """Reject encrypted payloads on non-remote-config flags.
+
+        Django does not invoke clean() from save(), so this fires only from
+        admin and explicit full_clean() callers. The HTTP path is gated by
+        FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config.
+        """
+        super().clean()
+        if self.has_encrypted_payloads and not self.is_remote_configuration:
+            raise ValidationError("Encrypted payloads require the flag to be a remote configuration.")
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["FeatureFlag"]:
@@ -564,7 +576,7 @@ class FeatureFlagOverride(models.Model):
 def get_feature_flags(
     team: Optional["Team"] = None,
     project_id: Optional[int] = None,
-    exclude_encrypted_remote_config: bool = False,
+    exclude_encrypted_payloads: bool = False,
 ) -> list[FeatureFlag]:
     """
     Fetch FeatureFlag objects for a team or project.
@@ -575,9 +587,11 @@ def get_feature_flags(
     Args:
         team: Team to get flags for (mutually exclusive with project_id)
         project_id: Project ID to get flags for (mutually exclusive with team)
-        exclude_encrypted_remote_config: If True, exclude flags where both
-            is_remote_configuration=True AND has_encrypted_payloads=True.
-            These flags can only be accessed via the /remote_config endpoint.
+        exclude_encrypted_payloads: If True, exclude flags with
+            has_encrypted_payloads=True. These flags can only be accessed
+            via the /remote_config endpoint, which handles decryption.
+            The model invariant guarantees has_encrypted_payloads implies
+            is_remote_configuration, so this filter covers all encrypted flags.
 
     Returns:
         List of FeatureFlag model instances with evaluation tags pre-loaded
@@ -598,9 +612,10 @@ def get_feature_flags(
     # avoiding N+1 queries when serializing many flags.
     qs = FeatureFlag.objects.filter(**filter_kwargs)
 
-    # Exclude encrypted remote config flags at the database level if requested
-    if exclude_encrypted_remote_config:
-        qs = qs.filter(~Q(is_remote_configuration=True, has_encrypted_payloads=True))
+    # Use .exclude() (not .filter(=False)) so legacy rows with NULL
+    # has_encrypted_payloads remain included, matching prior behavior.
+    if exclude_encrypted_payloads:
+        qs = qs.exclude(has_encrypted_payloads=True)
 
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(

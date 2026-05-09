@@ -1,4 +1,21 @@
 {
+    "agent-feedback": {
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Optional: submit feedback about the PostHog MCP server.",
+        "title": "Submit agent feedback",
+        "required_scopes": [],
+        "new_mcp": true,
+        "always_available": true,
+        "feature_flag": "mcp-feedback-tool",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "experiment-results-get": {
         "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
         "category": "Experiments",
@@ -501,6 +518,23 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-summarize": {
+        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Generate AI-powered summaries of session recordings via streaming.",
+        "title": "Summarize session recording",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "requires_ai_consent": true,
+        "feature_flag": "replay-video-based-summarization",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
             "readOnlyHint": true
         }
     }

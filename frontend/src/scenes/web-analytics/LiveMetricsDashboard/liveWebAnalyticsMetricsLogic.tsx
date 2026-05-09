@@ -12,7 +12,9 @@ import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
+import { ProductTab } from 'scenes/web-analytics/common'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -91,6 +93,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             ['featureFlags'],
             webAnalyticsFilterLogic,
             ['selectedHost as rawSelectedHost'],
+            webAnalyticsLogic,
+            ['productTab'],
         ],
     })),
     actions(() => ({
@@ -362,9 +366,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
         ],
         selectedHost: [
-            (s) => [s.rawSelectedHost, s.featureFlags],
-            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet): string | null =>
-                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null,
+            (s) => [s.rawSelectedHost, s.featureFlags, s.productTab],
+            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet, productTab: ProductTab): string | null => {
+                // The bot tab streams traffic across all hosts, so ignore any host filter
+                // a sibling tab may have set on the shared filter logic.
+                if (productTab === ProductTab.BOT_ANALYTICS) {
+                    return null
+                }
+                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null
+            },
         ],
     }),
     listeners(({ actions, values, cache }) => ({

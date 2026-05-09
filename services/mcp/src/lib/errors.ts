@@ -166,11 +166,12 @@ export function wrapError(message: string, cause: unknown): Error {
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
+    const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
             '',
-            `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${error.method} ${error.url}.`,
+            `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
             '',
             `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
             '',
@@ -181,7 +182,7 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
     return [
         `PostHog API permission denied: ${error.detail}`,
         '',
-        `The request to ${error.method} ${error.url} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
+        `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
 }
 
@@ -204,10 +205,31 @@ export function buildInsufficientScopeChallenge(error: PostHogPermissionError): 
     return parts.join(', ')
 }
 
+// Literal message shape produced by `new PostHogPermissionError({...})`. We
+// reconstruct from this when the error has crossed a boundary that strips
+// `cause` and the custom subclass prototype — see the fallback in
+// `findPostHogPermissionError` for the full reasoning.
+const MISSING_SCOPE_MESSAGE_PATTERN = /Missing PostHog API scope: ['"]([^'"]+)['"]/
+
 /**
  * Walk `Error.cause` chains to find a wrapped PostHogPermissionError.
  * Tool-level wrappers (e.g. `throw new Error("Failed to X: ...", { cause })`)
  * hide the underlying permission error, so callers must unwrap before acting.
+ *
+ * Fallback for the Cloudflare Durable Object RPC boundary: errors thrown
+ * inside the DO arrive in the worker as plain Errors — `cause`, the
+ * PostHogPermissionError prototype, and any custom own-properties have all
+ * been stripped by the cross-isolate serializer, leaving just `name`,
+ * `message`, and `stack`. Without this fallback, a permission error from
+ * `_fetchUser` (or any other init-time API call) gets mapped to an opaque
+ * 500 in `onCatchErrorHandler` and OAuth-aware MCP clients never see the
+ * 403 + `WWW-Authenticate: insufficient_scope` they need to re-consent.
+ *
+ * The literal `Missing PostHog API scope: 'X'` shape produced by the
+ * `PostHogPermissionError` constructor is the one piece of information that
+ * does survive — we re-synthesize a typed error from it. `url`/`method`
+ * are not recoverable from the message alone; `formatPermissionErrorMessage`
+ * handles the empty case.
  */
 export function findPostHogPermissionError(error: unknown): PostHogPermissionError | undefined {
     let current: unknown = error
@@ -219,6 +241,20 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
         seen.add(current)
         current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
     }
+
+    if (error instanceof Error && typeof error.message === 'string') {
+        const match = MISSING_SCOPE_MESSAGE_PATTERN.exec(error.message)
+        if (match) {
+            const missingScope = match[1]!
+            return new PostHogPermissionError({
+                detail: `API key missing required scope '${missingScope}'`,
+                missingScope,
+                url: '',
+                method: '',
+            })
+        }
+    }
+
     return undefined
 }
 

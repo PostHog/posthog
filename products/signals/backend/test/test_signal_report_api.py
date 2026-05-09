@@ -327,19 +327,45 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("not_actionable", "not_actionable", False),
-            ("immediately_actionable", "immediately_actionable", True),
-            ("requires_human_input", "requires_human_input", True),
+            ("ready_not_actionable", SignalReport.Status.READY, "ready", "not_actionable", False),
+            (
+                "ready_immediately_actionable",
+                SignalReport.Status.READY,
+                "ready",
+                "immediately_actionable",
+                True,
+            ),
+            (
+                "ready_requires_human_input",
+                SignalReport.Status.READY,
+                "ready",
+                "requires_human_input",
+                True,
+            ),
+            (
+                "failed_immediately_actionable",
+                SignalReport.Status.FAILED,
+                "failed",
+                "immediately_actionable",
+                False,
+            ),
         ]
     )
-    def test_is_suggested_reviewer_matches_actionability(self, _name, actionability: str, expected_suggested: bool):
+    def test_is_suggested_reviewer_matches_actionability(
+        self,
+        name: str,
+        report_status: str,
+        status_filter: str,
+        actionability: str,
+        expected_suggested: bool,
+    ):
         UserSocialAuth.objects.create(
             user=self.user,
             provider="github",
-            uid=f"github-test-suggested-{actionability}",
+            uid=f"github-test-suggested-{name}",
             extra_data={"login": "suggestedgh"},
         )
-        report = self._create_report()
+        report = self._create_report(status=report_status)
         self._actionability_artefact(report, actionability=actionability)
         SignalReportArtefact.objects.create(
             team=self.team,
@@ -348,7 +374,7 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps([{"github_login": "suggestedgh"}]),
         )
 
-        response = self.client.get(self._list_url(status="ready"))
+        response = self.client.get(self._list_url(status=status_filter))
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is expected_suggested

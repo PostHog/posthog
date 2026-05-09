@@ -76,10 +76,37 @@ tools:
                 - updated_at
     logs-alerts-destinations-create:
         operation: logs_alerts_destinations_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Attach alert destination
+        description: >
+            Attach a notification destination (Slack channel or webhook) to a log alert. Without a destination an alert
+            evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken,
+            errored) atomically — the returned hog_function_ids identify the destination group.
+        feature_flag: logs-alerting
+        response:
+            include:
+                - hog_function_ids
     logs-alerts-destinations-delete-create:
         operation: logs_alerts_destinations_delete_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Detach alert destination
+        description: >
+            Remove a notification destination from a log alert by passing the hog_function_ids returned from
+            logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the
+            call.
+        feature_flag: logs-alerting
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: true
@@ -95,7 +122,32 @@ tools:
         feature_flag: logs-alerting
     logs-alerts-events-list:
         operation: logs_alerts_events_list
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List alert events
+        description: >
+            List historical events for a log alert — fires, resolves, errors, enable/disable toggles, threshold changes.
+            Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning
+            thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a
+            single event kind.
+        feature_flag: logs-alerting
+        response:
+            include:
+                - id
+                - created_at
+                - kind
+                - state_before
+                - state_after
+                - threshold_breached
+                - result_count
+                - error_message
+                - query_duration_ms
     logs-alerts-list:
         operation: logs_alerts_list
         enabled: true
@@ -210,7 +262,28 @@ tools:
                 - updated_at
     logs-alerts-simulate-create:
         operation: logs_alerts_simulate_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Simulate log alert
+        description: >
+            Run a draft alert configuration against historical logs and return per-bucket results from the full state
+            machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate
+            threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for
+            fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.
+        feature_flag: logs-alerting
+        response:
+            include:
+                - buckets
+                - fire_count
+                - resolve_count
+                - total_buckets
+                - threshold_count
+                - threshold_operator
     logs-alerts-update:
         operation: logs_alerts_update
         enabled: false
@@ -315,7 +388,23 @@ tools:
         enabled: false
     logs-services-create:
         operation: logs_services_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List services with stats
+        description: >
+            Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate,
+            plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on
+            — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking
+            attribute-values + per-service counts.
+        response:
+            include:
+                - services
+                - sparkline
     logs-sparkline-query:
         operation: logs_sparkline_create
         enabled: true

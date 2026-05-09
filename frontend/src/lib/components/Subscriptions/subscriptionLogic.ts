@@ -35,6 +35,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     bysetpos: 1,
     dashboard_export_insights: [],
     integration_id: null,
+    enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
 }
@@ -102,7 +103,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     forms(({ props, actions }) => ({
         subscription: {
-            defaults: {} as unknown as SubscriptionType,
+            defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: ({
                 frequency,
                 interval,

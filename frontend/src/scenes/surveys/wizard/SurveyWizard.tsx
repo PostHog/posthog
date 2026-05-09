@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyQuestionBranchingType } from '~/types'
+import { SurveyMatchType, SurveyQuestionBranchingType } from '~/types'
 
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
@@ -168,7 +168,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         const summary: string[] = []
 
         if (conditions?.url) {
-            summary.push(`URL ${conditions.urlMatchType === 'exact' ? 'is exactly' : 'contains'} "${conditions.url}"`)
+            const urlMatchLabel =
+                conditions.urlMatchType === SurveyMatchType.Exact
+                    ? 'is exactly'
+                    : conditions.urlMatchType === SurveyMatchType.Regex
+                      ? 'matches regex'
+                      : 'contains'
+
+            summary.push(`URL ${urlMatchLabel} "${conditions.url}"`)
         }
 
         if (conditions?.selector) {

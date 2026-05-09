@@ -150,12 +150,13 @@ impl CohortStorage for PostgresStorage {
                 "operation".to_string(),
                 "delete_cohort_members_bulk".to_string(),
             ),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
 

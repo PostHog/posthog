@@ -102,6 +102,38 @@ Column | Type | Nullable | Description
 
 ---
 
+## Score definition (`system.score_definitions`)
+
+Score definitions (a.k.a. "scorers") are reusable structured-score fields used by trace reviews.
+Each scorer has a stable identity but config is versioned and immutable — bumping config creates a new version row.
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Stable scorer ID
+`team_id` | integer | NOT NULL | Owning team
+`name` | varchar(255) | NOT NULL | Display name
+`description` | text | NOT NULL | Optional description (defaults to empty string)
+`kind` | varchar(32) | NOT NULL | One of `categorical`, `numeric`, `boolean`. Immutable after creation
+`archived` | boolean | NOT NULL | Whether the scorer is archived (hidden from default lists)
+`current_version_id` | uuid | NULL | FK to the latest `score_definition_versions` row (config + version number)
+`created_by_id` | integer | NULL | User ID that created the scorer
+`created_at` | timestamp with tz | NOT NULL | Creation timestamp
+`updated_at` | timestamp with tz | NULL | Last metadata update timestamp
+
+### Key relationships
+
+- **Score values**: `system.trace_review_scores.definition_id` references `id` and `definition_version` references the current/historical version
+- **Versions**: `current_version_id` points to the current immutable config; the version table itself is not exposed via HogQL — fetch full version detail through the REST API tools
+
+### Important notes
+
+- `kind` is immutable. Create a new scorer of the desired kind and archive the old one (there is no destroy endpoint)
+- Filter on `archived = false` to mirror the default product UX
+- Use the REST `llma-score-definition-get` tool when you need the full `config` payload — only metadata is exposed here
+
+---
+
 ## Common query patterns
 
 **List active trace reviews with their saved score counts:**
@@ -166,4 +198,20 @@ INNER JOIN system.trace_reviews AS r ON r.id = s.review_id
 WHERE r.deleted = 0
 ORDER BY r.updated_at DESC, s.created_at ASC
 LIMIT 100
+```
+
+**List active scorers with how many times each has been used:**
+
+```sql
+SELECT
+    d.id,
+    d.name,
+    d.kind,
+    count(s.id) AS uses
+FROM system.score_definitions AS d
+LEFT JOIN system.trace_review_scores AS s ON s.definition_id = d.id
+WHERE d.archived = false
+GROUP BY d.id, d.name, d.kind
+ORDER BY uses DESC, d.name ASC
+LIMIT 50
 ```

@@ -21,6 +21,7 @@ const createMockContext = (): Context => ({
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
+    trackEvent: async () => {},
 })
 
 describe('Feature Routing Integration', () => {
@@ -33,7 +34,7 @@ describe('Feature Routing Integration', () => {
                 'dashboard-create',
                 'insights-list',
                 'organizations-list',
-                'query-error-tracking-issues',
+                'query-error-tracking-issues-list',
             ],
         },
         {

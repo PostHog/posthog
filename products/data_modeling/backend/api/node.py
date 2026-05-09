@@ -15,6 +15,7 @@ from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -33,6 +34,7 @@ class NodeSerializer(serializers.ModelSerializer):
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
     dag_name = serializers.SerializerMethodField(read_only=True)
+    dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
         model = Node
@@ -61,6 +63,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "user_tag",
             "sync_interval",
             "dag_name",
+            "saved_query_id",
         ]
 
     def get_upstream_count(self, node: Node) -> int:

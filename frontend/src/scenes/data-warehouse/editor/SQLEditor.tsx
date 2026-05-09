@@ -33,7 +33,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
+import { connectionSelectorLogic } from './connectionSelectorLogic'
+import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
+import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
@@ -59,6 +62,7 @@ interface SQLEditorProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    onShareTab?: () => void
 }
 
 export function SQLEditor({
@@ -72,6 +76,7 @@ export function SQLEditor({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onShareTab,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -83,7 +88,7 @@ export function SQLEditor({
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
     const showQueryPanel = panel !== SQLEditorPanel.Output
     const showOutputPanel = panel !== SQLEditorPanel.Query
-    const showSceneTitle = panel === SQLEditorPanel.Full
+    const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
     const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
 
     const editorSizingLogicProps = useMemo(
@@ -178,6 +183,7 @@ export function SQLEditor({
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), logic)
+    useAttachedLogic(connectionSelectorLogic(), logic)
 
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
@@ -200,7 +206,11 @@ export function SQLEditor({
                                     <VariablesQuerySync />
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                                            <OutputPane tabId={tabId || ''} showToolbar={showOutputToolbar} />
+                                            <OutputPane
+                                                tabId={tabId || ''}
+                                                showToolbar={showOutputToolbar}
+                                                onShareTab={onShareTab}
+                                            />
                                         </div>
                                     ) : (
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
@@ -208,7 +218,10 @@ export function SQLEditor({
                                                 {showSceneTitle ? <SQLEditorSceneTitle /> : null}
                                                 <div className="flex min-h-0 flex-1">
                                                     {showDatabaseTreePanel && (
-                                                        <DatabaseTree databaseTreeRef={databaseTreeRef} />
+                                                        <DatabaseTree
+                                                            databaseTreeRef={databaseTreeRef}
+                                                            tabId={tabId || ''}
+                                                        />
                                                     )}
                                                     <div
                                                         data-attr="editor-scene"
@@ -229,6 +242,7 @@ export function SQLEditor({
                                                             runQueryLoading={runQueryLoading}
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
+                                                            onShareTab={onShareTab}
                                                         />
                                                     </div>
                                                 </div>
@@ -276,6 +290,7 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
 }
 
 function SQLEditorSceneTitle(): JSX.Element | null {
+    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems } = useValues(editorSceneLogic)
     const {
         queryInput,
         editingView,
@@ -284,14 +299,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         sourceQuery,
         changesToSave,
         inProgressViewEdits,
-        isEmbeddedMode,
-        titleSectionProps,
-        updateInsightButtonEnabled,
-        saveAsMenuItems,
         isSourceQueryLastRun,
         isMultiQuery,
         featureFlags,
     } = useValues(sqlEditorLogic)
+    const { openHistoryModal } = useActions(editorSceneLogic)
     const {
         updateView,
         updateInsight,
@@ -299,7 +311,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight,
         saveAsView,
         saveAsEndpoint,
-        openHistoryModal,
+        setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(sqlEditorLogic)
@@ -382,10 +394,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
 
-    if (isEmbeddedMode) {
-        return null
-    }
-
     const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
         ? 'Close this insight and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
@@ -402,15 +410,19 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 {...titleSectionProps}
                 maxToolProps={{
                     identifier: 'execute_sql',
-                    context: {
-                        current_query: queryInput,
-                    },
+                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
                     contextDescription: {
                         text: 'Current query',
                         icon: iconForType('sql_editor'),
                     },
-                    callback: (toolOutput: string) => {
-                        setSuggestedQueryInput(toolOutput, 'max_ai')
+                    callback: (toolOutput: unknown) => {
+                        applyExecuteSqlToolOutput({
+                            toolOutput,
+                            queryInput,
+                            sourceQuery,
+                            setSourceQuery,
+                            setSuggestedQueryInput,
+                        })
                     },
                     suggestions: [],
                     onMaxOpen: () => {

@@ -10,6 +10,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.summarization_sweep.constants import (
@@ -96,6 +97,12 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
                     "failed_delete": result.failed_delete_team_ids,
                 },
             )
+        # Surface a workflow failure when every fan-out failed — likely a systemic issue
+        # (DB outage, broken activity) rather than per-team problems we can ignore.
+        attempted = len(to_upsert) + len(to_delete)
+        succeeded = len(result.upserted_team_ids) + len(result.deleted_team_ids)
+        if attempted > 0 and succeeded == 0:
+            raise ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
         return {
             "upserted": len(result.upserted_team_ids),
             "deleted": len(result.deleted_team_ids),

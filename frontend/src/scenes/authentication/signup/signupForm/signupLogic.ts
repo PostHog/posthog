@@ -42,10 +42,15 @@ export interface SignupPanelOnboardingForm {
     referral_source_ai_prompt: string
 }
 
+export interface PendingInvite {
+    organization_name: string
+}
+
 interface SignupEmailPrecheckResponse {
     email_exists: boolean
     code?: string
     detail?: string
+    pending_invite?: PendingInvite | null
 }
 
 // Keep SignupForm for backwards compatibility
@@ -76,6 +81,12 @@ export const signupLogic = kea<signupLogicType>([
         setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
         setTurnstileToken: (token: string | null) => ({ token }),
         resetChallenge: true,
+        // Pending-invite banner actions
+        setPendingInvite: (invite: PendingInvite | null) => ({ invite }),
+        dismissPendingInvite: true,
+        resendPendingInvite: (email: string) => ({ email }),
+        setPendingInviteResent: (resent: boolean) => ({ resent }),
+        setPendingInviteResending: (resending: boolean) => ({ resending }),
     })),
     reducers(() => ({
         panel: [
@@ -142,6 +153,27 @@ export const signupLogic = kea<signupLogicType>([
                 resetChallenge: () => null,
             },
         ],
+        pendingInvite: [
+            null as PendingInvite | null,
+            {
+                setPendingInvite: (_, { invite }) => invite,
+                dismissPendingInvite: () => null,
+            },
+        ],
+        pendingInviteResent: [
+            false,
+            {
+                setPendingInviteResent: (_, { resent }) => resent,
+                setPendingInvite: () => false,
+                dismissPendingInvite: () => false,
+            },
+        ],
+        isPendingInviteResending: [
+            false,
+            {
+                setPendingInviteResending: (_, { resending }) => resending,
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         signupPanelEmail: {
@@ -162,8 +194,9 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
                 actions.setError(null)
+                let precheckResponse: SignupEmailPrecheckResponse
                 try {
-                    await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                    precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
                         email,
                     })
                 } catch (e: any) {
@@ -181,6 +214,12 @@ export const signupLogic = kea<signupLogicType>([
                     })
                     return
                 }
+                const pendingInvite = precheckResponse.pending_invite ?? null
+                if (pendingInvite && (router.values.searchParams as Record<string, string>).skip_invite_check !== '1') {
+                    actions.setPendingInvite(pendingInvite)
+                    return
+                }
+                actions.setPendingInvite(null)
                 actions.setPanel(1)
             },
         },
@@ -336,6 +375,12 @@ export const signupLogic = kea<signupLogicType>([
                     actions.setPanel(0)
                     return
                 }
+                const pendingInvite = precheckResponse.pending_invite ?? null
+                if (pendingInvite && (router.values.searchParams as Record<string, string>).skip_invite_check !== '1') {
+                    actions.setPendingInvite(pendingInvite)
+                    return
+                }
+                actions.setPendingInvite(null)
                 actions.setPanel(1)
             },
         },
@@ -442,8 +487,11 @@ export const signupLogic = kea<signupLogicType>([
             },
         ],
         panelTitle: [
-            (s) => [s.panel, s.passkeySignupEnabled, s.preflight],
-            (panel: number, passkeySignupEnabled: boolean, preflight): string => {
+            (s) => [s.panel, s.passkeySignupEnabled, s.preflight, s.pendingInvite],
+            (panel: number, passkeySignupEnabled: boolean, preflight, pendingInvite): string => {
+                if (panel === 0 && pendingInvite) {
+                    return ''
+                }
                 if (preflight?.demo) {
                     return 'Explore PostHog yourself'
                 }
@@ -466,6 +514,22 @@ export const signupLogic = kea<signupLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        dismissPendingInvite: () => {
+            // User chose to proceed with creating a new organization despite the pending invite.
+            actions.setPanel(1)
+        },
+        resendPendingInvite: async ({ email }, breakpoint) => {
+            actions.setPendingInviteResending(true)
+            try {
+                await api.create('api/signup/resend-invite', { email })
+                breakpoint()
+                actions.setPendingInviteResent(true)
+            } catch {
+                lemonToast.error('Could not resend the invite email. Please try again.')
+            } finally {
+                actions.setPendingInviteResending(false)
+            }
+        },
         normalizeEmailWithDelay: async ({ email }, breakpoint) => {
             await breakpoint(500)
 

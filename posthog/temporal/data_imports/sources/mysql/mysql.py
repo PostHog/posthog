@@ -192,7 +192,7 @@ def _build_query(
 
     query = (
         f"SELECT * FROM {table}{hint}"
-        f" WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s"
+        f" WHERE {_sanitize_identifier(incremental_field)} > %(incremental_value)s"
         f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
     )
 

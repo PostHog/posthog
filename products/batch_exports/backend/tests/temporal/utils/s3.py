@@ -28,10 +28,10 @@ async def read_parquet_from_s3(
 ) -> list:
     credentials = s3_client._request_signer._credentials  # type: ignore
     endpoint_url = s3_client.meta.endpoint_url
-
     s3 = fs.S3FileSystem(
         access_key=credentials.access_key,
         secret_key=credentials.secret_key,
+        session_token=credentials.token,
         endpoint_override=endpoint_url,
     )
 

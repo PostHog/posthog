@@ -4780,6 +4780,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Verify the cohort filter was actually merged into query properties
         assert runner.query.properties is not None
 
+    @snapshot_clickhouse_queries
     def test_retention_aggregation_sum(self):
         """Test retention with SUM aggregation on a property"""
         Person.objects.create(team=self.team, distinct_ids=["user1"])
@@ -5175,6 +5176,32 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day0_values[0]["aggregation_value"], 80)
         # Interval 1: user1(100) only — user2 didn't return on day 1
         self.assertEqual(day0_values[1]["aggregation_value"], 100)
+
+    @snapshot_clickhouse_queries
+    def test_retention_aggregation_different_events_ignores_start_event_property_value(self):
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        _create_events(self.team, [("user1", _date(0, hour=10), {"revenue": 999})], event="signed_up")
+        _create_events(self.team, [("user1", _date(0, hour=12), {"revenue": 50})], event="purchased")
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 1)
+        self.assertEqual(day0_values[0]["aggregation_value"], 50)
 
     def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
         # Return events that happen BEFORE the start event in the same interval must NOT be
