@@ -3499,6 +3499,16 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface AddOptOutRequest {
+      /**
+         * The recipient identifier to opt out (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Optional message category key. If omitted, the recipient is opted out of all marketing messages. */
+      category_key?: string;
+    }
+
     export type AddSnapshotsInputBaselineHashes = {[key: string]: string};
 
     export type SnapshotManifestItemMetadata = { [key: string]: unknown };
@@ -19728,6 +19738,16 @@ export namespace Schemas {
     export interface MessageMinimal {
       /** @maxLength 10000 */
       content: string;
+    }
+
+    export interface MessagePreferences {
+      readonly id: string;
+      /** The recipient identifier (e.g. email address). */
+      identifier: string;
+      /** When the preference was last updated. */
+      updated_at: string;
+      /** Map of category ID to preference status. */
+      preferences: unknown;
     }
 
     export type MessageSentimentScores = {[key: string]: number};
