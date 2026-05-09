@@ -10,16 +10,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { replayLensesLogicType } from './replayLensesLogicType'
-import { LensType, ReplayLens, VisionQuota } from './types'
+import { ENABLED_OPTIONS, EnabledFilter, LENS_TYPE_OPTIONS, LensType, ReplayLens, VisionQuota } from './types'
 
 export interface ReplayLensesLogicProps {
     tabId: string
 }
 
-export type EnabledFilter = 'enabled' | 'disabled'
-
-const ALL_ENABLED: EnabledFilter[] = ['enabled', 'disabled']
-const ALL_LENS_TYPES: LensType[] = ['monitor', 'summarizer', 'classifier', 'scorer', 'indexer']
+const ALL_ENABLED: EnabledFilter[] = ENABLED_OPTIONS.map((o) => o.value)
+const ALL_LENS_TYPES: LensType[] = LENS_TYPE_OPTIONS.map((o) => o.value)
 
 const csv = (values: string[]): string | undefined => (values.length > 0 ? values.join(',') : undefined)
 const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] => {

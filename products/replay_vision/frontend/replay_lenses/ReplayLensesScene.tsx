@@ -27,13 +27,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VisionQuotaMeter } from './components/VisionQuotaMeter'
-import { EnabledFilter, replayLensesLogic } from './replayLensesLogic'
-import { LENS_TYPE_OPTIONS, LensType, ReplayLens } from './types'
-
-const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
-    { value: 'enabled', label: 'Enabled' },
-    { value: 'disabled', label: 'Disabled' },
-]
+import { replayLensesLogic } from './replayLensesLogic'
+import { ENABLED_OPTIONS, EnabledFilter, LENS_TYPE_OPTIONS, LensType, ReplayLens } from './types'
 
 const TYPE_OPTIONS: { value: LensType; label: string }[] = LENS_TYPE_OPTIONS.map(({ value, label }) => ({
     value,

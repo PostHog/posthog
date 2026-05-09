@@ -43,9 +43,8 @@ export function ReplayLensSceneComponent(): JSX.Element {
     const lensLogic = replayLensLogic({ id: lensId })
     useAttachedLogic(lensLogic, replayLensSceneLogic)
 
-    const { lens, lensLoading, lensSubmitting, formValid, hasUnsavedChanges, isNew } = useValues(lensLogic)
-    const { setName, setDescription, setLensType, setLensConfig, setModel, setEmitsSignals, saveLens, resetLens } =
-        useActions(lensLogic)
+    const { lens, lensLoading, isLensSubmitting, isLensValid, hasUnsavedChanges, isNew } = useValues(lensLogic)
+    const { setLensType, submitLens, resetLens } = useActions(lensLogic)
     const { push } = useActions(router)
 
     if (lensLoading || !lens) {
@@ -61,18 +60,13 @@ export function ReplayLensSceneComponent(): JSX.Element {
             key: 'configuration',
             label: 'Configuration',
             content: (
-                <Form logic={replayLensLogic} props={{ id: lensId }} formKey="lens" className="space-y-6 max-w-3xl">
+                <div className="space-y-6 max-w-3xl">
                     <Field name="name" label="Name">
-                        <LemonInput value={lens.name} onChange={setName} placeholder="e.g. Confused checkout flow" />
+                        <LemonInput placeholder="e.g. Confused checkout flow" />
                     </Field>
 
                     <Field name="description" label="Description (optional)">
-                        <LemonTextArea
-                            value={lens.description ?? ''}
-                            onChange={setDescription}
-                            placeholder="What this lens looks for and why."
-                            minRows={2}
-                        />
+                        <LemonTextArea placeholder="What this lens looks for and why." minRows={2} />
                     </Field>
 
                     <Field name="lens_type" label="Lens type">
@@ -92,32 +86,38 @@ export function ReplayLensSceneComponent(): JSX.Element {
                         />
                     </Field>
 
-                    <LensTypeConfigEditor lens={lens} onChange={setLensConfig} />
+                    <LensTypeConfigEditor lensId={lensId} />
 
                     <Field name="model" label="Model">
-                        <LemonSelect value={lens.model} onChange={(v) => setModel(v)} options={MODEL_OPTIONS} />
+                        <LemonSelect value={lens.model} options={MODEL_OPTIONS} />
                     </Field>
 
-                    <Field name="emits_signals" label="Emit PostHog Signals">
-                        <div className="flex items-center gap-3">
-                            <LemonSwitch checked={lens.emits_signals} onChange={setEmitsSignals} />
-                            <div className="text-xs text-muted">
-                                When on, the model also identifies actionable issues that feed into PostHog Signals.
+                    <Field name="emits_signals">
+                        {({ value, onChange }) => (
+                            <div className="flex items-center gap-3">
+                                <LemonSwitch checked={!!value} onChange={onChange} />
+                                <div>
+                                    <div className="text-sm font-medium">Emit PostHog Signals</div>
+                                    <div className="text-xs text-muted">
+                                        When on, the model also identifies actionable issues that feed into PostHog
+                                        Signals.
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </Field>
-                </Form>
+                </div>
             ),
         },
         {
             key: 'triggers',
             label: 'Triggers',
-            content: <LensTriggers />,
+            content: <LensTriggers lensId={lensId} />,
         },
         !isNew && {
             key: 'observations' as EditorTab,
             label: 'Observations',
-            content: <LensObservationsTable />,
+            content: <LensObservationsTable lensId={lensId} />,
         },
     ]
 
@@ -143,11 +143,9 @@ export function ReplayLensSceneComponent(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
-                                disabledReason={
-                                    !formValid ? 'Set a name, prompt, and a sampling rate above 0.' : undefined
-                                }
-                                loading={lensSubmitting}
-                                onClick={() => saveLens()}
+                                disabledReason={!isLensValid ? 'Fix the highlighted fields before saving.' : undefined}
+                                loading={isLensSubmitting}
+                                onClick={() => submitLens()}
                                 data-attr="save-replay-lens"
                             >
                                 {isNew ? 'Create lens' : 'Save changes'}
@@ -159,11 +157,13 @@ export function ReplayLensSceneComponent(): JSX.Element {
 
             {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
 
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as EditorTab)}
-                tabs={tabs.filter((t): t is LemonTab<EditorTab> => Boolean(t))}
-            />
+            <Form logic={replayLensLogic} props={{ id: lensId }} formKey="lens" enableFormOnSubmit>
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as EditorTab)}
+                    tabs={tabs.filter((t): t is LemonTab<EditorTab> => Boolean(t))}
+                />
+            </Form>
         </SceneContent>
     )
 }

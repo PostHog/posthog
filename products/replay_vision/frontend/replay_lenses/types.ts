@@ -2,10 +2,17 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 export type LensType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
 
+export type EnabledFilter = 'enabled' | 'disabled'
+
 export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL = 'gemini-3-flash'
+
+export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
+    { value: 'enabled', label: 'Enabled' },
+    { value: 'disabled', label: 'Disabled' },
+]
 
 export const MODEL_OPTIONS: { value: string; label: string }[] = [
     { value: 'gemini-3-flash', label: 'Gemini 3 Flash' },

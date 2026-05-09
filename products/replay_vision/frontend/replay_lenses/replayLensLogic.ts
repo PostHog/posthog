@@ -1,4 +1,5 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
@@ -6,8 +7,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import type { replayLensLogicType } from './replayLensLogicType'
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, LensConfig, LensType, ReplayLens, ReplayObservation } from './types'
@@ -60,51 +59,72 @@ export const replayLensLogic = kea<replayLensLogicType>([
         loadLensSuccess: (lens: ReplayLens) => ({ lens }),
         loadLensFailure: true,
         setLens: (lens: ReplayLens) => ({ lens }),
-        setName: (name: string) => ({ name }),
-        setDescription: (description: string) => ({ description }),
         setLensType: (lensType: LensType) => ({ lensType }),
-        setLensConfig: (config: LensConfig) => ({ config }),
-        setSamplingRate: (rate: number) => ({ rate }),
-        setQuery: (query: RecordingsQuery | null) => ({ query }),
-        setModel: (model: string) => ({ model }),
-        setEmitsSignals: (emits: boolean) => ({ emits }),
-        saveLens: true,
-        saveLensSuccess: (lens: ReplayLens) => ({ lens }),
-        saveLensFailure: true,
         resetLens: true,
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservation[]) => ({ observations }),
         loadObservationsFailure: true,
     }),
 
-    reducers({
-        lens: [
-            null as ReplayLens | null,
-            {
-                loadLensSuccess: (_, { lens }) => lens,
-                setLens: (_, { lens }) => lens,
-                saveLensSuccess: (_, { lens }) => lens,
-                setName: (state, { name }) => (state ? { ...state, name } : state),
-                setDescription: (state, { description }) => (state ? { ...state, description } : state),
-                setSamplingRate: (state, { rate }) => (state ? { ...state, sampling_rate: rate } : state),
-                setQuery: (state, { query }) => (state ? { ...state, query } : state),
-                setModel: (state, { model }) => (state ? { ...state, model } : state),
-                setEmitsSignals: (state, { emits }) => (state ? { ...state, emits_signals: emits } : state),
-                setLensType: (state, { lensType }) => {
-                    if (!state) {
-                        return state
+    forms(({ props }) => ({
+        lens: {
+            defaults: newLens(),
+            errors: (lens: ReplayLens) => {
+                const configErrors: Record<string, string | undefined> = {}
+                if (!lens.lens_config?.prompt?.trim()) {
+                    configErrors.prompt = 'Prompt is required'
+                }
+                if (lens.lens_type === 'scorer') {
+                    const { min, max } = lens.lens_config.scale
+                    if (typeof min !== 'number' || typeof max !== 'number' || min >= max) {
+                        configErrors.scale = 'Scale max must be greater than min'
                     }
-                    return { ...state, lens_type: lensType, lens_config: defaultConfigForType(lensType) } as ReplayLens
-                },
-                setLensConfig: (state, { config }) =>
-                    state ? ({ ...state, lens_config: config } as ReplayLens) : state,
+                }
+                return {
+                    name: !lens.name?.trim() ? 'Name is required' : undefined,
+                    sampling_rate:
+                        lens.sampling_rate > 0 && lens.sampling_rate <= 1
+                            ? undefined
+                            : 'Sampling rate must be between 0% and 100%',
+                    lens_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
+                }
             },
-        ],
+            submit: async (lens: ReplayLens) => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    if (props.id === 'new') {
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.create(`/api/environments/${teamId}/vision/lenses/`, lens)
+                        router.actions.replace(urls.replayLens(response.id))
+                        lemonToast.success('Lens created')
+                    } else {
+                        // nosemgrep: prefer-codegen-api
+                        await api.update(`/api/environments/${teamId}/vision/lenses/${props.id}/`, lens)
+                        lemonToast.success('Lens saved')
+                    }
+                } catch (error) {
+                    lemonToast.error(`Failed to save lens: ${String(error)}`)
+                    throw error
+                }
+            },
+        },
+    })),
+
+    reducers({
+        lens: {
+            loadLensSuccess: (_, { lens }) => lens,
+            setLens: (_, { lens }) => lens,
+            setLensType: (state, { lensType }) =>
+                ({ ...state, lens_type: lensType, lens_config: defaultConfigForType(lensType) }) as ReplayLens,
+        },
         originalLens: [
             null as ReplayLens | null,
             {
                 loadLensSuccess: (_, { lens }) => lens,
-                saveLensSuccess: (_, { lens }) => lens,
+                submitLensSuccess: (_, { lens }: { lens: ReplayLens }) => lens,
             },
         ],
         lensLoading: [
@@ -113,14 +133,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 loadLens: () => true,
                 loadLensSuccess: () => false,
                 loadLensFailure: () => false,
-            },
-        ],
-        lensSubmitting: [
-            false,
-            {
-                saveLens: () => true,
-                saveLensSuccess: () => false,
-                saveLensFailure: () => false,
             },
         ],
         observations: [
@@ -148,21 +160,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
 
     selectors({
         isNew: [(_, p) => [p.id], (id: string) => id === 'new'],
-        formValid: [
-            (s) => [s.lens],
-            (lens: ReplayLens | null): boolean => {
-                if (!lens) {
-                    return false
-                }
-                if (lens.name.trim().length === 0) {
-                    return false
-                }
-                if (!lens.lens_config?.prompt || lens.lens_config.prompt.trim().length === 0) {
-                    return false
-                }
-                return lens.sampling_rate > 0 && lens.sampling_rate <= 1
-            },
-        ],
         hasUnsavedChanges: [
             (s) => [s.lens, s.originalLens],
             (lens: ReplayLens | null, original: ReplayLens | null): boolean => {
@@ -191,31 +188,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
             } catch (error) {
                 lemonToast.error(`Failed to load lens: ${String(error)}`)
                 actions.loadLensFailure()
-            }
-        },
-
-        saveLens: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            const lens = values.lens
-            if (!teamId || !lens) {
-                return
-            }
-            try {
-                if (props.id === 'new') {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.create(`/api/environments/${teamId}/vision/lenses/`, lens)
-                    actions.saveLensSuccess(response)
-                    router.actions.replace(urls.replayLens(response.id))
-                    lemonToast.success('Lens created')
-                } else {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.update(`/api/environments/${teamId}/vision/lenses/${props.id}/`, lens)
-                    actions.saveLensSuccess(response)
-                    lemonToast.success('Lens saved')
-                }
-            } catch (error) {
-                lemonToast.error(`Failed to save lens: ${String(error)}`)
-                actions.saveLensFailure()
             }
         },
 

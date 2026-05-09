@@ -1,4 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { Field } from 'kea-forms'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
@@ -6,7 +7,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
 
 import { replayLensLogic } from '../replayLensLogic'
@@ -18,23 +19,11 @@ const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Events,
 ]
 
-export function LensTriggers(): JSX.Element {
-    const { lens } = useValues(replayLensLogic)
-    const { setSamplingRate, setQuery } = useActions(replayLensLogic)
+export function LensTriggers({ lensId }: { lensId: string }): JSX.Element {
+    const { lens } = useValues(replayLensLogic({ id: lensId }))
 
     if (!lens) {
         return <div className="text-muted">Loading…</div>
-    }
-
-    const samplingPercent = Math.round(lens.sampling_rate * 1000) / 10
-    const properties = lens.query?.properties ?? []
-
-    const updateProperties = (next: AnyPropertyFilter[]): void => {
-        setQuery({
-            kind: NodeKind.RecordingsQuery,
-            ...lens.query,
-            properties: next,
-        })
     }
 
     return (
@@ -44,55 +33,74 @@ export function LensTriggers(): JSX.Element {
                 fraction of matching sessions are observed.
             </div>
 
-            <div className="space-y-2">
-                <label className="block text-sm font-medium">
-                    Sampling <span className="text-danger">*</span>
-                </label>
-                <div className="flex items-center gap-4 max-w-md">
-                    <div className="flex-1">
-                        <LemonSlider
-                            value={samplingPercent}
-                            onChange={(value) => setSamplingRate(value / 100)}
-                            min={0.1}
-                            max={100}
-                            step={0.1}
-                        />
-                    </div>
-                    <div className="w-24">
-                        <LemonInput
-                            type="number"
-                            value={samplingPercent}
-                            onChange={(value) => setSamplingRate(Math.max(0, Math.min(100, Number(value) || 0)) / 100)}
-                            min={0.1}
-                            max={100}
-                            step={0.1}
-                            suffix={<span>%</span>}
-                            status={samplingPercent === 0 ? 'danger' : undefined}
-                        />
-                    </div>
-                </div>
-                <div className="text-xs text-muted">
-                    Each observation counts against your monthly Vision quota. A lens that matches 1,000 sessions per
-                    day at 10% sampling produces ~100 observations per day.
-                </div>
-            </div>
+            <Field name="sampling_rate" label="Sampling">
+                {({ value, onChange }) => {
+                    const ratio = typeof value === 'number' ? value : 0
+                    const samplingPercent = Math.round(ratio * 1000) / 10
+                    return (
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-4 max-w-md">
+                                <div className="flex-1">
+                                    <LemonSlider
+                                        value={samplingPercent}
+                                        onChange={(v) => onChange(v / 100)}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                    />
+                                </div>
+                                <div className="w-24">
+                                    <LemonInput
+                                        type="number"
+                                        value={samplingPercent}
+                                        onChange={(v) => onChange((Number(v) || 0) / 100)}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                        suffix={<span>%</span>}
+                                        status={samplingPercent === 0 ? 'danger' : undefined}
+                                    />
+                                </div>
+                            </div>
+                            <div className="text-xs text-muted">
+                                Each observation counts against your monthly Vision quota. A lens that matches 1,000
+                                sessions per day at 10% sampling produces ~100 observations per day.
+                            </div>
+                        </div>
+                    )
+                }}
+            </Field>
 
-            <div className="space-y-2">
-                <label className="block text-sm font-medium">Recording filters</label>
-                <div className="text-sm text-muted">
-                    Filter by person, session, cohort, or event properties to target specific recordings. Leave empty to
-                    apply this lens to all completed recordings.
-                </div>
-                <PropertyFilters
-                    propertyFilters={properties}
-                    onChange={updateProperties}
-                    pageKey={`replay-lens-${lens.id}-properties`}
-                    taxonomicGroupTypes={RECORDING_FILTER_TYPES}
-                    addText="Add filter"
-                    hasRowOperator={false}
-                    sendAllKeyUpdates
-                />
-            </div>
+            <Field name="query" label="Recording filters">
+                {({ value, onChange }) => {
+                    const query = value as RecordingsQuery | null
+                    const properties = query?.properties ?? []
+                    const updateProperties = (next: AnyPropertyFilter[]): void => {
+                        onChange({
+                            kind: NodeKind.RecordingsQuery,
+                            ...query,
+                            properties: next,
+                        })
+                    }
+                    return (
+                        <div className="space-y-2">
+                            <div className="text-sm text-muted">
+                                Filter by person, session, cohort, or event properties to target specific recordings.
+                                Leave empty to apply this lens to all completed recordings.
+                            </div>
+                            <PropertyFilters
+                                propertyFilters={properties}
+                                onChange={updateProperties}
+                                pageKey={`replay-lens-${lens.id}-properties`}
+                                taxonomicGroupTypes={RECORDING_FILTER_TYPES}
+                                addText="Add filter"
+                                hasRowOperator={false}
+                                sendAllKeyUpdates
+                            />
+                        </div>
+                    )
+                }}
+            </Field>
         </div>
     )
 }
