@@ -18,7 +18,7 @@ import structlog
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view, inline_serializer
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -2072,10 +2072,28 @@ When set, the specified dashboard's filters and date range override will be appl
     # Creates or updates InsightViewed objects for the user/insight combo(s)
     # Accepts an array of insight_ids
     # ******************************************
+    @extend_schema(
+        request=inline_serializer(
+            name="InsightViewedRequest",
+            fields={
+                "insight_ids": serializers.ListField(
+                    child=serializers.IntegerField(),
+                    allow_empty=False,
+                    help_text="Insight IDs that were just viewed by the current user.",
+                ),
+            },
+        ),
+        responses={201: OpenApiResponse(description="Views recorded.")},
+        description=(
+            "Record that the current user has just viewed one or more insights. "
+            "Submitted ids that do not belong to the current project or that point at deleted insights "
+            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+        ),
+    )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Update insight view timestamps.
+        Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
         insight_ids = request.data.get("insight_ids")
@@ -2083,19 +2101,29 @@ When set, the specified dashboard's filters and date range override will be appl
         if not insight_ids or not isinstance(insight_ids, list):
             raise serializers.ValidationError({"insight_ids": "Must be a non-empty list of insight IDs"})
 
-        insights = Insight.objects.filter(
-            id__in=insight_ids,
-            team__project_id=self.team.project_id,
-            deleted=False,
+        visible_insight_ids = list(
+            Insight.objects.filter(
+                id__in=insight_ids,
+                team__project_id=self.team.project_id,
+                deleted=False,
+            ).values_list("id", flat=True)
         )
 
-        viewed_at = now()
-        for insight in insights:
-            InsightViewed.objects.update_or_create(
-                team=self.team,
-                user=request.user,
-                insight=insight,
-                defaults={"last_viewed_at": viewed_at},
+        if visible_insight_ids:
+            viewed_at = now()
+            InsightViewed.objects.bulk_create(
+                [
+                    InsightViewed(
+                        team=self.team,
+                        user=request.user,
+                        insight_id=insight_id,
+                        last_viewed_at=viewed_at,
+                    )
+                    for insight_id in visible_insight_ids
+                ],
+                update_conflicts=True,
+                unique_fields=["team", "user", "insight"],
+                update_fields=["last_viewed_at"],
             )
 
         return Response(status=status.HTTP_201_CREATED)
