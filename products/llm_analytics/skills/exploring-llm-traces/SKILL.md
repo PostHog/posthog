@@ -44,7 +44,10 @@ First inspect the path. Do not treat every UUID-looking value as a trace ID.
 - `/llm-analytics/traces/<trace_id>` or legacy `/llm-observability/traces/<trace_id>` is a single trace. Fetch it with `posthog:query-llm-trace`.
 - `/llm-analytics/sessions/<session_id>` is an AI session, not a trace. Fetch traces with `posthog:query-llm-traces-list` filtered by event property `$ai_session_id`.
 
-Preserve `date_from` / `date_to` query parameters from the URL when present. If none are present, use a safe default like `{"date_from": "-7d"}`.
+Preserve `date_from` / `date_to` query parameters from the URL when present.
+If none are present but the URL has a `timestamp` query parameter, use that timestamp as the anchor and query an absolute window around it, for example `timestamp - 36h` to `timestamp + 36h`.
+This handles exact session links whose UI timestamp may be offset from the stored event timestamps while keeping the query bounded.
+If the URL has neither explicit dates nor `timestamp`, use a safe default like `{"date_from": "-7d"}`.
 
 For exact trace and session URLs, skip schema discovery for the standard `$ai_*` fields used below. These are LLM analytics built-ins, not project-specific custom properties.
 
@@ -63,14 +66,16 @@ For a session URL, call `posthog:query-llm-traces-list` with:
 
 ```json
 {
-  "dateRange": { "date_from": "-1h" },
+  "dateRange": { "date_from": "<timestamp_minus_36h>", "date_to": "<timestamp_plus_36h>" },
   "filterTestAccounts": false,
   "limit": 20,
   "properties": [{ "type": "event", "key": "$ai_session_id", "value": ["<session_id>"], "operator": "exact" }]
 }
 ```
 
-Use the URL's `date_from` / `date_to` values in the session query if present. Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
+Use the URL's `date_from` / `date_to` values in the session query if present.
+If the URL only has `timestamp`, calculate the absolute date range from that timestamp instead of using a relative range like `-1h`.
+Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
 
 The result contains the event tree with all properties.
 The response may be large — when it exceeds the inline limit, Claude Code auto-persists it to a file.
