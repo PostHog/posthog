@@ -47,6 +47,13 @@ pub struct Config {
     #[envconfig(default = "0.20")]
     pub default_above_floor_rate: f64,
 
+    // Per-team daily cap on `is_error` events. Without it a customer marking every span
+    // as an error has unbounded indexing — bad instrumentation pinning the indexer.
+    // Counted in a separate Redis key from the regular floor so error volume doesn't
+    // drain the floor budget or vice versa. Overridable per team via `team_overrides`.
+    #[envconfig(default = "5000")]
+    pub default_error_ceiling: u64,
+
     // Comma-separated team IDs to drop entirely.
     #[envconfig(default = "")]
     pub deny_teams: TeamIdSet,

@@ -73,24 +73,29 @@ const COUNTER_TTL_SECONDS: u64 = 25 * 3600;
 /// not the primary exit mechanism.
 pub const DECISION_WRITE_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 
-/// Per-team sampling override (floor count + above-floor rate). Loaded from the
-/// `OPENSEARCH_INDEXER_TEAM_OVERRIDES` envvar (JSON map) at startup.
+/// Per-team sampling override (floor count + above-floor rate, plus optional error-volume
+/// cap). Loaded from the `OPENSEARCH_INDEXER_TEAM_OVERRIDES` envvar (JSON map) at startup.
+/// Missing `error_ceiling` falls through to `SamplingConfig::default_error_ceiling`.
 #[derive(Clone, Debug, Copy, Deserialize)]
 pub struct TeamOverride {
     pub floor: u64,
     pub rate: f64,
+    #[serde(default)]
+    pub error_ceiling: Option<u64>,
 }
 
 /// Variants distinguish *why* the event indexes (or doesn't) so callers can
-/// label per-decision metrics without reclassifying. `Deny`/`Drop`/`NotEnrolled`
-/// all skip indexing but stay distinct so ops can tell rollout state from
-/// active suppression from rate-based sampling.
+/// label per-decision metrics without reclassifying. `Deny`/`Drop`/`NotEnrolled`/
+/// `DropErrorCeiling` all skip indexing but stay distinct so ops can tell
+/// rollout state from active suppression from rate-based sampling from
+/// error-volume capping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Decision {
     Drop,
     IndexFloor,
     IndexSample,
     IndexError,
+    DropErrorCeiling,
     Deny,
     NotEnrolled,
 }
@@ -106,6 +111,7 @@ impl Decision {
             Decision::IndexFloor => "floor",
             Decision::IndexSample => "sample",
             Decision::IndexError => "error",
+            Decision::DropErrorCeiling => "error_ceiling",
             Decision::Deny => "deny",
             Decision::NotEnrolled => "not_enrolled",
         }
@@ -118,6 +124,7 @@ impl Decision {
 pub struct SamplingConfig {
     pub(crate) default_floor: u64,
     pub(crate) default_above_floor_rate: f64,
+    pub(crate) default_error_ceiling: u64,
     pub(crate) deny_teams: HashSet<i32>,
     pub(crate) overrides: HashMap<i32, TeamOverride>,
     pub(crate) now_utc: fn() -> DateTime<Utc>,
@@ -139,6 +146,7 @@ impl std::fmt::Debug for SamplingConfig {
         f.debug_struct("SamplingConfig")
             .field("default_floor", &self.default_floor)
             .field("default_above_floor_rate", &self.default_above_floor_rate)
+            .field("default_error_ceiling", &self.default_error_ceiling)
             .field("deny_teams", &self.deny_teams)
             .field("overrides", &self.overrides)
             .field("decision_writes_attached", &self.decision_writes.is_some())
@@ -154,6 +162,7 @@ impl SamplingConfig {
         Self {
             default_floor: c.default_floor,
             default_above_floor_rate: c.default_above_floor_rate,
+            default_error_ceiling: c.default_error_ceiling,
             deny_teams: c.deny_teams.teams.clone(),
             overrides: c.team_overrides.overrides.clone(),
             now_utc: Utc::now,
@@ -176,6 +185,13 @@ impl SamplingConfig {
             .get(&team_id)
             .map(|o| (o.floor, o.rate))
             .unwrap_or((self.default_floor, self.default_above_floor_rate))
+    }
+
+    fn resolve_error_ceiling(&self, team_id: i32) -> u64 {
+        self.overrides
+            .get(&team_id)
+            .and_then(|o| o.error_ceiling)
+            .unwrap_or(self.default_error_ceiling)
     }
 
     /// Master `rollout_enabled` is the caller's responsibility; this only
@@ -314,7 +330,20 @@ async fn compute_active_decision(
     date: &str,
 ) -> Result<Decision, CustomRedisError> {
     if doc.is_error {
-        return Ok(Decision::IndexError);
+        // Errors get their own daily counter so a flood of errors can't drain the regular
+        // floor budget (and vice versa). Above the ceiling we drop with a distinct
+        // decision so ops can see how much error volume the cap is suppressing.
+        let ceiling = config.resolve_error_ceiling(doc.team_id);
+        let key = format!("opensearch_indexer:error_counter:{}:{}", doc.team_id, date);
+        let raw = redis.incr_with_expire(key, COUNTER_TTL_SECONDS).await?;
+        let count: u64 = u64::try_from(raw).map_err(|_| {
+            CustomRedisError::ParseError(format!("error_counter incr returned non-positive: {raw}"))
+        })?;
+        return Ok(if count <= ceiling {
+            Decision::IndexError
+        } else {
+            Decision::DropErrorCeiling
+        });
     }
 
     let (floor, rate) = config.resolve(doc.team_id);
@@ -392,6 +421,9 @@ mod tests {
         SamplingConfig {
             default_floor: floor,
             default_above_floor_rate: rate,
+            // Generous default so existing error-bypass tests keep observing IndexError.
+            // Tests exercising the ceiling explicitly construct their own config below.
+            default_error_ceiling: u64::MAX,
             deny_teams: HashSet::new(),
             overrides,
             now_utc: Utc::now,
@@ -405,6 +437,14 @@ mod tests {
     fn key_for(team_id: i32) -> String {
         format!(
             "opensearch_indexer:counter:{}:{}",
+            team_id,
+            Utc::now().format("%Y-%m-%d")
+        )
+    }
+
+    fn error_key_for(team_id: i32) -> String {
+        format!(
+            "opensearch_indexer:error_counter:{}:{}",
             team_id,
             Utc::now().format("%Y-%m-%d")
         )
@@ -442,17 +482,105 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn error_event_indexes_without_incr() {
-        let redis = MockRedisClient::new();
+    async fn error_event_does_not_consume_floor_budget() {
+        // Error events INCR their own counter, never the floor counter. A team flooding
+        // errors must not be able to drain the regular floor's budget for that day.
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(42), Ok(1));
         let config = config_with(10, 0.5, HashMap::new());
 
         let doc = fixture_doc(42, Some("t-1"), true);
         let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::IndexError);
+        let floor_key = key_for(42);
         assert!(
-            redis.get_calls().iter().all(|c| c.op != "incr_with_expire"),
-            "error events must not consume floor budget"
+            redis
+                .get_calls()
+                .iter()
+                .all(|c| !(c.op == "incr_with_expire" && c.key == floor_key)),
+            "error events must not increment the floor counter"
         );
+    }
+
+    #[tokio::test]
+    async fn error_at_ceiling_indexes() {
+        // Ceiling is inclusive: the count==ceiling event is the last one allowed in.
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(42), Ok(100));
+        let mut config = config_with(10, 0.0, HashMap::new());
+        config.default_error_ceiling = 100;
+
+        let doc = fixture_doc(42, Some("t-1"), true);
+        assert_eq!(
+            decide(arc_client(&redis), &config, &doc).await.unwrap(),
+            Decision::IndexError
+        );
+    }
+
+    #[tokio::test]
+    async fn error_above_ceiling_drops() {
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(42), Ok(101));
+        let mut config = config_with(10, 0.0, HashMap::new());
+        config.default_error_ceiling = 100;
+
+        let doc = fixture_doc(42, Some("t-1"), true);
+        assert_eq!(
+            decide(arc_client(&redis), &config, &doc).await.unwrap(),
+            Decision::DropErrorCeiling
+        );
+    }
+
+    #[tokio::test]
+    async fn error_ceiling_zero_drops_all_errors() {
+        // ceiling=0 means INCR returns 1, which is > 0, so every error drops. Useful as
+        // a "nuke a misbehaving team's errors" override.
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(42), Ok(1));
+        let mut config = config_with(10, 0.0, HashMap::new());
+        config.default_error_ceiling = 0;
+
+        let doc = fixture_doc(42, Some("t-1"), true);
+        assert_eq!(
+            decide(arc_client(&redis), &config, &doc).await.unwrap(),
+            Decision::DropErrorCeiling
+        );
+    }
+
+    #[tokio::test]
+    async fn error_per_team_ceiling_override_takes_precedence() {
+        let team_id = 42;
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            team_id,
+            TeamOverride {
+                floor: 0,
+                rate: 0.0,
+                error_ceiling: Some(5),
+            },
+        );
+        let mut config = config_with(0, 0.0, overrides);
+        // Default would allow it; per-team override doesn't.
+        config.default_error_ceiling = u64::MAX;
+
+        // count=6, override ceiling=5 -> drop.
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(team_id), Ok(6));
+        let doc = fixture_doc(team_id, Some("t-1"), true);
+        assert_eq!(
+            decide(arc_client(&redis), &config, &doc).await.unwrap(),
+            Decision::DropErrorCeiling
+        );
+    }
+
+    #[tokio::test]
+    async fn error_redis_failure_propagates_for_fail_open() {
+        // Same fail-open contract as the floor counter: caller's classify_for_sink turns
+        // Err into Index, so a Redis outage doesn't silently drop error events.
+        let redis = MockRedisClient::new()
+            .incr_with_expire_ret(&error_key_for(42), Err(CustomRedisError::Timeout));
+        let config = config_with(10, 0.0, HashMap::new());
+
+        let doc = fixture_doc(42, Some("t-1"), true);
+        assert!(matches!(
+            decide(arc_client(&redis), &config, &doc).await,
+            Err(CustomRedisError::Timeout)
+        ));
     }
 
     #[tokio::test]
@@ -544,6 +672,7 @@ mod tests {
             TeamOverride {
                 floor: 100,
                 rate: 1.0,
+                error_ceiling: None,
             },
         );
         let config = config_with(10, 0.0, overrides);
@@ -574,6 +703,7 @@ mod tests {
             TeamOverride {
                 floor: 100,
                 rate: 1.0,
+                error_ceiling: None,
             },
         );
         let mut config = config_with(10, 0.0, overrides);
@@ -588,8 +718,11 @@ mod tests {
 
     #[tokio::test]
     async fn error_short_circuits_override() {
-        let redis = MockRedisClient::new();
+        // An error event still routes to IndexError regardless of the team's floor/rate
+        // override. The error counter is its own budget; team-specific floor/rate doesn't
+        // apply to errors at all.
         let team_id = 42;
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(team_id), Ok(1));
 
         let mut overrides = HashMap::new();
         overrides.insert(
@@ -597,6 +730,7 @@ mod tests {
             TeamOverride {
                 floor: 100,
                 rate: 1.0,
+                error_ceiling: None,
             },
         );
         let config = config_with(10, 0.0, overrides);
@@ -777,8 +911,8 @@ mod tests {
 
     #[tokio::test]
     async fn decide_records_error_decision_to_redis_hash() {
-        let redis = MockRedisClient::new();
         let team_id = 42;
+        let redis = MockRedisClient::new().incr_with_expire_ret(&error_key_for(team_id), Ok(1));
         let config = config_with(10, 0.5, HashMap::new());
 
         let doc = fixture_doc(team_id, Some("t-1"), true);
@@ -787,10 +921,13 @@ mod tests {
 
         flush_spawned().await;
         let calls = redis.get_calls();
-        // Error short-circuit must not consume the floor budget.
+        // Error path INCRs the dedicated error counter, never the floor counter.
+        let floor_key = key_for(team_id);
         assert!(
-            calls.iter().all(|c| c.op != "incr_with_expire"),
-            "error path must not call incr_with_expire"
+            calls
+                .iter()
+                .all(|c| !(c.op == "incr_with_expire" && c.key == floor_key)),
+            "error path must not consume the floor budget"
         );
         let hincrby =
             find_hincrby_call(&calls).expect("error path should still record per-decision HINCRBY");
@@ -908,6 +1045,7 @@ mod tests {
         assert_eq!(Decision::IndexFloor.label(), "floor");
         assert_eq!(Decision::IndexSample.label(), "sample");
         assert_eq!(Decision::IndexError.label(), "error");
+        assert_eq!(Decision::DropErrorCeiling.label(), "error_ceiling");
         assert_eq!(Decision::Deny.label(), "deny");
         assert_eq!(Decision::NotEnrolled.label(), "not_enrolled");
     }
