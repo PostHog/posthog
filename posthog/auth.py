@@ -641,8 +641,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 return access_token.user, None
 
             except AuthenticationFailed:
+                span.set_attribute("auth.matched", False)
                 raise
             except Exception:
+                span.set_attribute("auth.matched", False)
                 raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
