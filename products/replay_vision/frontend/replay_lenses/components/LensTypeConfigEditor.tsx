@@ -92,39 +92,41 @@ export function LensTypeConfigEditor({ lensId }: { lensId: string }): JSX.Elemen
                         minRows={6}
                     />
                 </Field>
-                <Field name="lens_config.scale" label="Scale">
+                <Field name="lens_config.scale">
                     {({ value, onChange, error }) => {
                         const scale = (value as { min: number; max: number; label?: string }) ?? { min: 0, max: 10 }
                         return (
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-3 max-w-md">
+                            <div className="space-y-3">
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-medium">Scale</label>
+                                    <div className="flex items-center gap-3 max-w-md">
+                                        <LemonInput
+                                            type="number"
+                                            value={scale.min}
+                                            onChange={(v) => onChange({ ...scale, min: Number(v) || 0 })}
+                                            prefix={<span className="text-muted text-xs">min</span>}
+                                        />
+                                        <span className="text-muted">to</span>
+                                        <LemonInput
+                                            type="number"
+                                            value={scale.max}
+                                            onChange={(v) => onChange({ ...scale, max: Number(v) || 0 })}
+                                            prefix={<span className="text-muted text-xs">max</span>}
+                                        />
+                                    </div>
+                                    {error && <div className="text-xs text-danger">{error}</div>}
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-medium">Score label (optional)</label>
                                     <LemonInput
-                                        type="number"
-                                        value={scale.min}
-                                        onChange={(v) => onChange({ ...scale, min: Number(v) || 0 })}
-                                        prefix={<span className="text-muted text-xs">min</span>}
-                                    />
-                                    <span className="text-muted">to</span>
-                                    <LemonInput
-                                        type="number"
-                                        value={scale.max}
-                                        onChange={(v) => onChange({ ...scale, max: Number(v) || 0 })}
-                                        prefix={<span className="text-muted text-xs">max</span>}
+                                        value={scale.label ?? ''}
+                                        onChange={(v) => onChange({ ...scale, label: v || undefined })}
+                                        placeholder="frustration"
                                     />
                                 </div>
-                                {error && <div className="text-xs text-danger">{error}</div>}
                             </div>
                         )
                     }}
-                </Field>
-                <Field name="lens_config.scale.label" label="Score label (optional)">
-                    {({ value, onChange }) => (
-                        <LemonInput
-                            value={(value as string | undefined) ?? ''}
-                            onChange={(v) => onChange(v || undefined)}
-                            placeholder="frustration"
-                        />
-                    )}
                 </Field>
             </div>
         )

@@ -58,7 +58,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
         loadLens: true,
         loadLensSuccess: (lens: ReplayLens) => ({ lens }),
         loadLensFailure: true,
-        setLens: (lens: ReplayLens) => ({ lens }),
         setLensType: (lensType: LensType) => ({ lensType }),
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservation[]) => ({ observations }),
@@ -113,12 +112,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
     })),
 
     reducers({
-        lens: {
-            loadLensSuccess: (_, { lens }) => lens,
-            setLens: (_, { lens }) => lens,
-            setLensType: (state, { lensType }) =>
-                ({ ...state, lens_type: lensType, lens_config: defaultConfigForType(lensType) }) as ReplayLens,
-        },
         originalLens: [
             null as ReplayLens | null,
             {
@@ -192,6 +185,10 @@ export const replayLensLogic = kea<replayLensLogicType>([
 
         loadLensSuccess: ({ lens }) => {
             actions.setLensValues(lens)
+        },
+
+        setLensType: ({ lensType }) => {
+            actions.setLensValues({ lens_type: lensType, lens_config: defaultConfigForType(lensType) })
         },
 
         loadObservations: async () => {
