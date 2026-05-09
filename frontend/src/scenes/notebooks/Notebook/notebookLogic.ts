@@ -403,11 +403,6 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const notebook = await migrate(response, { skipApiUpgrade: !!values.isShared })
 
-                    if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
-                        // If this is the first load we need to override the content fully
-                        values.editor?.setContent(notebook.content)
-                    }
-
                     return notebook
                 },
 
@@ -1092,7 +1087,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         discardLocalChanges: () => {
-            // Hard reload — only reliable way to drop PM-collab's sendable buffer.
+            // Reload remounts the editor so it re-initialises with the server's content.
             actions.clearLocalContent()
             window.location.reload()
         },
