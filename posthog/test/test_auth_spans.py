@@ -45,6 +45,10 @@ def _restore_tracer(previous_provider: trace.TracerProvider, previous_module_tra
 
 
 class TestAuthSpans(BaseTest):
+    _exporter: InMemorySpanExporter
+    _previous_provider: trace.TracerProvider
+    _previous_module_tracer: trace.Tracer
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -104,7 +108,9 @@ class TestAuthSpans(BaseTest):
         )
         request = self.factory.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        user, _ = PersonalAPIKeyAuthentication().authenticate(request)
+        result = PersonalAPIKeyAuthentication().authenticate(request)
+        assert result is not None
+        user, _ = result
         assert user == self.user
 
         parent = self._spans_named("posthog.auth.personal_api_key")
