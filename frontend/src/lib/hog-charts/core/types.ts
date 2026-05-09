@@ -7,9 +7,6 @@ export interface ChartTheme {
     crosshairColor?: string
     tooltipBackground?: string
     tooltipColor?: string
-    /** Stacking order for the floating tooltip portal. Plain number for portable use;
-     *  consumers wired into a host app's z-index scale can pass a CSS string like
-     *  `'var(--my-tooltip-z)'`. Defaults to 9999 when omitted. */
     tooltipZIndex?: number | string
 }
 
