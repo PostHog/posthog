@@ -2111,11 +2111,12 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if visible_insight_ids:
             viewed_at = now()
+            user = cast(User, request.user)
             InsightViewed.objects.bulk_create(
                 [
                     InsightViewed(
                         team=self.team,
-                        user=request.user,
+                        user=user,
                         insight_id=insight_id,
                         last_viewed_at=viewed_at,
                     )

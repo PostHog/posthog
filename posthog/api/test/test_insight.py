@@ -2815,31 +2815,32 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()["id"]
         return cohort_one_id
 
+    @parameterized.expand([("single_id", 1), ("bulk_ids", 3)])
     @freeze_time("2022-03-22T00:00:00.000Z")
-    def test_create_insight_viewed(self) -> None:
+    def test_create_insight_viewed(self, _name: str, count: int) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
-
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
-            team=self.team,
-            short_id="12345678",
-        )
+        insights = [
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"viewed{i}")
+            for i in range(count)
+        ]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/viewed",
-            {"insight_ids": [insight.id]},
+            {"insight_ids": [insight.id for insight in insights]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), count)
 
-        created_insight_viewed = InsightViewed.objects.all()[0]
-        self.assertEqual(created_insight_viewed.insight, insight)
-        self.assertEqual(created_insight_viewed.team, self.team)
-        self.assertEqual(created_insight_viewed.user, self.user)
-        self.assertEqual(
-            created_insight_viewed.last_viewed_at,
-            datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
-        )
+        created_by_insight = {viewed.insight_id: viewed for viewed in InsightViewed.objects.all()}
+        self.assertEqual(set(created_by_insight.keys()), {insight.id for insight in insights})
+        for viewed in created_by_insight.values():
+            self.assertEqual(viewed.team, self.team)
+            self.assertEqual(viewed.user, self.user)
+            self.assertEqual(
+                viewed.last_viewed_at,
+                datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
 
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -2885,26 +2886,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(InsightViewed.objects.count(), 0)
-
-    @freeze_time("2022-03-22T00:00:00.000Z")
-    def test_bulk_create_insight_viewed(self) -> None:
-        filter_dict = {"events": [{"id": "$pageview"}]}
-        insights = [
-            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"bulk{i}")
-            for i in range(3)
-        ]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/viewed",
-            {"insight_ids": [insight.id for insight in insights]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(InsightViewed.objects.count(), 3)
-        for viewed in InsightViewed.objects.all():
-            self.assertEqual(viewed.team, self.team)
-            self.assertEqual(viewed.user, self.user)
-            self.assertEqual(viewed.last_viewed_at, datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")))
 
     def test_bulk_upserts_existing_insight_viewed_rows(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
