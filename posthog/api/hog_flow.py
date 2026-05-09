@@ -11,7 +11,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -39,6 +39,7 @@ from posthog.models.feature_flag.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
+from posthog.models.hog_flow.hog_flow_revision import CONTENT_FIELDS, METADATA_FIELDS, HogFlowRevision
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import (
     bulk_replay_hog_flow_invocations,
@@ -67,6 +68,47 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+
+
+def _create_revision_from_hog_flow(
+    hog_flow: HogFlow,
+    status: str = HogFlowRevision.State.ACTIVE,
+    version: Optional[int] = None,
+) -> HogFlowRevision:
+    revision = HogFlowRevision(
+        hog_flow=hog_flow,
+        team_id=hog_flow.team_id,
+        version=version or hog_flow.version,
+        status=status,
+    )
+    for field in CONTENT_FIELDS:
+        setattr(revision, field, getattr(hog_flow, field))
+    revision.save()
+    return revision
+
+
+def _get_draft_revision(hog_flow: HogFlow) -> Optional[HogFlowRevision]:
+    return (
+        HogFlowRevision.objects.filter(
+            hog_flow=hog_flow,
+            team_id=hog_flow.team_id,
+            status=HogFlowRevision.State.DRAFT,
+        )
+        .order_by("-version")
+        .first()
+    )
+
+
+def _next_revision_version(hog_flow: HogFlow) -> int:
+    latest = hog_flow.revisions.order_by("-version").values_list("version", flat=True).first()
+    return (latest or 0) + 1
+
+
+def _build_draft_response(draft_revision: HogFlowRevision) -> dict:
+    """Return the full draft revision content for frontend hydration."""
+    draft_data: dict = {field: getattr(draft_revision, field) for field in CONTENT_FIELDS}
+    draft_data["updated_at"] = draft_revision.updated_at.isoformat() if draft_revision.updated_at else None
+    return draft_data
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -294,6 +336,12 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
 
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    draft = serializers.SerializerMethodField(
+        help_text="Draft revision content for active workflows. Null when no draft exists or workflow is not active.",
+    )
+    draft_updated_at = serializers.SerializerMethodField(
+        help_text="ISO timestamp of the latest draft revision update, or null when no draft exists.",
+    )
 
     class Meta:
         model = HogFlow
@@ -315,8 +363,28 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "draft",
+            "draft_updated_at",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_draft(self, obj: HogFlow) -> Optional[dict]:
+        if obj.status != HogFlow.State.ACTIVE:
+            return None
+        draft_revision = _get_draft_revision(obj)
+        if not draft_revision:
+            return None
+        return _build_draft_response(draft_revision)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_draft_updated_at(self, obj: HogFlow) -> Optional[str]:
+        if obj.status != HogFlow.State.ACTIVE:
+            return None
+        draft_revision = _get_draft_revision(obj)
+        if not draft_revision:
+            return None
+        return draft_revision.updated_at.isoformat() if draft_revision.updated_at else None
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
@@ -352,6 +420,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "draft",
+            "draft_updated_at",
         ]
         read_only_fields = [
             "id",
@@ -360,6 +430,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
+            "draft",
+            "draft_updated_at",
         ]
 
     def validate(self, data):
@@ -414,10 +486,105 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = team_id
 
-        return super().create(validated_data=validated_data)
+        hog_flow = super().create(validated_data=validated_data)
+
+        if hog_flow.status == HogFlow.State.ACTIVE:
+            # Created directly as active (e.g. import): revision starts as active.
+            revision = _create_revision_from_hog_flow(hog_flow, status=HogFlowRevision.State.ACTIVE)
+            HogFlow.objects.filter(pk=hog_flow.pk).update(active_revision=revision)
+            hog_flow.refresh_from_db(fields=["active_revision"])
+        else:
+            # Normal flow: new workflow starts as draft with a draft revision.
+            _create_revision_from_hog_flow(hog_flow, status=HogFlowRevision.State.DRAFT)
+
+        return hog_flow
 
     def update(self, instance, validated_data):
-        return super().update(instance, validated_data)
+        was_draft = instance.status == HogFlow.State.DRAFT
+        had_active_revision = instance.active_revision_id is not None
+        result = super().update(instance, validated_data)
+        is_now_active = result.status == HogFlow.State.ACTIVE
+
+        if was_draft and is_now_active and had_active_revision:
+            # Re-enabling a previously disabled workflow: status toggles back, the
+            # active_revision FK already points to the correct revision.
+            pass
+        elif was_draft and is_now_active:
+            # Activating a draft workflow for the first time: promote its draft
+            # revision to active and sync the HogFlow row's content into it.
+            revision = _get_draft_revision(result) or result.revisions.order_by("-version").first()
+            if revision:
+                for field in CONTENT_FIELDS:
+                    setattr(revision, field, getattr(result, field))
+                revision.status = HogFlowRevision.State.ACTIVE
+                revision.save()
+            else:
+                revision = _create_revision_from_hog_flow(result, status=HogFlowRevision.State.ACTIVE)
+            HogFlow.objects.filter(pk=result.pk).update(active_revision=revision)
+            result.refresh_from_db(fields=["active_revision"])
+        elif is_now_active and result.active_revision_id:
+            # Active workflow: only sync metadata (name/description) to the active
+            # revision. Content changes go through save_draft/publish.
+            revision = result.active_revision
+            for field in METADATA_FIELDS:
+                setattr(revision, field, getattr(result, field))
+            revision.save()
+        elif was_draft and not is_now_active:
+            # Editing a draft workflow: sync all content to its draft revision.
+            revision = result.revisions.filter(status=HogFlowRevision.State.DRAFT).order_by("-version").first()
+            if revision:
+                for field in CONTENT_FIELDS:
+                    setattr(revision, field, getattr(result, field))
+                revision.save()
+
+        return result
+
+
+class HogFlowDraftSerializer(serializers.Serializer):
+    """Partial draft saves on active workflows. Every field is optional since drafts can be partial."""
+
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        help_text="Updated workflow name. Synced to both the draft revision and the HogFlow row.",
+    )
+    description = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        help_text="Updated workflow description.",
+    )
+    actions = serializers.ListField(
+        child=HogFlowActionSerializer(),
+        required=False,
+        help_text="Updated list of workflow actions (lenient validation; full validation happens on publish).",
+    )
+    edges = serializers.JSONField(
+        required=False,
+        help_text="Updated graph edges describing transitions between actions.",
+    )
+    trigger_masking = HogFlowMaskingSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Updated trigger masking configuration.",
+    )
+    conversion = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Updated conversion definition.",
+    )
+    exit_condition = serializers.ChoiceField(
+        choices=HogFlow.ExitCondition.choices,
+        required=False,
+        help_text="Updated exit condition for the workflow.",
+    )
+    variables = HogFlowVariableSerializer(
+        required=False,
+        help_text="Updated workflow variables.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.context["is_draft"] = True
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
@@ -961,6 +1128,105 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         deleted_count, _ = queryset.delete()
 
         return Response({"deleted": deleted_count})
+
+    @extend_schema(request=HogFlowDraftSerializer, responses=HogFlowSerializer)
+    @action(detail=True, methods=["PATCH"], url_path="draft")
+    def save_draft(self, request: Request, *args, **kwargs):
+        """Save a partial draft on an active workflow. Creates a draft revision if none exists."""
+        hog_flow = self.get_object()
+
+        if hog_flow.status != HogFlow.State.ACTIVE:
+            raise exceptions.ValidationError("Drafts can only be saved on active workflows.")
+
+        serializer = HogFlowDraftSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        draft_data = serializer.validated_data
+
+        draft_revision = _get_draft_revision(hog_flow)
+
+        if draft_revision:
+            for key, value in draft_data.items():
+                setattr(draft_revision, key, value)
+            draft_revision.save()
+        else:
+            # Create new draft revision as a copy of active, then overlay changes.
+            source = hog_flow.active_revision or hog_flow
+            draft_revision = HogFlowRevision(
+                hog_flow=hog_flow,
+                team_id=hog_flow.team_id,
+                version=_next_revision_version(hog_flow),
+                status=HogFlowRevision.State.DRAFT,
+            )
+            for field in CONTENT_FIELDS:
+                setattr(draft_revision, field, getattr(source, field))
+            for key, value in draft_data.items():
+                setattr(draft_revision, key, value)
+            draft_revision.save()
+
+        hog_flow.refresh_from_db()
+        return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
+
+    @extend_schema(responses=HogFlowSerializer)
+    @action(detail=True, methods=["POST"], url_path="publish")
+    def publish(self, request: Request, *args, **kwargs):
+        """Promote the draft revision to active, archive the previous active revision, and run strict validation."""
+        hog_flow = self.get_object()
+        draft_revision = _get_draft_revision(hog_flow)
+
+        if not draft_revision:
+            raise exceptions.ValidationError("No draft to publish.")
+
+        # Validate draft content through the full serializer (strict, non-draft validation).
+        validation_data: dict = {}
+        for field in CONTENT_FIELDS:
+            val = getattr(draft_revision, field)
+            if val is not None:
+                validation_data[field] = val
+        validation_data["status"] = "active"
+
+        validation_serializer = HogFlowSerializer(
+            instance=hog_flow,
+            data=validation_data,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        validation_serializer.is_valid(raise_exception=True)
+
+        # Apply validated content to the HogFlow row.
+        validation_serializer.save()
+
+        # Archive the previously active revision.
+        old_active = hog_flow.active_revision
+        if old_active:
+            old_active.status = HogFlowRevision.State.ARCHIVED
+            old_active.save(update_fields=["status"])
+
+        # Promote draft revision to active and snapshot the canonical post-validation content.
+        draft_revision.status = HogFlowRevision.State.ACTIVE
+        for field in CONTENT_FIELDS:
+            setattr(draft_revision, field, getattr(hog_flow, field))
+        draft_revision.save()
+
+        # Point active_revision FK at the freshly promoted revision.
+        HogFlow.objects.filter(pk=hog_flow.pk).update(active_revision=draft_revision)
+
+        hog_flow.refresh_from_db()
+        return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
+
+    @extend_schema(responses=HogFlowSerializer)
+    @action(detail=True, methods=["POST"], url_path="discard_draft")
+    def discard_draft(self, request: Request, *args, **kwargs):
+        """Delete any draft revision for this workflow, leaving the active revision untouched."""
+        hog_flow = self.get_object()
+
+        HogFlowRevision.objects.filter(
+            hog_flow=hog_flow,
+            team_id=hog_flow.team_id,
+            status=HogFlowRevision.State.DRAFT,
+        ).delete()
+
+        hog_flow.refresh_from_db()
+        return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):

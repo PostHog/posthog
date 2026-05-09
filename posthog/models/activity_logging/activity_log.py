@@ -363,6 +363,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "bytecode",
         "icon_url",
     ],
+    "HogFlow": [
+        "active_revision",
+        "revisions",
+    ],
     "Notebook": [
         "text_content",
     ],
