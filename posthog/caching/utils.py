@@ -16,6 +16,7 @@ RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAM
 # Separate from the zset so an empty result has somewhere to land without a sentinel team.
 RECENTLY_ACCESSED_TEAMS_POPULATED_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS_POPULATED"
 
+IN_AN_HOUR = 3_600
 IN_A_DAY = 86_400
 
 
@@ -55,11 +56,13 @@ def _populate_active_teams(redis) -> dict[int, float]:
     )
     teams = dict(teams_by_recency)
     # Marker is set even on empty results, so callers don't re-query for every inactive team.
+    # Empty results get a shorter TTL so a newly-active team gets picked up within an hour.
+    marker_ttl = IN_A_DAY if teams else IN_AN_HOUR
     pipe = redis.pipeline()
     if teams:
         pipe.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
         pipe.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
-    pipe.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=IN_A_DAY)
+    pipe.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=marker_ttl)
     pipe.execute()
     return teams
 

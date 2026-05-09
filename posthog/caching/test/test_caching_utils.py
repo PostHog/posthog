@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.caching.utils import (
     IN_A_DAY,
+    IN_AN_HOUR,
     RECENTLY_ACCESSED_TEAMS_POPULATED_KEY,
     RECENTLY_ACCESSED_TEAMS_REDIS_KEY,
     active_teams,
@@ -92,12 +93,12 @@ def test_populate_sets_24h_ttl_on_both_keys():
         assert ttl >= IN_A_DAY - 5, f"{key} ttl={ttl}"
 
 
-def test_populate_sets_24h_ttl_on_marker_when_clickhouse_empty():
+def test_populate_sets_short_ttl_on_marker_when_clickhouse_empty():
     redis = get_client()
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
         mock_sync_execute.return_value = []
         is_team_active(42)
 
     ttl = redis.ttl(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
-    assert 0 < ttl <= IN_A_DAY
-    assert ttl >= IN_A_DAY - 5
+    assert 0 < ttl <= IN_AN_HOUR
+    assert ttl >= IN_AN_HOUR - 5
