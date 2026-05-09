@@ -16,13 +16,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCheck, IconChevronRight } from '@posthog/icons'
 import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { hasRecentContext } from '../recentTaxonomicFiltersLogic'
+import { MAX_TOP_MATCHES_PER_GROUP } from '../taxonomicFilterLogic'
+import { isQuickFilterItem, TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { promoteMatchingProperties } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
@@ -30,9 +34,11 @@ import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
 // `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
 // only override what's specific to the menu (keys + the
 // `ignoreLocation` switch so a typo near the end of the string still
-// matches).
+// matches). `recentLabel` mirrors the legacy infiniteListLogic Fuse so
+// recent items with a propertyFilter are findable by the operator/value
+// text the user just used.
 const FUSE_OPTIONS = {
-    keys: ['name', 'friendlyLabel'],
+    keys: ['name', 'friendlyLabel', 'recentLabel'],
     ignoreLocation: true,
 }
 
@@ -182,15 +188,27 @@ export function MenuFilterCombobox({
         if (drillItems) {
             return drillItems
         }
+        const scopeOnAll = scope === 'all'
         const merged: MenuFilterEntry[] = []
         for (const group of targetGroups) {
-            const items = itemsByType[group.type] ?? []
+            const allItems = itemsByType[group.type] ?? []
+            // Cap each group's contribution on the All chip while a
+            // search is active so big groups (Event properties at ~310
+            // rows) don't drown small ones (Cohorts, Actions, Email
+            // addresses) when the merged Fuse haystack ranks results.
+            // Mirrors legacy MAX_TOP_MATCHES_PER_GROUP behavior on the
+            // Suggested-filters aggregation.
+            const items =
+                scopeOnAll && searchQuery.trim().length > 0 && allItems.length > MAX_TOP_MATCHES_PER_GROUP
+                    ? allItems.slice(0, MAX_TOP_MATCHES_PER_GROUP)
+                    : allItems
             for (const item of items) {
                 merged.push({
                     item,
                     group,
                     name: getRawName(item, group),
                     friendlyLabel: getFriendlyLabel(item, group),
+                    recentLabel: getRecentLabel(item),
                 })
             }
         }
@@ -221,15 +239,45 @@ export function MenuFilterCombobox({
             }
         }
         return merged
-    }, [drillItems, suggestedItems, targetGroups, itemsByType, selectedEntry, showChips, activeChip, drillTo])
+    }, [
+        drillItems,
+        suggestedItems,
+        targetGroups,
+        itemsByType,
+        selectedEntry,
+        showChips,
+        activeChip,
+        drillTo,
+        searchQuery,
+    ])
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q
-            ? createFuse(indexed, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
+        // Hold keyword shortcuts aside so they keep guaranteed lead
+        // position regardless of Fuse score (legacy parity — verbs like
+        // "click" map to the autocapture shortcut and Enter must commit
+        // it). Real items go through Fuse; shortcuts prepend at the end.
+        const shortcuts: MenuFilterEntry[] = []
+        const haystack: MenuFilterEntry[] = []
+        for (const entry of indexed) {
+            if (isQuickFilterItem(entry.item)) {
+                shortcuts.push(entry)
+            } else {
+                haystack.push(entry)
+            }
+        }
+        const searched = q
+            ? createFuse(haystack, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
                   .search(q)
                   .map((r) => r.item)
-            : indexed
+            : haystack
+        // Position-0 promotion: `email`/`url` map to `$email` /
+        // `$current_url` per PROMOTED_PROPERTIES_BY_SEARCH_TERM. Legacy
+        // ran this on every result list; restoring it here keeps the
+        // ~50% of search volume that types these terms landing on the
+        // expected answer at index 0.
+        const promoted = q ? promoteMatchingProperties(searched, q, (entry) => entry.name) : searched
+        const base = shortcuts.length > 0 ? [...shortcuts, ...promoted] : promoted
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the
@@ -263,6 +311,32 @@ export function MenuFilterCombobox({
         const phrase = group?.searchPlaceholder ?? group?.name?.toLowerCase()
         return phrase ? `Search ${phrase}…` : (placeholder ?? 'Search…')
     }, [activeChip, groups, placeholder])
+
+    // Groups that need more characters before their remote endpoint
+    // fires (Pageview URLs, Email addresses, etc. — `minSearchQueryLength
+    // > 0` in `taxonomicFilterLogic`). On the All chip these would
+    // otherwise be silently absent: their items don't show up, and the
+    // empty-state message only surfaces when the full list is empty. Show
+    // an inline hint above the list so users know typing more would
+    // surface those categories.
+    const minLengthHint = useMemo<string | null>(() => {
+        if (!showChips || activeChip !== 'all') {
+            return null
+        }
+        const trimmedLen = searchQuery.trim().length
+        if (trimmedLen === 0) {
+            return null
+        }
+        const waiting = visibleChipGroups.filter(
+            (g) => (g.minSearchQueryLength ?? 0) > 0 && trimmedLen < (g.minSearchQueryLength ?? 0)
+        )
+        if (waiting.length === 0) {
+            return null
+        }
+        const minNeeded = Math.min(...waiting.map((g) => g.minSearchQueryLength as number))
+        const names = waiting.map((g) => g.name).join(', ')
+        return `Type ${minNeeded}+ characters to also search ${names}.`
+    }, [showChips, activeChip, searchQuery, visibleChipGroups])
 
     // Empty-state message. Three branches:
     //   - "needs more characters" — when the active chip resolves to a
@@ -436,6 +510,14 @@ export function MenuFilterCombobox({
                         )}
                         {!drillItems &&
                             targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
+                        {minLengthHint && (
+                            <div
+                                className="px-3 py-1.5 text-xs text-tertiary border-b"
+                                data-attr="menu-filter-min-length-hint"
+                            >
+                                {minLengthHint}
+                            </div>
+                        )}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
                                 <Autocomplete.Empty className="empty:hidden">
@@ -649,4 +731,11 @@ function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilter
         return undefined
     }
     return getCoreFilterDefinition(raw, group.type)?.label
+}
+
+function getRecentLabel(item: TaxonomicDefinitionTypes): string | undefined {
+    if (!hasRecentContext(item) || !item._recentContext.propertyFilter) {
+        return undefined
+    }
+    return formatPropertyLabel(item._recentContext.propertyFilter, {})
 }

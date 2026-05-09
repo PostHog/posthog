@@ -16,6 +16,10 @@ export interface MenuFilterEntry {
     group: TaxonomicFilterGroup
     name: string
     friendlyLabel?: string
+    /** Formatted label for items that arrived via Recent context with a
+     *  property filter — e.g. "Email contains @foo". Indexed by Fuse so
+     *  users can find recent picks by the operator/value text. */
+    recentLabel?: string
 }
 
 /** Synthetic categories the combobox panel can be drilled into.

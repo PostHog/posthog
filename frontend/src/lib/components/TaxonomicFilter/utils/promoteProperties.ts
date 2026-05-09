@@ -9,11 +9,12 @@ export const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
 /**
  * If the search query matches a promoted property's search terms, move that property
  * to the top of results so users find it quickly.
+ *
+ * `getName` is an optional extractor for callers whose `T` wraps the
+ * underlying definition (e.g. `MenuFilterEntry { item, name, … }`) — when
+ * omitted, falls back to reading `item.name` directly off `T`.
  */
-export function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | SkeletonItem>(
-    results: T[],
-    searchQuery: string
-): T[] {
+export function promoteMatchingProperties<T>(results: T[], searchQuery: string, getName?: (item: T) => string): T[] {
     if (!searchQuery) {
         return results
     }
@@ -32,11 +33,15 @@ export function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | S
         if (!item) {
             continue
         }
-        if (isSkeletonItem(item)) {
+        if (isSkeletonItem(item as unknown as TaxonomicDefinitionTypes | SkeletonItem)) {
             rest.push(item)
             continue
         }
-        const name = 'name' in item ? (item as { name?: string }).name : undefined
+        const name = getName
+            ? getName(item)
+            : 'name' in (item as object)
+              ? ((item as { name?: string }).name ?? '')
+              : ''
         if (name && promotedPropertyNameSet.has(name)) {
             promoted.push(item)
         } else {
