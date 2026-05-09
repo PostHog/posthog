@@ -14,8 +14,8 @@ import { ActivityTab } from '~/types'
 import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { query } = useValues(eventsSceneLogic)
-    const { setQuery } = useActions(eventsSceneLogic)
+    const { query } = useValues(eventsSceneLogic({ tabId }))
+    const { setQuery } = useActions(eventsSceneLogic({ tabId }))
 
     return (
         <SceneContent>
@@ -30,6 +30,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 attachTo={eventsSceneLogic({ tabId })}
                 uniqueKey={`events-scene-${tabId}`}
+                tabId={tabId}
                 query={query}
                 setQuery={setQuery}
                 context={{

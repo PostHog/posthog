@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -85,12 +86,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['recents as cachedRecents', 'recentsHasLoaded'],
             projectTreeDataLogic,
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
+            tabUiStateLogic,
+            ['chatDraftFor'],
         ],
         actions: [
             maxLogic({ tabId: HOMEPAGE_TAB_ID }),
             ['openConversation', 'startNewConversation', 'setQuestion'],
             sceneLogic,
             ['setHomepage'],
+            tabUiStateLogic,
+            ['setChatDraftForTab'],
         ],
     })),
 
@@ -205,6 +210,12 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        setQuery: ({ query }) => {
+            actions.setChatDraftForTab(HOMEPAGE_TAB_ID, query)
+        },
+        returnToIdle: () => {
+            actions.setChatDraftForTab(HOMEPAGE_TAB_ID, '')
+        },
         submitQuery: async ({ mode }, breakpoint) => {
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
@@ -337,6 +348,12 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         } else if (urlMode === 'search' && urlQuery) {
             actions.setQuery(urlQuery)
             actions.submitQuery('search')
+        } else if (urlMode === 'idle' && !values.query) {
+            // Restore unsent input that was typed before the user left the homepage
+            const persistedDraft = values.chatDraftFor(HOMEPAGE_TAB_ID)
+            if (persistedDraft) {
+                actions.setQuery(persistedDraft)
+            }
         }
     }),
 ])
