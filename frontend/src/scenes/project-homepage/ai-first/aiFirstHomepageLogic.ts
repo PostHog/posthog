@@ -17,7 +17,7 @@ import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { DashboardBasicType } from '~/types'
 
 import type { aiFirstHomepageLogicType } from './aiFirstHomepageLogicType'
-import { HOMEPAGE_TAB_ID } from './constants'
+import { HOMEPAGE_IDLE_DRAFT_KEY, HOMEPAGE_TAB_ID } from './constants'
 
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
@@ -211,15 +211,15 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            actions.setChatDraftForTab(HOMEPAGE_TAB_ID, query)
+            actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
         },
         returnToIdle: () => {
-            actions.setChatDraftForTab(HOMEPAGE_TAB_ID, '')
+            actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
         },
         submitQuery: async ({ mode }, breakpoint) => {
             // Once the draft has been submitted, it's no longer a draft — clear it so we don't
             // resurrect it as "unsent input" the next time the homepage is mounted.
-            actions.setChatDraftForTab(HOMEPAGE_TAB_ID, '')
+            actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
 
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
@@ -303,7 +303,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             } else if (urlMode === 'idle' && !values.query) {
                 // Restore unsent input typed before the user left the homepage.
                 // urlToAction also runs on first mount, so this handles initial restore too.
-                const persistedDraft = values.chatDraftFor(HOMEPAGE_TAB_ID)
+                const persistedDraft = values.chatDraftFor(HOMEPAGE_IDLE_DRAFT_KEY)
                 if (persistedDraft) {
                     actions.setQuery(persistedDraft)
                 }
