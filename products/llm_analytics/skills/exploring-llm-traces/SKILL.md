@@ -50,27 +50,23 @@ For exact trace and session URLs, skip schema discovery for the standard `$ai_*`
 
 ### Step 2 — Fetch trace data
 
-For a trace URL:
+For a trace URL, call `posthog:query-llm-trace` with:
 
 ```json
-posthog:query-llm-trace
 {
   "traceId": "<trace_id>",
-  "dateRange": {"date_from": "-7d"}
+  "dateRange": { "date_from": "-7d" }
 }
 ```
 
-For a session URL:
+For a session URL, call `posthog:query-llm-traces-list` with:
 
 ```json
-posthog:query-llm-traces-list
 {
-  "dateRange": {"date_from": "-1h"},
+  "dateRange": { "date_from": "-1h" },
   "filterTestAccounts": false,
   "limit": 20,
-  "properties": [
-    {"type": "event", "key": "$ai_session_id", "value": ["<session_id>"], "operator": "exact"}
-  ]
+  "properties": [{ "type": "event", "key": "$ai_session_id", "value": ["<session_id>"], "operator": "exact" }]
 }
 ```
 
