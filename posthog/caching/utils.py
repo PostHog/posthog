@@ -13,8 +13,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS"
-# Companion marker key so we remember "we already populated, the answer was empty" without
-# storing a sentinel into the zset (which would leak into `active_teams()` iteration).
+# Separate from the zset so an empty result has somewhere to land without a sentinel team.
 RECENTLY_ACCESSED_TEAMS_POPULATED_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS_POPULATED"
 
 IN_A_DAY = 86_400
@@ -55,13 +54,13 @@ def _populate_active_teams(redis) -> dict[int, float]:
     """
     )
     teams = dict(teams_by_recency)
+    # Marker is set even on empty results, so callers don't re-query for every inactive team.
+    pipe = redis.pipeline()
     if teams:
-        redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
-        redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
-    # Always set the "populated" marker, even when the query returned nothing. Otherwise
-    # signal-fired hot-path callers re-run the SELECT for every signal firing on every
-    # team that has no recent events.
-    redis.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=IN_A_DAY)
+        pipe.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
+        pipe.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
+    pipe.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=IN_A_DAY)
+    pipe.execute()
     return teams
 
 
@@ -76,8 +75,6 @@ def is_team_active(team_id: int) -> bool:
     if score is not None:
         return True
     # ZSCORE None: either the team isn't recently active, or we haven't populated yet.
-    # The populated marker disambiguates without re-querying ClickHouse — and crucially
-    # exists even when the populated zset would be empty.
     if redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY):
         return False
     populated = _populate_active_teams(redis)

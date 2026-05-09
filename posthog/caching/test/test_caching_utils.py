@@ -55,8 +55,6 @@ def test_is_team_active_returns_false_when_clickhouse_empty():
 
 
 def test_is_team_active_caches_empty_clickhouse_result():
-    """Regression: signal-fired sync_insight_caching_state used to re-run the SELECT for
-    every firing on a team without recent events because empty results weren't cached."""
     redis = get_client()
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
         mock_sync_execute.return_value = []
@@ -65,14 +63,11 @@ def test_is_team_active_caches_empty_clickhouse_result():
         assert is_team_active(43) is False
         assert is_team_active(44) is False
 
-        # One ClickHouse roundtrip serves all three lookups.
         assert mock_sync_execute.call_count == 1
-        # And the populated marker outlives the empty zset (which never gets created).
         assert redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY)
 
 
 def test_active_teams_caches_empty_clickhouse_result():
-    """Same regression as is_team_active, on the batch-iteration path."""
     redis = get_client()
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
         mock_sync_execute.return_value = []
