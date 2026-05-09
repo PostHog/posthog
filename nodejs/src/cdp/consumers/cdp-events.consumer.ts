@@ -56,11 +56,17 @@ export class CdpEventsConsumer<
         )
     }
 
-    public async processBatch(
-        invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
+    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<{
+        criticalBackgroundTask: Promise<unknown>
+        backgroundTask: Promise<unknown>
+        invocations: CyclotronJobInvocation[]
+    }> {
         if (!invocationGlobals.length) {
-            return { backgroundTask: Promise.resolve(), invocations: [] }
+            return {
+                criticalBackgroundTask: Promise.resolve(),
+                backgroundTask: Promise.resolve(),
+                invocations: [],
+            }
         }
 
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
@@ -72,20 +78,25 @@ export class CdpEventsConsumer<
         ]
 
         return {
-            // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.all([
-                instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
-                    this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
-                ),
-                instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+            // Critical: a failure here MUST prevent the kafka offset from advancing,
+            // otherwise we silently drop invocations. The kafka consumer enforces this by
+            // skipping offset store on criticalBackgroundTask rejection and propagating.
+            criticalBackgroundTask: instrumentFn(
+                { key: 'cdp.critical_background_task.queue_invocations', sendException: false },
+                () => this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
+            ),
+            // Best-effort: losing a metric flush is acceptable; losing an invocation is not.
+            backgroundTask: instrumentFn(
+                { key: 'cdp.background_task.monitoring_flush', sendException: false },
+                async () => {
                     try {
                         await this.hogFunctionMonitoringService.flush()
                     } catch (err) {
                         captureException(err)
                         logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                     }
-                }),
-            ]),
+                }
+            ),
             invocations: invocationsToBeQueued,
         }
     }
@@ -445,9 +456,9 @@ export class CdpEventsConsumer<
 
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
-                const { backgroundTask } = await this.processBatch(invocationGlobals)
+                const { criticalBackgroundTask, backgroundTask } = await this.processBatch(invocationGlobals)
 
-                return { backgroundTask }
+                return { criticalBackgroundTask, backgroundTask }
             })
         })
     }

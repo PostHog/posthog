@@ -604,6 +604,106 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 
+    it('criticalBackgroundTask rejection: offsets are NOT stored for the failed batch', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+        // The loop will exit on next tick once fatalError latches; pre-attach a catch so
+        // that doesn't surface as an unhandled rejection in this test.
+        ;((consumer as any).loopDone as Promise<void>).catch(() => {})
+
+        const failure = new Error('column "X" does not exist')
+        // Use a triggerable promise so the rejection happens AFTER trackTask has attached
+        // its handler — avoids spurious unhandled-rejection warnings inside the test runner.
+        const failing = triggerablePromise<void>()
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ criticalBackgroundTask: failing.promise }))
+
+        consumeCallback!(null, [createMessage({ offset: 1, partition: 0 })])
+        await delay(2)
+        failing.reject(failure)
+        await delay(10)
+
+        expect(captureException).toHaveBeenCalledWith(failure)
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 2 }])
+    })
+
+    it('criticalBackgroundTask rejection: loop exits with the latched fatalError on next tick', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+        const loopDone = (consumer as any).loopDone as Promise<void>
+        // Pre-attach a no-op catch so the eventual rejection doesn't surface as an
+        // unhandled-rejection between the throw and the `await expect(...).rejects` below.
+        loopDone.catch(() => {})
+
+        const failure = new Error('column "X" does not exist')
+        const failing = triggerablePromise<void>()
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ criticalBackgroundTask: failing.promise }))
+
+        consumeCallback!(null, [createMessage({ offset: 1, partition: 0 })])
+        await delay(2)
+        failing.reject(failure)
+        await delay(10)
+
+        // Next loop tick checks fatalError and throws — release the in-flight consume so
+        // the loop can iterate and observe it.
+        if (consumeCallback) {
+            consumeCallback(null, [])
+        }
+
+        await expect(loopDone).rejects.toBe(failure)
+        // Avoid double-disconnect in afterEach since the loop already exited.
+        consumer = undefined as unknown as KafkaConsumerV2
+    })
+
+    it('criticalBackgroundTask rejection: a later successful batch must NOT advance the bookmark past the failed one', async () => {
+        // This is the cross-batch ordering bug from the cyclotron-v2 incident: batch N's
+        // critical fails, batch N+1's succeeds, and without the fatalError gate batch N+1
+        // would store its (higher) offset, silently committing past the lost events.
+        ;(consumer as any).maxBackgroundTasks = 4
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+        ;((consumer as any).loopDone as Promise<void>).catch(() => {})
+
+        const failure = new Error('column "X" does not exist')
+        const slowFailure = triggerablePromise<void>()
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ criticalBackgroundTask: slowFailure.promise }))
+        consumeCallback!(null, [createMessage({ offset: 100, partition: 0 })])
+        await delay(2)
+
+        // Second batch on the same partition with a successful, fast critical task.
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ criticalBackgroundTask: Promise.resolve() }))
+        consumeCallback!(null, [createMessage({ offset: 200, partition: 0 })])
+        await delay(10)
+
+        // Now resolve the first batch's critical with a failure — AFTER batch N+1 has
+        // already finished its own critical work.
+        slowFailure.reject(failure)
+        await delay(20)
+
+        // No offset for partition 0 should have been stored, even though batch N+1's
+        // critical succeeded.
+        const partition0Stores = (mockRdKafka.offsetsStore as jest.Mock).mock.calls.filter(([offsets]) =>
+            offsets.some((o: any) => o.partition === 0)
+        )
+        expect(partition0Stores).toEqual([])
+    })
+
+    it('non-critical backgroundTask rejection: offsets ARE still stored', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const failure = new Error('monitoring flush failed')
+        const failing = triggerablePromise<void>()
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: failing.promise }))
+
+        consumeCallback!(null, [createMessage({ offset: 50, partition: 0 })])
+        await delay(2)
+        failing.reject(failure)
+        await delay(10)
+
+        expect(captureException).toHaveBeenCalledWith(failure)
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 51 }])
+    })
+
     it('Health: not connected → error', () => {
         ;(mockRdKafka.isConnected as jest.Mock).mockReturnValue(false)
         const result = consumer.isHealthy()

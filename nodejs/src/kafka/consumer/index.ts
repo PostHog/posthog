@@ -15,9 +15,19 @@ export type { KafkaConsumerConfig, RdKafkaConsumerConfig } from './consumer-v1'
  * The shared surface that both KafkaConsumer (v1) and KafkaConsumerV2 expose to call sites.
  * Keep this small — every method here pins the migration. Adding a method here forces both
  * implementations to support it.
+ *
+ * `criticalBackgroundTask` failures must prevent offset commit and propagate to the loop.
+ * `backgroundTask` failures are best-effort: logged + reported, but the offset still advances.
+ * Call sites that produce follow-on jobs (cyclotron, downstream Kafka producers, durable
+ * state writes) should use `criticalBackgroundTask`. Observability and metrics flushes
+ * belong in `backgroundTask`.
  */
 export interface KafkaConsumerInterface {
-    connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>): Promise<void>
+    connect(
+        eachBatch: (
+            messages: Message[]
+        ) => Promise<{ criticalBackgroundTask?: Promise<unknown>; backgroundTask?: Promise<unknown> } | void>
+    ): Promise<void>
     disconnect(): Promise<void>
     isHealthy(): HealthCheckResult
     offsetsStore(offsets: TopicPartitionOffset[]): void

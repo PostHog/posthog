@@ -151,6 +151,11 @@ export class KafkaConsumer {
     }
     private consumerLogStatsLevel: LogLevel
 
+    // Latched on the first criticalBackgroundTask failure. Once set, no further offsets
+    // are stored and the loop exits at the next tick so the process restarts and replays
+    // from the last good commit.
+    private fatalError: unknown | undefined
+
     constructor(
         private config: KafkaConsumerConfig,
         rdKafkaConfig: RdKafkaConsumerConfig = {}
@@ -597,7 +602,9 @@ export class KafkaConsumer {
     }
 
     public async connect(
-        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>
+        eachBatch: (
+            messages: Message[]
+        ) => Promise<{ criticalBackgroundTask?: Promise<unknown>; backgroundTask?: Promise<unknown> } | void>
     ): Promise<void> {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
@@ -681,6 +688,12 @@ export class KafkaConsumer {
                         continue
                     }
 
+                    // If a critical task latched fatalError on a prior batch, exit the
+                    // loop so the process restarts and replays from the last good commit.
+                    if (this.fatalError) {
+                        throw this.fatalError
+                    }
+
                     const startProcessingTimeMs = new Date().valueOf()
                     const result = await eachBatch(messages)
 
@@ -696,27 +709,65 @@ export class KafkaConsumer {
 
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
                     // it would be hard to mix background work with non-background work.
-                    // So we just create pretend work to simplify the rest of the logic
-                    const rawBackgroundTask = result?.backgroundTask
-                    const backgroundTask = rawBackgroundTask
-                        ? instrumentFn(
-                              {
-                                  key: 'consumer_background_task',
-                                  timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
-                                  sendException: false,
-                              },
-                              () => rawBackgroundTask
-                          )
-                        : Promise.resolve()
-                    const stopBackgroundTaskTimer = rawBackgroundTask
-                        ? consumedBatchBackgroundDuration.startTimer({
-                              topic: this.config.topic,
-                              groupId: this.config.groupId,
-                          })
-                        : undefined
+                    // So we just create pretend work to simplify the rest of the logic.
+                    //
+                    // criticalBackgroundTask: failure latches fatalError, prevents this
+                    // batch's offsets from being stored, and triggers loop exit on the next
+                    // iteration. backgroundTask: best-effort, log + swallow on failure.
+                    const rawCriticalTask = result?.criticalBackgroundTask
+                    const rawNonCriticalTask = result?.backgroundTask
+                    const stopBackgroundTaskTimer =
+                        rawCriticalTask || rawNonCriticalTask
+                            ? consumedBatchBackgroundDuration.startTimer({
+                                  topic: this.config.topic,
+                                  groupId: this.config.groupId,
+                              })
+                            : undefined
                     const taskCreatedAt = Date.now()
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
+
+                    // Combined task that backpressure waits on. Resolves to true if this
+                    // batch's critical work succeeded, false otherwise. Always resolves —
+                    // never rejects — so callers can `await` without crashing the loop
+                    // through unhandled rejection.
+                    const backgroundTask: Promise<void> = (async () => {
+                        if (rawCriticalTask) {
+                            try {
+                                await instrumentFn(
+                                    {
+                                        key: 'consumer_critical_background_task',
+                                        timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                        sendException: false,
+                                    },
+                                    () => rawCriticalTask as Promise<unknown>
+                                )
+                            } catch (error) {
+                                logger.error('🔥', 'kafka_consumer_v1_critical_background_task_failed', {
+                                    error: String(error),
+                                })
+                                captureException(error)
+                                this.fatalError ??= error
+                            }
+                        }
+                        if (rawNonCriticalTask) {
+                            try {
+                                await instrumentFn(
+                                    {
+                                        key: 'consumer_background_task',
+                                        timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                        sendException: false,
+                                    },
+                                    () => rawNonCriticalTask as Promise<unknown>
+                                )
+                            } catch (error) {
+                                logger.error('🔥', 'kafka_consumer_v1_background_task_failed', {
+                                    error: String(error),
+                                })
+                                captureException(error)
+                            }
+                        }
+                    })()
 
                     void backgroundTask.finally(async () => {
                         // Track that we made progress
@@ -739,6 +790,14 @@ export class KafkaConsumer {
                             const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
                             this.backgroundTask.splice(index, 1)
                             await Promise.all(promisesToWait)
+                        }
+
+                        // Skip storing offsets if any critical task (this one or any
+                        // predecessor) failed. Without this gate a later successful batch
+                        // would advance the bookmark past the failed one, silently
+                        // dropping every event in the failed batch.
+                        if (this.fatalError) {
+                            return
                         }
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {

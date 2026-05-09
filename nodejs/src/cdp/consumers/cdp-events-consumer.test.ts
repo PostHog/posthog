@@ -195,6 +195,20 @@ describe.each([
                 expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
             })
 
+            it('queueInvocations failures surface via criticalBackgroundTask, not backgroundTask', async () => {
+                // Regression for the cyclotron-v2 silent-drop incident: a failure to queue
+                // invocations must be exposed on `criticalBackgroundTask` so the kafka
+                // consumer skips the offset store. The non-critical `backgroundTask`
+                // (monitoring flush) must still resolve cleanly.
+                const failure = new Error('column "X" does not exist')
+                mockQueueInvocations.mockRejectedValueOnce(failure)
+
+                const { criticalBackgroundTask, backgroundTask } = await processor.processBatch([globals])
+
+                await expect(criticalBackgroundTask).rejects.toThrow(failure)
+                await expect(backgroundTask).resolves.toBeUndefined()
+            })
+
             it('should log correct metrics', async () => {
                 const { invocations } = await processor.processBatch([globals])
 

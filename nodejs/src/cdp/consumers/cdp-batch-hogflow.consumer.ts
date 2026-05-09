@@ -185,9 +185,11 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         return allInvocations
     }
 
-    private async processBatchHogFlowRequest(
-        batchHogFlowRequests: BatchHogFlowRequestMessage[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
+    private async processBatchHogFlowRequest(batchHogFlowRequests: BatchHogFlowRequestMessage[]): Promise<{
+        criticalBackgroundTask: Promise<unknown>
+        backgroundTask: Promise<unknown>
+        invocations: CyclotronJobInvocation[]
+    }> {
         if (batchHogFlowRequests.length > 1) {
             logger.warn(
                 '🔁',
@@ -204,23 +206,29 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         logger.info('📝', `Created ${invocationsToBeQueued.length} hog flow invocations to be queued`)
 
         return {
-            // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.all([
-                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                this.hogFunctionMonitoringService.flush().catch((err) => {
-                    captureException(err)
-                    logger.error('🔴', 'Error producing queued messages for monitoring', { err })
-                }),
-            ]),
+            // Critical: a failure here MUST prevent the kafka offset from advancing,
+            // otherwise we silently drop invocations.
+            criticalBackgroundTask: this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
+            // Best-effort: losing a metric flush is acceptable; losing an invocation is not.
+            backgroundTask: this.hogFunctionMonitoringService.flush().catch((err) => {
+                captureException(err)
+                logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+            }),
             invocations: invocationsToBeQueued,
         }
     }
 
-    private async processBatch(
-        batchHogFlowRequests: BatchHogFlowRequestMessage[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
+    private async processBatch(batchHogFlowRequests: BatchHogFlowRequestMessage[]): Promise<{
+        criticalBackgroundTask: Promise<unknown>
+        backgroundTask: Promise<unknown>
+        invocations: CyclotronJobInvocation[]
+    }> {
         if (!batchHogFlowRequests.length) {
-            return { backgroundTask: Promise.resolve(), invocations: [] }
+            return {
+                criticalBackgroundTask: Promise.resolve(),
+                backgroundTask: Promise.resolve(),
+                invocations: [],
+            }
         }
 
         return await instrumentFn('cdpConsumer.processBatchHogFlowRequest', async () => {
@@ -281,9 +289,9 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
 
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const batchHogFlowRequestMessages = await this._parseKafkaBatch(messages)
-                const { backgroundTask } = await this.processBatch(batchHogFlowRequestMessages)
+                const { criticalBackgroundTask, backgroundTask } = await this.processBatch(batchHogFlowRequestMessages)
 
-                return { backgroundTask }
+                return { criticalBackgroundTask, backgroundTask }
             })
         })
     }

@@ -54,7 +54,18 @@ export type RdKafkaConsumerOverrides = Omit<
     'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
 >
 
-export type EachBatchResult = { backgroundTask?: Promise<unknown> } | void
+/**
+ * Result returned from `eachBatch`. The two task slots have different failure semantics:
+ *
+ * - `criticalBackgroundTask`: failure prevents the offset for THIS batch (and any later
+ *   batch on the same partitions) from being stored, and propagates to the loop so the
+ *   process exits cleanly. Use for IO that must complete before the bookmark advances —
+ *   producing follow-on jobs, writing durable state, etc.
+ * - `backgroundTask`: best-effort. Failure is logged + reported, then swallowed; the
+ *   offset is still stored. Use for observability flushes, metrics, and other work whose
+ *   loss is acceptable.
+ */
+export type EachBatchResult = { criticalBackgroundTask?: Promise<unknown>; backgroundTask?: Promise<unknown> } | void
 export type EachBatch = (messages: Message[]) => Promise<EachBatchResult>
 
 type RebalanceEvent =
@@ -85,6 +96,11 @@ export class KafkaConsumerV2 {
     private rebalanceQueue: RebalanceEvent[] = []
     private inFlight: TaskEntry[] = []
     private loopDone: Promise<void> | undefined
+
+    // Latched on the first criticalBackgroundTask failure. Once set, no further offsets
+    // are stored (any in-flight successful batch checks this before storing) and the loop
+    // exits at the next tick so the process restarts and replays from the last good commit.
+    private fatalError: unknown | undefined
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
@@ -241,6 +257,14 @@ export class KafkaConsumerV2 {
             while (this.running) {
                 this.lastLoopTickAt = Date.now()
 
+                // If a critical background task failed for any past batch, exit the loop
+                // so the process restarts and replays from the last successfully committed
+                // offset. We do this before fetching another batch — committing more
+                // offsets after a critical failure is exactly the silent-drop bug.
+                if (this.fatalError) {
+                    throw this.fatalError
+                }
+
                 // 1. Drain rebalance events. handleRebalanceEvent on REVOKE awaits drainAll
                 // and calls incrementalUnassign before returning.
                 while (this.rebalanceQueue.length > 0) {
@@ -298,27 +322,75 @@ export class KafkaConsumerV2 {
     }
 
     private trackTask(result: EachBatchResult, offsets: TopicPartitionOffset[], gen: number): void {
-        const raw = result?.backgroundTask ?? Promise.resolve()
-        const stopBackgroundTimer = result?.backgroundTask
-            ? consumedBatchBackgroundDuration.startTimer({
-                  topic: this.config.topic,
-                  groupId: this.config.groupId,
-              })
-            : undefined
+        const rawCritical = result?.criticalBackgroundTask
+        const rawNonCritical = result?.backgroundTask
+        const stopBackgroundTimer =
+            rawCritical || rawNonCritical
+                ? consumedBatchBackgroundDuration.startTimer({
+                      topic: this.config.topic,
+                      groupId: this.config.groupId,
+                  })
+                : undefined
+
+        // Snapshot the predecessor's settled chain. We await it before storing offsets so
+        // that store decisions are serialized in batch order — without this, with
+        // maxBackgroundTasks > 1 a faster later batch could store its (higher) offset
+        // before an earlier batch's critical task even resolves, re-introducing the silent
+        // drop bug across batches.
+        const predecessorSettled =
+            this.inFlight.length > 0 ? this.inFlight[this.inFlight.length - 1].settled : undefined
 
         const settled: Promise<void> = (async () => {
             try {
-                const { timedOut } = await raceWithTimeout(Promise.resolve(raw), this.backgroundTaskTimeoutMs)
-                if (timedOut) {
-                    throw new Error(`background_task_timeout_after_${this.backgroundTaskTimeoutMs}ms`)
+                // 1) Critical task: failure latches fatalError, skips offset store, signals
+                // the loop to exit. Non-critical work for this batch is still attempted so
+                // observability data isn't dropped on the floor on the way down.
+                if (rawCritical) {
+                    try {
+                        const { timedOut } = await raceWithTimeout(
+                            Promise.resolve(rawCritical),
+                            this.backgroundTaskTimeoutMs
+                        )
+                        if (timedOut) {
+                            throw new Error(`critical_background_task_timeout_after_${this.backgroundTaskTimeoutMs}ms`)
+                        }
+                    } catch (error) {
+                        logger.error('🔥', 'kafka_consumer_v2_critical_background_task_failed', {
+                            error: String(error),
+                        })
+                        captureException(error)
+                        this.fatalError ??= error
+                    }
                 }
-            } catch (error) {
-                logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
-                captureException(error)
-                // Do not store offsets when the task failed.
-                return
+
+                // 2) Non-critical task: log + swallow on failure. Offset still advances.
+                if (rawNonCritical) {
+                    try {
+                        const { timedOut } = await raceWithTimeout(
+                            Promise.resolve(rawNonCritical),
+                            this.backgroundTaskTimeoutMs
+                        )
+                        if (timedOut) {
+                            throw new Error(`background_task_timeout_after_${this.backgroundTaskTimeoutMs}ms`)
+                        }
+                    } catch (error) {
+                        logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
+                        captureException(error)
+                    }
+                }
             } finally {
                 stopBackgroundTimer?.()
+            }
+
+            // 3) Wait for predecessor to finish its store decision before considering ours.
+            // This serializes the store step across batches without serializing the IO.
+            if (predecessorSettled) {
+                await predecessorSettled
+            }
+
+            // 4) If this batch — or any predecessor — hit a critical failure, do not store.
+            if (this.fatalError) {
+                return
             }
 
             if (this.config.autoCommit && this.config.autoOffsetStore) {
