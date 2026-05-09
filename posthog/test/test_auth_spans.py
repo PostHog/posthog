@@ -13,51 +13,48 @@ from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
-def _install_in_memory_tracer(
-    exporter: InMemorySpanExporter,
-) -> tuple[trace.TracerProvider, trace.Tracer]:
-    """Wire up an in-memory span exporter and rebind the auth module's tracer to it.
+def _install_in_memory_tracer(exporter: InMemorySpanExporter) -> trace.Tracer:
+    """Wire up an in-memory span exporter and rebind `posthog.auth.tracer` to use it.
 
-    Returns the prior provider and prior module-level tracer so the caller can restore them.
-    The module-level rebind is necessary because posthog.auth grabs its tracer at import
-    time, so swapping the global TracerProvider alone isn't enough — its proxy is already
-    bound to whatever provider existed at import.
+    Returns the prior module-level tracer so the caller can restore it.
+
+    The tracer is taken directly from a fresh `TracerProvider` rather than the global
+    one. We can't swap the global with `trace.set_tracer_provider()` because OTel's SDK
+    is "set once": when production code calls `initialize_otel()` at startup, any later
+    `set_tracer_provider` calls are silently dropped with a warning, so spans created via
+    `trace.get_tracer(...)` would still go to the production provider and our exporter
+    would see nothing. Going through the provider object directly bypasses the global.
     """
     import posthog.auth as auth_module
 
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
 
-    previous_provider = trace.get_tracer_provider()
-    trace.set_tracer_provider(provider)
-
     previous_module_tracer = auth_module.tracer
-    auth_module.tracer = trace.get_tracer(auth_module.__name__)
+    auth_module.tracer = provider.get_tracer(auth_module.__name__)
 
-    return previous_provider, previous_module_tracer
+    return previous_module_tracer
 
 
-def _restore_tracer(previous_provider: trace.TracerProvider, previous_module_tracer: trace.Tracer) -> None:
+def _restore_tracer(previous_module_tracer: trace.Tracer) -> None:
     import posthog.auth as auth_module
 
     auth_module.tracer = previous_module_tracer
-    trace.set_tracer_provider(previous_provider)
 
 
 class TestAuthSpans(BaseTest):
     _exporter: InMemorySpanExporter
-    _previous_provider: trace.TracerProvider
     _previous_module_tracer: trace.Tracer
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls._exporter = InMemorySpanExporter()
-        cls._previous_provider, cls._previous_module_tracer = _install_in_memory_tracer(cls._exporter)
+        cls._previous_module_tracer = _install_in_memory_tracer(cls._exporter)
 
     @classmethod
     def tearDownClass(cls):
-        _restore_tracer(cls._previous_provider, cls._previous_module_tracer)
+        _restore_tracer(cls._previous_module_tracer)
         super().tearDownClass()
 
     def setUp(self):
