@@ -168,7 +168,7 @@ export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTrac
 }
 
 export function exportTraceToFile(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): void {
-    const filename = `${slugify(trace.id || trace.traceName || 'trace')}.trace.json`
+    const filename = `${slugify(trace.id || 'trace')}.trace.json`
     const file = new File([buildTraceJSONString(trace, tree)], filename, { type: 'application/json' })
     downloadFile(file)
 }
