@@ -60,7 +60,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
         loadLensFailure: true,
         setLens: (lens: ReplayLens) => ({ lens }),
         setLensType: (lensType: LensType) => ({ lensType }),
-        resetLens: true,
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservation[]) => ({ observations }),
         loadObservationsFailure: true,
@@ -171,7 +170,7 @@ export const replayLensLogic = kea<replayLensLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, props }) => ({
         loadLens: async () => {
             if (props.id === 'new') {
                 actions.loadLensSuccess(newLens())
@@ -191,12 +190,8 @@ export const replayLensLogic = kea<replayLensLogicType>([
             }
         },
 
-        resetLens: () => {
-            if (values.originalLens) {
-                actions.setLens(values.originalLens)
-            } else if (props.id === 'new') {
-                actions.setLens(newLens())
-            }
+        loadLensSuccess: ({ lens }) => {
+            actions.setLensValues(lens)
         },
 
         loadObservations: async () => {

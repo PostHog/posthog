@@ -43,7 +43,8 @@ export function ReplayLensSceneComponent(): JSX.Element {
     const lensLogic = replayLensLogic({ id: lensId })
     useAttachedLogic(lensLogic, replayLensSceneLogic)
 
-    const { lens, lensLoading, isLensSubmitting, isLensValid, hasUnsavedChanges, isNew } = useValues(lensLogic)
+    const { lens, originalLens, lensLoading, isLensSubmitting, isLensValid, hasUnsavedChanges, isNew } =
+        useValues(lensLogic)
     const { setLensType, submitLens, resetLens } = useActions(lensLogic)
     const { push } = useActions(router)
 
@@ -132,8 +133,8 @@ export function ReplayLensSceneComponent(): JSX.Element {
                         <LemonButton type="tertiary" onClick={() => push(urls.replayLenses())}>
                             Cancel
                         </LemonButton>
-                        {!isNew && hasUnsavedChanges && (
-                            <LemonButton type="secondary" onClick={() => resetLens()}>
+                        {!isNew && hasUnsavedChanges && originalLens && (
+                            <LemonButton type="secondary" onClick={() => resetLens(originalLens)}>
                                 Reset
                             </LemonButton>
                         )}
