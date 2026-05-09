@@ -423,7 +423,12 @@ export const maxLogic = kea<maxLogicType>([
 
     listeners(({ actions, values, props }) => ({
         setQuestion: ({ question }) => {
-            actions.setChatDraftForTab(props.tabId, question)
+            // Side panel Max stays mounted across the whole app, so its question reducer
+            // already survives navigation — and there's no removeTab cleanup for it,
+            // which would turn the persisted draft into a memory leak.
+            if (props.tabId && props.tabId !== 'sidepanel') {
+                actions.setChatDraftForTab(props.tabId, question)
+            }
         },
         incrActiveStreamingThreads: () => {
             if (props.tabId) {
@@ -560,7 +565,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
-            actions.setChatDraftForTab(props.tabId, '')
+            if (props.tabId && props.tabId !== 'sidepanel') {
+                actions.setChatDraftForTab(props.tabId, '')
+            }
         },
     })),
 
@@ -575,8 +582,9 @@ export const maxLogic = kea<maxLogicType>([
     })),
 
     afterMount(({ actions, values, props }) => {
-        // Restore per-tab chat draft (typed but unsent input that should survive scene unmount)
-        if (!values.question) {
+        // Restore per-tab chat draft (typed but unsent input that should survive scene unmount).
+        // Side panel Max is excluded — it stays mounted globally, doesn't go through removeTab cleanup.
+        if (!values.question && props.tabId && props.tabId !== 'sidepanel') {
             const draft = values.chatDraftFor(props.tabId)
             if (draft) {
                 actions.setQuestion(draft)

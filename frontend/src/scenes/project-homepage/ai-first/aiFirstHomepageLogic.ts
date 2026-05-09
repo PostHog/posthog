@@ -217,6 +217,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             actions.setChatDraftForTab(HOMEPAGE_TAB_ID, '')
         },
         submitQuery: async ({ mode }, breakpoint) => {
+            // Once the draft has been submitted, it's no longer a draft — clear it so we don't
+            // resurrect it as "unsent input" the next time the homepage is mounted.
+            actions.setChatDraftForTab(HOMEPAGE_TAB_ID, '')
+
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
@@ -296,6 +300,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 actions.submitQuery('search')
             } else if (urlMode === 'search' && urlQuery !== values.query) {
                 actions.setQuery(urlQuery)
+            } else if (urlMode === 'idle' && !values.query) {
+                // Restore unsent input typed before the user left the homepage.
+                // urlToAction also runs on first mount, so this handles initial restore too.
+                const persistedDraft = values.chatDraftFor(HOMEPAGE_TAB_ID)
+                if (persistedDraft) {
+                    actions.setQuery(persistedDraft)
+                }
             }
         },
     })),
@@ -348,12 +359,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         } else if (urlMode === 'search' && urlQuery) {
             actions.setQuery(urlQuery)
             actions.submitQuery('search')
-        } else if (urlMode === 'idle' && !values.query) {
-            // Restore unsent input that was typed before the user left the homepage
-            const persistedDraft = values.chatDraftFor(HOMEPAGE_TAB_ID)
-            if (persistedDraft) {
-                actions.setQuery(persistedDraft)
-            }
         }
+        // Idle-mode draft restore happens in urlToAction (also fires on mount).
     }),
 ])

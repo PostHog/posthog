@@ -100,6 +100,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 tabId: string | undefined,
                 vizKey: string
             ): number[] => expandedRowsFor(tabId, vizKey),
+            { resultEqualityCheck: objectsEqual },
         ],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
