@@ -1,32 +1,58 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
+type CupedSelection = 'default' | 'enabled' | 'disabled'
+
 export function CupedModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { updateExperiment, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { experimentsConfig } = useValues(experimentsConfigLogic)
     const { closeCupedModal } = useActions(modalsLogic)
     const { isCupedModalOpen } = useValues(modalsLogic)
 
-    const enabled = experiment.stats_config?.cuped?.enabled ?? false
+    const explicitEnabled = experiment.stats_config?.cuped?.enabled
+    const selection: CupedSelection =
+        explicitEnabled === undefined ? 'default' : explicitEnabled ? 'enabled' : 'disabled'
     const lookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
+    const teamDefaultEnabled = experimentsConfig?.default_cuped_enabled ?? false
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
         closeCupedModal()
     }
 
-    const updateCupedConfig = (next: { enabled?: boolean; lookback_days?: number }): void => {
+    const updateSelection = (next: CupedSelection): void => {
+        if (next === 'default') {
+            // Drop the cuped key entirely so the team default applies at evaluation time.
+            const { cuped: _cuped, ...restStatsConfig } = experiment.stats_config ?? {}
+            setExperiment({ stats_config: restStatsConfig })
+            return
+        }
         setExperiment({
             stats_config: {
                 ...experiment.stats_config,
                 cuped: {
                     ...experiment.stats_config?.cuped,
-                    ...next,
+                    enabled: next === 'enabled',
+                },
+            },
+        })
+    }
+
+    const updateLookbackDays = (lookback_days: number): void => {
+        setExperiment({
+            stats_config: {
+                ...experiment.stats_config,
+                cuped: {
+                    ...experiment.stats_config?.cuped,
+                    lookback_days,
                 },
             },
         })
@@ -59,14 +85,22 @@ export function CupedModal(): JSX.Element {
                     CUPED (Controlled-experiment Using Pre-Experiment Data) uses pre-experiment data to detect
                     significant effects faster. Currently supported for mean and funnel metrics.
                 </p>
-                <LemonSwitch
-                    label="Enable CUPED"
-                    checked={enabled}
-                    onChange={(checked) => updateCupedConfig({ enabled: checked })}
-                    bordered
-                    fullWidth
-                />
-                {enabled && (
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>CUPED</LemonLabel>
+                    <LemonSelect<CupedSelection>
+                        value={selection}
+                        onChange={updateSelection}
+                        options={[
+                            {
+                                value: 'default',
+                                label: `Use team default (${teamDefaultEnabled ? 'Enabled' : 'Disabled'})`,
+                            },
+                            { value: 'enabled', label: 'Enabled' },
+                            { value: 'disabled', label: 'Disabled' },
+                        ]}
+                    />
+                </div>
+                {selection === 'enabled' && (
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Lookback window (days)</LemonLabel>
                         <LemonInput
@@ -82,7 +116,7 @@ export function CupedModal(): JSX.Element {
                                 if (rounded < MIN_LOOKBACK_DAYS || rounded > MAX_LOOKBACK_DAYS) {
                                     return
                                 }
-                                updateCupedConfig({ lookback_days: rounded })
+                                updateLookbackDays(rounded)
                             }}
                             className="w-32"
                         />
