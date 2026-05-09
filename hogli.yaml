@@ -858,15 +858,11 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    setup:json:drop:keys:udf:
-        bin_script: setup-json-drop-keys-udf.sh
-        description: 'TODO: add description for setup-json-drop-keys-udf.sh'
-        hidden: true
     start:multinode:clickhouse:
         bin_script: start-multinode-clickhouse
-        description: 'TODO: add description for start-multinode-clickhouse'
+        description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
         hidden: true
     verify:multinode:clickhouse:
         bin_script: verify-multinode-clickhouse.py
-        description: 'TODO: add description for verify-multinode-clickhouse.py'
+        description: Assert that the multinode ClickHouse stack ended up with the expected per-node table layout
         hidden: true

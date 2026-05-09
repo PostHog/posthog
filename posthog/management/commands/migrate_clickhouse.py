@@ -141,6 +141,11 @@ class Command(BaseCommand):
         # that never received the local replica. Pre-create both tables on
         # the cluster so the very first SELECT in infi's migrate() succeeds
         # and the auto-create branch never runs.
+        #
+        # Schema (`package_name String, module_name String, applied Date`) and
+        # the ZK path mirror `infi.clickhouse_orm.migrations.MigrationHistory`
+        # / `MigrationHistoryReplicated`. If `infi` ever changes those, this
+        # pre-create will silently diverge — keep the two in sync.
         if not settings.MULTINODE_CLICKHOUSE:
             return
         with default_client() as client:

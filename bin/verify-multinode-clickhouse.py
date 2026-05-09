@@ -22,7 +22,6 @@ Exits 0 on success, non-zero on the first failed assertion (with context).
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 from clickhouse_driver import Client
@@ -181,7 +180,7 @@ def check_satellite_tables() -> None:
         print("  (no satellite manifests populated yet — skipping presence checks)")
 
 
-def main(argv: Iterable[str] = ()) -> int:
+def main() -> int:
     check_macros()
     check_cluster_topology()
     check_satellite_tables()
@@ -190,4 +189,4 @@ def main(argv: Iterable[str] = ()) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
