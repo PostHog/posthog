@@ -47,6 +47,13 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     listeners(({ props, actions, values }) => ({
         setQuery: ({ query }) => {
+            // No owning tab → no removeTab cleanup will ever clear this slot.
+            // sceneKey is constant ('events') so it'd be a single overwriting slot under
+            // '__no_tab__', but we still skip it for consistency with dataTableLogic and
+            // because persistence semantically requires a tab.
+            if (props.tabId === undefined) {
+                return
+            }
             const isDefault = objectsEqual(query, values.defaultQuery)
             actions.setSavedQueryForTab(props.tabId, 'events', isDefault ? null : query)
         },

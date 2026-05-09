@@ -88,6 +88,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     listeners(({ props, actions }) => ({
         toggleRowExpanded: ({ rowIndex }) => {
+            if (props.tabId === undefined) {
+                return
+            }
             actions.toggleExpandedRow(props.tabId, props.vizKey, rowIndex)
         },
     })),

@@ -939,9 +939,14 @@ export function DataTable({
                                         ? context.expandable
                                         : expandable && columnsInResponse?.includes('*')
                                           ? {
-                                                isRowExpanded: (_, rowIndex) => expandedRows.includes(rowIndex),
-                                                onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                ...(tabId !== undefined
+                                                    ? {
+                                                          isRowExpanded: (_, rowIndex) =>
+                                                              expandedRows.includes(rowIndex),
+                                                          onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                          onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                      }
+                                                    : {}),
                                                 expandedRowRender: function renderExpand({ result }) {
                                                     if (
                                                         (isEventsQuery(query.source) ||

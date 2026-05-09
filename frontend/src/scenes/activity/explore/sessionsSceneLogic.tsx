@@ -43,6 +43,10 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     listeners(({ props, actions, values }) => ({
         setQuery: ({ query }) => {
+            // No owning tab → no removeTab cleanup will reach this slot. See eventsSceneLogic.
+            if (props.tabId === undefined) {
+                return
+            }
             const isDefault = objectsEqual(query, values.defaultQuery)
             actions.setSavedQueryForTab(props.tabId, 'sessions', isDefault ? null : query)
         },
