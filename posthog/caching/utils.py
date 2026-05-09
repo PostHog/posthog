@@ -62,6 +62,9 @@ def _populate_active_teams(redis) -> dict[int, float]:
     if teams:
         pipe.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
         pipe.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
+    else:
+        # Clear any stale zset (deploy rollover, LRU eviction of just the marker, etc).
+        pipe.delete(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
     pipe.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=marker_ttl)
     pipe.execute()
     return teams

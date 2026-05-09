@@ -93,6 +93,20 @@ def test_populate_sets_24h_ttl_on_both_keys():
         assert ttl >= IN_A_DAY - 5, f"{key} ttl={ttl}"
 
 
+def test_populate_clears_stale_zset_when_clickhouse_empty():
+    redis = get_client()
+    redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {"42": 10.0})
+
+    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
+        mock_sync_execute.return_value = []
+        assert is_team_active(99) is False
+
+    assert not redis.exists(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
+    with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
+        assert is_team_active(42) is False
+        mock_sync_execute.assert_not_called()
+
+
 def test_populate_sets_short_ttl_on_marker_when_clickhouse_empty():
     redis = get_client()
     with patch("posthog.caching.utils.sync_execute") as mock_sync_execute:
