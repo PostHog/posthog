@@ -1,4 +1,4 @@
-# Usage spike alert mechanics
+# Usage alert mechanics
 
 This reference explains how billing usage spike, drop, and change alerts are generated
 and how to interpret a usage dashboard link that came from an alert email.
@@ -20,10 +20,11 @@ URL has this shape:
 The usage dashboard identifiers are the frontend/API usage type values, not always the
 same short keys used by the detector internals.
 
-Max side-panel prompts can be opened with a URL hash:
+PostHog AI side-panel prompts can be opened with a URL hash. The internal side-panel
+route still uses `max`:
 
-- `#panel=max:<prompt>` opens Max with the prompt prefilled.
-- `#panel=max:!<prompt>` opens Max and auto-runs the prompt.
+- `#panel=max:<prompt>` opens PostHog AI with the prompt prefilled.
+- `#panel=max:!<prompt>` opens PostHog AI and auto-runs the prompt.
 
 ## How the detector decides
 

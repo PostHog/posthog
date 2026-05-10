@@ -3,15 +3,14 @@ name: investigating-billing-costs
 description: >
   Investigates PostHog billing costs and usage patterns. Use when the user asks why
   their bill is high, what drove their spend, whether they can reduce costs, to
-  understand what they are paying for, investigate a usage spike that is not a
-  billing alert email, review plan headroom, or any similar cost or billing
-  question. For "We've detected a change in your usage" emails, usage alert CTAs,
-  or Max prompts about a billing spike/drop alert, use explaining-usage-spike-alerts.
-  Walks through: pull billing context, pull time-series usage and spend, identify
-  interesting patterns (spikes, growth trends, one-project dominance, unused
-  capacity, approaching limits), attribute to projects and event types, and surface
-  data-grounded cost reduction tactics or upsell opportunities drawn from the
-  billing docs.
+  understand what they are paying for, review plan headroom, or any similar cost
+  or billing question. For focused spike/drop/change explanations, "We've detected
+  a change in your usage" emails, usage alert CTAs, or PostHog AI prompts about a
+  billing usage change, use explaining-billing-usage-changes. Walks through: pull
+  billing context, pull time-series usage and spend, identify interesting patterns
+  (spikes, growth trends, one-project dominance, unused capacity, approaching
+  limits), attribute to projects and event types, and surface data-grounded cost
+  reduction tactics or upsell opportunities drawn from the billing docs.
 ---
 
 # Investigating billing costs
@@ -40,7 +39,7 @@ Trigger this skill when the user asks anything like:
 - "what's driving my PostHog costs"
 - "can you help me reduce our PostHog spend"
 - "which project uses the most events"
-- "we had a usage spike on Thursday, what happened"
+- "we had a usage spike that drove our bill up, what happened"
 - "our invoice jumped, walk me through it"
 - "what am I paying for"
 - "do I have headroom against my limits"
@@ -51,10 +50,9 @@ If the question is narrowly about billing _structure_ ("what's on my plan", "do 
 access to group analytics", "when does my period renew") and doesn't need time-series
 data, `billing-list` alone is usually enough and this skill is overkill.
 
-If the question starts from a billing usage alert email, the usage dashboard alert CTA,
-or wording like "We've detected a change in your usage", use
-`explaining-usage-spike-alerts` instead. That skill reconstructs the detector's
-weekday/weekend baseline and answers in alert language.
+If the question is focused on explaining a specific billing usage spike, drop, or
+change, use `explaining-billing-usage-changes` instead. That skill compares the day
+against weekday/weekend baselines and answers in usage-change language.
 
 ## Workflow
 
