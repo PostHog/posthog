@@ -283,4 +283,34 @@ describe('performance-event-utils', () => {
 
         expect(actual).toMatchSnapshot()
     })
+
+    // a malformed plugin snapshot that arrives without a `payload` field used to throw
+    // `TypeError: Cannot read properties of undefined (reading 'requests')` and take down
+    // the entire network/performance tab of the player
+    it.each([
+        ['rrweb/network@1 with missing payload key', { plugin: 'rrweb/network@1' }],
+        ['rrweb/network@1 with undefined payload', { plugin: 'rrweb/network@1', payload: undefined }],
+        ['rrweb/network@1 with null payload', { plugin: 'rrweb/network@1', payload: null }],
+        ['posthog/network@1 with missing payload key', { plugin: 'posthog/network@1' }],
+        ['posthog/network@1 with undefined payload', { plugin: 'posthog/network@1', payload: undefined }],
+        ['posthog/network@1 with null payload', { plugin: 'posthog/network@1', payload: null }],
+    ])('does not throw on a malformed plugin snapshot (%s)', (_, data) => {
+        const snapshot = { windowId: 'win', type: 6, data, timestamp: 1706482463172 } as any
+        expect(() => getPerformanceEvents({ win: [snapshot] })).not.toThrow()
+        expect(getPerformanceEvents({ win: [snapshot] })).toEqual([])
+    })
+
+    it('still maps a good snapshot when a malformed snapshot is in the same window', () => {
+        const malformed = {
+            windowId: '018d5247-079c-7126-8e43-464605576a62',
+            type: 6,
+            data: { plugin: 'rrweb/network@1' },
+            timestamp: 1706482463100,
+        } as any
+        const data = {
+            '018d5247-079c-7126-8e43-464605576a62': [malformed, aSingleSnapshotWithNetworkPayloads],
+        }
+        const actual = getPerformanceEvents(data)
+        expect(actual.map((a) => a.entry_type)).toEqual(['navigation', 'resource', 'resource', 'resource', 'resource'])
+    })
 })
