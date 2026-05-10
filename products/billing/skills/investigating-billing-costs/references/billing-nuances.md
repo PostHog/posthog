@@ -88,7 +88,7 @@ autocapture-generated.
 
 ## Projections vs current usage
 
-`billing-list` returns both `total_current_amount_usd` (period-to-date) and
+`billing-list` returns both `current_total_amount_usd` (period-to-date) and
 `projected_total_amount_usd` (forecast for the full period). When a customer says "my bill
 is too high", clarify whether they mean:
 
