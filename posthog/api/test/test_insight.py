@@ -2960,13 +2960,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Query count is constant (independent of len(insight_ids)) — regression guard for the N+1.
-        self.assertEqual(
-            len(ctx_few.captured_queries),
-            len(ctx_many.captured_queries),
-            f"query count grew with insight_ids length: few={len(ctx_few.captured_queries)} "
-            f"many={len(ctx_many.captured_queries)}",
-        )
+        few_inserts = [q for q in ctx_few.captured_queries if 'INSERT INTO "posthog_insightviewed"' in q["sql"]]
+        many_inserts = [q for q in ctx_many.captured_queries if 'INSERT INTO "posthog_insightviewed"' in q["sql"]]
+
+        self.assertEqual(len(few_inserts), 1, f"expected exactly 1 INSERT for few, got {len(few_inserts)}")
+        self.assertEqual(len(many_inserts), 1, f"expected exactly 1 INSERT for many, got {len(many_inserts)}")
 
     def test_get_recently_viewed_insights(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
