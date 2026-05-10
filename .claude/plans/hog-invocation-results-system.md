@@ -11,7 +11,7 @@ Today, when a CDP `HogFunction` or `HogFlow` invocation runs, we emit two things
 - Aggregated counts to `app_metrics2` (one row per `(team, source, source_id, instance_id, kind, name, hour)` bucket)
 - Free-form log lines to `log_entries` (one row per log line)
 
-What we **don't** have is a per-invocation record that captures the outcome of *that specific invocation* — success/failure, the error, the attempt number, the trigger payload, the duration, and a stable handle to re-run it.
+What we **don't** have is a per-invocation record that captures the outcome of _that specific invocation_ — success/failure, the error, the attempt number, the trigger payload, the duration, and a stable handle to re-run it.
 
 Without it, we can't:
 
@@ -159,7 +159,7 @@ This part is **not** "re-run the same row in place"; it's "produce a new invocat
 - `posthog/models/hog_invocation_results/sql.py` — new file with the four-table schema (sharded / writable / distributed / kafka + MV), MSK + WarpStream variants. Pattern: copy `posthog/models/app_metrics2/sql.py` for the multi-table layout and `posthog/clickhouse/log_entries.py` for the TTL + sharding choices.
 - `posthog/clickhouse/schema.py` — register the new tables.
 - `posthog/clickhouse/migrations/0253_hog_invocation_results.py` — new migration creating all of the above. Numbering follows `0252_extend_session_replay_features.py`.
-- `posthog/api/hog_function.py` and `posthog/api/hog_flow.py` — add an `invocations` (list) action that pages `hog_invocation_results`, plus an `invocations_retry` action that enqueues retries. Today's `invocations` action on `HogFunctionViewSet` is the *test* invocation endpoint; reuse the name only if we're OK overloading, otherwise call the new ones `runs` and `runs/retry` (more honest given the existing `HogFunctionRuns` UI).
+- `posthog/api/hog_function.py` and `posthog/api/hog_flow.py` — add an `invocations` (list) action that pages `hog_invocation_results`, plus an `invocations_retry` action that enqueues retries. Today's `invocations` action on `HogFunctionViewSet` is the _test_ invocation endpoint; reuse the name only if we're OK overloading, otherwise call the new ones `runs` and `runs/retry` (more honest given the existing `HogFunctionRuns` UI).
 
 ### Worker (Node.js)
 
@@ -193,7 +193,7 @@ This part is **not** "re-run the same row in place"; it's "produce a new invocat
 2. **Trigger payload sourcing for retry.** If the original event has aged out of ClickHouse `events`, we can't reconstruct the invocation. Either:
    - Cap retry window at ClickHouse `events` retention (today: usually >30d, but per-team).
    - Persist the trigger payload to S3 alongside the result row.
-   The schema supports either; we need a product call.
-3. **Hog flows are multi-step.** A single hog flow invocation can run for hours/days across many `actionStepCount` transitions. Do we want one row per *flow run* or one per *action step*? Recommendation: one per flow run, with action-step granularity staying in `log_entries`.
+     The schema supports either; we need a product call.
+3. **Hog flows are multi-step.** A single hog flow invocation can run for hours/days across many `actionStepCount` transitions. Do we want one row per _flow run_ or one per _action step_? Recommendation: one per flow run, with action-step granularity staying in `log_entries`.
 4. **In-place retries change history.** If user A retries and user B retries again, the first retry's outcome is collapsed by ReplacingMergeTree. We may want a separate `hog_invocation_attempts` audit table if forensic history matters. v1 = no, log_entries already captures the per-attempt detail.
 5. **Tenant isolation.** `team_id` is on the row and first in `ORDER BY`. Standard PostHog convention.
