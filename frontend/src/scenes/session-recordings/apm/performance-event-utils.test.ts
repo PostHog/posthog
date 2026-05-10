@@ -291,9 +291,12 @@ describe('performance-event-utils', () => {
         ['rrweb/network@1 with missing payload key', { plugin: 'rrweb/network@1' }],
         ['rrweb/network@1 with undefined payload', { plugin: 'rrweb/network@1', payload: undefined }],
         ['rrweb/network@1 with null payload', { plugin: 'rrweb/network@1', payload: null }],
+        ['rrweb/network@1 with string payload', { plugin: 'rrweb/network@1', payload: 'oops' }],
+        ['rrweb/network@1 with non-array requests', { plugin: 'rrweb/network@1', payload: { requests: 'oops' } }],
         ['posthog/network@1 with missing payload key', { plugin: 'posthog/network@1' }],
         ['posthog/network@1 with undefined payload', { plugin: 'posthog/network@1', payload: undefined }],
         ['posthog/network@1 with null payload', { plugin: 'posthog/network@1', payload: null }],
+        ['posthog/network@1 with string payload', { plugin: 'posthog/network@1', payload: 'oops' }],
     ])('does not throw on a malformed plugin snapshot (%s)', (_, data) => {
         const snapshot = { windowId: 'win', type: 6, data, timestamp: 1706482463172 } as any
         expect(() => getPerformanceEvents({ win: [snapshot] })).not.toThrow()

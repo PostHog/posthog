@@ -225,6 +225,16 @@ export function mapRRWebNetworkRequest(
     return data as PerformanceEvent
 }
 
+function isPostHogNetworkPayload(payload: unknown): payload is Record<string, unknown> {
+    return typeof payload === 'object' && payload !== null
+}
+
+function isRRWebNetworkPayload(payload: unknown): payload is { requests: CapturedNetworkRequest[] } {
+    return (
+        typeof payload === 'object' && payload !== null && Array.isArray((payload as { requests?: unknown }).requests)
+    )
+}
+
 export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
     // we only support rrweb/network@1 events or posthog/network@1 events in any one recording
     // apart from during testing, where we might have both
@@ -238,9 +248,9 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
                 snapshot.type === 6 && // RRWeb plugin event type
                 snapshot.data.plugin === NETWORK_PLUGIN_NAME
             ) {
-                const properties = snapshot.data.payload as any
+                const properties = snapshot.data.payload
 
-                if (!properties) {
+                if (!isPostHogNetworkPayload(properties)) {
                     return
                 }
 
@@ -263,15 +273,15 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
                 snapshot.type === 6 && // RRWeb plugin event type
                 snapshot.data.plugin === RRWEB_NETWORK_PLUGIN_NAME
             ) {
-                const payload = snapshot.data.payload as any
+                const payload = snapshot.data.payload
 
-                if (!payload || !Array.isArray(payload.requests) || payload.requests.length === 0) {
+                if (!isRRWebNetworkPayload(payload) || payload.requests.length === 0) {
                     return
                 }
 
                 const serverTimings: Record<string, PerformanceEvent[]> = {}
 
-                const perfEvents = payload.requests.map((capturedRequest: CapturedNetworkRequest) => {
+                const perfEvents = payload.requests.map((capturedRequest) => {
                     return mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
                 })
 
