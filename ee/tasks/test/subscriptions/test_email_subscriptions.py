@@ -54,9 +54,8 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
             f"/exporter/export-my-test-subscription-2022-02-02-085500.png?token=ey"
             in mocked_email_messages[0].html_body
         )
-        assert 'width="560"' in mocked_email_messages[0].html_body
-        assert "max-width: 560px;" in mocked_email_messages[0].html_body
-        assert "height: auto;" in mocked_email_messages[0].html_body
+        for expected_attr in ['width="560"', "max-width: 560px;", "height: auto;"]:
+            assert expected_attr in mocked_email_messages[0].html_body
 
     def test_new_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
