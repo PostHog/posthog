@@ -1,6 +1,6 @@
 # Hog invocation results system
 
-Status: draft for review
+Status: scoped, ready for build
 Owner: Ben White (`ben@posthog.com`)
 Branch: `claude/design-hog-results-system-VPxEK`
 
@@ -11,60 +11,71 @@ Today, when a CDP `HogFunction` or `HogFlow` invocation runs, we emit two things
 - Aggregated counts to `app_metrics2` (one row per `(team, source, source_id, instance_id, kind, name, hour)` bucket)
 - Free-form log lines to `log_entries` (one row per log line)
 
-What we **don't** have is a per-invocation record that captures the outcome of _that specific invocation_ — success/failure, the error, the attempt number, the trigger payload, the duration, and a stable handle to re-run it.
+What we **don't** have is a per-invocation record that captures the outcome of _that specific invocation_ — its lifecycle (running → succeeded/failed), the error, the attempt number, the original payload it ran against, and a stable handle to re-run it from that payload.
 
 Without it, we can't:
 
-1. Show a user "here are the last 1,000 invocations for this function, status by status" in the UI (the closest we get today is reconstructing it from log lines).
-2. Programmatically select "all failed invocations for function X in time window Y with N or fewer attempts" and feed them back through the worker for a retry.
-3. Reflect the outcome of a retry against the original invocation so the UI shows the latest state, not a history of partial attempts.
+1. Show a user a "runs" view: every invocation for this function in a time window, with status badges, click-to-expand for logs.
+2. Programmatically select "all failed invocations for function X in time window Y with N or fewer attempts" and replay them through the worker.
+3. See in-flight invocations.
 
-## Proposal
+## Decisions (locked)
 
-Add a new ClickHouse table — working name `hog_invocation_results` — that records one logical row per invocation. The row is updated over time as the invocation progresses or is retried; the engine collapses prior versions and a `SELECT` returns the latest state.
+These were nailed down during scoping; they are not open questions.
 
-### Pattern (mirrors existing PostHog conventions)
+1. **One row per invocation lifecycle event.** Write a row when the invocation starts running (`status='running'`) and another when it finishes (`status='succeeded' | 'failed'`). ReplacingMergeTree on `(team_id, function_kind, function_id, invocation_id)` keyed by `version` collapses to the latest.
+2. **No row for filtered-out events.** If a function's filters reject an event, nothing is written. Only invocations that actually get queued to run produce rows.
+3. **Status vocabulary is exactly three values:** `running`, `succeeded`, `failed`. No `skipped`, `cancelled`, `timed_out`.
+4. **The full invocation payload lives on the row** in a column named `invocation_globals`. Stored as `String CODEC(ZSTD(3))` for compactness. Not registered as JSON in HogQL — we don't need to query into it, we just need to rehydrate it on replay.
+5. **Promote a few high-value fields** out of the payload into typed top-level columns: `event_uuid`, `distinct_id`, `person_id`. Empty strings when not applicable (batch/manual triggers).
+6. **Replay reuses the original `invocation_id`.** A new row is written for the replayed run with the same `invocation_id`, incremented `attempts`, and `is_retry = 1` so the UI can mark it. ReplacingMergeTree collapses to the latest attempt's state.
+7. **Hog functions and hog flows share the schema.** No special-casing for hog flows — one row per invocation regardless of source. Future per-step granularity stays in `log_entries`.
+8. **Reading is HogQL, not REST.** Register the new table in the HogQL database schema so the UI queries it via `/api/projects/:id/query` like any other table. No bespoke list endpoint.
+9. **Writing the replay trigger is a Django → Node proxy.** Follows the existing pattern (e.g. `posthog.plugins.plugin_server_api.create_batch_hog_flow_job_invocation`). Two modes:
+   - **By IDs** — explicit list of `invocation_id`s with a server-side cap (e.g. 1000).
+   - **By filter** — time range + the same top-level filters the list view uses (status, function_id, error_kind, max attempts). Node pages ClickHouse and re-enqueues.
+10. **Logs stay in `log_entries` as-is.** The new "runs" UI is master/detail: click a row → expand → fetch logs via the existing logs API keyed on `instance_id = invocation_id`. Registering `log_entries` in HogQL too is a "maybe later if cheap" follow-up, not v1.
+11. **The new UI replaces nothing.** `HogFunctionRuns.tsx` and `HogFunctionLogs.tsx` are untouched. The new "runs" view ships alongside them and is the foundation for eventually subsuming the logs tab.
 
-- **Engine**: `ReplacingMergeTree` keyed by `(team_id, function_kind, function_id, invocation_id)` with `version` as the merge-time tie-breaker. Same shape as `person_distinct_id2` and `person`. Queries use `argMax(field, version)` to read the latest state, not `FINAL` (consistent with how we read persons).
-- **Sharded + distributed + writable + kafka_mv** mirror of `log_entries` (`sharded_hog_invocation_results`, `writable_hog_invocation_results`, `hog_invocation_results` distributed alias, `kafka_hog_invocation_results` + MV).
-- **Partition**: `toYYYYMMDD(scheduled_at)` so 30-day TTL drops whole parts.
-- **TTL**: 30 days on `scheduled_at` (matches user requirement). `ttl_only_drop_parts = 1`.
-- **Kafka topic**: new `KAFKA_HOG_INVOCATION_RESULTS` registered in `posthog/kafka_client/topics.py`, WarpStream MV variant added alongside the MSK one (same pattern as `log_entries` / `app_metrics2`).
-
-### Schema (proposed)
+## Schema
 
 ```sql
 CREATE TABLE sharded_hog_invocation_results (
     -- Identity
     team_id Int64,
     function_kind LowCardinality(String),   -- 'hog_function' | 'hog_flow'
-    function_id String,                     -- HogFunction.id or HogFlow.id (matches today's app_source_id)
+    function_id String,                     -- HogFunction.id or HogFlow.id
     invocation_id String,                   -- CyclotronJobInvocation.id (UUID, stable across retries)
-    parent_run_id String,                   -- batch/parent run id, empty string if none
+    parent_run_id String,                   -- batch/parent run id; empty string if none
 
-    -- Timing (all UTC microseconds)
-    scheduled_at DateTime64(6, 'UTC'),      -- when the invocation was scheduled / first queued
+    -- Lifecycle
+    status LowCardinality(String),          -- 'running' | 'succeeded' | 'failed'
+    attempts UInt8,                         -- 1 on first run, increments on replay
+    is_retry UInt8,                         -- 0 on the original run, 1 on a replay
+
+    -- Timing (UTC microseconds)
+    scheduled_at DateTime64(6, 'UTC'),      -- when this invocation was queued
     started_at  Nullable(DateTime64(6, 'UTC')),
     finished_at Nullable(DateTime64(6, 'UTC')),
     duration_ms Nullable(UInt32),
 
     -- Outcome
-    status LowCardinality(String),          -- 'scheduled' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retrying'
-    attempts UInt8,                         -- 1 on first run, increments on retries
-    error_kind LowCardinality(String),      -- short bucket: 'http_4xx', 'http_5xx', 'timeout', 'oom', 'hog_error', 'filtered', ''
-    error_message String,                   -- truncated (e.g. 4 KiB) — full stack stays in log_entries
+    error_kind LowCardinality(String),      -- '' | 'http_4xx' | 'http_5xx' | 'timeout' | 'oom' | 'hog_error'
+    error_message String CODEC(ZSTD(3)),    -- truncated (e.g. 4 KiB) — full stack stays in log_entries
 
-    -- Trigger reference (lets retry rebuild input without us re-deriving it)
-    trigger_event_uuid String,              -- empty for batch/manual triggers
-    trigger_distinct_id String,
-    trigger_person_id String,               -- empty if not resolved
-    trigger_globals_ref String,             -- S3 / object-storage key, empty if event lookup is enough
+    -- Promoted typed fields (filterable in HogQL without parsing the payload)
+    event_uuid   String,
+    distinct_id  String,
+    person_id    String,
 
-    -- Versioning for ReplacingMergeTree
-    version UInt64,                         -- monotonic per (team_id, function_kind, function_id, invocation_id)
-    is_deleted UInt8 DEFAULT 0,             -- tombstone so reads can hide cancelled/expired records
+    -- Full invocation payload — what the worker needs to replay this run
+    invocation_globals String CODEC(ZSTD(3)),
 
-    -- Standard kafka housekeeping (KAFKA_COLUMNS_WITH_PARTITION)
+    -- ReplacingMergeTree versioning
+    version UInt64,                         -- now64(6) at write time; latest wins
+    is_deleted UInt8 DEFAULT 0,             -- tombstone for explicit cancellation
+
+    -- Standard kafka housekeeping
     _timestamp DateTime,
     _offset    UInt64,
     _partition UInt64
@@ -76,124 +87,196 @@ TTL toDate(scheduled_at) + INTERVAL 30 DAY DELETE
 SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
 ```
 
-Plus secondary skipping indexes to support the listing/retry queries cheaply:
+### Partition / ordering rationale
+
+- **`ORDER BY` leads with `team_id`** so every query — UI listing, replay paging, HogQL access — does a bounded range scan rather than scanning all teams. Same convention as `events`, `app_metrics2`, `log_entries`.
+- **`PARTITION BY toYYYYMMDD(scheduled_at)`** keeps partition count bounded (30 partitions live at any time given the TTL) so daily TTL drops are part-level (`ttl_only_drop_parts = 1`), not row-level mutations.
+- We did consider adding `team_id` into the partition expression (e.g. `(intDiv(team_id, 1000), toYYYYMMDD(scheduled_at))`). Deferred — leading `team_id` in `ORDER BY` already handles tenant isolation and adding it to the partition multiplies the partition count. Revisit only if profiling shows team filters are not fast enough.
+
+### Skipping indexes
 
 ```sql
-INDEX status_idx       status                  TYPE set(8)     GRANULARITY 4
-INDEX function_idx     function_id             TYPE bloom_filter(0.01) GRANULARITY 4
-INDEX trigger_event_idx trigger_event_uuid     TYPE bloom_filter(0.01) GRANULARITY 4
+INDEX status_idx      status        TYPE set(8)             GRANULARITY 4
+INDEX function_idx    function_id   TYPE bloom_filter(0.01) GRANULARITY 4
+INDEX event_uuid_idx  event_uuid    TYPE bloom_filter(0.01) GRANULARITY 4
+INDEX is_retry_idx    is_retry      TYPE set(2)             GRANULARITY 4
 ```
 
-### Write path
+### Standard table layout (mirrors `log_entries` / `app_metrics2`)
 
-The data we need already exists in `CyclotronJobInvocationResult` inside `nodejs/src/cdp/types.ts:281`. The producer plumbing exists in `nodejs/src/cdp/services/monitoring/hog-function-monitoring.service.ts` and is fanned out by `nodejs/src/cdp/services/invocation-results.service.ts:22`.
+- `sharded_hog_invocation_results` — replicated, partitioned, the actual data.
+- `writable_hog_invocation_results` — distributed alias used as the MV target.
+- `hog_invocation_results` — distributed alias used by readers (and by HogQL).
+- `kafka_hog_invocation_results` — Kafka engine table consuming `KAFKA_HOG_INVOCATION_RESULTS`.
+- `hog_invocation_results_mv` — materialized view from kafka to writable.
+- WarpStream variants of the kafka + MV pair alongside the MSK ones (same coexistence pattern as `log_entries` / `app_metrics2`).
 
-Add a new service `HogInvocationResultsService` (sibling of `HogFunctionMonitoringService`) that:
+## Write path
 
-1. On every `result.finished || result.error`, emits **one** row with `status = succeeded | failed`, `attempts = result.invocation.state.attempts`, `duration_ms` summed from `state.timings`, `error_kind/error_message` extracted from `result.error`.
-2. (Optional v2) On schedule / start emits a `scheduled` / `running` row with the same `invocation_id` and a lower `version`, so the UI can show "in flight".
-3. On retry triggers (see below), emits a row with `attempts = N+1` and an incremented `version`. ReplacingMergeTree collapses prior versions; `argMax(status, version)` returns the latest.
+Producer plumbing exists in `nodejs/src/cdp/services/invocation-results.service.ts:22` (fan-out service) and `nodejs/src/cdp/services/monitoring/hog-function-monitoring.service.ts` (logs + app_metrics2 producer). Add a sibling service:
 
-`version` is `now64(6)` (microseconds since epoch). That gives us:
+- **`nodejs/src/cdp/services/monitoring/hog-invocation-results.service.ts`** — new producer. Consumes `CyclotronJobInvocationResult` (already carries `invocation.id`, `teamId`, `functionId`, `parentRunId`, `state.attempts`, `state.timings`, error, finished flag, and the full globals on `invocation.state.globals`).
 
-- Natural monotonicity even across CDP workers / regions.
-- No coordination needed to allocate it.
-- Matches how `log_entries` uses `_timestamp` as the merge tie-breaker.
+Behavior:
 
-The row is produced to `KAFKA_HOG_INVOCATION_RESULTS`. A Kafka-engine table + materialized view writes into `writable_hog_invocation_results`, same shape as the `app_metrics2_mv` / `log_entries_mv` pair.
+1. **On invocation start** (the worker has dequeued and is about to execute): emit a row with `status='running'`, `started_at=now()`, `finished_at=null`, `error_kind=''`, `error_message=''`, and the full payload + promoted fields populated. `version = now64(6)`.
+2. **On invocation finish** (`result.finished || result.error`): emit a row with `status` derived from `result.error` (`'failed'` if set, otherwise `'succeeded'`), `started_at` carried through, `finished_at=now()`, `duration_ms` summed from `state.timings`, `error_kind/error_message` extracted from `result.error`, **same `invocation_id`**, higher `version`. Payload + promoted fields repeated (cheap given ZSTD, and avoids a Replacing-merge that strips columns we need).
+3. **On replay enqueue** (the Django→Node replay handler): emit `status='running'` for the new attempt with same `invocation_id`, `attempts = N+1`, `is_retry = 1`. Then steps 1–2 repeat as usual.
 
-### Read path
+`version` is `now64(6)` (microseconds since unix epoch). No coordination needed. Same monotonicity trick `log_entries` uses with `_timestamp`.
 
-**Listing (UI)** — paginated by `(scheduled_at DESC, invocation_id)` keyset:
+`KAFKA_HOG_INVOCATION_RESULTS` is registered in `posthog/kafka_client/topics.py` and `nodejs/src/config/kafka-topics.ts`.
+
+## Read path
+
+### HogQL schema registration
+
+Add the table to `posthog/hogql/database/schema/` so HogQL clients can query it. Treated as a team-scoped table (auto-filtered on `team_id` in the resolver, same as `events`).
+
+Promoted typed columns are exposed natively. `invocation_globals` is exposed as `String` only — there's no need to parse it for queries. The UI uses HogQL for the listing/filtering and only reads `invocation_globals` when the user explicitly inspects a row.
+
+### Listing query (UI)
+
+Paginated by `(scheduled_at DESC, invocation_id)` keyset. ReplacingMergeTree collapse is done in HogQL via the standard `argMax(field, version) GROUP BY ...` idiom that we already use for `person`:
 
 ```sql
+-- HogQL
 SELECT
     invocation_id,
     argMax(status, version)        AS status,
     argMax(attempts, version)      AS attempts,
+    argMax(is_retry, version)      AS is_retry,
     argMax(error_kind, version)    AS error_kind,
     argMax(error_message, version) AS error_message,
     argMax(started_at, version)    AS started_at,
     argMax(finished_at, version)   AS finished_at,
     argMax(duration_ms, version)   AS duration_ms,
+    argMax(event_uuid, version)    AS event_uuid,
+    argMax(distinct_id, version)   AS distinct_id,
+    argMax(person_id, version)     AS person_id,
     max(scheduled_at)              AS scheduled_at
 FROM hog_invocation_results
-WHERE team_id = %(team_id)s
-  AND function_kind = %(function_kind)s
-  AND function_id = %(function_id)s
-  AND scheduled_at >= %(window_start)s
-  AND scheduled_at <  %(window_end)s
+WHERE function_kind = {function_kind}
+  AND function_id = {function_id}
+  AND scheduled_at >= {window_start}
+  AND scheduled_at <  {window_end}
 GROUP BY invocation_id
 HAVING argMax(is_deleted, version) = 0
    {optional_status_filter}
+   {optional_is_retry_filter}
    {optional_attempts_filter}
 ORDER BY scheduled_at DESC, invocation_id DESC
-LIMIT %(limit)s
+LIMIT {limit}
 ```
 
-**Retry candidate selection** — feeds the worker. Same query, projecting only `invocation_id`, `trigger_event_uuid`, `trigger_globals_ref`, plus a max-attempts gate.
+### Detail row → logs
 
-### Retry trigger
+Master/detail. Clicking a row uses the existing logs API with `instance_id = invocation_id`. No HogQL change needed for v1.
 
-This part is **not** "re-run the same row in place"; it's "produce a new invocation, link it back". Two paths:
+### Inspecting the full payload
 
-1. **In-place retry (preferred)** — the worker already supports it via Cyclotron job re-enqueue. The retry handler:
-   - Pages `hog_invocation_results` with the filter the user provides (`function_id`, time range, `status='failed'`, `attempts <= N`).
-   - For each row, reconstructs the `CyclotronJobInvocation` from `trigger_event_uuid` / `trigger_globals_ref`.
-   - Re-queues with the **same `invocation_id`** and `attempts += 1`.
-   - On completion, the worker writes a new row with the same `invocation_id`, higher `version` → the listing query collapses.
+A "view payload" affordance on the detail panel reads `invocation_globals` (a single-row HogQL `SELECT invocation_globals FROM hog_invocation_results WHERE invocation_id = ... ORDER BY version DESC LIMIT 1`).
 
-2. **Batch retry** — uses the existing `HogFlowBatchJob` model (`products/workflows/backend/models/hog_flow_batch_job/hog_flow_batch_job.py:13`) as the orchestration record. Adds a new `kind = 'retry'` discriminator and a JSON `filter` that ClickHouse pages against. Pagination is keyset on `(scheduled_at, invocation_id)` so a long-running retry job can resume.
+## Replay trigger
 
-### Why ReplacingMergeTree (and not e.g. CollapsingMergeTree)
+### Django endpoint
 
-- We don't need a sign-based reconciliation, we just want "last write wins".
-- `argMax` queries are the existing PostHog idiom (`person`, `person_distinct_id2`, `cohort_membership`, `groups`).
-- TTL on partition column lets old parts drop wholesale instead of MUTATE-style deletes.
+New action on the existing viewsets, mirroring how `HogFlowBatchJob` proxies through to Node today.
+
+- `POST /api/projects/:id/hog_functions/:fid/replay`
+- `POST /api/projects/:id/hog_flows/:fid/replay`
+
+Two payload shapes:
+
+```json
+{
+  "invocation_ids": ["uuid-1", "uuid-2", "..."]
+}
+```
+
+or
+
+```json
+{
+  "filter": {
+    "window_start": "2026-05-01T00:00:00Z",
+    "window_end": "2026-05-10T00:00:00Z",
+    "status": ["failed"],
+    "error_kind": ["http_5xx", "timeout"],
+    "max_attempts": 3,
+    "max_count": 1000
+  }
+}
+```
+
+The view validates, then proxies through to a new `replay_hog_invocations(team_id, function_kind, function_id, mode, payload)` helper in `posthog/plugins/plugin_server_api.py`. The Node side:
+
+1. **By-IDs mode** — read each row from ClickHouse, rehydrate the invocation from `invocation_globals`, push onto the appropriate cyclotron queue with `is_retry=1` / `attempts++`.
+2. **By-filter mode** — page ClickHouse with the same HogQL-style filter (server-side cap on `max_count` per request, keyset pagination on `(scheduled_at, invocation_id)`), same rehydration + enqueue.
+
+### Naming
+
+`replay` (not `retry`) — "retry" implies resuming the same context; what we're doing is re-executing from a stored payload. The endpoint name and code paths use `replay` throughout. The row-level marker stays as `is_retry` to match existing CDP terminology in the worker (which already has a notion of "retry" for transient failure re-enqueue).
 
 ## Surface area changes
 
 ### Backend (Django / Python)
 
 - `posthog/kafka_client/topics.py` — add `KAFKA_HOG_INVOCATION_RESULTS`.
-- `posthog/models/hog_invocation_results/sql.py` — new file with the four-table schema (sharded / writable / distributed / kafka + MV), MSK + WarpStream variants. Pattern: copy `posthog/models/app_metrics2/sql.py` for the multi-table layout and `posthog/clickhouse/log_entries.py` for the TTL + sharding choices.
+- `posthog/models/hog_invocation_results/sql.py` — new file with the multi-table layout (sharded / writable / distributed / kafka + MV), MSK + WarpStream variants. Mirrors `posthog/models/app_metrics2/sql.py` for the layout and `posthog/clickhouse/log_entries.py` for the TTL + sharding choices.
 - `posthog/clickhouse/schema.py` — register the new tables.
 - `posthog/clickhouse/migrations/0253_hog_invocation_results.py` — new migration creating all of the above. Numbering follows `0252_extend_session_replay_features.py`.
-- `posthog/api/hog_function.py` and `posthog/api/hog_flow.py` — add an `invocations` (list) action that pages `hog_invocation_results`, plus an `invocations_retry` action that enqueues retries. Today's `invocations` action on `HogFunctionViewSet` is the _test_ invocation endpoint; reuse the name only if we're OK overloading, otherwise call the new ones `runs` and `runs/retry` (more honest given the existing `HogFunctionRuns` UI).
+- `posthog/hogql/database/schema/hog_invocation_results.py` — new HogQL schema definition for the distributed table. Team-scoped resolver.
+- `posthog/hogql/database/database.py` — register the new schema.
+- `posthog/plugins/plugin_server_api.py` — add `replay_hog_invocations(...)`.
+- `posthog/api/hog_function.py` and `posthog/api/hog_flow.py` — add a `replay` action that validates input and proxies through to Node.
 
 ### Worker (Node.js)
 
-- `nodejs/src/cdp/services/monitoring/hog-invocation-results.service.ts` — new producer service that consumes `CyclotronJobInvocationResult` and emits the row.
-- `nodejs/src/cdp/services/invocation-results.service.ts` — fan out to the new service (alongside monitoring, warehouse webhooks, captured events).
+- `nodejs/src/cdp/services/monitoring/hog-invocation-results.service.ts` — new producer (start row + finish row).
+- `nodejs/src/cdp/services/invocation-results.service.ts` — fan out to the new service alongside monitoring/warehouse/captured-events.
+- `nodejs/src/cdp/services/monitoring/hog-function-monitoring.service.ts` — emits the `'running'` row when the invocation is picked up.
 - `nodejs/src/config/kafka-topics.ts` — register the topic.
-- `nodejs/src/cdp/services/retry/` — new module that drives retry execution given a list of `invocation_id`s from ClickHouse.
-- `nodejs/src/ingestion/common/outputs.ts` — register the new output channel (mirrors `LOG_ENTRIES_OUTPUT`, `APP_METRICS2_OUTPUT`).
+- `nodejs/src/cdp/replay/` — new module exposing `replayByIds(...)` and `replayByFilter(...)` invoked by the internal API the Django proxy talks to.
+- `nodejs/src/ingestion/common/outputs.ts` — register the new output channel.
 
 ### Frontend
 
-- `frontend/src/scenes/hog-functions/runs/HogFunctionRuns.tsx` — today this is a thin wrapper around `BatchExportRuns`. Replace with a new component sourced from the invocations endpoint.
-- New kea logic `hogFunctionInvocationsLogic.ts` for paginated listing + filters (`status`, `attempts`, time range, search by event UUID).
-- New "Retry" action on the runs table (multi-select + bulk action), gated behind the hog function's existing edit permission.
-- Mirror on the workflows side: `products/workflows/frontend/Workflows/WorkflowLogs.tsx` already exists; add a `WorkflowRuns.tsx` next to it.
+- `frontend/src/scenes/hog-functions/runs-v2/` (or similar; **separate** directory from the existing `runs/`) — new scene and kea logic. List view + filters (status, time range, is_retry, error_kind, search-by-event-uuid) + detail panel.
+- The detail panel uses the existing logs viewer (`LogsViewer.tsx`) bound to `instance_id = invocation_id`.
+- A "replay" button on the detail panel and a bulk-replay action on multi-select in the list. Both POST to the new Django endpoints.
+- Workflows side: equivalent new scene under `products/workflows/frontend/Workflows/`.
 
 ### MCP
 
-- Add `hog_function_invocations_list` and `hog_function_invocations_retry` tools (and the `hog_flow_*` equivalents) via `products/cdp/mcp/tools.yaml` so agents can inspect failures and trigger retries the same way.
+- New tools `hog_function_invocations_list` and `hog_function_invocations_replay` (and hog_flow equivalents) via `products/cdp/mcp/tools.yaml`. Agents can inspect failures and trigger replays the same way the UI does.
 
-## Out of scope (for v1)
+## Build sequence
 
-- Storing the full trigger payload inline — for now we use `trigger_event_uuid` + an S3 reference for non-event triggers. Inline payloads up to ~64 KiB could be a v2 follow-up if event lookups turn out to be too slow.
-- Retention beyond 30 days. If product asks for longer, we either bump the TTL globally or add an archival sink — both should be a separate proposal.
-- A "live invocations" view powered by `scheduled` / `running` rows. The schema supports it; the worker write-path for it is in v2 because it doubles the row volume.
-- Aggregated counters — `app_metrics2` stays as-is. The new table is per-row only.
+Roughly the order I'd ship this in.
 
-## Risks / open questions
+1. **ClickHouse schema + migration.** SQL files + `0253_hog_invocation_results.py`. Verifiable locally with `clickhouse_migrate`.
+2. **Kafka topic registration** (Python + Node side).
+3. **Worker producer service** behind a per-team feature flag — start writing rows but don't read them yet. Lets us land the producer safely and validate row volume before any UI.
+4. **HogQL schema registration** for the new table.
+5. **Replay endpoint (Django) + Node replay module.** Test with curl / a script before UI.
+6. **Frontend runs scene** (list + filters + detail panel + logs expansion via existing viewer).
+7. **Bulk replay UI.**
+8. **MCP tools.**
 
-1. **Row volume.** Hog functions run on every matching event for every team. We need a quick back-of-envelope: how many invocations/sec at peak, what does that look like at 30-day retention? `log_entries` already absorbs multiple rows per invocation; the new table is 1–N rows per invocation depending on whether we write status transitions. v1 = one row at terminal state keeps this conservative.
-2. **Trigger payload sourcing for retry.** If the original event has aged out of ClickHouse `events`, we can't reconstruct the invocation. Either:
-   - Cap retry window at ClickHouse `events` retention (today: usually >30d, but per-team).
-   - Persist the trigger payload to S3 alongside the result row.
-     The schema supports either; we need a product call.
-3. **Hog flows are multi-step.** A single hog flow invocation can run for hours/days across many `actionStepCount` transitions. Do we want one row per _flow run_ or one per _action step_? Recommendation: one per flow run, with action-step granularity staying in `log_entries`.
-4. **In-place retries change history.** If user A retries and user B retries again, the first retry's outcome is collapsed by ReplacingMergeTree. We may want a separate `hog_invocation_attempts` audit table if forensic history matters. v1 = no, log_entries already captures the per-attempt detail.
-5. **Tenant isolation.** `team_id` is on the row and first in `ORDER BY`. Standard PostHog convention.
+Each step is shippable independently. The feature flag in step 3 stays on through step 6 so we only flip it for early teams.
+
+## Out of scope (v1)
+
+- Promoting `log_entries` into HogQL. Stays as-is; we use it through the existing API. Easy follow-up if cheap.
+- Replacing or modifying the existing `HogFunctionLogs.tsx` / `HogFunctionRuns.tsx` UIs. The new runs view ships alongside.
+- Retention beyond 30 days. If product asks for longer, separate proposal.
+- Action-step-level rows for hog flows. Per-step detail stays in `log_entries`.
+
+## Risks worth tracking
+
+1. **Row volume.** Two rows per invocation × every event that matches a function × every team × 30 days. We should pull a back-of-envelope estimate from current `app_metrics2` totals before turning the producer on globally. Mitigation: feature-flag the producer per team, ramp.
+2. **Payload size in `invocation_globals`.** A full hog function invocation's globals can be tens of KiB once person properties are flattened. ZSTD compresses this well in practice (often 4–8×), but if a small number of teams send enormous events, we may want a hard cap (e.g. truncate `invocation_globals` past 256 KiB and set a flag column so replay can refuse / warn). Not implementing v1 — measure first.
+3. **Replay storms.** A user can replay a million rows. Server-side cap on `max_count` plus per-team rate-limiting on the replay endpoint. Audit-log the trigger.
+4. **Tenant isolation.** `team_id` is on every row and first in `ORDER BY`. HogQL resolver auto-filters, same as `events`. Standard PostHog convention.
+5. **History after replay.** Because ReplacingMergeTree collapses by `invocation_id`, prior failed attempts are no longer visible from this table after a successful replay. The full per-attempt history lives in `log_entries` (different rows per attempt because the worker logs per-attempt). Acceptable v1.
