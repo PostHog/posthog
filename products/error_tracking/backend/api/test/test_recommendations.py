@@ -19,6 +19,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
+from products.error_tracking.backend.recommendations.ingestion_failures import IngestionFailuresRecommendation
 from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -37,6 +38,7 @@ MOCK_ALERTS_META_UPDATED = {
         {"key": "error-tracking-issue-spiking", "enabled": True},
     ]
 }
+MOCK_INGESTION_FAILURES_META: dict = {"count_24h": 0, "count_1h": 0, "top_causes": []}
 
 
 def _days_ago(n: int) -> str:
@@ -62,6 +64,10 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
     @patch(
+        "products.error_tracking.backend.recommendations.ingestion_failures.IngestionFailuresRecommendation.compute",
+        return_value=MOCK_INGESTION_FAILURES_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
@@ -69,16 +75,20 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_first_list_creates_both_recommendations(self, mock_alerts, mock_long_running):
+    def test_first_list_creates_both_recommendations(self, mock_alerts, mock_long_running, mock_ingestion_failures):
         self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 2)
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 3)
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues"})
+        self.assertEqual(types, {"alerts", "long_running_issues", "ingestion_failures"})
 
+    @patch(
+        "products.error_tracking.backend.recommendations.ingestion_failures.IngestionFailuresRecommendation.compute",
+        return_value=MOCK_INGESTION_FAILURES_META,
+    )
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
@@ -86,7 +96,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     @patch(
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
     )
-    def test_alerts_recomputes_on_every_list(self, mock_alerts, mock_long_running):
+    def test_alerts_recomputes_on_every_list(self, mock_alerts, mock_long_running, mock_ingestion_failures):
         mock_alerts.return_value = MOCK_ALERTS_META
         self._list()
 
@@ -99,13 +109,19 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
+        "products.error_tracking.backend.recommendations.ingestion_failures.IngestionFailuresRecommendation.compute",
+        return_value=MOCK_INGESTION_FAILURES_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
     )
     @patch(
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running, frozen_time):
+    def test_long_running_is_cached_until_interval_elapses(
+        self, mock_alerts, mock_long_running, mock_ingestion_failures, frozen_time
+    ):
         mock_long_running.return_value = {"issues": []}
         self._list()
         self.assertEqual(mock_long_running.call_count, 1)
@@ -119,6 +135,10 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_long_running.call_count, 2)
 
     @patch(
+        "products.error_tracking.backend.recommendations.ingestion_failures.IngestionFailuresRecommendation.compute",
+        return_value=MOCK_INGESTION_FAILURES_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
@@ -126,7 +146,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_dismiss_persists_across_requests(self, mock_alerts, mock_long_running):
+    def test_dismiss_persists_across_requests(self, mock_alerts, mock_long_running, mock_ingestion_failures):
         response = self._list()
         alerts_id = next(r["id"] for r in response.json()["results"] if r["type"] == "alerts")
 
@@ -297,6 +317,19 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_alerts_is_completed_false_when_empty(self):
         self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
+
+    def test_ingestion_failures_is_completed_when_zero_24h(self):
+        self.assertTrue(
+            IngestionFailuresRecommendation().is_completed({"count_24h": 0, "count_1h": 0, "top_causes": []})
+        )
+
+    def test_ingestion_failures_is_not_completed_with_failures(self):
+        meta = {
+            "count_24h": 1234,
+            "count_1h": 56,
+            "top_causes": [{"cause": "No sourcemap found", "occurrences": 1000}],
+        }
+        self.assertFalse(IngestionFailuresRecommendation().is_completed(meta))
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",

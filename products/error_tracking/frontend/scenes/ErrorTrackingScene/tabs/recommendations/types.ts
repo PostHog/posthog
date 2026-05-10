@@ -1,7 +1,7 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues'
+export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues' | 'ingestion_failures'
 
 export type ErrorTrackingRecommendationStatus = 'ready' | 'computing'
 
@@ -62,3 +62,16 @@ export interface LongRunningIssuesRecommendationMeta extends Record<string, unkn
 }
 
 export type LongRunningIssuesRecommendation = ErrorTrackingRecommendation<LongRunningIssuesRecommendationMeta>
+
+export interface IngestionFailureCause {
+    cause: string
+    occurrences: number
+}
+
+export interface IngestionFailuresRecommendationMeta extends Record<string, unknown> {
+    count_24h: number
+    count_1h: number
+    top_causes: IngestionFailureCause[]
+}
+
+export type IngestionFailuresRecommendation = ErrorTrackingRecommendation<IngestionFailuresRecommendationMeta>

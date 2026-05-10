@@ -4,9 +4,11 @@ import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AlertsRecommendationCard } from './AlertsRecommendationCard'
+import { IngestionFailuresRecommendationCard } from './IngestionFailuresRecommendationCard'
 import { LongRunningIssuesRecommendationCard } from './LongRunningIssuesRecommendationCard'
 import {
     isAlertsRecommendation,
+    isIngestionFailuresRecommendation,
     isLongRunningIssuesRecommendation,
     recommendationsTabLogic,
 } from './recommendationsTabLogic'
@@ -24,6 +26,9 @@ function RecommendationCardForType({
     }
     if (isLongRunningIssuesRecommendation(recommendation)) {
         return <LongRunningIssuesRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    if (isIngestionFailuresRecommendation(recommendation)) {
+        return <IngestionFailuresRecommendationCard recommendation={recommendation} dismissed={dismissed} />
     }
     return null
 }
