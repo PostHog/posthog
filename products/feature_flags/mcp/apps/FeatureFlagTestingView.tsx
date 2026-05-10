@@ -32,9 +32,9 @@ export interface FeatureFlagTestingViewProps {
 }
 
 export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): ReactElement {
-    const getResultBadgeVariant = (): 'success' | 'danger' | 'info' => {
+    const getResultBadgeVariant = (): 'success' | 'destructive' | 'info' => {
         if (typeof flag.result === 'boolean') {
-            return flag.result ? 'success' : 'danger'
+            return flag.result ? 'success' : 'destructive'
         }
         return 'info'
     }
@@ -53,9 +53,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-lg font-semibold text-text-primary">{flag.flag_key}</span>
-                        <Badge variant="neutral" size="md">
-                            Test Result
-                        </Badge>
+                        <Badge>Test Result</Badge>
                     </div>
                     <span className="text-sm text-text-secondary">
                         Feature flag evaluation result for the tested user
@@ -72,9 +70,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         </span>
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">Result:</span>
-                            <Badge variant={getResultBadgeVariant()} size="md">
-                                {formatResult()}
-                            </Badge>
+                            <Badge variant={getResultBadgeVariant()}>{formatResult()}</Badge>
                         </div>
                         <div className="text-sm">
                             <span className="font-medium">Reason: </span>
@@ -130,17 +126,11 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                         <div className="flex flex-col gap-1">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">Condition</span>
-                                                <Badge variant={condition.matched ? 'success' : 'danger'} size="sm">
+                                                <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
-                                                <Badge variant="neutral" size="sm">
-                                                    {condition.rollout_percentage}% rollout
-                                                </Badge>
-                                                {condition.variant && (
-                                                    <Badge variant="info" size="sm">
-                                                        {condition.variant}
-                                                    </Badge>
-                                                )}
+                                                <Badge>{condition.rollout_percentage}% rollout</Badge>
+                                                {condition.variant && <Badge variant="info">{condition.variant}</Badge>}
                                             </div>
                                             {(condition.explanation || condition.reason) && (
                                                 <div className="text-sm text-text-secondary">
