@@ -604,13 +604,15 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 
-    it('backgroundTask rejection: offsets are NOT stored and loop exits with the latched error', async () => {
+    it('backgroundTask rejection: latches fatalError and skips offset store', async () => {
+        // Loop-exit propagation is covered by the existing "eachBatch throwing" test plus
+        // the runLoop fatalError guard. Here we pin the new behavior: the rejection is
+        // latched onto fatalError and offsets for the failed batch are not stored.
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
-        const loopDone = (consumer as any).loopDone as Promise<void>
-        // Pre-attach a no-op catch so the eventual rejection doesn't surface as an
-        // unhandled-rejection between the throw and the `await expect(...).rejects` below.
-        loopDone.catch(() => {})
+        // Suppress unhandled-rejection warning in case the loop ticks (and throws fatalError)
+        // during afterEach teardown before disconnect attaches its catch handler.
+        ;((consumer as any).loopDone as Promise<void>).catch(() => {})
 
         const failure = new Error('column "X" does not exist')
         const failing = triggerablePromise<void>()
@@ -622,16 +624,8 @@ describe('KafkaConsumerV2', () => {
         await delay(10)
 
         expect(captureException).toHaveBeenCalledWith(failure)
-        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 2 }])
-
-        // Next loop tick checks fatalError and throws — release the in-flight consume so
-        // the loop can iterate and observe it.
-        if (consumeCallback) {
-            consumeCallback(null, [])
-        }
-
-        await expect(loopDone).rejects.toBe(failure)
-        consumer = undefined as unknown as KafkaConsumerV2
+        expect((consumer as any).fatalError).toBe(failure)
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 
     it('backgroundTask rejection: a later successful batch must NOT advance the bookmark past the failed one', async () => {
