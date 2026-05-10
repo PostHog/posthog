@@ -4,10 +4,20 @@ Storage utilities for visual review artifacts.
 
 import os
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 
 from posthog.storage import object_storage
+
+
+def build_public_artifact_url(artifact_id: UUID | str) -> str:
+    """Absolute URL to the unauthenticated artifact redirect endpoint.
+
+    Used to embed artifact images in GitHub PR comments — GitHub camo
+    caches the bytes on first fetch.
+    """
+    return f"{settings.SITE_URL}/api/visual_review/public/artifact/{artifact_id}"
 
 
 class ArtifactStorage:

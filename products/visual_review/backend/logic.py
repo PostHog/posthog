@@ -1597,6 +1597,198 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
+_APPROVAL_COMMENT_MAX_ROWS = 60
+_APPROVAL_COMMENT_IMG_WIDTH = 240
+
+
+def _result_label(result: str) -> str:
+    if result == SnapshotResult.CHANGED:
+        return "🔄 changed"
+    if result == SnapshotResult.NEW:
+        return "✨ new"
+    if result == SnapshotResult.REMOVED:
+        return "🗑️ removed"
+    return result
+
+
+def _img_cell(artifact: Artifact | None) -> str:
+    """Markdown cell for an artifact image, or `–` when absent."""
+    from .storage import build_public_artifact_url
+
+    if artifact is None:
+        return "–"
+    url = build_public_artifact_url(artifact.id)
+    return f'<img src="{url}" width="{_APPROVAL_COMMENT_IMG_WIDTH}" alt="">'
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver_username: str | None) -> str:
+    """Build the markdown body of the post-approval PR comment.
+
+    Single table with `Identifier | Before | After | Diff` columns.
+    Cell mapping by RunSnapshot.result:
+      - CHANGED  → before, after, diff
+      - NEW      → after only
+      - REMOVED  → before only
+    """
+    from django.conf import settings
+
+    snapshots = list(
+        run.snapshots.select_related("baseline_artifact", "current_artifact", "diff_artifact")
+        .filter(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
+        .order_by("identifier")
+    )
+
+    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    approver_text = f"@{approver_username}" if approver_username else "a reviewer"
+    baseline_sha = run.metadata.get("baseline_commit_sha")
+    sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
+
+    header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
+
+    if not snapshots:
+        return header
+
+    truncated_count = max(0, len(snapshots) - _APPROVAL_COMMENT_MAX_ROWS)
+    visible = snapshots[:_APPROVAL_COMMENT_MAX_ROWS]
+
+    rows = ["| Identifier | Before | After | Diff |", "|---|---|---|---|"]
+    for snapshot in visible:
+        result = snapshot.result
+        before = snapshot.baseline_artifact if result in (SnapshotResult.CHANGED, SnapshotResult.REMOVED) else None
+        after = snapshot.current_artifact if result in (SnapshotResult.CHANGED, SnapshotResult.NEW) else None
+        diff = snapshot.diff_artifact if result == SnapshotResult.CHANGED else None
+        identifier_cell = f"`{snapshot.identifier}` ({_result_label(result)})"
+        rows.append(f"| {identifier_cell} | {_img_cell(before)} | {_img_cell(after)} | {_img_cell(diff)} |")
+
+    table = "\n".join(rows)
+    summary = f"\n<details><summary><strong>{len(visible)} snapshot(s)</strong></summary>\n\n{table}\n\n</details>\n"
+
+    if truncated_count:
+        summary += f"\n_+{truncated_count} more — [view all in PostHog]({run_url})._\n"
+
+    return header + summary
+
+
+def _resolve_approver_username(user_id: int | None) -> str | None:
+    """Resolve the approver's GitHub username if available, else fall back to email local-part."""
+    if user_id is None:
+        return None
+
+    from posthog.models.user import User
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    gh = (
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB)
+        .order_by("-created_at")
+        .first()
+    )
+    if gh is not None:
+        github_login = UserGitHubIntegration(gh).github_login
+        if github_login:
+            return github_login
+
+    user = User.objects.filter(id=user_id).only("email", "first_name").first()
+    if user is None:
+        return None
+    if user.email and "@" in user.email:
+        return user.email.split("@", 1)[0]
+    return user.first_name or None
+
+
+def _post_approval_comment(run: Run, repo: Repo) -> None:
+    """Update the existing PR comment in place with the approved-changes gallery.
+
+    Best-effort and never raises. Skips silently when the original review-prompt
+    comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
+    when the review wasn't initiated by a human.
+    """
+    if not repo.enable_pr_comments:
+        return
+
+    if not repo.repo_full_name or run.pr_number is None:
+        return
+
+    if run.review_decision != ReviewDecision.HUMAN_APPROVED:
+        return
+
+    comment_id = run.metadata.get("github_comment_id")
+    if not comment_id:
+        return
+    if isinstance(comment_id, str) and comment_id.isdigit():
+        comment_id = int(comment_id)
+    if not isinstance(comment_id, int):
+        return
+
+    approver_username = _resolve_approver_username(run.approved_by_id)
+    body = _build_approval_comment_body(run, repo, approver_username)
+
+    try:
+        response = _github_api_request(
+            method="PATCH",
+            repo=repo,
+            path=f"issues/comments/{comment_id}",
+            json={"body": body},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return
+
+        # Comment was deleted or inaccessible — fall back to creating a new one
+        if response.status_code == 404:
+            create_response = _github_api_request(
+                method="POST",
+                repo=repo,
+                path=f"issues/{run.pr_number}/comments",
+                json={"body": body},
+                timeout=15,
+            )
+            if create_response.status_code == 201:
+                new_comment_id = create_response.json().get("id")
+                if isinstance(new_comment_id, int):
+                    run.metadata["github_comment_id"] = new_comment_id
+                    run.save(update_fields=["metadata"])
+                return
+            logger.warning(
+                "visual_review.approval_comment_create_failed",
+                run_id=str(run.id),
+                pr_number=run.pr_number,
+                status_code=create_response.status_code,
+                response=create_response.text[:200],
+            )
+            return
+
+        logger.warning(
+            "visual_review.approval_comment_update_failed",
+            run_id=str(run.id),
+            comment_id=comment_id,
+            status_code=response.status_code,
+            response=response.text[:200],
+        )
+    except GitHubRateLimitError:
+        # Bubble up so the Celery task can retry with the suggested countdown.
+        raise
+    except Exception:
+        logger.warning(
+            "visual_review.approval_comment_error",
+            run_id=str(run.id),
+            pr_number=run.pr_number,
+            exc_info=True,
+        )
+
+
+def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> None:
+    """Public entrypoint for the Celery task to update a PR comment after approval."""
+    run = (
+        Run.objects.select_related("repo")
+        .using(READER_DB)
+        .filter(id=run_id, **({"team_id": team_id} if team_id is not None else {}))
+        .first()
+    )
+    if run is None:
+        return
+    _post_approval_comment(run, run.repo)
+
+
 @transaction.atomic(using=WRITER_DB)
 def approve_all(
     run_id: UUID,
@@ -1766,6 +1958,16 @@ def approve_run(
 
     if commit_to_github:
         _post_commit_status(run, repo, "success", "Visual changes approved")
+
+    if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
+        from .tasks.tasks import post_approval_comment
+
+        run_id_str = str(run.id)
+        run_team_id = run.team_id
+        transaction.on_commit(
+            lambda: post_approval_comment.delay(run_team_id, run_id_str),
+            using=WRITER_DB,
+        )
 
     return run
 

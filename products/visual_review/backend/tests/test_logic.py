@@ -1950,3 +1950,232 @@ class TestVerifyBaselineHashes:
         result = logic._verify_baseline_hashes(repo, {"snap-a": "v1.k1.deadbeef.fake"})
 
         assert result == {}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestApprovalComment:
+    """Tests for the post-approval PR comment that shows the diff gallery."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=66666,
+            repo_full_name="test-org/approval-repo",
+            enable_pr_comments=True,
+        )
+
+    @pytest.fixture
+    def artifact_factory(self, repo):
+        from products.visual_review.backend.models import Artifact
+
+        def make(content_hash: str = "h"):
+            return Artifact.objects.create(
+                team_id=repo.team_id,
+                repo=repo,
+                content_hash=content_hash,
+                storage_path=f"path/{content_hash}",
+            )
+
+        return make
+
+    @pytest.fixture
+    def run_with_snapshots(self, repo, artifact_factory):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="deadbeef",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            metadata={"github_comment_id": 9001, "baseline_commit_sha": "abc1234567"},
+        )
+
+        baseline_a = artifact_factory("base_a")
+        current_a = artifact_factory("curr_a")
+        diff_a = artifact_factory("diff_a")
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Login/Form",
+            current_hash="curr_a",
+            baseline_hash="base_a",
+            baseline_artifact=baseline_a,
+            current_artifact=current_a,
+            diff_artifact=diff_a,
+            result=SnapshotResult.CHANGED,
+        )
+
+        current_b = artifact_factory("curr_b")
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Settings/Tab",
+            current_hash="curr_b",
+            baseline_hash="",
+            current_artifact=current_b,
+            result=SnapshotResult.NEW,
+        )
+
+        baseline_c = artifact_factory("base_c")
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Old/Component",
+            current_hash="",
+            baseline_hash="base_c",
+            baseline_artifact=baseline_c,
+            result=SnapshotResult.REMOVED,
+        )
+
+        return run
+
+    def test_build_approval_comment_body_shapes_table_per_result(self, repo, run_with_snapshots):
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver_username="alice")
+
+        assert "✅ **Visual changes approved** by @alice" in body
+        assert "abc1234" in body  # baseline SHA prefix
+        assert f"/visual_review/runs/{run_with_snapshots.id}" in body
+        # Table header
+        assert "| Identifier | Before | After | Diff |" in body
+        # Changed row: all three image cells
+        changed_line = next(line for line in body.splitlines() if "Login/Form" in line)
+        assert changed_line.count("<img") == 3
+        # New row: only after
+        new_line = next(line for line in body.splitlines() if "Settings/Tab" in line)
+        assert new_line.count("<img") == 1
+        assert new_line.count("– |") == 2  # before + diff are dashes
+        # Removed row: only before
+        removed_line = next(line for line in body.splitlines() if "Old/Component" in line)
+        assert removed_line.count("<img") == 1
+        assert removed_line.count("– |") == 2  # after + diff are dashes
+        # Image src must point at our public artifact endpoint
+        assert "/api/visual_review/public/artifact/" in body
+
+    def test_build_approval_comment_body_caps_rows(self, repo, artifact_factory, mocker):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="cap",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        for i in range(70):
+            current = artifact_factory(f"c{i}")
+            RunSnapshot.objects.create(
+                team_id=repo.team_id,
+                run=run,
+                identifier=f"snap-{i:03}",
+                current_hash=f"c{i}",
+                current_artifact=current,
+                result=SnapshotResult.NEW,
+            )
+
+        mocker.patch.object(logic, "_APPROVAL_COMMENT_MAX_ROWS", 60)
+        body = logic._build_approval_comment_body(run, repo, approver_username=None)
+
+        assert body.count("| `snap-") == 60
+        assert "+10 more" in body
+        assert "by a reviewer" in body  # fallback when no username
+
+    def test_build_approval_comment_body_no_actionable_snapshots(self, repo):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="empty",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        body = logic._build_approval_comment_body(run, repo, approver_username="bob")
+        assert "✅ **Visual changes approved**" in body
+        assert "<details>" not in body
+        assert "<img" not in body
+
+    def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
+        repo.enable_pr_comments = False
+        repo.save(update_fields=["enable_pr_comments"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_when_no_pr_number(self, repo, run_with_snapshots, mocker):
+        run_with_snapshots.pr_number = None
+        run_with_snapshots.save(update_fields=["pr_number"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_for_non_human_decision(self, repo, run_with_snapshots, mocker):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run_with_snapshots.review_decision = ReviewDecision.AUTO_APPROVED
+        run_with_snapshots.save(update_fields=["review_decision"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_when_no_existing_comment_id(self, repo, run_with_snapshots, mocker):
+        run_with_snapshots.metadata = {}
+        run_with_snapshots.save(update_fields=["metadata"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_patches_existing_comment(self, repo, run_with_snapshots, mocker):
+        class FakeResp:
+            status_code = 200
+            text = ""
+
+        spy = mocker.patch.object(logic, "_github_api_request", return_value=FakeResp())
+
+        logic._post_approval_comment(run_with_snapshots, repo)
+
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        assert kwargs["method"] == "PATCH"
+        assert kwargs["path"] == "issues/comments/9001"
+        assert "✅ **Visual changes approved**" in kwargs["json"]["body"]
+
+    def test_post_approval_comment_falls_back_to_post_on_404(self, repo, run_with_snapshots, mocker):
+        class PatchResp:
+            status_code = 404
+            text = "Not Found"
+
+        class PostResp:
+            status_code = 201
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"id": 9999}
+
+        spy = mocker.patch.object(logic, "_github_api_request", side_effect=[PatchResp(), PostResp()])
+
+        logic._post_approval_comment(run_with_snapshots, repo)
+
+        assert spy.call_count == 2
+        first_call = spy.call_args_list[0].kwargs
+        second_call = spy.call_args_list[1].kwargs
+        assert first_call["method"] == "PATCH"
+        assert second_call["method"] == "POST"
+        assert second_call["path"] == "issues/42/comments"
+
+        run_with_snapshots.refresh_from_db()
+        assert run_with_snapshots.metadata["github_comment_id"] == 9999
+
+    def test_post_approval_comment_swallows_exceptions(self, repo, run_with_snapshots, mocker):
+        mocker.patch.object(logic, "_github_api_request", side_effect=RuntimeError("boom"))
+        # Must not raise
+        logic._post_approval_comment(run_with_snapshots, repo)
