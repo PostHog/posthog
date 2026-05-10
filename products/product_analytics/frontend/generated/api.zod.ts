@@ -270,6 +270,11 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
 /**
  * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
  */
+export const insightsViewedCreateBodyInsightIdsMax = 2500
+
 export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
-    insight_ids: zod.array(zod.number()).describe('Insight IDs that were just viewed by the current user.'),
+    insight_ids: zod
+        .array(zod.number())
+        .max(insightsViewedCreateBodyInsightIdsMax)
+        .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
 })

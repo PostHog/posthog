@@ -2887,6 +2887,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(InsightViewed.objects.count(), 0)
 
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("empty_list", {"insight_ids": []}),
+            ("not_a_list", {"insight_ids": "abc"}),
+            ("non_int_element", {"insight_ids": ["abc", 1]}),
+            ("over_max_length", {"insight_ids": list(range(1, 2502))}),
+        ]
+    )
+    def test_insight_viewed_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            payload,
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(InsightViewed.objects.count(), 0)
+
     def test_bulk_upserts_existing_insight_viewed_rows(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
         insights = [

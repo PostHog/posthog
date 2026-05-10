@@ -7092,7 +7092,10 @@ export interface PaginatedTrendingInsightListApi {
 }
 
 export interface InsightViewedRequestApi {
-    /** Insight IDs that were just viewed by the current user. */
+    /**
+     * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
+     * @maxItems 2500
+     */
     insight_ids: number[]
 }
 
