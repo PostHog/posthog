@@ -198,9 +198,6 @@ export const billingPortalRetrieve = async (options?: RequestInit): Promise<void
     })
 }
 
-/**
- * Endpoint to fetch spend data (proxy to billing service).
- */
 export const getBillingSpendRetrieveUrl = (params?: BillingSpendRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -215,6 +212,9 @@ export const getBillingSpendRetrieveUrl = (params?: BillingSpendRetrieveParams) 
     return stringifiedParams.length > 0 ? `/api/billing/spend/?${stringifiedParams}` : `/api/billing/spend/`
 }
 
+/**
+ * Endpoint to fetch spend data (proxy to billing service).
+ */
 export const billingSpendRetrieve = async (
     params?: BillingSpendRetrieveParams,
     options?: RequestInit
