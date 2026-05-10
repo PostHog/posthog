@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
     Case,
@@ -866,27 +866,28 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        report.save(update_fields=updated_fields)
+        with transaction.atomic():
+            report.save(update_fields=updated_fields)
 
-        # Persist the dismissal feedback as its own artefact so it survives status changes
-        # and so multiple dismissals (with different rationales) can stack over time.
-        # Captured for both suppress and snooze (transition to potential) flows.
-        if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
-            user = request.user
-            artefact_content = {
-                "reason": dismissal_reason,
-                "note": dismissal_note,
-                "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
-                "user_uuid": str(user.uuid)
-                if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
-                else None,
-            }
-            SignalReportArtefact.objects.create(
-                team=self.team,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.DISMISSAL,
-                content=json.dumps(artefact_content),
-            )
+            # Persist the dismissal feedback as its own artefact so it survives status changes
+            # and so multiple dismissals (with different rationales) can stack over time.
+            # Captured for both suppress and snooze (transition to potential) flows.
+            if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
+                user = request.user
+                artefact_content = {
+                    "reason": dismissal_reason,
+                    "note": dismissal_note,
+                    "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
+                    "user_uuid": str(user.uuid)
+                    if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
+                    else None,
+                }
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType.DISMISSAL,
+                    content=json.dumps(artefact_content),
+                )
 
         return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
 
