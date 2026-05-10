@@ -403,6 +403,16 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const notebook = await migrate(response, { skipApiUpgrade: !!values.isShared })
 
+                    if (
+                        !values.collabEnabled &&
+                        notebook.content &&
+                        (!values.notebook || values.notebook.version !== notebook.version)
+                    ) {
+                        // Push fresh server content into the editor on polling refresh (no-op on first load).
+                        // Collab notebooks update via SSE, not setContent.
+                        values.editor?.setContent(notebook.content)
+                    }
+
                     return notebook
                 },
 
