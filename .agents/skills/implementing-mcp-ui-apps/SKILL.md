@@ -64,7 +64,8 @@ Place view components in `products/{product}/mcp/apps/`.
 
 ```tsx
 import { type ReactElement } from 'react'
-import { Card, DescriptionList, Stack } from '@posthog/mosaic'
+import { DescriptionList } from '@posthog/mcp-ui'
+import { Card } from '@posthog/quill'
 
 export interface MyEntityData {
   id: number
@@ -85,7 +86,7 @@ export function MyEntityView({ data }: { data: MyEntityData }): ReactElement {
 
 ```tsx
 import { type ReactElement, type ReactNode } from 'react'
-import { DataTable, type DataTableColumn, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView } from '@posthog/mcp-ui'
 import { MyEntityView, type MyEntityData } from './MyEntityView'
 
 export interface MyEntityListData {
@@ -121,11 +122,23 @@ export function MyEntityListView({ data, onMyEntityClick }: MyEntityListViewProp
               ),
           },
         ]
+
         return (
           <div className="p-4">
-            <Stack gap="sm">
-              <DataTable columns={columns} data={data.results} pageSize={10} />
-            </Stack>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
+                  {data.results.length} entit{data.results.length === 1 ? 'y' : 'ies'}
+                </span>
+              </div>
+              <DataTable<CohortData>
+                columns={columns}
+                data={data.results}
+                pageSize={10}
+                defaultSort={{ key: 'name', direction: 'asc' }}
+                emptyMessage="No entities found"
+              />
+            </div>
           </div>
         )
       }}

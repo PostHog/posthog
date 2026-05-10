@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, Stack } from '@posthog/mosaic'
+import { Badge, Card } from '@posthog/quill'
 
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
@@ -48,9 +48,9 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
 
     return (
         <div className="p-4">
-            <Stack gap="md">
+            <div className="flex flex-col gap-2">
                 {/* Header */}
-                <Stack gap="xs">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-lg font-semibold text-text-primary">{flag.flag_key}</span>
                         <Badge variant="neutral" size="md">
@@ -60,11 +60,11 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                     <span className="text-sm text-text-secondary">
                         Feature flag evaluation result for the tested user
                     </span>
-                </Stack>
+                </div>
 
                 {/* Evaluation Result */}
                 <Card>
-                    <Stack gap="sm">
+                    <div className="flex flex-col gap-1">
                         <span className="font-medium text-text-primary">Test Evaluation Results</span>
                         <span className="text-sm text-text-secondary">
                             This shows how the flag evaluated for the specified user, including which condition matched
@@ -94,13 +94,13 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                 </code>
                             </div>
                         )}
-                    </Stack>
+                    </div>
                 </Card>
 
                 {/* Person Properties */}
                 {Object.keys(flag.person_properties).length > 0 && (
                     <Card>
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-1">
                             <span className="font-medium text-text-primary">Person Properties</span>
                             <div className="space-y-1">
                                 {Object.entries(flag.person_properties).map(([key, value]) => (
@@ -112,22 +112,22 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                     </div>
                                 ))}
                             </div>
-                        </Stack>
+                        </div>
                     </Card>
                 )}
 
                 {/* Condition Analysis */}
                 {flag.conditions.length > 0 && (
                     <Card>
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-1">
                             <span className="font-medium text-text-primary">Condition Analysis</span>
                             <span className="text-sm text-text-secondary">
                                 Detailed breakdown of how each condition was evaluated
                             </span>
-                            <Stack gap="sm">
+                            <div className="flex flex-col gap-1">
                                 {flag.conditions.map((condition, index) => (
                                     <Card key={index}>
-                                        <Stack gap="xs">
+                                        <div className="flex flex-col gap-1">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">Condition</span>
                                                 <Badge variant={condition.matched ? 'success' : 'danger'} size="sm">
@@ -152,14 +152,14 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                     filters={condition.properties as PropertyFilter[]}
                                                 />
                                             )}
-                                        </Stack>
+                                        </div>
                                     </Card>
                                 ))}
-                            </Stack>
-                        </Stack>
+                            </div>
+                        </div>
                     </Card>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }
