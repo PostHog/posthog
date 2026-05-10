@@ -52,19 +52,17 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                 {/* Header */}
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">{flag.flag_key}</span>
+                        <span className="text-lg font-semibold text-primary">{flag.flag_key}</span>
                         <Badge>Test Result</Badge>
                     </div>
-                    <span className="text-sm text-text-secondary">
-                        Feature flag evaluation result for the tested user
-                    </span>
+                    <span className="text-sm text-secondary">Feature flag evaluation result for the tested user</span>
                 </div>
 
                 {/* Evaluation Result */}
                 <Card>
-                    <div className="flex flex-col gap-1">
-                        <span className="font-medium text-text-primary">Test Evaluation Results</span>
-                        <span className="text-sm text-text-secondary">
+                    <div className="p-1 flex flex-col gap-1">
+                        <span className="font-medium text-primary">Test Evaluation Results</span>
+                        <span className="text-sm text-secondary">
                             This shows how the flag evaluated for the specified user, including which condition matched
                             and the person properties that were considered.
                         </span>
@@ -74,12 +72,12 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         </div>
                         <div className="text-sm">
                             <span className="font-medium">Reason: </span>
-                            <span className="text-text-secondary">{flag.reason}</span>
+                            <span className="text-secondary">{flag.reason}</span>
                         </div>
                         {flag.condition_index !== null && (
                             <div className="text-sm">
                                 <span className="font-medium">Matched condition: </span>
-                                <span className="text-text-secondary">#{flag.condition_index + 1}</span>
+                                <span className="text-secondary">#{flag.condition_index + 1}</span>
                             </div>
                         )}
                         {flag.payload != null && (
@@ -96,13 +94,13 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                 {/* Person Properties */}
                 {Object.keys(flag.person_properties).length > 0 && (
                     <Card>
-                        <div className="flex flex-col gap-1">
-                            <span className="font-medium text-text-primary">Person Properties</span>
+                        <div className="flex flex-col gap-1 p-1">
+                            <span className="font-medium text-primary">Person Properties</span>
                             <div className="space-y-1">
                                 {Object.entries(flag.person_properties).map(([key, value]) => (
                                     <div key={key} className="flex items-center gap-2 text-sm">
-                                        <span className="font-mono text-text-primary">{key}:</span>
-                                        <span className="text-text-secondary">
+                                        <span className="font-mono text-primary">{key}:</span>
+                                        <span className="text-secondary">
                                             {typeof value === 'object' ? String(JSON.stringify(value)) : String(value)}
                                         </span>
                                     </div>
@@ -115,15 +113,15 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                 {/* Condition Analysis */}
                 {flag.conditions.length > 0 && (
                     <Card>
-                        <div className="flex flex-col gap-1">
-                            <span className="font-medium text-text-primary">Condition Analysis</span>
-                            <span className="text-sm text-text-secondary">
+                        <div className="flex flex-col gap-1 p-1">
+                            <span className="font-medium text-primary">Condition Analysis</span>
+                            <span className="text-sm text-secondary">
                                 Detailed breakdown of how each condition was evaluated
                             </span>
                             <div className="flex flex-col gap-1">
                                 {flag.conditions.map((condition, index) => (
                                     <Card key={index}>
-                                        <div className="flex flex-col gap-1">
+                                        <div className="flex flex-col gap-1 p-1">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">Condition</span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
@@ -133,7 +131,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                 {condition.variant && <Badge variant="info">{condition.variant}</Badge>}
                                             </div>
                                             {(condition.explanation || condition.reason) && (
-                                                <div className="text-sm text-text-secondary">
+                                                <div className="text-sm text-secondary">
                                                     {condition.explanation || condition.reason}
                                                 </div>
                                             )}
