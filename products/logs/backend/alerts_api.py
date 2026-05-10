@@ -756,6 +756,13 @@ def _fill_empty_buckets(
 @extend_schema(tags=["logs"])
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
+    # `events` and `simulate` are read-only custom actions that programmatic callers (MCP
+    # tools, signals agent) need access to. Without these explicit entries the default
+    # `read_actions = ["list", "retrieve"]` in APIScopePermission rejects them with
+    # "This action does not support personal API key access" — even though `logs:read`
+    # otherwise covers them. `reset` is a write action with destructive side effects
+    # (clears state) so it stays out — opt PAK callers in deliberately if needed.
+    scope_object_read_actions = ["list", "retrieve", "events", "simulate"]
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"

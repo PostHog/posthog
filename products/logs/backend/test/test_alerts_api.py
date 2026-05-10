@@ -12,7 +12,9 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
@@ -1887,3 +1889,131 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         assert eval_events == sim_events, f"cadence={cadence}: eval={eval_events}\nsim={sim_events}"
         assert any(k == "fire" for _, k in eval_events)
         assert any(k == "resolve" for _, k in eval_events)
+
+
+class TestLogsAlertPAKAccess(APIBaseTest):
+    """
+    Programmatic callers (MCP tools, signals agent) authenticate with personal API keys.
+    The custom `events` and `simulate` actions need to be enumerated in
+    `scope_object_read_actions` on `LogsAlertViewSet` — otherwise APIScopePermission
+    falls back to the default `read_actions = ["list", "retrieve"]` set and rejects
+    them with "This action does not support personal API key access" even when the
+    key holds `logs:read`.
+    """
+
+    base_url: str
+
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
+    def _create_pak(self, scopes: list[str]) -> str:
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label=f"Test PAK - {','.join(scopes)}",
+            secure_value=hash_key_value(api_key_value),
+            scopes=scopes,
+        )
+        return api_key_value
+
+    def _make_alert(self) -> LogsAlertConfiguration:
+        return LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="PAK access fixture",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            check_interval_minutes=5,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            cooldown_minutes=0,
+            filters={"severityLevels": ["error"]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("list", "GET", "{base}", None, None),
+            ("retrieve", "GET", "{base}{alert_id}/", None, None),
+            ("events", "GET", "{base}{alert_id}/events/", None, None),
+            (
+                "simulate",
+                "POST",
+                "{base}simulate/",
+                {
+                    "filters": {"severityLevels": ["error"]},
+                    "threshold_count": 1,
+                    "threshold_operator": "above",
+                    "window_minutes": 5,
+                    "check_interval_minutes": 5,
+                    "evaluation_periods": 1,
+                    "datapoints_to_alarm": 1,
+                    "cooldown_minutes": 0,
+                    "date_from": "-1h",
+                },
+                None,
+            ),
+        ]
+    )
+    def test_pak_with_logs_read_can_access_action(self, action_name, method, url_template, body, _):
+        alert = self._make_alert()
+        api_key = self._create_pak(["logs:read"])
+
+        url = url_template.format(base=self.base_url, alert_id=alert.id)
+
+        self.client.force_authenticate(None)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        if method == "GET":
+            response = client.get(url)
+        else:
+            response = client.post(url, body or {}, format="json")
+
+        # The point of the test is the permission gate, not the action's correctness —
+        # any 2xx (or 400 for malformed payloads in non-bearing test fixtures) is fine.
+        # A 403 with "personal API key" in the body is the regression we're guarding.
+        assert response.status_code != status.HTTP_403_FORBIDDEN, (
+            f"PAK with logs:read was rejected on {action_name}: {response.json()}"
+        )
+
+    def test_pak_without_logs_read_rejected_on_events(self):
+        alert = self._make_alert()
+        api_key = self._create_pak(["insight:read"])
+
+        self.client.force_authenticate(None)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = client.get(f"{self.base_url}{alert.id}/events/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "logs:read" in response.json()["detail"]
+
+    def test_pak_without_logs_read_rejected_on_simulate(self):
+        api_key = self._create_pak(["insight:read"])
+
+        self.client.force_authenticate(None)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": {"severityLevels": ["error"]},
+                "threshold_count": 1,
+                "threshold_operator": "above",
+                "window_minutes": 5,
+                "check_interval_minutes": 5,
+                "evaluation_periods": 1,
+                "datapoints_to_alarm": 1,
+                "cooldown_minutes": 0,
+                "date_from": "-1h",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "logs:read" in response.json()["detail"]
