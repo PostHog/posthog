@@ -1368,7 +1368,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 } catch (error: any) {
                     if (
                         error.name === 'ChunkLoadError' || // webpack
-                        error.message?.includes('Failed to fetch dynamically imported module') // esbuild
+                        error.message?.includes('Failed to fetch dynamically imported module') || // esbuild
+                        // Safari throws dynamic-import failures as `TypeError: Load failed` from native code.
+                        (error.name === 'TypeError' && error.message?.includes('Load failed'))
                     ) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
                         if (

@@ -8,9 +8,12 @@ function isChunkLoadError(error: unknown): boolean {
         return false
     }
     const err = error as { name?: string; message?: string }
+    const message = typeof err.message === 'string' ? err.message : ''
     return (
         err.name === 'ChunkLoadError' ||
-        (typeof err.message === 'string' && err.message.includes('Failed to fetch dynamically imported module'))
+        message.includes('Failed to fetch dynamically imported module') ||
+        // Safari throws dynamic-import failures as `TypeError: Load failed` from native code.
+        (err.name === 'TypeError' && message.includes('Load failed'))
     )
 }
 
