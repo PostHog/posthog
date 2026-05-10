@@ -604,6 +604,66 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 
+    it('backgroundTask rejection: offsets are NOT stored and loop exits with the latched error', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+        const loopDone = (consumer as any).loopDone as Promise<void>
+        // Pre-attach a no-op catch so the eventual rejection doesn't surface as an
+        // unhandled-rejection between the throw and the `await expect(...).rejects` below.
+        loopDone.catch(() => {})
+
+        const failure = new Error('column "X" does not exist')
+        const failing = triggerablePromise<void>()
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: failing.promise }))
+
+        consumeCallback!(null, [createMessage({ offset: 1, partition: 0 })])
+        await delay(2)
+        failing.reject(failure)
+        await delay(10)
+
+        expect(captureException).toHaveBeenCalledWith(failure)
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 2 }])
+
+        // Next loop tick checks fatalError and throws — release the in-flight consume so
+        // the loop can iterate and observe it.
+        if (consumeCallback) {
+            consumeCallback(null, [])
+        }
+
+        await expect(loopDone).rejects.toBe(failure)
+        consumer = undefined as unknown as KafkaConsumerV2
+    })
+
+    it('backgroundTask rejection: a later successful batch must NOT advance the bookmark past the failed one', async () => {
+        // The cross-batch ordering bug: batch N's task fails, batch N+1's succeeds, and
+        // without the fatalError gate batch N+1 would store its (higher) offset, silently
+        // committing past the lost events.
+        ;(consumer as any).maxBackgroundTasks = 4
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+        ;((consumer as any).loopDone as Promise<void>).catch(() => {})
+
+        const failure = new Error('column "X" does not exist')
+        const slowFailure = triggerablePromise<void>()
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: slowFailure.promise }))
+        consumeCallback!(null, [createMessage({ offset: 100, partition: 0 })])
+        await delay(2)
+
+        // Second batch on the same partition with a successful, fast task.
+        eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: Promise.resolve() }))
+        consumeCallback!(null, [createMessage({ offset: 200, partition: 0 })])
+        await delay(10)
+
+        // Resolve the first batch's task with a failure AFTER batch N+1 finished its own work.
+        slowFailure.reject(failure)
+        await delay(20)
+
+        const partition0Stores = (mockRdKafka.offsetsStore as jest.Mock).mock.calls.filter(([offsets]) =>
+            offsets.some((o: any) => o.partition === 0)
+        )
+        expect(partition0Stores).toEqual([])
+    })
+
     it('Health: not connected → error', () => {
         ;(mockRdKafka.isConnected as jest.Mock).mockReturnValue(false)
         const result = consumer.isHealthy()

@@ -203,16 +203,15 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
 
         logger.info('📝', `Created ${invocationsToBeQueued.length} hog flow invocations to be queued`)
 
-        // Synchronous: a failure here must surface to the consumer so kafka offsets
-        // don't advance past unprocessed messages.
-        await this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
-
         return {
-            // Background: only observability work belongs here.
-            backgroundTask: this.hogFunctionMonitoringService.flush().catch((err) => {
-                captureException(err)
-                logger.error('🔴', 'Error producing queued messages for monitoring', { err })
-            }),
+            // This is all IO so we can set them off in the background and start processing the next batch
+            backgroundTask: Promise.all([
+                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
+                this.hogFunctionMonitoringService.flush().catch((err) => {
+                    captureException(err)
+                    logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                }),
+            ]),
             invocations: invocationsToBeQueued,
         }
     }
