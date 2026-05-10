@@ -107,6 +107,9 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
                                 ...(properties.$current_url
                                     ? [{ label: 'URL', value: properties.$current_url as string }]
                                     : []),
+                                ...(properties.$session_id
+                                    ? [{ label: 'Session ID', value: properties.$session_id as string }]
+                                    : []),
                             ]}
                         />
                     </CardContent>
