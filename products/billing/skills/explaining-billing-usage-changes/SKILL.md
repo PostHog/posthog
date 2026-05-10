@@ -103,8 +103,11 @@ project.
 
 ### Step 4. Drill down only where the product supports it
 
-Run `posthog:execute-sql` only after you know the usage type, team, and day to inspect.
-Scope SQL to the exact team and day whenever possible.
+Run `posthog:execute-sql` only after you know the usage type, project, and day to
+inspect. The SQL tool is project-scoped: switch to the affected project context first,
+then scope the query to the exact day. In the browser SQL UI, choose the affected project
+before running the query. In MCP, switch or invoke SQL in that project context before
+querying. Only add a project/team filter if the SQL environment explicitly exposes one.
 
 For events, query top billable event names for the affected project and day. Exclude
 events billed under other products:
@@ -112,8 +115,7 @@ events billed under other products:
 ```sql
 SELECT event, count() AS c
 FROM events
-WHERE team_id = {team_id}
-  AND timestamp >= {window_start}
+WHERE timestamp >= {window_start}
   AND timestamp < {window_end}
   AND event NOT IN (
     '$feature_flag_called', '$exception',

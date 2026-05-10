@@ -123,7 +123,9 @@ maps to the ID.
 ### Step 5. Drill into specific events (events usage only)
 
 If the standout product is Events (product analytics), call `posthog:execute-sql` to find
-the top contributing event names for the suspect project and time window.
+the top contributing event names for the suspect project and time window. The SQL tool is
+project-scoped, so switch to the suspect project context before querying; only add a
+project/team filter if the SQL environment explicitly exposes one.
 
 **Before writing the query, read `references/billing-nuances.md` §"Events excluded from
 the billable events product"** and exclude those events from the query. Otherwise the
@@ -136,8 +138,7 @@ Canonical billable-events drill-down:
 ```sql
 SELECT event, count() AS c
 FROM events
-WHERE team_id = {team_id}
-  AND timestamp >= {window_start} AND timestamp < {window_end}
+WHERE timestamp >= {window_start} AND timestamp < {window_end}
   AND event NOT IN (
     '$feature_flag_called', '$exception',
     'survey sent', 'survey shown', 'survey dismissed',
