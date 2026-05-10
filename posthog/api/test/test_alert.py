@@ -374,14 +374,32 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_id = alert["id"]
 
-        self.client.patch(
+        linked_hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Slack notification for alert",
+            type="internal_destination",
+            hog="return 1",
+            enabled=True,
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
+            },
+        )
+
+        patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data={"deleted": True},
         )
+        assert patch_response.status_code == status.HTTP_200_OK
 
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        linked_hog_function.refresh_from_db()
+        assert linked_hog_function.deleted is True
+        assert linked_hog_function.enabled is False
 
     def test_delete_alert_cleans_up_hog_functions(self) -> None:
         creation_request = {
