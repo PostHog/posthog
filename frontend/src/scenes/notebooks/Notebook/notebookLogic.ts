@@ -225,9 +225,9 @@ export const notebookLogic = kea<notebookLogicType>([
         openShareModal: true,
         closeShareModal: true,
         setAccessDeniedToNotebook: true,
-        showStaleConflict: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) =>
+        showCollabConflict: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) =>
             params,
-        dismissStaleConflict: true,
+        dismissCollabConflict: true,
         discardLocalChanges: true,
         copyUnsavedToNewNotebook: true,
     }),
@@ -274,15 +274,15 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-        staleConflict: [
+        collabConflict: [
             null as {
                 serverContent: JSONContent
                 localContent: JSONContent
                 localText: string
             } | null,
             {
-                showStaleConflict: (_, params) => params,
-                dismissStaleConflict: () => null,
+                showCollabConflict: (_, params) => params,
+                dismissCollabConflict: () => null,
             },
         ],
         editingNodeIds: [
@@ -414,7 +414,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // While the stale-conflict modal is open, the user's local content has diverged
                     // from the server beyond what we can merge. Don't keep retrying saves until
                     // they choose to discard or force-save — otherwise we'd loop on 410s.
-                    if (values.staleConflict) {
+                    if (values.collabConflict) {
                         return values.notebook
                     }
 
@@ -460,7 +460,7 @@ export const notebookLogic = kea<notebookLogicType>([
                                         version: firstMissedVersion + i,
                                     }))
                                 )
-                                if (values.staleConflict) {
+                                if (values.collabConflict) {
                                     return values.notebook
                                 }
                                 actions.saveNotebook({
@@ -477,7 +477,7 @@ export const notebookLogic = kea<notebookLogicType>([
                                 const fresh = error.data?.content
                                     ? error.data
                                     : await api.notebooks.get(values.notebook.short_id, undefined, {})
-                                actions.showStaleConflict({
+                                actions.showCollabConflict({
                                     serverContent: fresh.content ?? {},
                                     localContent: values.editor?.getJSON() ?? notebook.content ?? {},
                                     localText: values.editor?.getText() ?? '',
@@ -1094,24 +1094,24 @@ export const notebookLogic = kea<notebookLogicType>([
 
         rebaseFailed: ({ serverContent, localContent, localText }) => {
             // PM-collab couldn't apply a remote step; the modal lets the user copy or discard.
-            actions.showStaleConflict({ serverContent, localContent, localText })
+            actions.showCollabConflict({ serverContent, localContent, localText })
         },
 
         copyUnsavedToNewNotebook: async () => {
             // Save unsaved edits to a fresh notebook, then navigate to it.
-            if (!values.notebook || !values.staleConflict) {
+            if (!values.notebook || !values.collabConflict) {
                 return
             }
             try {
                 const sourceTitle = values.notebook.title || 'Untitled'
                 const newTitle = `${sourceTitle} (copy)`
                 const created = await api.notebooks.create({
-                    content: updateContentHeading(values.staleConflict.localContent, newTitle),
-                    text_content: values.staleConflict.localText,
+                    content: updateContentHeading(values.collabConflict.localContent, newTitle),
+                    text_content: values.collabConflict.localText,
                     title: newTitle,
                 })
                 lemonToast.success('Saved your unsaved changes to a new notebook.')
-                actions.dismissStaleConflict()
+                actions.dismissCollabConflict()
                 actions.clearLocalContent()
                 await openNotebook(created.short_id, NotebookTarget.Scene)
             } catch {

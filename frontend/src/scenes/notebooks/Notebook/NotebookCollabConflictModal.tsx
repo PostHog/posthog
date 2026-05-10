@@ -5,18 +5,18 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { notebookLogic } from './notebookLogic'
 import { NotebookPreview } from './NotebookPreview'
 
-export function NotebookStaleConflictModal(): JSX.Element | null {
-    const { staleConflict } = useValues(notebookLogic)
-    const { dismissStaleConflict, discardLocalChanges, copyUnsavedToNewNotebook } = useActions(notebookLogic)
+export function NotebookCollabConflictModal(): JSX.Element | null {
+    const { collabConflict } = useValues(notebookLogic)
+    const { dismissCollabConflict, discardLocalChanges, copyUnsavedToNewNotebook } = useActions(notebookLogic)
 
-    if (!staleConflict) {
+    if (!collabConflict) {
         return null
     }
 
     return (
         <LemonModal
             isOpen
-            onClose={dismissStaleConflict}
+            onClose={dismissCollabConflict}
             title="We couldn't sync your changes"
             description="The notebook has changed too much since you started typing. We can't reconcile the changes automatically."
             footer={
@@ -37,7 +37,7 @@ export function NotebookStaleConflictModal(): JSX.Element | null {
                         Last saved version
                     </div>
                     <div className="p-3 max-h-[30rem] overflow-y-auto overflow-x-hidden break-words">
-                        <NotebookPreview content={staleConflict.serverContent} />
+                        <NotebookPreview content={collabConflict.serverContent} />
                     </div>
                 </div>
                 <div className="min-w-0">
@@ -45,7 +45,7 @@ export function NotebookStaleConflictModal(): JSX.Element | null {
                         Your unsaved changes
                     </div>
                     <div className="p-3 max-h-[30rem] overflow-y-auto overflow-x-hidden break-words">
-                        <NotebookPreview content={staleConflict.localContent} />
+                        <NotebookPreview content={collabConflict.localContent} />
                     </div>
                 </div>
             </div>
