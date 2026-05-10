@@ -2,10 +2,12 @@ import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
+import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
 describe('InvocationResultsService', () => {
     let monitoringService: jest.Mocked<HogFunctionMonitoringService>
+    let invocationResultsRowsService: jest.Mocked<HogInvocationResultsService>
     let warehouseWebhooksService: jest.Mocked<WarehouseWebhooksService>
     let capturedEventsService: jest.Mocked<CapturedEventsService>
     let service: InvocationResultsService
@@ -21,6 +23,11 @@ describe('InvocationResultsService', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<HogFunctionMonitoringService>
 
+        invocationResultsRowsService = {
+            queueInvocationResults: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<HogInvocationResultsService>
+
         warehouseWebhooksService = {
             queueInvocationResults: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
@@ -31,15 +38,22 @@ describe('InvocationResultsService', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<CapturedEventsService>
 
-        service = new InvocationResultsService(monitoringService, warehouseWebhooksService, capturedEventsService)
+        service = new InvocationResultsService(
+            monitoringService,
+            invocationResultsRowsService,
+            warehouseWebhooksService,
+            capturedEventsService
+        )
     })
 
     describe('queueInvocationResults', () => {
-        it('fans the same results out to all three sub-services', async () => {
+        it('fans the same results out to all sub-services', async () => {
             await service.queueInvocationResults(results)
 
             expect(monitoringService.queueInvocationResults).toHaveBeenCalledTimes(1)
             expect(monitoringService.queueInvocationResults).toHaveBeenCalledWith(results)
+            expect(invocationResultsRowsService.queueInvocationResults).toHaveBeenCalledTimes(1)
+            expect(invocationResultsRowsService.queueInvocationResults).toHaveBeenCalledWith(results)
             expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledTimes(1)
             expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledWith(results)
             expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledTimes(1)
@@ -74,15 +88,16 @@ describe('InvocationResultsService', () => {
     })
 
     describe('flush', () => {
-        it('flushes all three sub-services', async () => {
+        it('flushes all sub-services', async () => {
             await service.flush()
 
             expect(monitoringService.flush).toHaveBeenCalledTimes(1)
+            expect(invocationResultsRowsService.flush).toHaveBeenCalledTimes(1)
             expect(warehouseWebhooksService.flush).toHaveBeenCalledTimes(1)
             expect(capturedEventsService.flush).toHaveBeenCalledTimes(1)
         })
 
-        it('flushes all three in parallel (all start before any finish)', async () => {
+        it('flushes all in parallel (all start before any finish)', async () => {
             const order: string[] = []
             const trackOrder = (name: string) =>
                 jest.fn().mockImplementation(() => {
@@ -93,19 +108,22 @@ describe('InvocationResultsService', () => {
                 })
 
             monitoringService.flush = trackOrder('monitoring')
+            invocationResultsRowsService.flush = trackOrder('invocationResults')
             warehouseWebhooksService.flush = trackOrder('warehouse')
             capturedEventsService.flush = trackOrder('captured')
 
             await service.flush()
 
-            // All three should have started before any of them finish — proves Promise.all parallelism.
+            // All should have started before any of them finish — proves Promise.all parallelism.
             const lastStart = Math.max(
                 order.indexOf('monitoring:start'),
+                order.indexOf('invocationResults:start'),
                 order.indexOf('warehouse:start'),
                 order.indexOf('captured:start')
             )
             const firstEnd = Math.min(
                 order.indexOf('monitoring:end'),
+                order.indexOf('invocationResults:end'),
                 order.indexOf('warehouse:end'),
                 order.indexOf('captured:end')
             )
@@ -114,10 +132,13 @@ describe('InvocationResultsService', () => {
     })
 
     describe('queueInvocationResultsAndFlush', () => {
-        it('queues across all three then flushes all three', async () => {
+        it('queues across all sub-services then flushes all of them', async () => {
             const callOrder: string[] = []
             monitoringService.queueInvocationResults = jest.fn().mockImplementation(() => {
                 callOrder.push('monitoring.queue')
+            })
+            invocationResultsRowsService.queueInvocationResults = jest.fn().mockImplementation(() => {
+                callOrder.push('invocationResults.queue')
             })
             warehouseWebhooksService.queueInvocationResults = jest.fn().mockImplementation(() => {
                 callOrder.push('warehouse.queue')
@@ -128,6 +149,10 @@ describe('InvocationResultsService', () => {
             })
             monitoringService.flush = jest.fn().mockImplementation(() => {
                 callOrder.push('monitoring.flush')
+                return Promise.resolve()
+            })
+            invocationResultsRowsService.flush = jest.fn().mockImplementation(() => {
+                callOrder.push('invocationResults.flush')
                 return Promise.resolve()
             })
             warehouseWebhooksService.flush = jest.fn().mockImplementation(() => {
@@ -141,14 +166,16 @@ describe('InvocationResultsService', () => {
 
             await service.queueInvocationResultsAndFlush(results)
 
-            // All three queue calls must complete before any flush call starts.
+            // All queue calls must complete before any flush call starts.
             const lastQueueIdx = Math.max(
                 callOrder.indexOf('monitoring.queue'),
+                callOrder.indexOf('invocationResults.queue'),
                 callOrder.indexOf('warehouse.queue'),
                 callOrder.indexOf('captured.queue')
             )
             const firstFlushIdx = Math.min(
                 callOrder.indexOf('monitoring.flush'),
+                callOrder.indexOf('invocationResults.flush'),
                 callOrder.indexOf('warehouse.flush'),
                 callOrder.indexOf('captured.flush')
             )
@@ -159,6 +186,7 @@ describe('InvocationResultsService', () => {
     describe('exposed sub-services', () => {
         it('exposes the underlying services as public readonly fields', () => {
             expect(service.monitoringService).toBe(monitoringService)
+            expect(service.invocationResultsRowsService).toBe(invocationResultsRowsService)
             expect(service.warehouseWebhooksService).toBe(warehouseWebhooksService)
             expect(service.capturedEventsService).toBe(capturedEventsService)
         })

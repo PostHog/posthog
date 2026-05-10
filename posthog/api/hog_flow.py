@@ -21,6 +21,11 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from posthog.api.hog_invocation_replay import (
+    HOG_INVOCATION_REPLAY_MAX_COUNT,
+    HogInvocationReplayRequestSerializer,
+    HogInvocationReplayResponseSerializer,
+)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -44,6 +49,7 @@ from posthog.plugins.plugin_server_api import (
     bulk_replay_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
+    replay_hog_invocations,
 )
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -441,6 +447,7 @@ class HogFlowFilterSet(FilterSet):
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
+    scope_object_write_actions = ["create", "update", "partial_update", "replay"]
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -468,6 +475,44 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
+
+    @extend_schema(
+        request=HogInvocationReplayRequestSerializer,
+        responses={200: HogInvocationReplayResponseSerializer, 400: HogInvocationReplayResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"])
+    def replay(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Replay past invocations of this hog flow from their stored payloads.
+
+        Same shape and semantics as the hog function replay endpoint —
+        proxies through to the CDP worker, which reads matching rows from
+        ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+        onto cyclotron with `is_retry=1`.
+        """
+        hog_flow = self.get_object()
+
+        serializer = HogInvocationReplayRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invocation_ids = serializer.validated_data.get("invocation_ids") or []
+        if invocation_ids and len(invocation_ids) > HOG_INVOCATION_REPLAY_MAX_COUNT:
+            raise serializers.ValidationError(f"At most {HOG_INVOCATION_REPLAY_MAX_COUNT} invocation_ids per request.")
+
+        res = replay_hog_invocations(
+            team_id=self.team_id,
+            function_kind="hog_flow",
+            function_id=str(hog_flow.id),
+            payload=serializer.validated_data,
+        )
+
+        if res.status_code != 200:
+            return Response(
+                {"queued_count": 0, "skipped_count": 0, "error": res.text},
+                status=res.status_code,
+            )
+
+        return Response(res.json())
 
     def perform_create(self, serializer):
         serializer.save()

@@ -1,3 +1,5 @@
+import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
+import https from 'https'
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
@@ -24,6 +26,7 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
+import { HogInvocationReplayService, ReplayRequest } from './replay/hog-invocation-replay.service'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
@@ -81,6 +84,8 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
+    private hogInvocationReplayService: HogInvocationReplayService | null = null
+    private clickhouseClient: ClickHouseClient | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private cyclotronJobQueue: CyclotronJobQueue
     private emailTrackingService: EmailTrackingService
@@ -141,6 +146,33 @@ export class CdpApi {
     async start(): Promise<void> {
         await this.cdpSourceWebhooksConsumer.start()
         await this.cyclotronJobQueue.startAsProducer()
+
+        // ClickHouse client used by the replay path to read past invocation
+        // rows from `hog_invocation_results`. Same connection shape the
+        // recording-api uses; lazy-init keeps the cost off the boot path
+        // when replay isn't called.
+        const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
+        const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
+        this.clickhouseClient = createClickHouseClient({
+            url: `${chScheme}://${this.config.CLICKHOUSE_HOST}:${chPort}`,
+            username: this.config.CLICKHOUSE_USER,
+            password: this.config.CLICKHOUSE_PASSWORD || undefined,
+            database: this.config.CLICKHOUSE_DATABASE,
+            request_timeout: 30_000,
+            max_open_connections: 5,
+            // Internal ClickHouse uses self-signed certs with a hostname mismatch.
+            ...(this.config.CLICKHOUSE_SECURE
+                ? { http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 5 }) } // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+                : {}),
+        })
+
+        this.hogInvocationReplayService = new HogInvocationReplayService(
+            this.clickhouseClient,
+            this.hogFunctionManager,
+            this.hogFlowManager,
+            this.invocationResultsService.invocationResultsRowsService,
+            this.cyclotronJobQueue
+        )
     }
 
     async stop(): Promise<void> {
@@ -148,6 +180,7 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
+            this.clickhouseClient?.close() ?? Promise.resolve(),
         ])
     }
 
@@ -179,6 +212,11 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/bulk_replay_invocations',
             asyncHandler(this.postHogflowBulkReplayInvocations)
         )
+        router.post(
+            '/api/projects/:team_id/hog_functions/:id/replay',
+            asyncHandler(this.postReplayInvocations('hog_function'))
+        )
+        router.post('/api/projects/:team_id/hog_flows/:id/replay', asyncHandler(this.postReplayInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -713,6 +751,54 @@ export class CdpApi {
             res.status(500).json({ error: e.message })
         }
     }
+
+    private postReplayInvocations =
+        (functionKind: 'hog_function' | 'hog_flow') =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                if (!this.hogInvocationReplayService) {
+                    return res.status(503).json({ error: 'Replay service not initialized yet' })
+                }
+
+                const { team_id, id } = req.params
+                const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+                if (!team) {
+                    return res.status(404).json({ error: 'Team not found' })
+                }
+
+                if (functionKind === 'hog_function') {
+                    const hogFunction = await this.hogFunctionManager.getHogFunction(id)
+                    if (!hogFunction || hogFunction.team_id !== team.id) {
+                        return res.status(404).json({ error: 'Hog function not found' })
+                    }
+                } else {
+                    const hogFlow = await this.hogFlowManager.getHogFlow(id)
+                    if (!hogFlow || hogFlow.team_id !== team.id) {
+                        return res.status(404).json({ error: 'Hog flow not found' })
+                    }
+                }
+
+                const result = await this.hogInvocationReplayService.replay(
+                    team.id,
+                    functionKind,
+                    id,
+                    req.body as ReplayRequest
+                )
+                logger.info('⚡️', 'Replay completed', {
+                    function_kind: functionKind,
+                    function_id: id,
+                    team_id: team.id,
+                    queued: result.queued_count,
+                    skipped: result.skipped_count,
+                })
+                res.json(result)
+            } catch (e) {
+                logger.error('Error handling replay request', {
+                    error: e instanceof Error ? e.message : String(e),
+                })
+                res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+            }
+        }
 
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
