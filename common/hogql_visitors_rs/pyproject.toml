@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.7"]
+build-backend = "maturin"
+
+[project]
+name = "hogql_visitors_rs"
+version = "0.1.0"
+description = "Rust-backed hot-path visitors for the HogQL AST."
+requires-python = ">=3.12"
+classifiers = ["Programming Language :: Rust"]
+
+[tool.maturin]
+# `python-source` would let us ship a Python wrapper alongside; for a PoC we
+# expose the extension module directly.
+module-name = "hogql_visitors_rs"
+features = ["pyo3/extension-module"]

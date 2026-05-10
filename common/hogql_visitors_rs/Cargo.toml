@@ -1,0 +1,19 @@
+[package]
+name = "hogql_visitors_rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "hogql_visitors_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+# `extension-module` so the resulting cdylib doesn't try to link libpython —
+# Python's runtime resolves symbols at import time. `abi3-py312` builds against
+# the stable ABI so one wheel covers Python 3.12+.
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
