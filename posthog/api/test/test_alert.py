@@ -361,6 +361,28 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
+        another_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
+        ).json()
+        creation_request = {
+            "insight": another_insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
+            data={"deleted": True},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_delete_alert_cleans_up_hog_functions(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
