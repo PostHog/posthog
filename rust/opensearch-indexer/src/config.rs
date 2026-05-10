@@ -211,14 +211,35 @@ impl FromStr for TeamIdSet {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error(transparent)]
+    Env(#[from] envconfig::Error),
+    #[error("invalid default_above_floor_rate: {0} (must be finite and within [0.0, 1.0])")]
+    InvalidDefaultRate(f64),
+}
+
 impl Config {
-    pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
+    pub fn init_with_defaults() -> Result<Self, ConfigError> {
         // Defaults to clickhouse_events_json with an `event LIKE '$ai_*'` filter applied
         // at parse time. Override KAFKA_CONSUMER_TOPIC at deploy time to switch topics
         // without a code change.
         ConsumerConfig::set_defaults("opensearch-indexer", "clickhouse_events_json", true);
-        Config::init_from_env()
+        let config = Config::init_from_env()?;
+        config.validate()?;
+        Ok(config)
     }
+
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        validate_default_rate(self.default_above_floor_rate)
+    }
+}
+
+fn validate_default_rate(rate: f64) -> Result<(), ConfigError> {
+    if !rate.is_finite() || !(0.0..=1.0).contains(&rate) {
+        return Err(ConfigError::InvalidDefaultRate(rate));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -367,5 +388,48 @@ mod tests {
     fn rollout_percentage_rejects_negative_and_non_numeric() {
         assert!("-1".parse::<RolloutPercentage>().is_err());
         assert!("abc".parse::<RolloutPercentage>().is_err());
+    }
+
+    // ---- validate_default_rate ----
+
+    #[test]
+    fn validate_accepts_default_rate_at_zero_and_one() {
+        for rate in [0.0, 0.2, 1.0] {
+            assert!(validate_default_rate(rate).is_ok(), "rate {rate} should be valid");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_default_rate_above_one() {
+        let err = validate_default_rate(1.5).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::InvalidDefaultRate(r) if (r - 1.5).abs() < 1e-9
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_default_rate_negative() {
+        let err = validate_default_rate(-0.1).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::InvalidDefaultRate(r) if (r + 0.1).abs() < 1e-9
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_default_rate_nan_or_infinity() {
+        assert!(matches!(
+            validate_default_rate(f64::NAN).unwrap_err(),
+            ConfigError::InvalidDefaultRate(_)
+        ));
+        assert!(matches!(
+            validate_default_rate(f64::INFINITY).unwrap_err(),
+            ConfigError::InvalidDefaultRate(_)
+        ));
+        assert!(matches!(
+            validate_default_rate(f64::NEG_INFINITY).unwrap_err(),
+            ConfigError::InvalidDefaultRate(_)
+        ));
     }
 }
