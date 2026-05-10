@@ -53,7 +53,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import HogQLFeatures, tag_queries
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -798,13 +798,13 @@ class HogQLQueryExecutor:
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
-                tables, events = extract_hogql_features(self.select_query)
+                hogql_features = extract_hogql_features(self.select_query)
             tag_queries(
                 team_id=self.team.pk,
                 query_type=self.query_type,
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
-                hogql_features=HogQLFeatures(tables=tables, events=events),
+                hogql_features=hogql_features,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}

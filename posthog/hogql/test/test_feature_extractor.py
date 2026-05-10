@@ -28,9 +28,9 @@ class TestHogQLFeatureExtractor(BaseTest):
         ]
     )
     def test_extracts_table_references(self, _name, sql, expected_tables, expected_events):
-        tables, events = extract_hogql_features(parse_select(sql))
-        assert tables == expected_tables
-        assert events == expected_events
+        features = extract_hogql_features(parse_select(sql))
+        assert features.tables == expected_tables
+        assert features.events == expected_events
 
     @parameterized.expand(
         [
@@ -66,23 +66,23 @@ class TestHogQLFeatureExtractor(BaseTest):
         ]
     )
     def test_extracts_event_filters(self, _name, sql, expected_events):
-        _tables, events = extract_hogql_features(parse_select(sql))
-        assert events == expected_events
+        features = extract_hogql_features(parse_select(sql))
+        assert features.events == expected_events
 
     def test_handles_none_query(self):
-        tables, events = extract_hogql_features(None)
-        assert tables == []
-        assert events == []
+        features = extract_hogql_features(None)
+        assert features.tables == []
+        assert features.events == []
 
     def test_combined_tables_and_events(self):
-        tables, events = extract_hogql_features(
+        features = extract_hogql_features(
             parse_select(
                 "SELECT count() FROM events AS e JOIN persons AS p ON p.id = e.person_id "
                 "WHERE e.event = '$ai_generation'"
             )
         )
-        assert tables == ["events", "persons"]
-        assert events == ["$ai_generation"]
+        assert features.tables == ["events", "persons"]
+        assert features.events == ["$ai_generation"]
 
     def test_visitor_dedups(self):
         visitor = HogQLFeatureExtractor()
@@ -105,8 +105,8 @@ class TestHogQLFeatureExtractor(BaseTest):
         # After resolution, `event = '$exception'` carries a FieldType pointing
         # at EventsTable; the extractor should pick it up via types just like
         # it does via chain matching.
-        _tables, events = extract_hogql_features(self._resolve("SELECT * FROM events WHERE event = '$exception'"))
-        assert events == ["$exception"]
+        features = extract_hogql_features(self._resolve("SELECT * FROM events WHERE event = '$exception'"))
+        assert features.events == ["$exception"]
 
     def test_nested_aliases_on_field_and_constant(self):
         # Aliases can stack — e.g. resolver passes that re-wrap. Verify both

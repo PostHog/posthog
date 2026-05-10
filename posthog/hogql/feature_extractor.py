@@ -9,7 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import EVENT_TAG_MATCHERS
+from posthog.clickhouse.query_tagging import EVENT_TAG_MATCHERS, HogQLFeatures
 
 
 class HogQLFeatureExtractor(TraversingVisitor):
@@ -77,12 +77,10 @@ def _iter_string_constants(expr: ast.Expr):
             yield from _iter_string_constants(sub)
 
 
-def extract_hogql_features(
-    query: ast.SelectQuery | ast.SelectSetQuery | None,
-) -> tuple[list[str], list[str]]:
-    """Returns ``(tables, events)`` sorted for deterministic tag output."""
+def extract_hogql_features(query: ast.SelectQuery | ast.SelectSetQuery | None) -> HogQLFeatures:
+    """Sorted for deterministic tag output."""
     if query is None:
-        return [], []
+        return HogQLFeatures()
     visitor = HogQLFeatureExtractor()
     visitor.visit(query)
-    return sorted(visitor.tables), sorted(visitor.events)
+    return HogQLFeatures(tables=sorted(visitor.tables), events=sorted(visitor.events))
