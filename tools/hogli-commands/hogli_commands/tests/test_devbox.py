@@ -1587,6 +1587,16 @@ class TestResolveLocalSigningKey:
         )
         assert devbox_cli._resolve_local_signing_key() == "ssh-ed25519 AAAA user@host"
 
+    def test_strips_key_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(
+                a[0], 0, "key::ecdsa-sha2-nistp256 AAAA GitHub-Commit-Signing@host\n", ""
+            ),
+        )
+        assert devbox_cli._resolve_local_signing_key() == "ecdsa-sha2-nistp256 AAAA GitHub-Commit-Signing@host"
+
     def test_reads_file_when_value_is_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         key_file = tmp_path / "id_ed25519.pub"
         key_file.write_text("ssh-ed25519 AAAAFROMFILE user@host\n")

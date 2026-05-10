@@ -5331,6 +5331,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'replay_lens'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'

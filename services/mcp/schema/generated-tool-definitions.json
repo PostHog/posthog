@@ -2058,6 +2058,21 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-test-evaluation-create": {
+        "description": "Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed reasoning about why the flag matched or didn't match, including condition analysis and person properties used in evaluation.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Test feature flag evaluation",
+        "title": "Test feature flag evaluation",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flags-user-blast-radius-create": {
         "description": "Assess the impact of a feature flag release condition before applying it. Provide a condition object and optionally a group_type_index to see how many users would be affected relative to the total user count.",
         "category": "Feature flags",

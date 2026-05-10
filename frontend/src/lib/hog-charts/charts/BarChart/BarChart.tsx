@@ -6,6 +6,7 @@ import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } 
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
+    buildStackedResolveValue,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -250,11 +251,10 @@ function BarChartInner<Meta = unknown>({
                 return
             }
             const hoveredLabel = drawLabels[hoverIndex]
-            // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
-            // (no hits), fall back to highlighting all — matches the tooltip narrower's
-            // gap-fallback so highlight and tooltip don't disagree about what's "active".
+            // Narrow to bars whose band-axis extent contains the cursor; an empty hit set
+            // means the cursor is in a gap, so draw nothing.
             let hitKeys: Set<string> | null = null
-            if (barLayout === 'grouped' && hoverPosition) {
+            if (hoverPosition) {
                 const hits = seriesKeysAtCursor({
                     series: coloredSeries,
                     label: hoveredLabel,
@@ -266,9 +266,10 @@ function BarChartInner<Meta = unknown>({
                     stackedData,
                     topStackedKeyByAxis,
                 })
-                if (hits.size > 0) {
-                    hitKeys = hits
+                if (hits.size === 0) {
+                    return
                 }
+                hitKeys = hits
             }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
@@ -299,20 +300,7 @@ function BarChartInner<Meta = unknown>({
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        // Return the stacked top so the tooltip anchor lands at the visual top of each segment, not the raw series value.
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
 
     return (
         <Chart
