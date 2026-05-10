@@ -43,22 +43,20 @@ fn is_interesting_event(name: &str) -> bool {
 // access, so this is bottlenecked by the same PyO3 ↔ CPython transitions as
 // the Python implementation, just without Python-level dispatch overhead.
 
-struct PyVisitor<'py> {
+struct PyVisitor {
     tables: BTreeSet<String>,
     events: BTreeSet<String>,
-    py: Python<'py>,
 }
 
-impl<'py> PyVisitor<'py> {
-    fn new(py: Python<'py>) -> Self {
+impl PyVisitor {
+    fn new() -> Self {
         Self {
             tables: BTreeSet::new(),
             events: BTreeSet::new(),
-            py,
         }
     }
 
-    fn visit(&mut self, node: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn visit(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
         // Single dispatch on Python type name. Faster than full isinstance —
         // we don't need Python's MRO traversal; the AST type names are stable.
         let cls_name = node.get_type().name()?;
@@ -76,7 +74,7 @@ impl<'py> PyVisitor<'py> {
         Ok(())
     }
 
-    fn visit_attr(&mut self, node: &Bound<'py, PyAny>, attr: &str) -> PyResult<()> {
+    fn visit_attr(&mut self, node: &Bound<'_, PyAny>, attr: &str) -> PyResult<()> {
         let inner = node.getattr(attr)?;
         if !inner.is_none() {
             self.visit(&inner)?;
@@ -84,15 +82,15 @@ impl<'py> PyVisitor<'py> {
         Ok(())
     }
 
-    fn visit_exprs_list(&mut self, node: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn visit_exprs_list(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
         let exprs = node.getattr("exprs")?;
-        for item in exprs.try_iter()? {
+        for item in exprs.iter()? {
             self.visit(&item?)?;
         }
         Ok(())
     }
 
-    fn visit_select(&mut self, node: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn visit_select(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
         for attr in &["select_from", "where", "prewhere", "having"] {
             self.visit_attr(node, attr)?;
         }
@@ -101,17 +99,17 @@ impl<'py> PyVisitor<'py> {
         Ok(())
     }
 
-    fn visit_select_set(&mut self, node: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn visit_select_set(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
         self.visit_attr(node, "initial_select_query")?;
         let subs = node.getattr("subsequent_select_queries")?;
-        for item in subs.try_iter()? {
+        for item in subs.iter()? {
             let sub = item?;
             self.visit_attr(&sub, "select_query")?;
         }
         Ok(())
     }
 
-    fn visit_join(&mut self, node: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn visit_join(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
         let table = node.getattr("table")?;
         if !table.is_none() {
             // Capture table name when `table` is a Field with a string chain head
@@ -130,7 +128,7 @@ impl<'py> PyVisitor<'py> {
         Ok(())
     }
 
-    fn visit_compare(&mut self, node: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn visit_compare(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
         let op_obj = node.getattr("op")?;
         let op: String = op_obj.extract()?;
         if op == "==" || op == "in" {
@@ -178,7 +176,7 @@ fn collect_string_constants(expr: &Bound<'_, PyAny>, out: &mut BTreeSet<String>)
             }
         }
         "Tuple" | "Array" => {
-            for item in expr.getattr("exprs")?.try_iter()? {
+            for item in expr.getattr("exprs")?.iter()? {
                 collect_string_constants(&item?, out)?;
             }
         }
@@ -191,6 +189,7 @@ fn collect_string_constants(expr: &Bound<'_, PyAny>, out: &mut BTreeSet<String>)
 }
 
 #[pyfunction]
+#[pyo3(signature = (query=None))]
 fn extract_features_py<'py>(
     py: Python<'py>,
     query: Option<Bound<'py, PyAny>>,
@@ -198,7 +197,7 @@ fn extract_features_py<'py>(
     let (tables, events) = match query {
         None => (Vec::new(), Vec::new()),
         Some(q) => {
-            let mut v = PyVisitor::new(py);
+            let mut v = PyVisitor::new();
             v.visit(&q)?;
             (
                 v.tables.into_iter().collect::<Vec<_>>(),
@@ -206,7 +205,10 @@ fn extract_features_py<'py>(
             )
         }
     };
-    PyTuple::new(py, &[PyList::new(py, &tables)?, PyList::new(py, &events)?])
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
 }
 
 // -----------------------------------------------------------------------------
@@ -281,7 +283,7 @@ fn convert(node: &Bound<'_, PyAny>) -> PyResult<AstNode> {
             if !initial.is_none() {
                 children.push(convert(&initial)?);
             }
-            for item in node.getattr("subsequent_select_queries")?.try_iter()? {
+            for item in node.getattr("subsequent_select_queries")?.iter()? {
                 let sub = item?;
                 let q = sub.getattr("select_query")?;
                 if !q.is_none() {
@@ -301,7 +303,7 @@ fn convert(node: &Bound<'_, PyAny>) -> PyResult<AstNode> {
         },
         "Field" => {
             let mut chain = Vec::new();
-            for item in node.getattr("chain")?.try_iter()? {
+            for item in node.getattr("chain")?.iter()? {
                 if let Ok(s) = item?.extract::<String>() {
                     chain.push(s);
                 }
@@ -344,7 +346,7 @@ fn convert_opt_attr(node: &Bound<'_, PyAny>, attr: &str) -> PyResult<Option<Box<
 
 fn convert_exprs_list(node: &Bound<'_, PyAny>, attr: &str) -> PyResult<Vec<AstNode>> {
     let mut out = Vec::new();
-    for item in node.getattr(attr)?.try_iter()? {
+    for item in node.getattr(attr)?.iter()? {
         out.push(convert(&item?)?);
     }
     Ok(out)
@@ -446,6 +448,7 @@ fn collect_native_event_strings(node: &AstNode, out: &mut BTreeSet<String>) {
 }
 
 #[pyfunction]
+#[pyo3(signature = (query=None))]
 fn extract_features_via_mirror<'py>(
     py: Python<'py>,
     query: Option<Bound<'py, PyAny>>,
@@ -462,7 +465,10 @@ fn extract_features_via_mirror<'py>(
             )
         }
     };
-    PyTuple::new(py, &[PyList::new(py, &tables)?, PyList::new(py, &events)?])
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
 }
 
 #[pymodule]

@@ -60,38 +60,38 @@ CI integration would look like: a new Depot-runner job that runs
 `maturin build --release` into a wheel, and the existing Python wheel
 publishing flow consumes it. For local dev `maturin develop` keeps it cheap.
 
-## Expected speedup (and the catch)
+## Measured speedup
 
-Local baseline on the existing Python visitor (`bench_visitor.py` in this
-PR's history):
+Numbers from `bench/compare.py` on Apple Silicon, release build, 5000 iters
+per query, single Python process:
 
 ```text
-query                         nodes     µs/run    ns/node
-tiny                              2       2.64     1322.1
-events_simple                     7       7.14     1019.6
-events_in_clause                 10       9.44      943.7
-join_persons                     13      12.03      925.0
-subquery_with_filters            34      24.78      728.7
-trends_like_breakdown            53      37.20      702.0
+query                             py µs   rs-py µs   rs-mirror µs   rs-mirror×5
+tiny                               2.42       0.20           0.21          1.05
+events_simple                      6.31       0.84           1.05          4.78
+events_in_clause                   8.24       1.09           1.38          6.54
+join_persons                      10.49       0.98           1.34          6.61
+subquery_with_filters             22.89       1.24           2.05         10.44
+trends_like_breakdown             34.49       1.57           2.07          9.54
 ```
 
-So Python sits at ~700–1300 ns/node. PyO3-from-Rust attribute lookups are
-~200–400 ns each, and a typical visit step does several. Realistic numbers
-for the two strategies, based on PyO3 microbenchmarks I'd expect to roughly
-hold here:
+- **Strategy A** (read Python in place): **7–22× faster than Python**, growing
+  with query size. The wins come from skipping the `node.accept(self) →
+self.visit_X(node)` dispatch and inlining `cls.name` checks instead of
+  isinstance/MRO walks.
+- **Strategy B** (convert + walk native, single visitor): ~5–17× faster, and
+  slightly _slower_ than A because the benchmark fully converts every
+  iteration. The amortisation case ("convert once, run N visitors over the
+  mirror") needs a different API than this PoC exposes — the `×5` column
+  above runs 5 full conversions, so it shows linear cost, not the
+  share-the-conversion win.
 
-- **Strategy A** (read Python in place): ~2–3× faster than Python. The wins
-  come from skipping the `node.accept(self) → self.visit_X(node)` dispatch
-  and from inlined `cls.name` checks instead of `isinstance`.
-- **Strategy B** (convert + walk native): ~0.7–1× for _one_ visitor (the
-  conversion costs as much as the walk it replaces). For _N_ visitors that
-  share the converted tree, each additional visitor is essentially free
-  (~10–100× faster than Python). Break-even is around 2 visitors.
-
-The reason "minimal interop cost" isn't quite the whole story: every Python
-attribute access from Rust still goes through CPython's C API — type-check,
-dict lookup, refcount bump. PyO3 wraps this neatly, but doesn't shortcut it.
-Returning a list of strings is cheap; _reading_ a deep Python tree isn't.
+The "minimal interop cost" hypothesis worked out better than I expected: yes,
+every Python attribute access from Rust still goes through CPython's C API,
+but Python's interpreter overhead per method call (frame setup, dict lookup
+for visitor dispatch, isinstance MRO walk) is roughly an order of magnitude
+heavier than the single C call PyO3 makes. Net: even a single-visitor Rust
+port is very much worth it; the multi-visitor batch API is icing.
 
 ## What this points toward (if we like the numbers)
 
