@@ -129,12 +129,7 @@ function SegmentTimelineBar({
     widthPercent: number
     success?: boolean | null | undefined
 }): ReactElement {
-    const fillClass =
-        success === false
-            ? 'bg-destructive-foreground'
-            : success === true
-              ? 'bg-success-foreground'
-              : 'bg-muted-foreground'
+    const fillClass = success === false ? 'bg-destructive' : success === true ? 'bg-success' : 'bg-muted-foreground'
 
     return (
         <div className="w-full h-2 rounded-full bg-muted">
@@ -274,9 +269,9 @@ function SegmentCard({
 
     const borderClass =
         segOutcome?.success === false
-            ? 'border-l-destructive-foreground'
+            ? 'border-l-destructive'
             : segOutcome?.success === true
-              ? 'border-l-success-foreground'
+              ? 'border-l-success'
               : 'border-l-border'
 
     return (
