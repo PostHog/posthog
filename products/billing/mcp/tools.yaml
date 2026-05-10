@@ -7,21 +7,16 @@
 category: Billing
 feature: billing
 url_prefix: /billing
+ui_apps: {}
 tools:
-    billing-list:
-        operation: billing_list
-        enabled: false
-    billing-partial-update:
-        operation: billing_partial_update
-        enabled: false
-    billing-activate-create:
-        operation: billing_activate_create
-        enabled: false
     billing-activate-authorize-create:
         operation: billing_activate_authorize_create
         enabled: false
     billing-activate-authorize-status-create:
         operation: billing_activate_authorize_status_create
+        enabled: false
+    billing-activate-create:
+        operation: billing_activate_create
         enabled: false
     billing-coupons-claim-create:
         operation: billing_coupons_claim_create
@@ -43,6 +38,12 @@ tools:
         enabled: false
     billing-license-partial-update:
         operation: billing_license_partial_update
+        enabled: false
+    billing-list:
+        operation: billing_list
+        enabled: false
+    billing-partial-update:
+        operation: billing_partial_update
         enabled: false
     billing-portal-retrieve:
         operation: billing_portal_retrieve

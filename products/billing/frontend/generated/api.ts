@@ -39,7 +39,7 @@ export const getBillingPartialUpdateUrl = () => {
 }
 
 export const billingPartialUpdate = async (
-    patchedBillingApi: PatchedBillingApi,
+    patchedBillingApi?: PatchedBillingApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingPartialUpdateUrl(), {
@@ -169,7 +169,7 @@ export const getBillingLicensePartialUpdateUrl = () => {
 }
 
 export const billingLicensePartialUpdate = async (
-    patchedBillingApi: PatchedBillingApi,
+    patchedBillingApi?: PatchedBillingApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingLicensePartialUpdateUrl(), {
@@ -191,13 +191,13 @@ export const billingPortalRetrieve = async (options?: RequestInit): Promise<void
     })
 }
 
-/**
- * Endpoint to fetch spend data (proxy to billing service).
- */
 export const getBillingSpendRetrieveUrl = () => {
     return `/api/billing/spend/`
 }
 
+/**
+ * Endpoint to fetch spend data (proxy to billing service).
+ */
 export const billingSpendRetrieve = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingSpendRetrieveUrl(), {
         ...options,
