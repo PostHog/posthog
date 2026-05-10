@@ -43,16 +43,26 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             settings=self.settings,
         )
 
-        sparkline_response = execute_hogql_query(
-            query_type="LogsQuery",
-            query=self._sparkline_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            settings=self.settings,
-        )
+        # Scope the sparkline subquery to the same top-25 services the aggregates row
+        # set returns. Without this, the sparkline scans every service × every bucket and
+        # rapidly hits the 10k-row LIMIT, returning a payload dominated by tail-volume
+        # services the caller never sees stats for. Empty list ⇒ no aggregates rows ⇒
+        # skip the sparkline query entirely.
+        top_service_names = [row[0] for row in aggregates_response.results if row[0] is not None]
+
+        if top_service_names:
+            sparkline_response = execute_hogql_query(
+                query_type="LogsQuery",
+                query=self._sparkline_query(top_service_names),
+                modifiers=self.modifiers,
+                team=self.team,
+                workload=Workload.LOGS,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                settings=self.settings,
+            )
+        else:
+            sparkline_response = None
 
         enabled_rules = list(
             LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
@@ -103,14 +113,15 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         top_share = round(sum(float(s["volume_share_pct"]) for s in services[:top_n]), 2) if services else 0.0
 
         sparkline = []
-        for row in sparkline_response.results:
-            sparkline.append(
-                {
-                    "time": row[0],
-                    "service_name": row[1] if row[1] else "(no service)",
-                    "count": row[2],
-                }
-            )
+        if sparkline_response is not None:
+            for row in sparkline_response.results:
+                sparkline.append(
+                    {
+                        "time": row[0],
+                        "service_name": row[1] if row[1] else "(no service)",
+                        "count": row[2],
+                    }
+                )
 
         return LogsQueryResponse(
             results={
@@ -156,7 +167,12 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _sparkline_query(self) -> ast.SelectQuery:
+    def _sparkline_query(self, top_service_names: list[str]) -> ast.SelectQuery:
+        # Restrict to the same services the aggregates query returned. Without this scope,
+        # the GROUP BY fans out across every service in the window and the LIMIT (kept
+        # generous as a safety cap) clips the long tail unpredictably — callers got
+        # sparkline rows for services with no matching `services[]` entry. Bound the
+        # cap to top-N × max bucket count to a budget the response actually consumes.
         query = parse_select(
             """
             SELECT
@@ -164,7 +180,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 service_name,
                 count() AS event_count
             FROM logs
-            WHERE {where}
+            WHERE {where} AND service_name IN {top_service_names}
             GROUP BY service_name, time
             ORDER BY time ASC, service_name ASC
             LIMIT 10000
@@ -175,6 +191,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
+                "top_service_names": ast.Constant(value=top_service_names),
             },
         )
         assert isinstance(query, ast.SelectQuery)
