@@ -16,6 +16,6 @@ export function isChunkLoadError(error: unknown): boolean {
         err.name === 'ChunkLoadError' ||
         message.includes('Failed to fetch dynamically imported module') ||
         (isTypeError && message.includes('Load failed')) ||
-        (isTypeError && /NetworkError when attempting to fetch resource/i.test(message))
+        (isTypeError && message.includes('NetworkError when attempting to fetch resource'))
     )
 }
