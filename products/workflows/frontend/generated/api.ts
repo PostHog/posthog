@@ -472,7 +472,7 @@ onto cyclotron with `is_retry=1`.
 export const hogFlowsReplayCreate = async (
     projectId: string,
     id: string,
-    hogInvocationReplayRequestApi?: HogInvocationReplayRequestApi,
+    hogInvocationReplayRequestApi: HogInvocationReplayRequestApi,
     options?: RequestInit
 ): Promise<HogInvocationReplayResponseApi> => {
     return apiMutator<HogInvocationReplayResponseApi>(getHogFlowsReplayCreateUrl(projectId, id), {

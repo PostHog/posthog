@@ -810,19 +810,14 @@ proxies through to the CDP worker, which reads matching rows from
 ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
 onto cyclotron with `is_retry=1`.
  */
-export const hogFlowsReplayCreateBodyInvocationIdsMax = 1000
-
 export const hogFlowsReplayCreateBodyFilterOneMaxAttemptsMax = 255
 
 export const hogFlowsReplayCreateBodyFilterOneMaxCountMax = 1000
 
+export const hogFlowsReplayCreateBodyFilterOneInvocationIdsMax = 1000
+
 export const HogFlowsReplayCreateBody = /* @__PURE__ */ zod
     .object({
-        invocation_ids: zod
-            .array(zod.string())
-            .max(hogFlowsReplayCreateBodyInvocationIdsMax)
-            .optional()
-            .describe('Explicit list of invocation IDs to replay. Capped at 1000 per request.'),
         filter: zod
             .object({
                 window_start: zod.iso
@@ -857,14 +852,20 @@ export const HogFlowsReplayCreateBody = /* @__PURE__ */ zod
                     .max(hogFlowsReplayCreateBodyFilterOneMaxCountMax)
                     .optional()
                     .describe('Maximum number of invocations to replay in this request. Server-side cap is 1000.'),
+                invocation_ids: zod
+                    .array(zod.string())
+                    .max(hogFlowsReplayCreateBodyFilterOneInvocationIdsMax)
+                    .optional()
+                    .describe(
+                        'Optional restriction to specific invocation IDs within the window. Capped at 1000 per request. Always combined with `window_start`\/`window_end` so the ClickHouse query can be partition-pruned.'
+                    ),
             })
-            .describe('Filter shape used by the by-filter mode of the replay endpoint.')
-            .optional()
-            .describe('Filter-based selection. Mutually exclusive with `invocation_ids`.'),
+            .describe('Filter shape for the replay endpoint. `window_start`\/`window_end` are required.')
+            .describe(
+                'Required. `window_start` \/ `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window.'
+            ),
     })
-    .describe(
-        'Replay invocations of a hog function or hog flow from their stored payloads.\nProvide EITHER `invocation_ids` (explicit list) OR `filter` (filter selection),\nnot both.'
-    )
+    .describe('Replay invocations of a hog function or hog flow from their stored payloads.')
 
 /**
  * Replay all blocked runs in a single bulk call to Node.

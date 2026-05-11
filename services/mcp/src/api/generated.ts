@@ -17140,7 +17140,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Filter shape used by the by-filter mode of the replay endpoint.
+     * Filter shape for the replay endpoint. `window_start`/`window_end` are required.
      */
     export interface HogInvocationReplayFilter {
       /** Inclusive lower bound on `scheduled_at` (UTC). */
@@ -17163,21 +17163,19 @@ export namespace Schemas {
          * @maximum 1000
          */
       max_count?: number;
+      /**
+         * Optional restriction to specific invocation IDs within the window. Capped at 1000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+         * @maxItems 1000
+         */
+      invocation_ids?: string[];
     }
 
     /**
      * Replay invocations of a hog function or hog flow from their stored payloads.
-    Provide EITHER `invocation_ids` (explicit list) OR `filter` (filter selection),
-    not both.
      */
     export interface HogInvocationReplayRequest {
-      /**
-         * Explicit list of invocation IDs to replay. Capped at 1000 per request.
-         * @maxItems 1000
-         */
-      invocation_ids?: string[];
-      /** Filter-based selection. Mutually exclusive with `invocation_ids`. */
-      filter?: HogInvocationReplayFilter;
+      /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+      filter: HogInvocationReplayFilter;
     }
 
     /**

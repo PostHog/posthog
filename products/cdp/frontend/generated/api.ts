@@ -344,7 +344,7 @@ new lifecycle row so the UI can surface that it was a replay.
 export const hogFunctionsReplayCreate = async (
     projectId: string,
     id: string,
-    hogInvocationReplayRequestApi?: HogInvocationReplayRequestApi,
+    hogInvocationReplayRequestApi: HogInvocationReplayRequestApi,
     options?: RequestInit
 ): Promise<HogInvocationReplayResponseApi> => {
     return apiMutator<HogInvocationReplayResponseApi>(getHogFunctionsReplayCreateUrl(projectId, id), {
