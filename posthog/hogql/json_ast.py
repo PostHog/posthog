@@ -48,6 +48,13 @@ def _build_enum_fields() -> None:
 
 _build_enum_fields()
 
+# Cheap canary: a future AST class whose `get_type_hints` fails at import would
+# be silently skipped above. Assert the known enum-bearing classes registered
+# so a regression to "no enum coercion" trips here rather than being noticed
+# only by a confused downstream consumer.
+assert ast.ArithmeticOperation in _ENUM_FIELDS, "_build_enum_fields did not register ArithmeticOperation"
+assert ast.CompareOperation in _ENUM_FIELDS, "_build_enum_fields did not register CompareOperation"
+
 
 _SPECIAL_FLOATS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "NaN": float("nan")}
 
