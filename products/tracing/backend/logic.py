@@ -89,14 +89,24 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     nanoseconds, and integers. Every code path that turns a `SpanPropertyFilter` into
     a WHERE clause must apply this translation before calling `property_to_expr`,
     otherwise filters like `{key: "kind", value: "Server"}` silently match zero rows.
+
+    Idempotent — safe to call repeatedly on the same filter. Compare-mode invokes
+    `_where_without_date_range()` once per window on the same `SpanPropertyFilter`
+    instances; without the post-translation guards on `kind`/`status_code` the second
+    pass would map the already-translated integers back to `[]` and silently drop the
+    filter for the compare window.
     """
     if span_filter.key in ("trace_id", "span_id"):
+        # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
+        # always encode to padding-suffixed strings that fail `int(_, 16)`).
         if isinstance(span_filter.value, list):
             span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
         else:
             span_filter.value = _normalise_to_base64(str(span_filter.value))
 
     if span_filter.key == "duration":
+        # Key flips to `duration_nano` after first pass, so this block is unreachable
+        # on subsequent invocations.
         span_filter.key = "duration_nano"
         if isinstance(span_filter.value, list):
             span_filter.value = [
@@ -105,17 +115,19 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
         elif _is_number(str(span_filter.value)):
             span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
 
-    if span_filter.key == "kind":
-        values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
-        span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
+    if span_filter.key == "kind" and span_filter.value is not None:
+        values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+        if not all(isinstance(v, int) for v in values):
+            span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
 
-    if span_filter.key == "status_code":
-        values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
-        expanded: list[int] = []
-        for v in values:
-            if str(v) in _STATUS_CODE_LABEL_TO_INTS:
-                expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
-        span_filter.value = [str(v) for v in expanded]
+    if span_filter.key == "status_code" and span_filter.value is not None:
+        values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+        if not all(isinstance(v, str) and v.isdigit() for v in values):
+            expanded: list[int] = []
+            for v in values:
+                if str(v) in _STATUS_CODE_LABEL_TO_INTS:
+                    expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
+            span_filter.value = [str(v) for v in expanded]
 
 
 class TraceSpansQueryRunnerMixin(QueryRunner):
