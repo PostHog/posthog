@@ -1,3 +1,4 @@
+use hogvm::VmError;
 use metrics::counter;
 
 use crate::{
@@ -47,6 +48,18 @@ impl ValueOperator for RuleSuppression {
                 Ok(true) => {
                     counter!(RULE_SUPPRESSED_EVENTS).increment(1);
                     return Ok(Err(EventError::SuppressedByRule(rule.id)));
+                }
+                // See `try_assignment_rules` for the rationale: step-budget exhaustion
+                // is a per-event cost issue, not a logic bug in the rule. Skip this rule
+                // for this event rather than disabling it permanently.
+                Err(VmError::OutOfResource(resource)) => {
+                    tracing::warn!(
+                        rule_id = %rule.id,
+                        team_id = %rule.team_id,
+                        resource = %resource,
+                        "suppression rule exceeded HogVM resource budget for this event, skipping"
+                    );
+                    continue;
                 }
                 Err(err) => {
                     rule.disable(

@@ -255,6 +255,20 @@ pub async fn try_assignment_rules(
                 metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
                 return Ok(Some(new_assignment));
             }
+            // The HogVM ran out of its per-event step budget on this event. The rule
+            // itself isn't necessarily broken — a single oversized event can blow the
+            // budget for an otherwise-fine rule (e.g. a long `$exception_sources` array
+            // pushing an `arrayExists` chain past max_steps). Skip the rule for this
+            // event rather than disabling it permanently for every future event.
+            Err(VmError::OutOfResource(resource)) => {
+                tracing::warn!(
+                    rule_id = %rule.id,
+                    team_id = %rule.team_id,
+                    resource = %resource,
+                    "assignment rule exceeded HogVM resource budget for this event, skipping"
+                );
+                continue;
+            }
             Err(err) => {
                 rule.disable(
                     &mut *con,
