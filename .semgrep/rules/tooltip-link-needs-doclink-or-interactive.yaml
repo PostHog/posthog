@@ -1,0 +1,55 @@
+rules:
+    - id: tooltip-link-needs-doclink-or-interactive
+      message: >-
+          This `<Tooltip>` renders a `<Link>` inside its `title` prop but has neither
+          `docLink` nor `interactive` set. The shared Tooltip defaults `interactive`
+          to `false`, which passes `disableHoverablePopup={true}` to base-ui — the
+          popup is not a valid hover target, so the cursor leaves the trigger before
+          it can reach the link. The link is effectively unreachable.
+
+          Fix:
+
+          - If the link is a PostHog docs URL, use the `docLink` prop. It auto-enables
+            `interactive`, renders the canonical "Read the docs" link, and attaches
+            the standard `clicked tooltip doc link` autocapture:
+            `<Tooltip docLink="https://posthog.com/docs/..." title="...">...</Tooltip>`
+
+          - If the link points to an internal app page (settings, urls.*) or fires
+            an action, add `interactive` so the popup becomes hoverable:
+            `<Tooltip interactive title={<>... <Link to={...}>...</Link></>}>...</Tooltip>`
+
+          Note: `closeDelayMs` extends the close timer but does NOT make the popup
+          hoverable. It is not a substitute for `interactive`.
+
+          If a particular call site is intentionally non-hoverable (e.g. the Link is
+          purely decorative and unreachable on purpose), add a `// nosemgrep: tooltip-link-needs-doclink-or-interactive`
+          comment above it with a brief justification.
+      severity: ERROR
+      languages: [typescript, javascript]
+      patterns:
+          # Match <Tooltip ... title={$TITLE} ...>...</Tooltip>, then require that
+          # the source text of $TITLE contains `<Link` or `<a ` anywhere. Regex over
+          # the metavariable handles arbitrary wrapper depth (one of the audit cases
+          # had the Link nested two <div> layers deep inside the title).
+          - pattern: <Tooltip ... title={$TITLE} ...>$...CHILDREN</Tooltip>
+          - metavariable-regex:
+                metavariable: $TITLE
+                regex: '<(?:Link\b|a\s)'
+          - pattern-not: <Tooltip ... interactive ...>$...</Tooltip>
+          - pattern-not: <Tooltip ... interactive={...} ...>$...</Tooltip>
+          - pattern-not: <Tooltip ... docLink=$D ...>$...</Tooltip>
+      paths:
+          include:
+              - 'frontend/'
+              - 'products/'
+          exclude:
+              - '**/*.test.tsx'
+              - '**/*.test.ts'
+              - '**/*.spec.tsx'
+              - '**/*.spec.ts'
+              - '**/*.stories.tsx'
+      metadata:
+          category: correctness
+          technology:
+              - react
+              - posthog
