@@ -1,6 +1,6 @@
 """Deterministic scorers for the retrieval evals.
 
-Three binary scorers grade the retrieval flow:
+Four binary scorers grade the retrieval flow:
 
 * ``SkillLoaded`` — did the agent load the named skill (e.g.
   ``querying-posthog-data``) before producing its answer?
@@ -13,6 +13,12 @@ Three binary scorers grade the retrieval flow:
   ``system.*`` tables and gets a query that fails or silently returns
   wrong rows. Mode-agnostic: works for both v2 tools mode and CLI exec
   mode because ``LogParser`` normalizes both to the same tool name.
+* ``InfoCalledBeforeTool`` — in single-exec CLI mode, did the agent run
+  ``info <tool>`` before the first successful ``call <tool>``? Enforces
+  the "load schema before invoking" discipline for tools whose
+  guidance lives behind ``info`` (e.g. ``execute-sql``,
+  ``read-data-warehouse-schema``). Returns ``None`` (skipped) outside CLI
+  mode, where tool schemas come bundled with the tool registration.
 
 The first two scorers walk ``output["messages"]`` (Anthropic-format) and
 ``output["seed"]`` (set by the seeder hook in ``base.py:task()``), so
@@ -28,9 +34,9 @@ from typing import Any
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.eval.sandboxed.log_parser import LogParser
+from ee.hogai.eval.sandboxed.log_parser import INFO_SYNTHETIC_PREFIX, LogParser
 
-__all__ = ["LookupIdInOutput", "SkillLoaded", "WarehouseSchemaBeforeSql"]
+__all__ = ["InfoCalledBeforeTool", "LookupIdInOutput", "SkillLoaded", "WarehouseSchemaBeforeSql"]
 
 
 class SkillLoaded(Scorer):
@@ -325,6 +331,92 @@ class WarehouseSchemaBeforeSql(Scorer):
                 score=0.0,
                 metadata={
                     "reason": f"'{self.SQL_TOOL}' was called without a prior successful '{self.SCHEMA_TOOL}'",
+                    "offenders": offenders,
+                    "total_calls": successful_calls,
+                },
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"total_calls": successful_calls},
+        )
+
+
+class InfoCalledBeforeTool(Scorer):
+    """Binary: did the agent call ``info <tool>`` before the first successful ``call <tool>``?
+
+    CLI-mode-specific. In single-exec mode the agent must learn each tool's
+    schema by running ``exec {command: "info <tool>"}`` before invoking it
+    via ``exec {command: "call <tool> <json>"}``. The ``LogParser`` unwraps
+    both shapes; ``info`` becomes the synthetic name
+    ``__info__:<tool>``. This scorer ensures every successful call to
+    ``<tool>`` was preceded by a successful ``info <tool>`` in the same run.
+
+    Returns ``None`` (skipped) when:
+    * the run is not CLI mode (no ``exec``-unwrapped tool calls), or
+    * the target tool was never called.
+
+    Returns ``1.0`` if every successful call was preceded by ``info``,
+    ``0.0`` otherwise (with offending call IDs in metadata).
+    """
+
+    def __init__(self, tool_name: str, *, name: str | None = None):
+        self.tool_name = tool_name
+        self._label = name or f"info_before_{tool_name.replace('-', '_')}"
+
+    def _name(self) -> str:
+        return self._label
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        calls = sorted(parser.get_tool_calls(), key=lambda c: c.position)
+
+        if not any(call.is_exec_unwrapped for call in calls):
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Not single-exec CLI mode (no exec-unwrapped calls)"},
+            )
+
+        info_synthetic = f"{INFO_SYNTHETIC_PREFIX}{self.tool_name}"
+        seen_info = False
+        offenders: list[str] = []
+        successful_calls = 0
+        for call in calls:
+            if call.is_error:
+                continue
+            if call.name == info_synthetic:
+                seen_info = True
+                continue
+            if call.name == self.tool_name:
+                successful_calls += 1
+                if not seen_info:
+                    offenders.append(call.call_id)
+
+        if successful_calls == 0:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": f"'{self.tool_name}' was never called successfully"},
+            )
+        if offenders:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": f"'{self.tool_name}' called without a prior successful 'info {self.tool_name}'",
                     "offenders": offenders,
                     "total_calls": successful_calls,
                 },

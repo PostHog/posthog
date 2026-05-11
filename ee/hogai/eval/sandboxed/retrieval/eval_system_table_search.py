@@ -2,17 +2,25 @@
 
 When users ask the agent to find or modify a PostHog entity by name
 (e.g. "rename the MAU insight"), the agent reaches for ``execute-sql``
-against ``system.*``. The failure mode this eval grades: the agent
-guesses column names (``last_modified_at``, ``description``,
-``short_id``) without calling ``read-data-warehouse-schema`` first.
-Different ``system.*`` tables expose different columns, so guessing
-produces queries that fail or silently return wrong rows.
+against ``system.*``. The failure modes this eval grades:
 
-Single metric:
+1. The agent guesses column names (``last_modified_at``, ``description``,
+   ``short_id``) without calling ``read-data-warehouse-schema`` first.
+   Different ``system.*`` tables expose different columns, so guessing
+   produces queries that fail or silently return wrong rows.
+2. In single-exec CLI mode, the agent invokes a tool without first
+   loading its schema via ``info <tool>`` — skipping the discovery step
+   that surfaces parameter shapes and discovery workflows.
+
+Metrics:
 
 * ``warehouse_schema_before_sql`` — was every successful ``execute-sql``
   preceded by a successful ``read-data-warehouse-schema`` in the same
   run? Mode-agnostic (works for both v2 tools mode and CLI exec mode).
+* ``info_before_execute_sql`` / ``info_before_read_data_warehouse_schema``
+  — CLI-mode only: was each tool's ``info`` payload loaded before its
+  first successful ``call``? Skipped (``None``) in v2 tools mode where
+  schemas come bundled.
 
 To run::
 
@@ -25,7 +33,7 @@ import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
-from ee.hogai.eval.sandboxed.retrieval.scorers import WarehouseSchemaBeforeSql
+from ee.hogai.eval.sandboxed.retrieval.scorers import InfoCalledBeforeTool, WarehouseSchemaBeforeSql
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
@@ -62,6 +70,8 @@ async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_cl
         scorers=[
             ExitCodeZero(),
             WarehouseSchemaBeforeSql(),
+            InfoCalledBeforeTool("execute-sql"),
+            InfoCalledBeforeTool("read-data-warehouse-schema"),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,
