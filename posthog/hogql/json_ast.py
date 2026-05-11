@@ -123,7 +123,7 @@ def _deserialize_node(data: Any) -> Any:
             enum_type = enum_map.get(key)
             if enum_type is not None:
                 try:
-                    deserialized = enum_type[deserialized]  # type: ignore[index]
+                    deserialized = enum_type[deserialized]
                 except KeyError:
                     pass
 
