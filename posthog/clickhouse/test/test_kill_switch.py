@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import (
     _KILL_SWITCH_SETTINGS,
+    _KILL_SWITCH_SEVERITY,
     KillSwitchLevel,
     _get_kill_switch_level,
     _get_kill_switch_team_sets,
@@ -91,6 +92,42 @@ class TestGetTeamKillSwitchLevel:
             # 2 calls for the per-team sets (full + light) over the same minute, no additional calls on the second invocation
             assert mock.call_count == 2
         _get_kill_switch_team_sets.cache_clear()
+
+
+class TestKillSwitchPrecedence:
+    """
+    Mirrors the precedence logic in `sync_execute`: start from the team-specific
+    override, then upgrade to the global level if global is more severe. The
+    effective level is `max(global, team)` by severity.
+    """
+
+    @staticmethod
+    def _resolve(global_level: KillSwitchLevel, team_level: KillSwitchLevel) -> KillSwitchLevel:
+        level = team_level
+        if _KILL_SWITCH_SEVERITY[global_level] > _KILL_SWITCH_SEVERITY[level]:
+            level = global_level
+        return level
+
+    @parameterized.expand(
+        [
+            ("global_light_team_full_wins_full", KillSwitchLevel.LIGHT, KillSwitchLevel.FULL, KillSwitchLevel.FULL),
+            ("global_full_team_light_wins_full", KillSwitchLevel.FULL, KillSwitchLevel.LIGHT, KillSwitchLevel.FULL),
+            ("global_off_team_full_wins_full", KillSwitchLevel.OFF, KillSwitchLevel.FULL, KillSwitchLevel.FULL),
+            ("global_off_team_light_wins_light", KillSwitchLevel.OFF, KillSwitchLevel.LIGHT, KillSwitchLevel.LIGHT),
+            ("global_light_team_off_wins_light", KillSwitchLevel.LIGHT, KillSwitchLevel.OFF, KillSwitchLevel.LIGHT),
+            ("global_full_team_off_wins_full", KillSwitchLevel.FULL, KillSwitchLevel.OFF, KillSwitchLevel.FULL),
+            ("global_off_team_off_is_off", KillSwitchLevel.OFF, KillSwitchLevel.OFF, KillSwitchLevel.OFF),
+            ("global_full_team_full_is_full", KillSwitchLevel.FULL, KillSwitchLevel.FULL, KillSwitchLevel.FULL),
+        ]
+    )
+    def test_precedence(
+        self,
+        _name: str,
+        global_level: KillSwitchLevel,
+        team_level: KillSwitchLevel,
+        expected: KillSwitchLevel,
+    ):
+        assert self._resolve(global_level, team_level) == expected
 
 
 class TestKillSwitchResourceLimits:

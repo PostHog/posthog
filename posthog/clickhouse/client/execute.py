@@ -112,6 +112,12 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
     },
 }
 
+_KILL_SWITCH_SEVERITY: dict[KillSwitchLevel, int] = {
+    KillSwitchLevel.OFF: 0,
+    KillSwitchLevel.LIGHT: 1,
+    KillSwitchLevel.FULL: 2,
+}
+
 
 def get_kill_switch_level() -> KillSwitchLevel:
     return _get_kill_switch_level(round(time.time() / 60))
@@ -314,16 +320,18 @@ def sync_execute(
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
 
-    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
-    if not TEST and team_id is not None:
-        team_level = get_team_kill_switch_level(team_id)
-        # Use the more severe of the global level and any per-team override so that
-        # teams listed in the per-team kill switch are throttled even when the global
-        # switch is off, and the global level still wins when it's stricter.
-        if team_level == KillSwitchLevel.FULL or (
-            team_level == KillSwitchLevel.LIGHT and kill_switch_level == KillSwitchLevel.OFF
-        ):
-            kill_switch_level = team_level
+    if TEST:
+        kill_switch_level = KillSwitchLevel.OFF
+    elif team_id is not None:
+        # Start from the team-specific override (the more specific signal),
+        # then upgrade to the global level only if global is more severe.
+        # Examples: global=light, team=full -> full. global=full, team=light -> full.
+        kill_switch_level = get_team_kill_switch_level(team_id)
+        global_level = get_kill_switch_level()
+        if _KILL_SWITCH_SEVERITY[global_level] > _KILL_SWITCH_SEVERITY[kill_switch_level]:
+            kill_switch_level = global_level
+    else:
+        kill_switch_level = get_kill_switch_level()
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
