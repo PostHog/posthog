@@ -106,7 +106,6 @@ RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
     },
 }
 
-# `PROGRAM` doesn't have a parse histogram (matches the original code's behavior).
 RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
     rule: Histogram(
         f"parse_{rule}_seconds",
@@ -230,10 +229,10 @@ _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
     fn = RULE_TO_PARSE_FUNCTION[backend][rule]
     # Only `expr` takes a `start` arg; the others have a single positional.
-    # The histogram measures *parse* cost specifically — cache lookups bypass
-    # it, so the `parse_*_seconds` distribution stays meaningful as a parser
-    # perf signal once caches are warm. `program` has no histogram (matching
-    # the original code's behavior).
+    # The histogram measures parse cost specifically — cache lookups bypass
+    # it, so `parse_*_seconds` is a parser-perf signal independent of cache
+    # hit rate. `program` is not in `RULE_TO_HISTOGRAM`, so no timing is
+    # recorded for it.
     histogram = RULE_TO_HISTOGRAM.get(rule)
     if histogram is None:
         return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
