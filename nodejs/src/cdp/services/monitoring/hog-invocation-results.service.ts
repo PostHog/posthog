@@ -70,10 +70,20 @@ const isHogFunctionInvocation = (invocation: CyclotronJobInvocation): invocation
 const isHogFlowInvocation = (invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow =>
     'hogFlow' in invocation
 
+// In-process monotonic counter that breaks ties when consecutive lifecycle
+// rows for the same invocation are produced within the same millisecond.
+// Without this, the 'running' + terminal rows of a fast invocation can share a
+// `version` value, and ReplacingMergeTree keeps one arbitrarily — potentially
+// leaving the runs UI showing a permanently 'running' status. We layer
+// `performance.now()`'s sub-ms fractional component on top of `Date.now()` to
+// stay monotonic within a process; the worst remaining tie window is two
+// rows produced at the exact same `performance.now()` sample, which is below
+// the precision the clock actually delivers.
 const microsecondsSinceEpoch = (): string => {
     // BigInt avoids the 53-bit cap so the number lines up with ClickHouse UInt64.
     const ms = BigInt(Date.now())
-    return (ms * 1000n).toString()
+    const subMs = BigInt(Math.floor((performance.now() % 1) * 1000))
+    return (ms * 1000n + subMs).toString()
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -110,11 +120,17 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
 
     const lower = message.toLowerCase()
     let kind = 'hog_error'
+    // Anchor the status-code patterns to HTTP-context tokens so messages like
+    // "processed 500 items" or "400 rows returned" don't get misclassified as
+    // http_5xx / http_4xx. Matches: 'status 503', 'http 502', 'http/2 504',
+    // 'status code 500', etc.
+    const http5xxRegex = /\b(?:status(?:\s*code)?|http(?:[/ ]\d)?)\s*[:= ]?\s*5\d{2}\b/
+    const http4xxRegex = /\b(?:status(?:\s*code)?|http(?:[/ ]\d)?)\s*[:= ]?\s*4\d{2}\b/
     if (lower.includes('timeout') || lower.includes('timed out')) {
         kind = 'timeout'
-    } else if (lower.match(/\b5\d{2}\b/) || lower.includes('server error')) {
+    } else if (http5xxRegex.test(lower) || lower.includes('server error')) {
         kind = 'http_5xx'
-    } else if (lower.match(/\b4\d{2}\b/)) {
+    } else if (http4xxRegex.test(lower)) {
         kind = 'http_4xx'
     } else if (lower.includes('out of memory') || lower.includes('oom')) {
         kind = 'oom'
@@ -271,9 +287,15 @@ export class HogInvocationResultsService {
             startedAt && finishedAt
                 ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
                 : sumDurationMs(invocation)
-        // replayAttempts lives on the hog function state; hog flows haven't
-        // wired up a corresponding field yet so they always read 0.
-        const replayAttempts = isHogFunctionInvocation(invocation) ? (invocation.state?.replayAttempts ?? 0) : 0
+        // Both hog function and hog flow state carry a `replayAttempts`
+        // counter that the replay paginator increments on rehydration. Read
+        // from whichever shape this invocation is so the `max_attempts` guard
+        // applies uniformly.
+        const replayAttempts = isHogFunctionInvocation(invocation)
+            ? (invocation.state?.replayAttempts ?? 0)
+            : isHogFlowInvocation(invocation)
+              ? (invocation.state?.replayAttempts ?? 0)
+              : 0
 
         const row: HogInvocationResultRow = {
             team_id: invocation.teamId,

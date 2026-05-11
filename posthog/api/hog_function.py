@@ -23,7 +23,6 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.hog_invocation_replay import (
-    HOG_INVOCATION_REPLAY_MAX_COUNT,
     HogInvocationReplayRequestSerializer,
     HogInvocationReplayResponseSerializer,
 )
@@ -660,16 +659,16 @@ class HogFunctionViewSet(
         serializer = HogInvocationReplayRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Server-side cap on by-IDs mode (filter mode is capped inside the serializer).
-        invocation_ids = serializer.validated_data.get("invocation_ids") or []
-        if invocation_ids and len(invocation_ids) > HOG_INVOCATION_REPLAY_MAX_COUNT:
-            raise serializers.ValidationError(f"At most {HOG_INVOCATION_REPLAY_MAX_COUNT} invocation_ids per request.")
-
+        # `serializer.data` runs `to_representation`, which converts the
+        # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
+        # ISO-8601 strings — `requests.post(json=...)` can't serialize raw
+        # `datetime` objects, so passing `validated_data` would 500 every
+        # filter-mode replay before the request even left Django.
         res = replay_hog_invocations(
             team_id=self.team_id,
             function_kind="hog_function",
             function_id=str(hog_function.id),
-            payload=serializer.validated_data,
+            payload=serializer.data,
         )
 
         if res.status_code != 200:

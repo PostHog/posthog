@@ -394,6 +394,10 @@ export class ReplayPaginatorService {
                 event: eventForFilter,
                 actionStepCount: persistedState.actionStepCount ?? 0,
                 variables: persistedState.variables ?? {},
+                // Sticky replay counter — mirror the hog function path so the
+                // lifecycle row producer can derive `attempts` / `is_retry`
+                // for flows too, and the `max_attempts` guard actually trips.
+                replayAttempts: (row.attempts || 0) + 1,
             }
             return invocation
         }

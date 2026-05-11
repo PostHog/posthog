@@ -325,6 +325,11 @@ export type HogFlowInvocationContext = {
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
     }
     variables?: Record<string, any>
+    // Sticky counter incremented by the replay paginator on rehydration. Lets
+    // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
+    // the same way it does for hog functions, so the `max_attempts` guard on
+    // the replay filter actually applies to flows.
+    replayAttempts?: number
 }
 
 // Mostly copied from frontend types

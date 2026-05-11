@@ -85,10 +85,6 @@ export type SessionRecordingConfig = {
 export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig {
     return {
         ...getDefaultClickhouseConfig(),
-        // session-recording predates the shared default and pre-test-env didn't
-        // pick a database — keep the long-standing 'default' value to avoid
-        // changing prod behavior for this service in particular.
-        CLICKHOUSE_DATABASE: 'default',
         SESSION_RECORDING_API_REDIS_HOST: '127.0.0.1',
         SESSION_RECORDING_API_REDIS_PORT: 6379,
         SESSION_RECORDING_KMS_ENDPOINT: undefined,
