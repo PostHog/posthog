@@ -41,6 +41,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -50,6 +51,8 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+from .logic import translate_span_filter
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -233,9 +236,8 @@ class _SpanAggregationMixin:
             )
 
         if self.span_filters or self.span_attribute_filters or self.resource_attribute_filters:
-            from posthog.hogql.property import property_to_expr
-
             for span_filter in self.span_filters:
+                translate_span_filter(span_filter)
                 exprs.append(property_to_expr(span_filter, team=self.team))
             if self.span_attribute_filters:
                 exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))

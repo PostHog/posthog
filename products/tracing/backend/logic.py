@@ -44,8 +44,6 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner
-
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -81,6 +79,43 @@ _STATUS_CODE_LABEL_TO_INTS: dict[str, list[int]] = {
     "OK": [0, 1],
     "Error": [2],
 }
+
+
+def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
+    """Translate UI/API filter values into ClickHouse column representations, in place.
+
+    The filter UI stores human-readable forms — hex ids, seconds for duration, label
+    strings for `kind`/`status_code` — but the ClickHouse columns are base64 bytes,
+    nanoseconds, and integers. Every code path that turns a `SpanPropertyFilter` into
+    a WHERE clause must apply this translation before calling `property_to_expr`,
+    otherwise filters like `{key: "kind", value: "Server"}` silently match zero rows.
+    """
+    if span_filter.key in ("trace_id", "span_id"):
+        if isinstance(span_filter.value, list):
+            span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
+        else:
+            span_filter.value = _normalise_to_base64(str(span_filter.value))
+
+    if span_filter.key == "duration":
+        span_filter.key = "duration_nano"
+        if isinstance(span_filter.value, list):
+            span_filter.value = [
+                str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+            ]
+        elif _is_number(str(span_filter.value)):
+            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+
+    if span_filter.key == "kind":
+        values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
+        span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
+
+    if span_filter.key == "status_code":
+        values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
+        expanded: list[int] = []
+        for v in values:
+            if str(v) in _STATUS_CODE_LABEL_TO_INTS:
+                expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
+        span_filter.value = [str(v) for v in expanded]
 
 
 class TraceSpansQueryRunnerMixin(QueryRunner):
@@ -168,39 +203,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         if self.span_filters:
             for span_filter in self.span_filters:
-                if span_filter.key in ("trace_id", "span_id"):
-                    if isinstance(span_filter.value, list):
-                        span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
-                    else:
-                        span_filter.value = _normalise_to_base64(str(span_filter.value))
-
-                if span_filter.key in ("duration"):
-                    span_filter.key = "duration_nano"
-
-                    if isinstance(span_filter.value, list):
-                        span_filter.value = [
-                            str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
-                        ]
-                    else:
-                        if _is_number(str(span_filter.value)):
-                            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
-
-                # Filter UI stores human labels for kind/status_code so the applied-filter
-                # chip reads naturally. Translate labels to the integer column values here.
-                if span_filter.key == "kind":
-                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
-                    span_filter.value = [
-                        _SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT
-                    ]
-
-                if span_filter.key == "status_code":
-                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
-                    expanded: list[int] = []
-                    for v in values:
-                        if str(v) in _STATUS_CODE_LABEL_TO_INTS:
-                            expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
-                    span_filter.value = [str(v) for v in expanded]
-
+                translate_span_filter(span_filter)
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
@@ -633,6 +636,12 @@ def run_attribute_values_query(
             results.append({"id": value, "name": value})
 
     return results
+
+
+# Imported below the helpers above (and `translate_span_filter`) because the runners
+# import `translate_span_filter` from this module. Keeping this import at the bottom
+# avoids a partial-load circular import.
+from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner  # noqa: E402
 
 
 def run_aggregation_query(
