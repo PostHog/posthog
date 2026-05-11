@@ -166,6 +166,71 @@ class TestVisitor(BaseTest):
         # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
         TraversingVisitor().visit(ast.IntervalType())
 
+    def test_cached_visit_method_name_matches_legacy_algorithm(self):
+        """``AST.__init_subclass__`` caches each class's ``visit_<snake_case>``
+        method name on the class. This test re-derives the name from the legacy
+        regex+replacements algorithm for *every* AST subclass and asserts the
+        cached value matches — so any class added without going through the
+        normal class statement (e.g. via ``type()``) would still flag a
+        mismatch here rather than silently dispatching to ``visit_unknown``."""
+
+        from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
+
+        def legacy(cls_name: str) -> str:
+            name = camel_case_pattern.sub("_", cls_name).lower()
+            for old, new in _VISIT_NAME_REPLACEMENTS.items():
+                name = name.replace(old, new)
+            return f"visit_{name}"
+
+        def all_subclasses(cls):
+            seen: set[type] = set()
+            stack = [cls]
+            while stack:
+                c = stack.pop()
+                for sub in c.__subclasses__():
+                    if sub not in seen:
+                        seen.add(sub)
+                        stack.append(sub)
+            return seen
+
+        # Force import of the full AST module so all subclasses are registered.
+        import posthog.hogql.ast  # noqa: F401
+
+        subclasses = all_subclasses(AST)
+        assert len(subclasses) > 50, "expected to find many AST subclasses"
+        mismatches = [
+            (cls.__name__, cls._visit_method_name, legacy(cls.__name__))
+            for cls in subclasses
+            if cls._visit_method_name != legacy(cls.__name__)
+        ]
+        assert not mismatches, f"_visit_method_name mismatches: {mismatches}"
+
+    def test_accept_falls_back_to_visit_unknown(self):
+        """If a visitor doesn't define the specific ``visit_<X>`` method, the
+        accept dispatch should fall back to ``visit_unknown``. Regression cover
+        for the cached-name accept() rewrite."""
+
+        class FallbackVisitor(Visitor):
+            def visit_unknown(self, node):
+                return f"unknown:{node.__class__.__name__}"
+
+        assert FallbackVisitor().visit(ast.Field(chain=["x"])) == "unknown:Field"
+
+    def test_accept_raises_when_no_visit_method_and_no_unknown(self):
+        """Accept should raise NotImplementedError mentioning the expected
+        method name when neither the specific visit nor visit_unknown exists."""
+        from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
+
+        class EmptyVisitor(Visitor):
+            pass
+
+        try:
+            EmptyVisitor().visit(ast.Field(chain=["x"]))
+        except HogQLNotImplementedError as e:
+            assert "visit_field" in str(e), f"expected method name in error: {e}"
+        else:
+            raise AssertionError("expected HogQLNotImplementedError")
+
     @parameterized.expand(
         [
             ("asc", "ASC"),
