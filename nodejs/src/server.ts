@@ -16,6 +16,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import { CdpReplayWorkerConsumer } from './cdp/consumers/cdp-replay-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
@@ -88,7 +89,8 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
-            capabilities.cdpBatchHogFlow
+            capabilities.cdpBatchHogFlow ||
+            capabilities.cdpReplayWorker
         )
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
@@ -220,6 +222,14 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorkerHogFlow) {
             serviceLoaders.push(async () => {
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpReplayWorker) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpReplayWorkerConsumer(this.config, cdpDeps!)
                 await worker.start()
                 return worker.service
             })

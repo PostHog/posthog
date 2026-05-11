@@ -31,9 +31,9 @@ These were nailed down during scoping; they are not open questions.
 6. **Replay reuses the original `invocation_id`.** A new row is written for the replayed run with the same `invocation_id`, incremented `attempts`, and `is_retry = 1` so the UI can mark it. ReplacingMergeTree collapses to the latest attempt's state.
 7. **Hog functions and hog flows share the schema.** No special-casing for hog flows — one row per invocation regardless of source. Future per-step granularity stays in `log_entries`.
 8. **Reading is HogQL, not REST.** Register the new table in the HogQL database schema so the UI queries it via `/api/projects/:id/query` like any other table. No bespoke list endpoint.
-9. **Writing the replay trigger is a Django → Node proxy.** Follows the existing pattern (e.g. `posthog.plugins.plugin_server_api.create_batch_hog_flow_job_invocation`). Two modes:
+9. **Writing the replay trigger is a Django → Node proxy that enqueues a wrapper job; it does not run the work.** Django POSTs to a Node endpoint, which creates a `replay`-queue job in cyclotron-v2 with the request serialized into `state` and returns the `replay_job_id`. A dedicated `cdp-replay-worker` service consumes that queue, pages ClickHouse, re-enqueues invocations onto the regular cyclotron queue, and commits progress back via `reschedule({ state })`. Two request shapes:
    - **By IDs** — explicit list of `invocation_id`s with a server-side cap (e.g. 1000).
-   - **By filter** — time range + the same top-level filters the list view uses (status, function_id, error_kind, max attempts). Node pages ClickHouse and re-enqueues.
+   - **By filter** — time range + the same top-level filters the list view uses (status, function_id, error_kind, max attempts). The worker keyset-paginates ClickHouse on `(scheduled_at, invocation_id)`.
 10. **Logs stay in `log_entries` as-is.** The new "runs" UI is master/detail: click a row → expand → fetch logs via the existing logs API keyed on `instance_id = invocation_id`. Registering `log_entries` in HogQL too is a "maybe later if cheap" follow-up, not v1.
 11. **The new UI replaces nothing.** `HogFunctionRuns.tsx` and `HogFunctionLogs.tsx` are untouched. The new "runs" view ships alongside them and is the foundation for eventually subsuming the logs tab.
 
@@ -209,14 +209,32 @@ or
 }
 ```
 
-The view validates, then proxies through to a new `replay_hog_invocations(team_id, function_kind, function_id, mode, payload)` helper in `posthog/plugins/plugin_server_api.py`. The Node side:
+The view validates, then proxies through to a new `replay_hog_invocations(team_id, function_kind, function_id, payload)` helper in `posthog/plugins/plugin_server_api.py`.
 
-1. **By-IDs mode** — read each row from ClickHouse, rehydrate the invocation from `invocation_globals`, push onto the appropriate cyclotron queue with `is_retry=1` / `attempts++`.
-2. **By-filter mode** — page ClickHouse with the same HogQL-style filter (server-side cap on `max_count` per request, keyset pagination on `(scheduled_at, invocation_id)`), same rehydration + enqueue.
+**The replay endpoint does not run the replay** — it only enqueues a wrapper job onto a new `replay` queue in the cyclotron-v2 job database, then returns the `replay_job_id` immediately:
+
+```json
+{ "replay_job_id": "<uuid>", "queued_count": 0, "skipped_count": 0 }
+```
+
+The new `cdp-replay-worker` service (PLUGIN_SERVER_MODE=cdp-replay-worker) consumes that queue and runs the actual work:
+
+1. **Dequeue** a wrapper job and parse the `ReplayJobState` blob from `state BYTEA`.
+2. **Page ClickHouse** for one batch of `REPLAY_PAGE_SIZE` matching invocations using either the explicit `invocation_ids` (consuming from `progress.remaining_ids`) or the filter's keyset cursor on `(scheduled_at, invocation_id)`.
+3. **Rehydrate** each row from `invocation_globals` and **re-enqueue** it onto the regular cyclotron queue with `is_retry=1`. Emit the `'running'` lifecycle row.
+4. **If done** (page partial, budget exhausted, or no more ids) → `ack()` the wrapper job.
+5. **Otherwise** → `reschedule({ state: nextState, scheduledAt: now + REPLAY_PAGE_DELAY_MS })` so the worker picks it back up after a short delay with the new cursor + counts.
+
+Why a wrapper job, not an inline HTTP call:
+
+- A by-filter replay can match millions of rows. The HTTP request can't block on that.
+- **Resumable** — each page persists progress to `state`, so a crash partway through resumes from the cursor.
+- **Observable** — the wrapper job sits in `cyclotron_jobs` like any other job; queue depth metrics and the janitor's stalled-job recovery cover it for free.
+- **Throttled** — the worker pulls one wrapper job at a time, and the inter-page delay prevents ClickHouse hot-looping.
 
 ### Naming
 
-`replay` (not `retry`) — "retry" implies resuming the same context; what we're doing is re-executing from a stored payload. The endpoint name and code paths use `replay` throughout. The row-level marker stays as `is_retry` to match existing CDP terminology in the worker (which already has a notion of "retry" for transient failure re-enqueue).
+`replay` (not `retry`) — "retry" implies resuming the same context; what we're doing is re-executing from a stored payload. The endpoint name, queue name, and code paths use `replay` throughout. The row-level marker stays as `is_retry` to match existing CDP terminology in the worker (which already has a notion of "retry" for transient failure re-enqueue).
 
 ## Surface area changes
 
@@ -230,15 +248,22 @@ The view validates, then proxies through to a new `replay_hog_invocations(team_i
 - `posthog/hogql/database/database.py` — register the new schema.
 - `posthog/plugins/plugin_server_api.py` — add `replay_hog_invocations(...)`.
 - `posthog/api/hog_function.py` and `posthog/api/hog_flow.py` — add a `replay` action that validates input and proxies through to Node.
+- `posthog/api/hog_invocation_replay.py` — shared replay request/response serializers used by both viewsets.
 
 ### Worker (Node.js)
 
 - `nodejs/src/cdp/services/monitoring/hog-invocation-results.service.ts` — new producer (start row + finish row).
 - `nodejs/src/cdp/services/invocation-results.service.ts` — fan out to the new service alongside monitoring/warehouse/captured-events.
-- `nodejs/src/cdp/services/monitoring/hog-function-monitoring.service.ts` — emits the `'running'` row when the invocation is picked up.
 - `nodejs/src/config/kafka-topics.ts` — register the topic.
-- `nodejs/src/cdp/replay/` — new module exposing `replayByIds(...)` and `replayByFilter(...)` invoked by the internal API the Django proxy talks to.
-- `nodejs/src/ingestion/common/outputs.ts` — register the new output channel.
+- `nodejs/src/ingestion/common/outputs/index.ts` — register the new output channel.
+- `nodejs/src/cdp/replay/replay-job.types.ts` — shared types for the replay wrapper job (`ReplayJobState`, `ReplayCursor`, queue name, page size, cap).
+- `nodejs/src/cdp/replay/replay-job.manager.ts` — `ReplayJobManager.enqueue(...)` used by `cdp-api`. Creates the wrapper job in cyclotron-v2 with the serialized request as `state` and returns the `replay_job_id`.
+- `nodejs/src/cdp/replay/replay-paginator.service.ts` — `processPage(teamId, state)` runs one page of ClickHouse + rehydrate + re-enqueue work, returns the next state. Pure-ish, testable in isolation from cyclotron plumbing.
+- `nodejs/src/cdp/consumers/cdp-replay-worker.consumer.ts` — `CdpReplayWorkerConsumer` deployed as `PLUGIN_SERVER_MODE=cdp-replay-worker`. Owns its own `CyclotronV2Worker` on `queueName='replay'`, its own ClickHouse client, and drives the paginator. Heartbeats during long pages; ack/reschedule on each tick.
+- `nodejs/src/common/config.ts` — add `cdp_replay_worker` to `PluginServerMode`.
+- `nodejs/src/capabilities.ts` + `nodejs/src/types.ts` — add the `cdpReplayWorker` capability flag.
+- `nodejs/src/server.ts` — wire the new consumer into the service loader.
+- `nodejs/src/cdp/cdp-api.ts` — keep the API thin: just instantiates `ReplayJobManager` and enqueues a wrapper job in the `replay` handler. Does **not** instantiate a ClickHouse client, does **not** run paginated work inline.
 
 ### Frontend
 
@@ -259,12 +284,13 @@ Roughly the order I'd ship this in.
 2. **Kafka topic registration** (Python + Node side).
 3. **Worker producer service** behind a per-team feature flag — start writing rows but don't read them yet. Lets us land the producer safely and validate row volume before any UI.
 4. **HogQL schema registration** for the new table.
-5. **Replay endpoint (Django) + Node replay module.** Test with curl / a script before UI.
-6. **Frontend runs scene** (list + filters + detail panel + logs expansion via existing viewer).
-7. **Bulk replay UI.**
-8. **MCP tools.**
+5. **Replay endpoint (Django) + ReplayJobManager (Node).** Endpoint only enqueues a wrapper job; returns `replay_job_id`. Testable end-to-end with curl + a `SELECT * FROM cyclotron_jobs WHERE queue_name = 'replay'`.
+6. **`cdp-replay-worker` consumer.** Deploys as its own `PLUGIN_SERVER_MODE=cdp-replay-worker`. Drives `ReplayPaginatorService` against ClickHouse, re-enqueues invocations onto the regular cyclotron queue, commits progress via reschedule.
+7. **Frontend runs scene** (list + filters + detail panel + logs expansion via existing viewer).
+8. **Bulk replay UI** (multi-select on the runs scene → POST `/replay` with `invocation_ids`).
+9. **MCP tools.**
 
-Each step is shippable independently. The feature flag in step 3 stays on through step 6 so we only flip it for early teams.
+Each step is shippable independently. The feature flag in step 3 stays on through step 7 so we only flip it for early teams. Steps 5–6 can be staged separately: step 5 lands the producer + queue plumbing (replay jobs accumulate but no worker drains them), step 6 turns on the worker. That gap is intentional — it lets us validate the wrapper job shape on a small set before pointing real workloads at the paginator.
 
 ## Out of scope (v1)
 

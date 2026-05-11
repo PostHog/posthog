@@ -165,6 +165,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronV2Janitor: true,
             }
+        case PluginServerMode.cdp_replay_worker:
+            return {
+                cdpReplayWorker: true,
+            }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:

@@ -76,9 +76,19 @@ class HogInvocationReplayRequestSerializer(serializers.Serializer):
 
 
 class HogInvocationReplayResponseSerializer(serializers.Serializer):
-    """Synchronous response from the replay endpoint — Node accepts the request and acks."""
+    """
+    Response from the replay endpoint. The endpoint only enqueues a wrapper
+    job onto the cyclotron `replay` queue — the actual ClickHouse paging and
+    re-enqueue work happens asynchronously in the `cdp-replay-worker` service.
+    Use `replay_job_id` to look up progress on the wrapper job later.
+    """
 
-    queued_count = serializers.IntegerField(help_text="Number of invocations the worker queued for replay.")
+    replay_job_id = serializers.CharField(
+        help_text="ID of the cyclotron wrapper job that will run the replay. Use this to poll status."
+    )
+    queued_count = serializers.IntegerField(
+        help_text="Always 0 — replay runs asynchronously. Kept for response shape stability.",
+    )
     skipped_count = serializers.IntegerField(
-        help_text="Number of invocations the worker skipped (e.g. because they exceeded max_attempts)."
+        help_text="Always 0 — replay runs asynchronously. Kept for response shape stability.",
     )
