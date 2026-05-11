@@ -126,7 +126,8 @@ def run() -> None:
     header = (
         f"{'query':<24} "
         f"{'python (ms)':>12} "
-        f"{'A: PyO3 (ms)':>14} "
+        f"{'A (ms)':>10} "
+        f"{'A-fast (ms)':>13} "
         f"{'B: full (ms)':>14} "
         f"{'B: visit only (ms)':>20} "
         f"{'B: convert (ms)':>16}"
@@ -138,15 +139,19 @@ def run() -> None:
 
     for name, sql in QUERIES.items():
         parsed = parse_select(sql)
-        mirror = hogql_visitors_rs.to_mirror(parsed)  # pre-converted, reused across iters
+        mirror = hogql_visitors_rs.to_mirror(parsed)
 
         t_py = timeit.timeit(lambda: extract_python(parsed), number=N) * 1000
         t_a = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py(parsed), number=N) * 1000
+        t_a_fast = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py_fast(parsed), number=N) * 1000
         t_b_full = timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror(parsed), number=N) * 1000
         t_b_visit = timeit.timeit(lambda: hogql_visitors_rs.extract_features_from_mirror(mirror), number=N) * 1000
-        t_b_convert = t_b_full - t_b_visit  # implied — the leftover after subtracting the visit-only cost
+        t_b_convert = t_b_full - t_b_visit
 
-        print(f"{name:<24} {t_py:>12.2f} {t_a:>14.2f} {t_b_full:>14.2f} {t_b_visit:>20.2f} {t_b_convert:>16.2f}")
+        print(
+            f"{name:<24} {t_py:>12.2f} {t_a:>10.2f} {t_a_fast:>13.2f} "
+            f"{t_b_full:>14.2f} {t_b_visit:>20.2f} {t_b_convert:>16.2f}"
+        )
 
 
 if __name__ == "__main__":

@@ -15,8 +15,10 @@
 //! Both return `(tables, events)` as Python lists; the Python wrapper
 //! repackages them into the `HogQLFeatures` Pydantic model.
 
+use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyTuple};
+use pyo3::sync::GILOnceCell;
+use pyo3::types::{PyList, PyTuple, PyType};
 use std::collections::BTreeSet;
 
 const INTERESTING_EVENTS: &[&str] = &[
@@ -471,6 +473,217 @@ fn extract_features_via_mirror<'py>(
     ))
 }
 
+// -----------------------------------------------------------------------------
+// Strategy A-fast — same shape as A but with interned attribute names and
+// cached AST type pointers
+// -----------------------------------------------------------------------------
+//
+// Two clever-but-not-magic micro-optimisations on top of Strategy A:
+//
+// 1. PyO3's `intern!` macro caches Python strings the first time they're seen,
+//    so subsequent `getattr` calls skip the hash and just use the cached
+//    pointer-identical PyString.
+//
+// 2. AST class type objects are cached at first use. Dispatch becomes a pointer
+//    comparison via `is_exact_instance(type)` instead of pulling out the class
+//    name as a string and comparing.
+
+struct AstTypes {
+    select_query: Py<PyType>,
+    select_set_query: Py<PyType>,
+    join_expr: Py<PyType>,
+    compare_operation: Py<PyType>,
+    and_: Py<PyType>,
+    or_: Py<PyType>,
+    not_: Py<PyType>,
+    alias: Py<PyType>,
+    field: Py<PyType>,
+    constant: Py<PyType>,
+    tuple_: Py<PyType>,
+    array: Py<PyType>,
+}
+
+static AST_TYPES: GILOnceCell<AstTypes> = GILOnceCell::new();
+
+fn ast_types(py: Python<'_>) -> PyResult<&AstTypes> {
+    AST_TYPES.get_or_try_init(py, || {
+        let m = py.import_bound("posthog.hogql.ast")?;
+        let fetch = |name: &str| -> PyResult<Py<PyType>> {
+            Ok(m.getattr(name)?.downcast::<PyType>()?.clone().unbind())
+        };
+        Ok(AstTypes {
+            select_query: fetch("SelectQuery")?,
+            select_set_query: fetch("SelectSetQuery")?,
+            join_expr: fetch("JoinExpr")?,
+            compare_operation: fetch("CompareOperation")?,
+            and_: fetch("And")?,
+            or_: fetch("Or")?,
+            not_: fetch("Not")?,
+            alias: fetch("Alias")?,
+            field: fetch("Field")?,
+            constant: fetch("Constant")?,
+            tuple_: fetch("Tuple")?,
+            array: fetch("Array")?,
+        })
+    })
+}
+
+struct PyVisitorFast<'a> {
+    tables: BTreeSet<String>,
+    events: BTreeSet<String>,
+    types: &'a AstTypes,
+}
+
+impl<'a> PyVisitorFast<'a> {
+    fn new(types: &'a AstTypes) -> Self {
+        Self {
+            tables: BTreeSet::new(),
+            events: BTreeSet::new(),
+            types,
+        }
+    }
+
+    fn visit(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<()> {
+        let t = self.types;
+        // Pointer compare against the cached class objects. `is_exact_instance`
+        // is `Py_TYPE(obj) is type` — no MRO walk, no string compare.
+        if node.is_exact_instance(t.select_query.bind(py)) {
+            for attr in ["select_from", "where", "prewhere", "having"] {
+                self.visit_attr(py, node, attr)?;
+            }
+        } else if node.is_exact_instance(t.select_set_query.bind(py)) {
+            self.visit_attr(py, node, "initial_select_query")?;
+            for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
+                self.visit_attr(py, &item?, "select_query")?;
+            }
+        } else if node.is_exact_instance(t.join_expr.bind(py)) {
+            let table = node.getattr(intern!(py, "table"))?;
+            if !table.is_none() {
+                if table.is_exact_instance(t.field.bind(py)) {
+                    let chain = table.getattr(intern!(py, "chain"))?;
+                    if let Ok(first) = chain.get_item(0) {
+                        if let Ok(s) = first.extract::<String>() {
+                            self.tables.insert(s);
+                        }
+                    }
+                } else {
+                    self.visit(py, &table)?;
+                }
+            }
+            self.visit_attr(py, node, "next_join")?;
+        } else if node.is_exact_instance(t.compare_operation.bind(py)) {
+            let op: String = node.getattr(intern!(py, "op"))?.extract()?;
+            if op == "==" || op == "in" {
+                let left = strip_aliases_fast(py, &node.getattr(intern!(py, "left"))?, t)?;
+                let right = strip_aliases_fast(py, &node.getattr(intern!(py, "right"))?, t)?;
+                for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
+                    if looks_like_event_field_fast(py, field_side, t)? {
+                        collect_string_constants_fast(py, value_side, t, &mut self.events)?;
+                    }
+                }
+            }
+        } else if node.is_exact_instance(t.and_.bind(py)) || node.is_exact_instance(t.or_.bind(py)) {
+            for item in node.getattr(intern!(py, "exprs"))?.iter()? {
+                self.visit(py, &item?)?;
+            }
+        } else if node.is_exact_instance(t.not_.bind(py)) || node.is_exact_instance(t.alias.bind(py)) {
+            self.visit_attr(py, node, "expr")?;
+        }
+        Ok(())
+    }
+
+    fn visit_attr(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>, attr: &str) -> PyResult<()> {
+        // `intern!` builds an interned PyString at first call, then reuses it.
+        // The closure captures `attr` but `intern!` itself does the work.
+        let inner = match attr {
+            "select_from" => node.getattr(intern!(py, "select_from"))?,
+            "where" => node.getattr(intern!(py, "where"))?,
+            "prewhere" => node.getattr(intern!(py, "prewhere"))?,
+            "having" => node.getattr(intern!(py, "having"))?,
+            "initial_select_query" => node.getattr(intern!(py, "initial_select_query"))?,
+            "select_query" => node.getattr(intern!(py, "select_query"))?,
+            "next_join" => node.getattr(intern!(py, "next_join"))?,
+            "expr" => node.getattr(intern!(py, "expr"))?,
+            other => node.getattr(other)?,
+        };
+        if !inner.is_none() {
+            self.visit(py, &inner)?;
+        }
+        Ok(())
+    }
+}
+
+fn strip_aliases_fast<'py>(
+    py: Python<'py>,
+    expr: &Bound<'py, PyAny>,
+    types: &AstTypes,
+) -> PyResult<Bound<'py, PyAny>> {
+    let mut current = expr.clone();
+    while current.is_exact_instance(types.alias.bind(py)) {
+        current = current.getattr(intern!(py, "expr"))?;
+    }
+    Ok(current)
+}
+
+fn looks_like_event_field_fast(py: Python<'_>, expr: &Bound<'_, PyAny>, types: &AstTypes) -> PyResult<bool> {
+    if !expr.is_exact_instance(types.field.bind(py)) {
+        return Ok(false);
+    }
+    let chain = expr.getattr(intern!(py, "chain"))?;
+    let len = chain.len()?;
+    if len == 0 {
+        return Ok(false);
+    }
+    let last = chain.get_item(len - 1)?;
+    Ok(last.extract::<String>().ok().as_deref() == Some("event"))
+}
+
+fn collect_string_constants_fast(
+    py: Python<'_>,
+    expr: &Bound<'_, PyAny>,
+    types: &AstTypes,
+    out: &mut BTreeSet<String>,
+) -> PyResult<()> {
+    if expr.is_exact_instance(types.constant.bind(py)) {
+        if let Ok(s) = expr.getattr(intern!(py, "value"))?.extract::<String>() {
+            if is_interesting_event(&s) {
+                out.insert(s);
+            }
+        }
+    } else if expr.is_exact_instance(types.tuple_.bind(py)) || expr.is_exact_instance(types.array.bind(py)) {
+        for item in expr.getattr(intern!(py, "exprs"))?.iter()? {
+            collect_string_constants_fast(py, &item?, types, out)?;
+        }
+    } else if expr.is_exact_instance(types.alias.bind(py)) {
+        collect_string_constants_fast(py, &expr.getattr(intern!(py, "expr"))?, types, out)?;
+    }
+    Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (query=None))]
+fn extract_features_py_fast<'py>(
+    py: Python<'py>,
+    query: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let (tables, events) = match query {
+        None => (Vec::new(), Vec::new()),
+        Some(q) => {
+            let types = ast_types(py)?;
+            let mut v = PyVisitorFast::new(types);
+            v.visit(py, &q)?;
+            (
+                v.tables.into_iter().collect::<Vec<_>>(),
+                v.events.into_iter().collect::<Vec<_>>(),
+            )
+        }
+    };
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
+}
+
 // Mirror handle returned to Python — opaque, the only thing callers do with it
 // is hand it back to `extract_features_from_mirror`. Lets bench code time the
 // conversion and the native walk separately.
@@ -501,6 +714,7 @@ fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyR
 #[pymodule]
 fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_features_py_fast, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
     m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
