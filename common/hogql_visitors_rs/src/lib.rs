@@ -13,11 +13,13 @@
 //!   the conversion across multiple visitors over the same query (via
 //!   `to_mirror` + `extract_features_from_mirror`).
 
+use pyo3::ffi::{PyMemberDef, PyObject, PyTypeObject, Py_INCREF, Py_ssize_t};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyList, PyTuple, PyType};
 use std::collections::BTreeSet;
+use std::os::raw::c_char;
 
 const INTERESTING_EVENTS: &[&str] = &[
     "$ai_generation",
@@ -227,6 +229,430 @@ fn extract_features_py<'py>(py: Python<'py>, query: Option<Bound<'py, PyAny>>) -
         Some(q) => {
             let types = ast_types(py)?;
             let mut v = PyVisitor::new(types);
+            v.visit(py, &q)?;
+            (
+                v.tables.into_iter().collect::<Vec<_>>(),
+                v.events.into_iter().collect::<Vec<_>>(),
+            )
+        }
+    };
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
+}
+
+// -----------------------------------------------------------------------------
+// Strategy A-slots — direct slot-offset reads instead of getattr
+// -----------------------------------------------------------------------------
+//
+// `@dataclass(slots=True)` lays each instance out as a C struct with a
+// known-at-class-creation offset per field. PyO3's `getattr(intern!())` still
+// walks the type's MRO to find the slot descriptor on every call. We can
+// skip that by extracting each slot's offset once from its
+// `member_descriptor` and reading the PyObject pointer directly.
+//
+// One small piece of `unsafe` glue: PyO3 exposes `PyMemberDef` (which has
+// `.offset`), but doesn't expose the `PyMemberDescrObject` layout that
+// holds the `PyMemberDef *` pointer. So we mirror that struct here. The
+// layout has been stable since Python 3.12.
+
+#[repr(C)]
+struct CMemberDescrObject {
+    ob_refcnt: Py_ssize_t,
+    ob_type: *mut PyTypeObject,
+    // PyDescrObject head:
+    d_type: *mut PyTypeObject,
+    d_name: *mut PyObject,
+    d_qualname: *mut PyObject,
+    // PyMemberDescrObject's payload — the thing we want:
+    d_member: *mut PyMemberDef,
+}
+
+/// Pull the slot offset out of a `member_descriptor` for the named attribute.
+/// Returns `None` if the class doesn't expose a member descriptor by that
+/// name (e.g. inherited from a non-slots base, or `cached_property`, etc.).
+fn slot_offset(cls: &Bound<'_, PyType>, attr: &str) -> Option<isize> {
+    let descr = cls.getattr(attr).ok()?;
+    // Confirm it really is a member_descriptor before reinterpreting.
+    let descr_type = descr.get_type();
+    let descr_type_name = descr_type.name().ok()?;
+    if descr_type_name.to_str().ok()? != "member_descriptor" {
+        return None;
+    }
+    unsafe {
+        let descr_ptr = descr.as_ptr() as *const CMemberDescrObject;
+        let member_def = (*descr_ptr).d_member;
+        if member_def.is_null() {
+            return None;
+        }
+        Some((*member_def).offset)
+    }
+}
+
+/// Read a slot at a known offset from a Python object. Returns `None` if the
+/// slot is unset (NULL) or if it holds `Py_None`. Callers expecting `None`
+/// values as a real signal should use `read_slot_raw` instead.
+unsafe fn read_slot<'py>(node: &Bound<'py, PyAny>, offset: isize) -> Option<Bound<'py, PyAny>> {
+    let node_ptr = node.as_ptr() as *const c_char;
+    let field_ptr = node_ptr.byte_offset(offset) as *const *mut PyObject;
+    let raw = *field_ptr;
+    if raw.is_null() {
+        return None;
+    }
+    // Treat `None` as missing — matches how Strategy A's `visit_attr` already
+    // checks `inner.is_none()` before recursing.
+    if raw == pyo3::ffi::Py_None() {
+        return None;
+    }
+    Py_INCREF(raw);
+    Some(Bound::from_owned_ptr(node.py(), raw))
+}
+
+/// Same as `read_slot` but returns `Py_None` as a real value instead of
+/// short-circuiting it. Used for `op` and `value` fields where None is a
+/// valid distinct case.
+unsafe fn read_slot_raw<'py>(node: &Bound<'py, PyAny>, offset: isize) -> Option<Bound<'py, PyAny>> {
+    let node_ptr = node.as_ptr() as *const c_char;
+    let field_ptr = node_ptr.byte_offset(offset) as *const *mut PyObject;
+    let raw = *field_ptr;
+    if raw.is_null() {
+        return None;
+    }
+    Py_INCREF(raw);
+    Some(Bound::from_owned_ptr(node.py(), raw))
+}
+
+// Per-class slot offset caches. Each variant only fills in the fields its
+// branch of the visitor reads.
+
+#[derive(Default)]
+struct SelectQueryOffsets {
+    select_from: isize,
+    where_: isize,
+    prewhere: isize,
+    having: isize,
+}
+
+#[derive(Default)]
+struct SelectSetQueryOffsets {
+    initial_select_query: isize,
+    subsequent_select_queries: isize,
+}
+
+#[derive(Default)]
+struct SelectSetNodeOffsets {
+    select_query: isize,
+}
+
+#[derive(Default)]
+struct JoinExprOffsets {
+    table: isize,
+    next_join: isize,
+}
+
+#[derive(Default)]
+struct CompareOperationOffsets {
+    op: isize,
+    left: isize,
+    right: isize,
+}
+
+#[derive(Default)]
+struct FieldOffsets {
+    chain: isize,
+}
+
+#[derive(Default)]
+struct ExprsContainerOffsets {
+    // for And / Or / Tuple / Array
+    exprs: isize,
+}
+
+#[derive(Default)]
+struct ExprWrapperOffsets {
+    // for Not / Alias
+    expr: isize,
+}
+
+#[derive(Default)]
+struct ConstantOffsets {
+    value: isize,
+}
+
+struct AstOffsets {
+    select_query: SelectQueryOffsets,
+    select_set_query: SelectSetQueryOffsets,
+    select_set_node: SelectSetNodeOffsets,
+    join_expr: JoinExprOffsets,
+    compare_operation: CompareOperationOffsets,
+    field: FieldOffsets,
+    and_: ExprsContainerOffsets,
+    or_: ExprsContainerOffsets,
+    tuple_: ExprsContainerOffsets,
+    array: ExprsContainerOffsets,
+    not_: ExprWrapperOffsets,
+    alias: ExprWrapperOffsets,
+    constant: ConstantOffsets,
+}
+
+static AST_OFFSETS: GILOnceCell<AstOffsets> = GILOnceCell::new();
+
+fn ast_offsets<'py>(py: Python<'py>) -> PyResult<&'py AstOffsets> {
+    AST_OFFSETS.get_or_try_init(py, || {
+        let m = py.import_bound("posthog.hogql.ast")?;
+        let off = |name: &str, attr: &str| -> PyResult<isize> {
+            let cls = m.getattr(name)?.downcast::<PyType>()?.clone();
+            slot_offset(&cls, attr).ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "couldn't extract slot offset for {name}.{attr} — class may not be @dataclass(slots=True)"
+                ))
+            })
+        };
+        Ok(AstOffsets {
+            select_query: SelectQueryOffsets {
+                select_from: off("SelectQuery", "select_from")?,
+                where_: off("SelectQuery", "where")?,
+                prewhere: off("SelectQuery", "prewhere")?,
+                having: off("SelectQuery", "having")?,
+            },
+            select_set_query: SelectSetQueryOffsets {
+                initial_select_query: off("SelectSetQuery", "initial_select_query")?,
+                subsequent_select_queries: off("SelectSetQuery", "subsequent_select_queries")?,
+            },
+            select_set_node: SelectSetNodeOffsets {
+                select_query: off("SelectSetNode", "select_query")?,
+            },
+            join_expr: JoinExprOffsets {
+                table: off("JoinExpr", "table")?,
+                next_join: off("JoinExpr", "next_join")?,
+            },
+            compare_operation: CompareOperationOffsets {
+                op: off("CompareOperation", "op")?,
+                left: off("CompareOperation", "left")?,
+                right: off("CompareOperation", "right")?,
+            },
+            field: FieldOffsets {
+                chain: off("Field", "chain")?,
+            },
+            and_: ExprsContainerOffsets {
+                exprs: off("And", "exprs")?,
+            },
+            or_: ExprsContainerOffsets {
+                exprs: off("Or", "exprs")?,
+            },
+            tuple_: ExprsContainerOffsets {
+                exprs: off("Tuple", "exprs")?,
+            },
+            array: ExprsContainerOffsets {
+                exprs: off("Array", "exprs")?,
+            },
+            not_: ExprWrapperOffsets {
+                expr: off("Not", "expr")?,
+            },
+            alias: ExprWrapperOffsets {
+                expr: off("Alias", "expr")?,
+            },
+            constant: ConstantOffsets {
+                value: off("Constant", "value")?,
+            },
+        })
+    })
+}
+
+struct SlotsVisitor<'a> {
+    tables: BTreeSet<String>,
+    events: BTreeSet<String>,
+    types: &'a AstTypes,
+    offsets: &'a AstOffsets,
+}
+
+impl<'a> SlotsVisitor<'a> {
+    fn new(types: &'a AstTypes, offsets: &'a AstOffsets) -> Self {
+        Self {
+            tables: BTreeSet::new(),
+            events: BTreeSet::new(),
+            types,
+            offsets,
+        }
+    }
+
+    fn visit(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<()> {
+        let t = self.types;
+        let o = self.offsets;
+        unsafe {
+            if node.is_exact_instance(t.select_query.bind(py)) {
+                for offset in [
+                    o.select_query.select_from,
+                    o.select_query.where_,
+                    o.select_query.prewhere,
+                    o.select_query.having,
+                ] {
+                    if let Some(child) = read_slot(node, offset) {
+                        self.visit(py, &child)?;
+                    }
+                }
+            } else if node.is_exact_instance(t.select_set_query.bind(py)) {
+                if let Some(initial) = read_slot(node, o.select_set_query.initial_select_query) {
+                    self.visit(py, &initial)?;
+                }
+                if let Some(subs) = read_slot(node, o.select_set_query.subsequent_select_queries) {
+                    for item in subs.iter()? {
+                        let sub = item?;
+                        if let Some(q) = read_slot(&sub, o.select_set_node.select_query) {
+                            self.visit(py, &q)?;
+                        }
+                    }
+                }
+            } else if node.is_exact_instance(t.join_expr.bind(py)) {
+                if let Some(table) = read_slot(node, o.join_expr.table) {
+                    if table.is_exact_instance(t.field.bind(py)) {
+                        if let Some(chain) = read_slot(&table, o.field.chain) {
+                            if let Ok(first) = chain.get_item(0) {
+                                if let Ok(s) = first.extract::<String>() {
+                                    self.tables.insert(s);
+                                }
+                            }
+                        }
+                    } else {
+                        self.visit(py, &table)?;
+                    }
+                }
+                if let Some(next_join) = read_slot(node, o.join_expr.next_join) {
+                    self.visit(py, &next_join)?;
+                }
+            } else if node.is_exact_instance(t.compare_operation.bind(py)) {
+                if let Some(op_obj) = read_slot_raw(node, o.compare_operation.op) {
+                    let op: String = op_obj.extract()?;
+                    if op == "==" || op == "in" {
+                        // left/right are required fields; treat None as a typing
+                        // edge case but normal extraction handles that.
+                        let left_raw = read_slot_raw(node, o.compare_operation.left);
+                        let right_raw = read_slot_raw(node, o.compare_operation.right);
+                        if let (Some(l), Some(r)) = (left_raw, right_raw) {
+                            let left = strip_aliases_slots(py, &l, o, t)?;
+                            let right = strip_aliases_slots(py, &r, o, t)?;
+                            for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
+                                if looks_like_event_field_slots(py, field_side, o, t)? {
+                                    collect_string_constants_slots(py, value_side, o, t, &mut self.events)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if node.is_exact_instance(t.and_.bind(py)) {
+                if let Some(exprs) = read_slot(node, o.and_.exprs) {
+                    for item in exprs.iter()? {
+                        self.visit(py, &item?)?;
+                    }
+                }
+            } else if node.is_exact_instance(t.or_.bind(py)) {
+                if let Some(exprs) = read_slot(node, o.or_.exprs) {
+                    for item in exprs.iter()? {
+                        self.visit(py, &item?)?;
+                    }
+                }
+            } else if node.is_exact_instance(t.not_.bind(py)) {
+                if let Some(expr) = read_slot(node, o.not_.expr) {
+                    self.visit(py, &expr)?;
+                }
+            } else if node.is_exact_instance(t.alias.bind(py)) {
+                if let Some(expr) = read_slot(node, o.alias.expr) {
+                    self.visit(py, &expr)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn strip_aliases_slots<'py>(
+    py: Python<'py>,
+    expr: &Bound<'py, PyAny>,
+    offsets: &AstOffsets,
+    types: &AstTypes,
+) -> PyResult<Bound<'py, PyAny>> {
+    let mut current = expr.clone();
+    while current.is_exact_instance(types.alias.bind(py)) {
+        let next = unsafe { read_slot_raw(&current, offsets.alias.expr) };
+        match next {
+            Some(n) => current = n,
+            None => break,
+        }
+    }
+    Ok(current)
+}
+
+fn looks_like_event_field_slots(
+    py: Python<'_>,
+    expr: &Bound<'_, PyAny>,
+    offsets: &AstOffsets,
+    types: &AstTypes,
+) -> PyResult<bool> {
+    if !expr.is_exact_instance(types.field.bind(py)) {
+        return Ok(false);
+    }
+    let chain = match unsafe { read_slot(expr, offsets.field.chain) } {
+        Some(c) => c,
+        None => return Ok(false),
+    };
+    let len = chain.len()?;
+    if len == 0 {
+        return Ok(false);
+    }
+    let last = chain.get_item(len - 1)?;
+    Ok(last.extract::<String>().ok().as_deref() == Some("event"))
+}
+
+fn collect_string_constants_slots(
+    py: Python<'_>,
+    expr: &Bound<'_, PyAny>,
+    offsets: &AstOffsets,
+    types: &AstTypes,
+    out: &mut BTreeSet<String>,
+) -> PyResult<()> {
+    unsafe {
+        if expr.is_exact_instance(types.constant.bind(py)) {
+            if let Some(v) = read_slot_raw(expr, offsets.constant.value) {
+                if let Ok(s) = v.extract::<String>() {
+                    if is_interesting_event(&s) {
+                        out.insert(s);
+                    }
+                }
+            }
+        } else if expr.is_exact_instance(types.tuple_.bind(py)) {
+            if let Some(exprs) = read_slot(expr, offsets.tuple_.exprs) {
+                for item in exprs.iter()? {
+                    collect_string_constants_slots(py, &item?, offsets, types, out)?;
+                }
+            }
+        } else if expr.is_exact_instance(types.array.bind(py)) {
+            if let Some(exprs) = read_slot(expr, offsets.array.exprs) {
+                for item in exprs.iter()? {
+                    collect_string_constants_slots(py, &item?, offsets, types, out)?;
+                }
+            }
+        } else if expr.is_exact_instance(types.alias.bind(py)) {
+            if let Some(inner) = read_slot(expr, offsets.alias.expr) {
+                collect_string_constants_slots(py, &inner, offsets, types, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (query=None))]
+fn extract_features_py_slots<'py>(
+    py: Python<'py>,
+    query: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let (tables, events) = match query {
+        None => (Vec::new(), Vec::new()),
+        Some(q) => {
+            let types = ast_types(py)?;
+            let offsets = ast_offsets(py)?;
+            let mut v = SlotsVisitor::new(types, offsets);
             v.visit(py, &q)?;
             (
                 v.tables.into_iter().collect::<Vec<_>>(),
@@ -547,6 +973,7 @@ fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyR
 #[pymodule]
 fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_features_py_slots, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
     m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
