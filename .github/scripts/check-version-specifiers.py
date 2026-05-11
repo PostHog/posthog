@@ -65,11 +65,12 @@ def collect_deps(data: dict) -> list[str]:
 
     uv = data.get("tool", {}).get("uv", {})
 
-    # Flat list fields that accept PEP 508 strings
-    for field_name in ("dev-dependencies", "constraint-dependencies", "override-dependencies"):
-        field = uv.get(field_name, [])
-        if isinstance(field, list):
-            results.extend(d for d in field if isinstance(d, str))
+    # dev-dependencies: first-class declared requirements (legacy uv flat list)
+    # constraint-dependencies / override-dependencies are intentionally excluded:
+    # they express version floors on transitive deps where bare >= is correct usage.
+    field = uv.get("dev-dependencies", [])
+    if isinstance(field, list):
+        results.extend(d for d in field if isinstance(d, str))
 
     # Grouped fields (dev, optional)
     for section_name in ("dev", "optional"):
