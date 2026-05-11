@@ -27,14 +27,19 @@ rules:
       severity: ERROR
       languages: [typescript, javascript]
       patterns:
-          # Match <Tooltip ... title={$TITLE} ...>...</Tooltip>, then require that
-          # the source text of $TITLE contains `<Link` or `<a ` anywhere. Regex over
-          # the metavariable handles arbitrary wrapper depth (one of the audit cases
-          # had the Link nested two <div> layers deep inside the title).
+          # Match <Tooltip ... title={$TITLE} ...>...</Tooltip>, then run a fresh
+          # Semgrep search inside the binding of $TITLE looking for a <Link> or
+          # <a>. metavariable-pattern descends through the JSX AST, so this
+          # catches Links nested at any depth inside the title expression —
+          # including the audit case with two <div> layers between the
+          # Fragment root and the <Link>.
           - pattern: <Tooltip ... title={$TITLE} ...>$...CHILDREN</Tooltip>
-          - metavariable-regex:
+          - metavariable-pattern:
                 metavariable: $TITLE
-                regex: '<(?:Link\b|a\s)'
+                patterns:
+                    - pattern-either:
+                          - pattern: <Link ...>...</Link>
+                          - pattern: <a ...>...</a>
           - pattern-not: <Tooltip ... interactive ...>$...</Tooltip>
           - pattern-not: <Tooltip ... interactive={...} ...>$...</Tooltip>
           - pattern-not: <Tooltip ... docLink=$D ...>$...</Tooltip>
