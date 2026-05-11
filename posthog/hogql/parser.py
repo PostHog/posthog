@@ -15,7 +15,7 @@ from hogql_parser import (
     parse_select_json as _parse_select_json_cpp,
 )
 from opentelemetry import trace
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
 
 from posthog.hogql import ast
@@ -131,6 +131,16 @@ _PARSE_CACHE_EVENTS = Counter(
     "HogQL parse-cache lookups",
     labelnames=["origin", "result", "rule"],
 )
+_PARSE_CACHE_SIZE = Gauge(
+    "hogql_parse_cache_size",
+    "Current entries in the HogQL parse cache (compare against the configured maxsize to spot saturation)",
+    labelnames=["cache"],
+)
+_PARSE_CACHE_MAXSIZE = Gauge(
+    "hogql_parse_cache_maxsize",
+    "Configured maxsize of the HogQL parse cache",
+    labelnames=["cache"],
+)
 
 
 def _looks_like_code_literal(s: str) -> bool:
@@ -165,6 +175,10 @@ def _user_parse_cache(statement: str, backend: HogQLParserBackend, rule: ParseRu
     return _invoke_parser(backend, rule, statement, start)
 
 
+_PARSE_CACHE_MAXSIZE.labels(cache="builtin").set(_BUILTIN_CACHE_SIZE)
+_PARSE_CACHE_MAXSIZE.labels(cache="user").set(_USER_CACHE_SIZE)
+
+
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
     fn = RULE_TO_PARSE_FUNCTION[backend][rule]
     # Only `expr` takes a `start` arg; the others have a single positional.
@@ -191,12 +205,16 @@ def _parse_cached(
     cache_fn = _builtin_parse_cache if cache_origin == "builtin" else _user_parse_cache
     before_misses = cache_fn.cache_info().misses
     cached = cache_fn(statement, backend, rule, start)
-    after_misses = cache_fn.cache_info().misses
+    info = cache_fn.cache_info()
+    is_miss = info.misses > before_misses
     _PARSE_CACHE_EVENTS.labels(
         origin=cache_origin,
-        result="miss" if after_misses > before_misses else "hit",
+        result="miss" if is_miss else "hit",
         rule=rule,
     ).inc()
+    if is_miss:
+        # Size only changes on miss (fill or evict). Update lazily.
+        _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(info.currsize)
     return copy.deepcopy(cached)
 
 
@@ -204,6 +222,8 @@ def clear_parse_caches() -> None:
     """Drop both parse caches. Used by tests."""
     _builtin_parse_cache.cache_clear()
     _user_parse_cache.cache_clear()
+    _PARSE_CACHE_SIZE.labels(cache="builtin").set(0)
+    _PARSE_CACHE_SIZE.labels(cache="user").set(0)
 
 
 def parse_string_template(
