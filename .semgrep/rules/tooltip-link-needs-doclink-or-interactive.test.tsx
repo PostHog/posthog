@@ -1,215 +1,191 @@
 // @ts-nocheck
 // Test fixture for tooltip-link-needs-doclink-or-interactive rule.
 //
-// Mirrors the three shapes the rule matches:
-//   1. Link as the bare value of title
-//   2. Link inside a Fragment <>...</>
-//   3. Link inside a single element wrapper (span/div/p/etc.)
-//
-// Plus the negative cases the rule must NOT match (false-positive guards).
+// Semgrep test convention: `// ruleid:` / `// ok:` annotates the line
+// IMMEDIATELY AFTER the comment, and the rule's match start line must be
+// that next line. For JSX patterns, the match starts on the `<Tooltip` line,
+// so each annotation sits directly above `<Tooltip` — never above an outer
+// wrapper like `function` or `return (`.
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-// ─── ruleid cases: <Tooltip> with <Link> inside `title` and no docLink/interactive ───
+// ─── ruleid cases: <Tooltip> with <Link>/<a> inside `title`, missing both
+//     `interactive` and `docLink`. Rule must match each one. ───
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-function Case1Fragment() {
-    return (
-        <Tooltip
-            title={
-                <>
-                    Some prose. <Link to="https://posthog.com/docs/foo">Learn more</Link>
-                </>
-            }
-        >
-            <span>trigger</span>
-        </Tooltip>
-    )
-}
+// Shape 1: Link inside a Fragment <>...</>
+const Case1Fragment = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        title={
+            <>
+                Some prose. <Link to="https://posthog.com/docs/foo">Learn more</Link>
+            </>
+        }
+    >
+        <span>trigger</span>
+    </Tooltip>
+)
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-function Case2SpanWrap() {
-    return (
-        <Tooltip
-            title={
-                <span>
-                    Body copy. Read about <Link to="https://posthog.com/docs/foo">the thing</Link>.
-                </span>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// Shape 2: Link inside a <span> wrapper
+const Case2SpanWrap = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        title={
+            <span>
+                Body copy. Read about <Link to="https://posthog.com/docs/foo">the thing</Link>.
+            </span>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-function Case3DivWrap() {
-    return (
-        <Tooltip
-            title={
+// Shape 3: Link inside a <div> wrapper
+const Case3DivWrap = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        title={
+            <div>
+                Paragraph one. <Link to="https://posthog.com/docs/foo">Docs</Link>.
+            </div>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
+
+// Shape 4: Link as the bare value of `title`
+const Case4BareLink = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip title={<Link to="https://posthog.com/docs/foo">Just a link</Link>}>
+        <IconInfo />
+    </Tooltip>
+)
+
+// Shape 5: `closeDelayMs` workaround — extends the close timer but does NOT
+// make the popup hoverable. Rule must still fire.
+const Case5CloseDelayWorkaround = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        closeDelayMs={200}
+        title={
+            <>
+                Body. <Link to="https://posthog.com/docs/foo">Docs</Link>
+            </>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
+
+// Shape 6: Link nested two layers deep — six of the eleven audited bug
+// cases had this shape.
+const Case6DeeplyNested = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        title={
+            <div className="deprecated-space-y-2">
+                <div>Top-level prose.</div>
                 <div>
-                    Paragraph one. <Link to="https://posthog.com/docs/foo">Docs</Link>.
+                    Read more in the <Link to="https://posthog.com/docs/foo">documentation</Link>.
                 </div>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+            </div>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-function Case4BareLink() {
-    return (
-        <Tooltip title={<Link to="https://posthog.com/docs/foo">Just a link</Link>}>
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// Shape 7: Plain `<a href>` inside title — the rule covers bare anchors too,
+// not just `<Link>`.
+const Case7PlainAnchor = (
+    // ruleid: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        title={
+            <>
+                See <a href="/somewhere">over here</a>
+            </>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-// The `closeDelayMs` workaround does NOT satisfy interactive — it extends the
-// close timer but the popup is still not hoverable. Rule must still match.
-function Case5CloseDelayWorkaround() {
-    return (
-        <Tooltip
-            closeDelayMs={200}
-            title={
-                <>
-                    Body. <Link to="https://posthog.com/docs/foo">Docs</Link>
-                </>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// ─── ok cases: rule must NOT match (false-positive guards) ───
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-// Link nested two layers deep — must still match. Six of the eleven audited
-// bug cases had this shape.
-function Case6DeeplyNested() {
-    return (
-        <Tooltip
-            title={
-                <div className="deprecated-space-y-2">
-                    <div>Top-level prose.</div>
-                    <div>
-                        Read more in the <Link to="https://posthog.com/docs/foo">documentation</Link>.
-                    </div>
-                </div>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// `docLink` set
+const OkWithDocLink = (
+    // ok: tooltip-link-needs-doclink-or-interactive
+    <Tooltip docLink="https://posthog.com/docs/foo" title="Some prose.">
+        <IconInfo />
+    </Tooltip>
+)
 
-// ruleid: tooltip-link-needs-doclink-or-interactive
-// Plain <a href> inside title — must also match (Link is the common case in the
-// audit, but the rule covers bare anchors too).
-function Case7PlainAnchor() {
-    return (
-        <Tooltip
-            title={
-                <>
-                    See <a href="/somewhere">over here</a>
-                </>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// `interactive` set as bare prop
+const OkInteractiveBare = (
+    // ok: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        interactive
+        title={
+            <>
+                Body. <Link to="https://posthog.com/docs/foo">Docs</Link>
+            </>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
 
-// ─── ok cases: rule must NOT match ───
+// `interactive={true}`
+const OkInteractiveExplicit = (
+    // ok: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        interactive={true}
+        title={
+            <>
+                Body. <Link to="/settings">Internal link</Link>
+            </>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
 
-// ok: tooltip-link-needs-doclink-or-interactive
-// docLink set → rule must not match
-function OkWithDocLink() {
-    return (
-        <Tooltip docLink="https://posthog.com/docs/foo" title="Some prose.">
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// `<Link>` is the trigger (children), not inside `title`
+const OkLinkIsTrigger = (
+    // ok: tooltip-link-needs-doclink-or-interactive
+    <Tooltip title="Hover me">
+        <Link to="/somewhere">Click me</Link>
+    </Tooltip>
+)
 
-// ok: tooltip-link-needs-doclink-or-interactive
-// interactive set (bare) → rule must not match
-function OkInteractiveBare() {
-    return (
-        <Tooltip
-            interactive
-            title={
-                <>
-                    Body. <Link to="https://posthog.com/docs/foo">Docs</Link>
-                </>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// Plain-string title, no Link anywhere
+const OkPlainStringTitle = (
+    // ok: tooltip-link-needs-doclink-or-interactive
+    <Tooltip title="Just a label">
+        <span>trigger</span>
+    </Tooltip>
+)
 
-// ok: tooltip-link-needs-doclink-or-interactive
-// interactive={true} → rule must not match
-function OkInteractiveExplicit() {
-    return (
-        <Tooltip
-            interactive={true}
-            title={
-                <>
-                    Body. <Link to="/settings">Internal link</Link>
-                </>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// Title JSX without a Link
+const OkRichTextNoLink = (
+    // ok: tooltip-link-needs-doclink-or-interactive
+    <Tooltip title={<span className="font-mono">code-ish content</span>}>
+        <IconInfo />
+    </Tooltip>
+)
 
-// ok: tooltip-link-needs-doclink-or-interactive
-// Link is the *trigger* (children), not inside title → rule must not match
-function OkLinkIsTrigger() {
-    return (
-        <Tooltip title="Hover me">
-            <Link to="/somewhere">Click me</Link>
-        </Tooltip>
-    )
-}
-
-// ok: tooltip-link-needs-doclink-or-interactive
-// Plain-string title, no Link anywhere → rule must not match
-function OkPlainStringTitle() {
-    return (
-        <Tooltip title="Just a label">
-            <span>trigger</span>
-        </Tooltip>
-    )
-}
-
-// ok: tooltip-link-needs-doclink-or-interactive
-// Title JSX without a Link → rule must not match
-function OkRichTextNoLink() {
-    return (
-        <Tooltip title={<span className="font-mono">code-ish content</span>}>
-            <IconInfo />
-        </Tooltip>
-    )
-}
-
-// nosemgrep: tooltip-link-needs-doclink-or-interactive
-// Suppressed call site. Documenting why suppression is acceptable should sit
-// adjacent to the nosemgrep comment in real code.
-function SuppressedIntentionally() {
-    return (
-        <Tooltip
-            title={
-                <>
-                    Decorative <Link to="https://posthog.com/docs/foo">link</Link> that nobody clicks
-                </>
-            }
-        >
-            <IconInfo />
-        </Tooltip>
-    )
-}
+// Suppressed call site — escape hatch for intentional non-hoverable cases.
+// In real code, document the reason adjacent to the nosemgrep comment.
+const SuppressedIntentionally = (
+    // nosemgrep: tooltip-link-needs-doclink-or-interactive
+    <Tooltip
+        title={
+            <>
+                Decorative <Link to="https://posthog.com/docs/foo">link</Link> that nobody clicks
+            </>
+        }
+    >
+        <IconInfo />
+    </Tooltip>
+)
