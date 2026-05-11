@@ -57,6 +57,7 @@ PRODUCTS_APPS = [
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
@@ -421,6 +422,12 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
+        "LensModelEnum": "products.replay_vision.backend.models.replay_lens.LensModel",
+        "LensTypeEnum": "products.replay_vision.backend.models.replay_lens.LensType",
+        "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
+        "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
+        "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

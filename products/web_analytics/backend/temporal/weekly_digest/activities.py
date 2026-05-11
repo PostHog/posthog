@@ -78,23 +78,10 @@ def _get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
                     )
                 )
             )
-        all_org_ids = [str(oid) for oid in qs.values_list("id", flat=True)]
-
-        org_ids = [
-            org_id
-            for org_id in all_org_ids
-            if posthoganalytics.feature_enabled(
-                "web-analytics-weekly-digest",
-                distinct_id=f"digest-worker-{org_id}",
-                groups={"organization": org_id},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        ]
+        org_ids = [str(oid) for oid in qs.values_list("id", flat=True)]
         logger.info(
             "wa digest org query complete",
-            total=len(all_org_ids),
-            after_flag=len(org_ids),
+            count=len(org_ids),
             active_since_days=input.active_since_days,
             cutoff=cutoff.isoformat() if cutoff else None,
         )
@@ -192,6 +179,28 @@ def _send_digest_for_user(
     return DigestOutcome.SENT
 
 
+def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                "web-analytics-weekly-digest",
+                distinct_id=str(user.distinct_id),
+                groups={"organization": org_id},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "wa digest: flag eval failed, treating user as not targeted",
+            user_id=str(user.uuid),
+            org_id=org_id,
+            error=str(e),
+        )
+        capture_exception(e, {"user_id": str(user.uuid), "org_id": org_id})
+        return False
+
+
 def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCounts:
     close_old_connections()
 
@@ -205,17 +214,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     memberships = list(OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id))
-    targeted_memberships = [
-        m
-        for m in memberships
-        if posthoganalytics.feature_enabled(
-            "web-analytics-weekly-digest",
-            distinct_id=str(m.user.distinct_id),
-            groups={"organization": str(org.id)},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    ]
+    targeted_memberships = [m for m in memberships if _is_user_targeted_for_digest(m.user, str(org.id))]
     if not targeted_memberships:
         counts.skipped_reason = "no_targeted_memberships"
         return counts

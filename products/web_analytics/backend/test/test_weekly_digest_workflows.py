@@ -23,7 +23,7 @@ def _empty_batch_result(batch_size: int) -> DigestBatchResult:
 
 
 @pytest.mark.asyncio
-async def test_wa_weekly_digest_returns_early_when_no_batches() -> None:
+async def test_wa_weekly_digest_skips_batch_fanout_when_no_batches_but_still_pushes_metrics() -> None:
     @activity.defn(name="wa-digest-get-org-batches")
     async def _get_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
         return []
@@ -32,9 +32,11 @@ async def test_wa_weekly_digest_returns_early_when_no_batches() -> None:
     async def _run_batch(input: DigestBatchInput) -> DigestBatchResult:
         raise AssertionError("should not be called when there are no batches")
 
+    metric_pushes: list[tuple[dict, bool]] = []
+
     @activity.defn(name="wa-digest-push-metrics")
     async def _push_metrics(totals_dict: dict, success: bool) -> None:
-        raise AssertionError("should not push metrics when there is no work")
+        metric_pushes.append((totals_dict, success))
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -52,7 +54,11 @@ async def test_wa_weekly_digest_returns_early_when_no_batches() -> None:
                 task_queue=task_queue,
             )
 
-    assert result == {"orgs": 0, "batches": 0}
+    assert result["orgs"] == 0
+    assert result["batches"] == 0
+    assert result["emails_sent"] == 0
+    assert len(metric_pushes) == 1
+    assert metric_pushes[0][1] is True
 
 
 @dataclasses.dataclass

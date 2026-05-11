@@ -7,6 +7,11 @@ export type PostHogMcpAnalyticsIdentityProvider = McpCatIdentityProvider
 
 export type PostHogMcpAnalyticsOptions = {
     contextEnabled: boolean
+    // Gate `get_more_tools` registration on non-single-exec mode. With the full
+    // tool roster registered, a missing-tool report maps to a real gap in the
+    // catalog. In single-exec mode the wrapper handles every call, so the
+    // signal has nothing to map to and the extra slot is just noise.
+    reportMissingEnabled: boolean
 }
 
 export type PostHogMcpAnalyticsInitResult =
@@ -15,7 +20,7 @@ export type PostHogMcpAnalyticsInitResult =
           contextEnabled: boolean
           tracingEnabled: true
           aiTracingEnabled: true
-          reportMissingEnabled: true
+          reportMissingEnabled: boolean
       }
     | {
           action: 'skipped'
@@ -99,7 +104,7 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
 export async function initPostHogMcpAnalytics(
     server: McpServer,
     identity: PostHogMcpAnalyticsIdentityProvider,
-    options: PostHogMcpAnalyticsOptions = { contextEnabled: false }
+    options: PostHogMcpAnalyticsOptions = { contextEnabled: false, reportMissingEnabled: false }
 ): Promise<PostHogMcpAnalyticsInitResult> {
     const posthogApiKey = env.POSTHOG_ANALYTICS_API_KEY
     const posthogHost = env.POSTHOG_ANALYTICS_HOST
@@ -129,7 +134,7 @@ export async function initPostHogMcpAnalytics(
                 flushInterval: 0,
                 host: posthogHost,
             },
-            reportMissing: true,
+            reportMissing: options.reportMissingEnabled,
             eventTags: async () => buildEventTags(identity),
             eventProperties: async () => buildEventProperties(identity),
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
@@ -140,7 +145,7 @@ export async function initPostHogMcpAnalytics(
             contextEnabled: options.contextEnabled,
             tracingEnabled: true,
             aiTracingEnabled: true,
-            reportMissingEnabled: true,
+            reportMissingEnabled: options.reportMissingEnabled,
         }
     } catch (error) {
         return {
