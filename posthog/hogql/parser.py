@@ -1,7 +1,8 @@
 import sys
 import copy
-import functools
+from collections import OrderedDict
 from collections.abc import Callable
+from enum import StrEnum
 from types import FrameType
 from typing import Any, Literal, cast
 
@@ -30,7 +31,13 @@ from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_li
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 
-CacheOrigin = Literal["auto", "builtin", "user"]
+
+class CacheOrigin(StrEnum):
+    AUTO = "auto"
+    BUILTIN = "builtin"
+    USER = "user"
+
+
 ParseRule = Literal["expr", "order_expr", "select", "full_template_string", "program"]
 
 tracer = trace.get_tracer(__name__)
@@ -165,18 +172,50 @@ def _looks_like_code_literal(s: str) -> bool:
     return False
 
 
-@functools.lru_cache(maxsize=_BUILTIN_CACHE_SIZE)
-def _builtin_parse_cache(statement: str, backend: HogQLParserBackend, rule: ParseRule, start: int | None) -> Any:
-    return _invoke_parser(backend, rule, statement, start)
+class _BoundedLRU:
+    """Tiny LRU backed by OrderedDict.
+
+    Picked over ``functools.lru_cache`` because we want a non-mutating
+    ``peek``-style lookup: on the fast path we check both caches before
+    deciding which one to fill, and ``functools.lru_cache`` only exposes a
+    decorator that fills on miss. CPython's GIL makes individual
+    OrderedDict operations atomic; compound get-then-set races only cause
+    duplicate parsing (idempotent), never corrupted state.
+    """
+
+    def __init__(self, maxsize: int) -> None:
+        self.maxsize = maxsize
+        self._data: OrderedDict[Any, Any] = OrderedDict()
+
+    def get(self, key: Any) -> Any:
+        """Return the value (and mark it recently-used) on hit, else None."""
+        try:
+            value = self._data[key]
+        except KeyError:
+            return None
+        self._data.move_to_end(key)
+        return value
+
+    def set(self, key: Any, value: Any) -> None:
+        """Insert; evict the least-recently-used entry on overflow."""
+        self._data[key] = value
+        self._data.move_to_end(key)
+        if len(self._data) > self.maxsize:
+            self._data.popitem(last=False)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+    @property
+    def currsize(self) -> int:
+        return len(self._data)
 
 
-@functools.lru_cache(maxsize=_USER_CACHE_SIZE)
-def _user_parse_cache(statement: str, backend: HogQLParserBackend, rule: ParseRule, start: int | None) -> Any:
-    return _invoke_parser(backend, rule, statement, start)
+_builtin_parse_cache = _BoundedLRU(_BUILTIN_CACHE_SIZE)
+_user_parse_cache = _BoundedLRU(_USER_CACHE_SIZE)
 
-
-_PARSE_CACHE_MAXSIZE.labels(cache="builtin").set(_BUILTIN_CACHE_SIZE)
-_PARSE_CACHE_MAXSIZE.labels(cache="user").set(_USER_CACHE_SIZE)
+_PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.BUILTIN).set(_BUILTIN_CACHE_SIZE)
+_PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
 
 
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
@@ -193,37 +232,57 @@ def _parse_cached(
     *,
     start: int | None = None,
 ) -> Any:
-    """Look up a parsed AST in the appropriate cache, parsing on miss.
+    """Look up a parsed AST, parsing on miss.
 
-    Returns a ``copy.deepcopy`` so callers can mutate the returned AST
-    without affecting future cache hits (the resolver and printer both
-    mutate the AST in place). Concrete return type is rule-dependent; the
-    public ``parse_select`` / ``parse_expr`` / etc. wrappers narrow it.
+    Fast path for ``cache_origin == CacheOrigin.AUTO``: check the built-in
+    cache, then the user cache, returning on the first hit. Only on a full
+    miss do we walk the call stack to classify the query and parse it.
+    This skips the frame walk on every cache hit, which dominates traffic
+    once the cache is warm.
+
+    Explicit ``BUILTIN`` / ``USER`` origins only consult their own cache —
+    callers opting into one explicitly should not get hits from the other.
+
+    Returns a ``copy.deepcopy`` so callers can mutate the AST without
+    affecting future cache hits (the resolver and printer both mutate).
     """
-    if cache_origin == "auto":
-        cache_origin = "builtin" if _looks_like_code_literal(statement) else "user"
-    cache_fn = _builtin_parse_cache if cache_origin == "builtin" else _user_parse_cache
-    before_misses = cache_fn.cache_info().misses
-    cached = cache_fn(statement, backend, rule, start)
-    info = cache_fn.cache_info()
-    is_miss = info.misses > before_misses
-    _PARSE_CACHE_EVENTS.labels(
-        origin=cache_origin,
-        result="miss" if is_miss else "hit",
-        rule=rule,
-    ).inc()
-    if is_miss:
-        # Size only changes on miss (fill or evict). Update lazily.
-        _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(info.currsize)
-    return copy.deepcopy(cached)
+    key = (statement, backend, rule, start)
+
+    if cache_origin == CacheOrigin.AUTO:
+        # Built-in is checked first because it holds the hot, in-process
+        # literal queries — the case we expect to dominate production traffic.
+        cached = _builtin_parse_cache.get(key)
+        if cached is not None:
+            _PARSE_CACHE_EVENTS.labels(origin=CacheOrigin.BUILTIN, result="hit", rule=rule).inc()
+            return copy.deepcopy(cached)
+        cached = _user_parse_cache.get(key)
+        if cached is not None:
+            _PARSE_CACHE_EVENTS.labels(origin=CacheOrigin.USER, result="hit", rule=rule).inc()
+            return copy.deepcopy(cached)
+        # Full miss — classify so we know which cache to fill.
+        cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(statement) else CacheOrigin.USER
+    else:
+        cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
+        cached = cache.get(key)
+        if cached is not None:
+            _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="hit", rule=rule).inc()
+            return copy.deepcopy(cached)
+
+    # Miss path: parse and store in the chosen cache.
+    cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
+    parsed = _invoke_parser(backend, rule, statement, start)
+    cache.set(key, parsed)
+    _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="miss", rule=rule).inc()
+    _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(cache.currsize)
+    return copy.deepcopy(parsed)
 
 
 def clear_parse_caches() -> None:
     """Drop both parse caches. Used by tests."""
-    _builtin_parse_cache.cache_clear()
-    _user_parse_cache.cache_clear()
-    _PARSE_CACHE_SIZE.labels(cache="builtin").set(0)
-    _PARSE_CACHE_SIZE.labels(cache="user").set(0)
+    _builtin_parse_cache.clear()
+    _user_parse_cache.clear()
+    _PARSE_CACHE_SIZE.labels(cache=CacheOrigin.BUILTIN).set(0)
+    _PARSE_CACHE_SIZE.labels(cache=CacheOrigin.USER).set(0)
 
 
 def parse_string_template(
@@ -232,7 +291,7 @@ def parse_string_template(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
-    cache_origin: CacheOrigin = "auto",
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
     if timings is None:
@@ -253,7 +312,7 @@ def parse_expr(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
-    cache_origin: CacheOrigin = "auto",
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Expr:
     if expr == "":
         raise SyntaxError("Empty query")
@@ -274,7 +333,7 @@ def parse_order_expr(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
-    cache_origin: CacheOrigin = "auto",
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.OrderExpr:
     if timings is None:
         timings = HogQLTimings()
@@ -293,7 +352,7 @@ def parse_select(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
-    cache_origin: CacheOrigin = "auto",
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
@@ -314,7 +373,7 @@ def parse_program(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
-    cache_origin: CacheOrigin = "auto",
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Program:
     if timings is None:
         timings = HogQLTimings()

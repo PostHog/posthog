@@ -1,7 +1,9 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.hogql import ast
 from posthog.hogql.parser import (
+    CacheOrigin,
     _builtin_parse_cache,
     _looks_like_code_literal,
     _user_parse_cache,
@@ -40,21 +42,21 @@ class TestParserCache(BaseTest):
         self.assertIsNone(second.limit)
 
     def test_user_origin_routes_to_user_cache(self):
-        parse_select("SELECT 1", cache_origin="user")
-        self.assertEqual(_user_parse_cache.cache_info().currsize, 1)
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 0)
+        parse_select("SELECT 1", cache_origin=CacheOrigin.USER)
+        self.assertEqual(_user_parse_cache.currsize, 1)
+        self.assertEqual(_builtin_parse_cache.currsize, 0)
 
     def test_builtin_origin_routes_to_builtin_cache(self):
-        parse_select("SELECT 2", cache_origin="builtin")
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 1)
-        self.assertEqual(_user_parse_cache.cache_info().currsize, 0)
+        parse_select("SELECT 2", cache_origin=CacheOrigin.BUILTIN)
+        self.assertEqual(_builtin_parse_cache.currsize, 1)
+        self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_auto_detects_function_local_literal(self):
         # "SELECT 3" is a literal in this test function's compiled code — should
         # land in the built-in cache via the frame-walk detector.
         parse_select("SELECT 3")
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 1)
-        self.assertEqual(_user_parse_cache.cache_info().currsize, 0)
+        self.assertEqual(_builtin_parse_cache.currsize, 1)
+        self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_auto_routes_constructed_strings_to_user_cache(self):
         # `.join` produces a fresh string object that isn't in any frame's
@@ -62,19 +64,18 @@ class TestParserCache(BaseTest):
         # at compile time into a single literal and incorrectly look built-in).
         sql = " ".join(["SELECT", "count()", "FROM", "events"])
         parse_select(sql)
-        self.assertEqual(_user_parse_cache.cache_info().currsize, 1)
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 0)
+        self.assertEqual(_user_parse_cache.currsize, 1)
+        self.assertEqual(_builtin_parse_cache.currsize, 0)
 
     def test_user_pollution_does_not_displace_builtin(self):
         # Fill the built-in cache with one entry, then flood the user cache.
-        parse_select("SELECT 'builtin entry'", cache_origin="builtin")
-        user_maxsize = _user_parse_cache.cache_info().maxsize
-        assert user_maxsize is not None
+        parse_select("SELECT 'builtin entry'", cache_origin=CacheOrigin.BUILTIN)
+        user_maxsize = _user_parse_cache.maxsize
         for i in range(user_maxsize + 50):
-            parse_select(f"SELECT {i}", cache_origin="user")
+            parse_select(f"SELECT {i}", cache_origin=CacheOrigin.USER)
         # Built-in cache still has its entry; user cache is at maxsize.
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 1)
-        self.assertEqual(_user_parse_cache.cache_info().currsize, user_maxsize)
+        self.assertEqual(_builtin_parse_cache.currsize, 1)
+        self.assertEqual(_user_parse_cache.currsize, user_maxsize)
 
     def test_placeholders_still_substitute_after_cache_hit(self):
         sql = "SELECT {x}"
@@ -106,7 +107,7 @@ class TestParserCache(BaseTest):
         # Two different start values must produce two different cache entries.
         parse_expr("1 + 1", start=0)
         parse_expr("1 + 1", start=1)
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 2)
+        self.assertEqual(_builtin_parse_cache.currsize, 2)
 
     def test_looks_like_code_literal_finds_function_literal(self):
         s = "this is a literal in this function"
@@ -122,7 +123,26 @@ class TestParserCache(BaseTest):
         from posthog.hogql.errors import BaseHogQLError
 
         with self.assertRaises(BaseHogQLError):
-            parse_select("NOT VALID SQL", cache_origin="user")
+            parse_select("NOT VALID SQL", cache_origin=CacheOrigin.USER)
         # The failed parse shouldn't have populated either cache.
-        self.assertEqual(_user_parse_cache.cache_info().currsize, 0)
-        self.assertEqual(_builtin_parse_cache.cache_info().currsize, 0)
+        self.assertEqual(_user_parse_cache.currsize, 0)
+        self.assertEqual(_builtin_parse_cache.currsize, 0)
+
+    def test_auto_path_skips_frame_walk_on_hit(self):
+        # The whole point of the fast path: when an entry exists in either
+        # cache, _looks_like_code_literal should not be invoked.
+        parse_select("SELECT 4", cache_origin=CacheOrigin.BUILTIN)
+        with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
+            parse_select("SELECT 4")  # cache_origin defaults to AUTO
+            detector.assert_not_called()
+
+    def test_auto_path_serves_from_user_cache_without_classifying(self):
+        # An entry previously stashed in the user cache should also be served
+        # without invoking the frame walk.
+        parse_select(" ".join(["SELECT", "5"]), cache_origin=CacheOrigin.USER)
+        with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
+            # Reconstruct the same statement at runtime (so it'd be classified
+            # as user if we did walk the stack — we should hit the user cache
+            # without needing to.).
+            parse_select(" ".join(["SELECT", "5"]))
+            detector.assert_not_called()
