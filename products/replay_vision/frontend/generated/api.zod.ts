@@ -133,3 +133,15 @@ export const VisionLensesPartialUpdateBody = /* @__PURE__ */ zod.object({
             'When true, the prompt is augmented with the Signal side mission and the lens emits PostHog Signals.'
         ),
 })
+
+/**
+ * CRUD for Replay Vision lenses.
+ */
+export const visionLensesObserveCreateBodySessionIdMax = 200
+
+export const VisionLensesObserveCreateBody = /* @__PURE__ */ zod.object({
+    session_id: zod
+        .string()
+        .max(visionLensesObserveCreateBodySessionIdMax)
+        .describe('Session recording id to apply this lens to.'),
+})

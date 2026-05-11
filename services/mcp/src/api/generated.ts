@@ -20148,6 +20148,20 @@ export namespace Schemas {
       OnDemand: 'on_demand',
     } as const;
 
+    export interface ObserveLensAccepted {
+      workflow_id: string;
+      lens_id: string;
+      session_id: string;
+    }
+
+    export interface ObserveLensRequest {
+      /**
+         * Session recording id to apply this lens to.
+         * @maxLength 200
+         */
+      session_id: string;
+    }
+
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
       experiment_id: string;

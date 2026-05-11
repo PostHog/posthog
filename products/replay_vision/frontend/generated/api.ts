@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ObserveLensAcceptedApi,
+    ObserveLensRequestApi,
     PaginatedReplayLensListApi,
     PaginatedReplayObservationListApi,
     PatchedReplayLensApi,
@@ -192,5 +194,26 @@ export const visionLensesDestroy = async (projectId: string, id: string, options
     return apiMutator<void>(getVisionLensesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionLensesObserveCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/vision/lenses/${id}/observe/`
+}
+
+/**
+ * CRUD for Replay Vision lenses.
+ */
+export const visionLensesObserveCreate = async (
+    projectId: string,
+    id: string,
+    observeLensRequestApi: ObserveLensRequestApi,
+    options?: RequestInit
+): Promise<ObserveLensAcceptedApi> => {
+    return apiMutator<ObserveLensAcceptedApi>(getVisionLensesObserveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observeLensRequestApi),
     })
 }
