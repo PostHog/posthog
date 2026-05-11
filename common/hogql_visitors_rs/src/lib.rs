@@ -1,19 +1,17 @@
 //! Rust-backed feature extractor for the HogQL AST.
 //!
-//! Two implementations exposed for direct benchmarking:
+//! Two strategies exposed for comparison:
 //!
 //! * `extract_features_py(query)` — walks Python AST objects in place via
-//!   PyO3. Each `getattr` is a Python C-API call, so per-node cost is similar
-//!   to Python; the win is ~2-3× from skipping the interpreter dispatch loop.
+//!   PyO3, using `intern!`'d attribute names and cached AST class type
+//!   pointers (dispatch is `is_exact_instance(&type)`, not class-name
+//!   string compare).
 //!
 //! * `extract_features_via_mirror(query)` — converts the Python AST to a
-//!   Rust-native mirror once, then walks the mirror. Single-visitor break-even
-//!   is ~2 visitors over the same tree; for the multi-visitor pipeline
-//!   (Resolver, optimizer pass, printer pass, …) this is the architecture
-//!   that actually pays off.
-//!
-//! Both return `(tables, events)` as Python lists; the Python wrapper
-//! repackages them into the `HogQLFeatures` Pydantic model.
+//!   Rust-native enum mirror once, then walks the mirror natively. For
+//!   single-visitor use the conversion dominates; the win is amortising
+//!   the conversion across multiple visitors over the same query (via
+//!   `to_mirror` + `extract_features_from_mirror`).
 
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -38,127 +36,159 @@ fn is_interesting_event(name: &str) -> bool {
 }
 
 // -----------------------------------------------------------------------------
-// Strategy A — walk Python objects directly via PyO3
+// Cached AST class type pointers, populated on first use.
 // -----------------------------------------------------------------------------
 //
-// Mirrors the Python `HogQLFeatureExtractor`. Each step is a Python attribute
-// access, so this is bottlenecked by the same PyO3 ↔ CPython transitions as
-// the Python implementation, just without Python-level dispatch overhead.
+// Both strategies use `is_exact_instance(&cached_type)` for dispatch instead
+// of pulling the class name out of `node.get_type().name()` and comparing
+// strings. Pointer compare wins, especially since the AST class set is small
+// and known at module load time.
 
-struct PyVisitor {
-    tables: BTreeSet<String>,
-    events: BTreeSet<String>,
+struct AstTypes {
+    select_query: Py<PyType>,
+    select_set_query: Py<PyType>,
+    join_expr: Py<PyType>,
+    compare_operation: Py<PyType>,
+    and_: Py<PyType>,
+    or_: Py<PyType>,
+    not_: Py<PyType>,
+    alias: Py<PyType>,
+    field: Py<PyType>,
+    constant: Py<PyType>,
+    tuple_: Py<PyType>,
+    array: Py<PyType>,
 }
 
-impl PyVisitor {
-    fn new() -> Self {
+static AST_TYPES: GILOnceCell<AstTypes> = GILOnceCell::new();
+
+fn ast_types(py: Python<'_>) -> PyResult<&AstTypes> {
+    AST_TYPES.get_or_try_init(py, || {
+        let m = py.import_bound("posthog.hogql.ast")?;
+        let fetch = |name: &str| -> PyResult<Py<PyType>> {
+            Ok(m.getattr(name)?.downcast::<PyType>()?.clone().unbind())
+        };
+        Ok(AstTypes {
+            select_query: fetch("SelectQuery")?,
+            select_set_query: fetch("SelectSetQuery")?,
+            join_expr: fetch("JoinExpr")?,
+            compare_operation: fetch("CompareOperation")?,
+            and_: fetch("And")?,
+            or_: fetch("Or")?,
+            not_: fetch("Not")?,
+            alias: fetch("Alias")?,
+            field: fetch("Field")?,
+            constant: fetch("Constant")?,
+            tuple_: fetch("Tuple")?,
+            array: fetch("Array")?,
+        })
+    })
+}
+
+// -----------------------------------------------------------------------------
+// Strategy A — walk Python objects directly via PyO3
+// -----------------------------------------------------------------------------
+
+struct PyVisitor<'a> {
+    tables: BTreeSet<String>,
+    events: BTreeSet<String>,
+    types: &'a AstTypes,
+}
+
+impl<'a> PyVisitor<'a> {
+    fn new(types: &'a AstTypes) -> Self {
         Self {
             tables: BTreeSet::new(),
             events: BTreeSet::new(),
+            types,
         }
     }
 
-    fn visit(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        // Single dispatch on Python type name. Faster than full isinstance —
-        // we don't need Python's MRO traversal; the AST type names are stable.
-        let cls_name = node.get_type().name()?;
-        match cls_name.to_str()? {
-            "SelectQuery" => self.visit_select(node)?,
-            "SelectSetQuery" => self.visit_select_set(node)?,
-            "JoinExpr" => self.visit_join(node)?,
-            "CompareOperation" => self.visit_compare(node)?,
-            "And" | "Or" => self.visit_exprs_list(node)?,
-            "Not" => self.visit_attr(node, "expr")?,
-            "Alias" => self.visit_attr(node, "expr")?,
-            // Constants, fields, calls etc. don't need recursion for our purposes
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn visit_attr(&mut self, node: &Bound<'_, PyAny>, attr: &str) -> PyResult<()> {
-        let inner = node.getattr(attr)?;
-        if !inner.is_none() {
-            self.visit(&inner)?;
-        }
-        Ok(())
-    }
-
-    fn visit_exprs_list(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        let exprs = node.getattr("exprs")?;
-        for item in exprs.iter()? {
-            self.visit(&item?)?;
-        }
-        Ok(())
-    }
-
-    fn visit_select(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        for attr in &["select_from", "where", "prewhere", "having"] {
-            self.visit_attr(node, attr)?;
-        }
-        // Skipping select / group_by / order_by for the PoC — they don't carry
-        // the join/event signal we care about.
-        Ok(())
-    }
-
-    fn visit_select_set(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.visit_attr(node, "initial_select_query")?;
-        let subs = node.getattr("subsequent_select_queries")?;
-        for item in subs.iter()? {
-            let sub = item?;
-            self.visit_attr(&sub, "select_query")?;
-        }
-        Ok(())
-    }
-
-    fn visit_join(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        let table = node.getattr("table")?;
-        if !table.is_none() {
-            // Capture table name when `table` is a Field with a string chain head
-            if table.get_type().name()?.to_str()? == "Field" {
-                let chain = table.getattr("chain")?;
-                if let Ok(first) = chain.get_item(0) {
-                    if let Ok(s) = first.extract::<String>() {
-                        self.tables.insert(s);
+    fn visit(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<()> {
+        let t = self.types;
+        if node.is_exact_instance(t.select_query.bind(py)) {
+            for attr in ["select_from", "where", "prewhere", "having"] {
+                self.visit_attr(py, node, attr)?;
+            }
+        } else if node.is_exact_instance(t.select_set_query.bind(py)) {
+            self.visit_attr(py, node, "initial_select_query")?;
+            for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
+                self.visit_attr(py, &item?, "select_query")?;
+            }
+        } else if node.is_exact_instance(t.join_expr.bind(py)) {
+            let table = node.getattr(intern!(py, "table"))?;
+            if !table.is_none() {
+                if table.is_exact_instance(t.field.bind(py)) {
+                    let chain = table.getattr(intern!(py, "chain"))?;
+                    if let Ok(first) = chain.get_item(0) {
+                        if let Ok(s) = first.extract::<String>() {
+                            self.tables.insert(s);
+                        }
+                    }
+                } else {
+                    self.visit(py, &table)?;
+                }
+            }
+            self.visit_attr(py, node, "next_join")?;
+        } else if node.is_exact_instance(t.compare_operation.bind(py)) {
+            let op: String = node.getattr(intern!(py, "op"))?.extract()?;
+            if op == "==" || op == "in" {
+                let left = strip_aliases(py, &node.getattr(intern!(py, "left"))?, t)?;
+                let right = strip_aliases(py, &node.getattr(intern!(py, "right"))?, t)?;
+                for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
+                    if looks_like_event_field(py, field_side, t)? {
+                        collect_string_constants(py, value_side, t, &mut self.events)?;
                     }
                 }
-            } else {
-                self.visit(&table)?;
             }
+        } else if node.is_exact_instance(t.and_.bind(py)) || node.is_exact_instance(t.or_.bind(py)) {
+            for item in node.getattr(intern!(py, "exprs"))?.iter()? {
+                self.visit(py, &item?)?;
+            }
+        } else if node.is_exact_instance(t.not_.bind(py)) || node.is_exact_instance(t.alias.bind(py)) {
+            self.visit_attr(py, node, "expr")?;
         }
-        self.visit_attr(node, "next_join")?;
         Ok(())
     }
 
-    fn visit_compare(&mut self, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        let op_obj = node.getattr("op")?;
-        let op: String = op_obj.extract()?;
-        if op == "==" || op == "in" {
-            let left = strip_aliases(&node.getattr("left")?)?;
-            let right = strip_aliases(&node.getattr("right")?)?;
-            for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
-                if looks_like_event_field(field_side)? {
-                    collect_string_constants(value_side, &mut self.events)?;
-                }
-            }
+    fn visit_attr(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>, attr: &str) -> PyResult<()> {
+        // Match on the attr name to use intern!. The macro requires a literal
+        // string at call site, so each branch hands intern! its specific
+        // string and benefits from PyO3's per-string caching.
+        let inner = match attr {
+            "select_from" => node.getattr(intern!(py, "select_from"))?,
+            "where" => node.getattr(intern!(py, "where"))?,
+            "prewhere" => node.getattr(intern!(py, "prewhere"))?,
+            "having" => node.getattr(intern!(py, "having"))?,
+            "initial_select_query" => node.getattr(intern!(py, "initial_select_query"))?,
+            "select_query" => node.getattr(intern!(py, "select_query"))?,
+            "next_join" => node.getattr(intern!(py, "next_join"))?,
+            "expr" => node.getattr(intern!(py, "expr"))?,
+            other => node.getattr(other)?,
+        };
+        if !inner.is_none() {
+            self.visit(py, &inner)?;
         }
         Ok(())
     }
 }
 
-fn strip_aliases<'py>(expr: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+fn strip_aliases<'py>(
+    py: Python<'py>,
+    expr: &Bound<'py, PyAny>,
+    types: &AstTypes,
+) -> PyResult<Bound<'py, PyAny>> {
     let mut current = expr.clone();
-    while current.get_type().name()?.to_str()? == "Alias" {
-        current = current.getattr("expr")?;
+    while current.is_exact_instance(types.alias.bind(py)) {
+        current = current.getattr(intern!(py, "expr"))?;
     }
     Ok(current)
 }
 
-fn looks_like_event_field(expr: &Bound<'_, PyAny>) -> PyResult<bool> {
-    if expr.get_type().name()?.to_str()? != "Field" {
+fn looks_like_event_field(py: Python<'_>, expr: &Bound<'_, PyAny>, types: &AstTypes) -> PyResult<bool> {
+    if !expr.is_exact_instance(types.field.bind(py)) {
         return Ok(false);
     }
-    let chain = expr.getattr("chain")?;
+    let chain = expr.getattr(intern!(py, "chain"))?;
     let len = chain.len()?;
     if len == 0 {
         return Ok(false);
@@ -167,40 +197,37 @@ fn looks_like_event_field(expr: &Bound<'_, PyAny>) -> PyResult<bool> {
     Ok(last.extract::<String>().ok().as_deref() == Some("event"))
 }
 
-fn collect_string_constants(expr: &Bound<'_, PyAny>, out: &mut BTreeSet<String>) -> PyResult<()> {
-    let cls = expr.get_type().name()?;
-    match cls.to_str()? {
-        "Constant" => {
-            if let Ok(s) = expr.getattr("value")?.extract::<String>() {
-                if is_interesting_event(&s) {
-                    out.insert(s);
-                }
+fn collect_string_constants(
+    py: Python<'_>,
+    expr: &Bound<'_, PyAny>,
+    types: &AstTypes,
+    out: &mut BTreeSet<String>,
+) -> PyResult<()> {
+    if expr.is_exact_instance(types.constant.bind(py)) {
+        if let Ok(s) = expr.getattr(intern!(py, "value"))?.extract::<String>() {
+            if is_interesting_event(&s) {
+                out.insert(s);
             }
         }
-        "Tuple" | "Array" => {
-            for item in expr.getattr("exprs")?.iter()? {
-                collect_string_constants(&item?, out)?;
-            }
+    } else if expr.is_exact_instance(types.tuple_.bind(py)) || expr.is_exact_instance(types.array.bind(py)) {
+        for item in expr.getattr(intern!(py, "exprs"))?.iter()? {
+            collect_string_constants(py, &item?, types, out)?;
         }
-        "Alias" => {
-            collect_string_constants(&expr.getattr("expr")?, out)?;
-        }
-        _ => {}
+    } else if expr.is_exact_instance(types.alias.bind(py)) {
+        collect_string_constants(py, &expr.getattr(intern!(py, "expr"))?, types, out)?;
     }
     Ok(())
 }
 
 #[pyfunction]
 #[pyo3(signature = (query=None))]
-fn extract_features_py<'py>(
-    py: Python<'py>,
-    query: Option<Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyTuple>> {
+fn extract_features_py<'py>(py: Python<'py>, query: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyTuple>> {
     let (tables, events) = match query {
         None => (Vec::new(), Vec::new()),
         Some(q) => {
-            let mut v = PyVisitor::new();
-            v.visit(&q)?;
+            let types = ast_types(py)?;
+            let mut v = PyVisitor::new(types);
+            v.visit(py, &q)?;
             (
                 v.tables.into_iter().collect::<Vec<_>>(),
                 v.events.into_iter().collect::<Vec<_>>(),
@@ -217,11 +244,10 @@ fn extract_features_py<'py>(
 // Strategy B — convert to a Rust-native mirror, then walk natively
 // -----------------------------------------------------------------------------
 //
-// The "amortize across N visitors" architecture: pay one Python→Rust conversion
-// pass, then run any number of cheap native walks. Single-visitor break-even
-// vs strategy A is around 2 visitors. The conversion is intentionally minimal
-// — only the node kinds the feature extractor cares about retain structure;
-// the rest collapse to `Other`.
+// The "amortise across N visitors" architecture: pay one Python→Rust
+// conversion pass, then run any number of cheap native walks. `convert` does
+// the same shape of work the Strategy A visitor does — recursive `getattr` +
+// pointer-compare dispatch — just with enum allocation tacked on.
 
 #[derive(Debug)]
 enum AstNode {
@@ -270,126 +296,38 @@ enum AstNode {
     Other,
 }
 
-fn convert(node: &Bound<'_, PyAny>) -> PyResult<AstNode> {
-    let cls = node.get_type().name()?;
-    Ok(match cls.to_str()? {
-        "SelectQuery" => AstNode::SelectQuery {
-            select_from: convert_opt_attr(node, "select_from")?,
-            where_clause: convert_opt_attr(node, "where")?,
-            prewhere: convert_opt_attr(node, "prewhere")?,
-            having: convert_opt_attr(node, "having")?,
-        },
-        "SelectSetQuery" => {
-            let mut children = Vec::new();
-            let initial = node.getattr("initial_select_query")?;
-            if !initial.is_none() {
-                children.push(convert(&initial)?);
-            }
-            for item in node.getattr("subsequent_select_queries")?.iter()? {
-                let sub = item?;
-                let q = sub.getattr("select_query")?;
-                if !q.is_none() {
-                    children.push(convert(&q)?);
-                }
-            }
-            AstNode::SelectSet { children }
-        }
-        "JoinExpr" => AstNode::JoinExpr {
-            table: convert_opt_attr(node, "table")?,
-            next_join: convert_opt_attr(node, "next_join")?,
-        },
-        "CompareOperation" => AstNode::CompareOperation {
-            op: node.getattr("op")?.extract()?,
-            left: Box::new(convert(&node.getattr("left")?)?),
-            right: Box::new(convert(&node.getattr("right")?)?),
-        },
-        "Field" => {
-            let mut chain = Vec::new();
-            for item in node.getattr("chain")?.iter()? {
-                if let Ok(s) = item?.extract::<String>() {
-                    chain.push(s);
-                }
-            }
-            AstNode::Field { chain }
-        }
-        "Constant" => AstNode::Constant {
-            value: node.getattr("value")?.extract::<String>().ok(),
-        },
-        "Tuple" => AstNode::Tuple {
-            exprs: convert_exprs_list(node, "exprs")?,
-        },
-        "Array" => AstNode::Array {
-            exprs: convert_exprs_list(node, "exprs")?,
-        },
-        "Alias" => AstNode::Alias {
-            expr: Box::new(convert(&node.getattr("expr")?)?),
-        },
-        "And" => AstNode::And {
-            exprs: convert_exprs_list(node, "exprs")?,
-        },
-        "Or" => AstNode::Or {
-            exprs: convert_exprs_list(node, "exprs")?,
-        },
-        "Not" => AstNode::Not {
-            expr: Box::new(convert(&node.getattr("expr")?)?),
-        },
-        _ => AstNode::Other,
-    })
-}
-
-fn convert_opt_attr(node: &Bound<'_, PyAny>, attr: &str) -> PyResult<Option<Box<AstNode>>> {
-    let val = node.getattr(attr)?;
-    if val.is_none() {
-        Ok(None)
-    } else {
-        Ok(Some(Box::new(convert(&val)?)))
-    }
-}
-
-fn convert_exprs_list(node: &Bound<'_, PyAny>, attr: &str) -> PyResult<Vec<AstNode>> {
-    let mut out = Vec::new();
-    for item in node.getattr(attr)?.iter()? {
-        out.push(convert(&item?)?);
-    }
-    Ok(out)
-}
-
-// ---- B-fast: same conversion, with interned attribute names + cached type pointers ----
-
-fn convert_fast(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes) -> PyResult<AstNode> {
-    // Cheap pointer compares against the cached AST class types — no Py_TYPE
-    // name extraction, no string compare, no MRO walk.
+fn convert(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes) -> PyResult<AstNode> {
     if node.is_exact_instance(t.select_query.bind(py)) {
         Ok(AstNode::SelectQuery {
-            select_from: convert_opt_attr_fast(py, node, intern!(py, "select_from"), t)?,
-            where_clause: convert_opt_attr_fast(py, node, intern!(py, "where"), t)?,
-            prewhere: convert_opt_attr_fast(py, node, intern!(py, "prewhere"), t)?,
-            having: convert_opt_attr_fast(py, node, intern!(py, "having"), t)?,
+            select_from: convert_opt_attr(py, node, intern!(py, "select_from"), t)?,
+            where_clause: convert_opt_attr(py, node, intern!(py, "where"), t)?,
+            prewhere: convert_opt_attr(py, node, intern!(py, "prewhere"), t)?,
+            having: convert_opt_attr(py, node, intern!(py, "having"), t)?,
         })
     } else if node.is_exact_instance(t.select_set_query.bind(py)) {
         let mut children = Vec::new();
         let initial = node.getattr(intern!(py, "initial_select_query"))?;
         if !initial.is_none() {
-            children.push(convert_fast(py, &initial, t)?);
+            children.push(convert(py, &initial, t)?);
         }
         for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
             let sub = item?;
             let q = sub.getattr(intern!(py, "select_query"))?;
             if !q.is_none() {
-                children.push(convert_fast(py, &q, t)?);
+                children.push(convert(py, &q, t)?);
             }
         }
         Ok(AstNode::SelectSet { children })
     } else if node.is_exact_instance(t.join_expr.bind(py)) {
         Ok(AstNode::JoinExpr {
-            table: convert_opt_attr_fast(py, node, intern!(py, "table"), t)?,
-            next_join: convert_opt_attr_fast(py, node, intern!(py, "next_join"), t)?,
+            table: convert_opt_attr(py, node, intern!(py, "table"), t)?,
+            next_join: convert_opt_attr(py, node, intern!(py, "next_join"), t)?,
         })
     } else if node.is_exact_instance(t.compare_operation.bind(py)) {
         Ok(AstNode::CompareOperation {
             op: node.getattr(intern!(py, "op"))?.extract()?,
-            left: Box::new(convert_fast(py, &node.getattr(intern!(py, "left"))?, t)?),
-            right: Box::new(convert_fast(py, &node.getattr(intern!(py, "right"))?, t)?),
+            left: Box::new(convert(py, &node.getattr(intern!(py, "left"))?, t)?),
+            right: Box::new(convert(py, &node.getattr(intern!(py, "right"))?, t)?),
         })
     } else if node.is_exact_instance(t.field.bind(py)) {
         let mut chain = Vec::new();
@@ -405,34 +343,34 @@ fn convert_fast(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes) -> PyResu
         })
     } else if node.is_exact_instance(t.tuple_.bind(py)) {
         Ok(AstNode::Tuple {
-            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
         })
     } else if node.is_exact_instance(t.array.bind(py)) {
         Ok(AstNode::Array {
-            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
         })
     } else if node.is_exact_instance(t.alias.bind(py)) {
         Ok(AstNode::Alias {
-            expr: Box::new(convert_fast(py, &node.getattr(intern!(py, "expr"))?, t)?),
+            expr: Box::new(convert(py, &node.getattr(intern!(py, "expr"))?, t)?),
         })
     } else if node.is_exact_instance(t.and_.bind(py)) {
         Ok(AstNode::And {
-            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
         })
     } else if node.is_exact_instance(t.or_.bind(py)) {
         Ok(AstNode::Or {
-            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
         })
     } else if node.is_exact_instance(t.not_.bind(py)) {
         Ok(AstNode::Not {
-            expr: Box::new(convert_fast(py, &node.getattr(intern!(py, "expr"))?, t)?),
+            expr: Box::new(convert(py, &node.getattr(intern!(py, "expr"))?, t)?),
         })
     } else {
         Ok(AstNode::Other)
     }
 }
 
-fn convert_opt_attr_fast(
+fn convert_opt_attr(
     py: Python<'_>,
     node: &Bound<'_, PyAny>,
     attr: &Bound<'_, pyo3::types::PyString>,
@@ -442,11 +380,11 @@ fn convert_opt_attr_fast(
     if val.is_none() {
         Ok(None)
     } else {
-        Ok(Some(Box::new(convert_fast(py, &val, types)?)))
+        Ok(Some(Box::new(convert(py, &val, types)?)))
     }
 }
 
-fn convert_exprs_list_fast(
+fn convert_exprs_list(
     py: Python<'_>,
     node: &Bound<'_, PyAny>,
     attr: &Bound<'_, pyo3::types::PyString>,
@@ -454,7 +392,7 @@ fn convert_exprs_list_fast(
 ) -> PyResult<Vec<AstNode>> {
     let mut out = Vec::new();
     for item in node.getattr(attr)?.iter()? {
-        out.push(convert_fast(py, &item?, types)?);
+        out.push(convert(py, &item?, types)?);
     }
     Ok(out)
 }
@@ -563,7 +501,8 @@ fn extract_features_via_mirror<'py>(
     let (tables, events) = match query {
         None => (Vec::new(), Vec::new()),
         Some(q) => {
-            let mirror = convert(&q)?;
+            let types = ast_types(py)?;
+            let mirror = convert(py, &q, types)?;
             let mut v = NativeVisitor::new();
             v.visit(&mirror);
             (
@@ -578,263 +517,19 @@ fn extract_features_via_mirror<'py>(
     ))
 }
 
-// -----------------------------------------------------------------------------
-// Strategy A-fast — same shape as A but with interned attribute names and
-// cached AST type pointers
-// -----------------------------------------------------------------------------
-//
-// Two clever-but-not-magic micro-optimisations on top of Strategy A:
-//
-// 1. PyO3's `intern!` macro caches Python strings the first time they're seen,
-//    so subsequent `getattr` calls skip the hash and just use the cached
-//    pointer-identical PyString.
-//
-// 2. AST class type objects are cached at first use. Dispatch becomes a pointer
-//    comparison via `is_exact_instance(type)` instead of pulling out the class
-//    name as a string and comparing.
-
-struct AstTypes {
-    select_query: Py<PyType>,
-    select_set_query: Py<PyType>,
-    join_expr: Py<PyType>,
-    compare_operation: Py<PyType>,
-    and_: Py<PyType>,
-    or_: Py<PyType>,
-    not_: Py<PyType>,
-    alias: Py<PyType>,
-    field: Py<PyType>,
-    constant: Py<PyType>,
-    tuple_: Py<PyType>,
-    array: Py<PyType>,
-}
-
-static AST_TYPES: GILOnceCell<AstTypes> = GILOnceCell::new();
-
-fn ast_types(py: Python<'_>) -> PyResult<&AstTypes> {
-    AST_TYPES.get_or_try_init(py, || {
-        let m = py.import_bound("posthog.hogql.ast")?;
-        let fetch = |name: &str| -> PyResult<Py<PyType>> {
-            Ok(m.getattr(name)?.downcast::<PyType>()?.clone().unbind())
-        };
-        Ok(AstTypes {
-            select_query: fetch("SelectQuery")?,
-            select_set_query: fetch("SelectSetQuery")?,
-            join_expr: fetch("JoinExpr")?,
-            compare_operation: fetch("CompareOperation")?,
-            and_: fetch("And")?,
-            or_: fetch("Or")?,
-            not_: fetch("Not")?,
-            alias: fetch("Alias")?,
-            field: fetch("Field")?,
-            constant: fetch("Constant")?,
-            tuple_: fetch("Tuple")?,
-            array: fetch("Array")?,
-        })
-    })
-}
-
-struct PyVisitorFast<'a> {
-    tables: BTreeSet<String>,
-    events: BTreeSet<String>,
-    types: &'a AstTypes,
-}
-
-impl<'a> PyVisitorFast<'a> {
-    fn new(types: &'a AstTypes) -> Self {
-        Self {
-            tables: BTreeSet::new(),
-            events: BTreeSet::new(),
-            types,
-        }
-    }
-
-    fn visit(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        let t = self.types;
-        // Pointer compare against the cached class objects. `is_exact_instance`
-        // is `Py_TYPE(obj) is type` — no MRO walk, no string compare.
-        if node.is_exact_instance(t.select_query.bind(py)) {
-            for attr in ["select_from", "where", "prewhere", "having"] {
-                self.visit_attr(py, node, attr)?;
-            }
-        } else if node.is_exact_instance(t.select_set_query.bind(py)) {
-            self.visit_attr(py, node, "initial_select_query")?;
-            for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
-                self.visit_attr(py, &item?, "select_query")?;
-            }
-        } else if node.is_exact_instance(t.join_expr.bind(py)) {
-            let table = node.getattr(intern!(py, "table"))?;
-            if !table.is_none() {
-                if table.is_exact_instance(t.field.bind(py)) {
-                    let chain = table.getattr(intern!(py, "chain"))?;
-                    if let Ok(first) = chain.get_item(0) {
-                        if let Ok(s) = first.extract::<String>() {
-                            self.tables.insert(s);
-                        }
-                    }
-                } else {
-                    self.visit(py, &table)?;
-                }
-            }
-            self.visit_attr(py, node, "next_join")?;
-        } else if node.is_exact_instance(t.compare_operation.bind(py)) {
-            let op: String = node.getattr(intern!(py, "op"))?.extract()?;
-            if op == "==" || op == "in" {
-                let left = strip_aliases_fast(py, &node.getattr(intern!(py, "left"))?, t)?;
-                let right = strip_aliases_fast(py, &node.getattr(intern!(py, "right"))?, t)?;
-                for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
-                    if looks_like_event_field_fast(py, field_side, t)? {
-                        collect_string_constants_fast(py, value_side, t, &mut self.events)?;
-                    }
-                }
-            }
-        } else if node.is_exact_instance(t.and_.bind(py)) || node.is_exact_instance(t.or_.bind(py)) {
-            for item in node.getattr(intern!(py, "exprs"))?.iter()? {
-                self.visit(py, &item?)?;
-            }
-        } else if node.is_exact_instance(t.not_.bind(py)) || node.is_exact_instance(t.alias.bind(py)) {
-            self.visit_attr(py, node, "expr")?;
-        }
-        Ok(())
-    }
-
-    fn visit_attr(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>, attr: &str) -> PyResult<()> {
-        // `intern!` builds an interned PyString at first call, then reuses it.
-        // The closure captures `attr` but `intern!` itself does the work.
-        let inner = match attr {
-            "select_from" => node.getattr(intern!(py, "select_from"))?,
-            "where" => node.getattr(intern!(py, "where"))?,
-            "prewhere" => node.getattr(intern!(py, "prewhere"))?,
-            "having" => node.getattr(intern!(py, "having"))?,
-            "initial_select_query" => node.getattr(intern!(py, "initial_select_query"))?,
-            "select_query" => node.getattr(intern!(py, "select_query"))?,
-            "next_join" => node.getattr(intern!(py, "next_join"))?,
-            "expr" => node.getattr(intern!(py, "expr"))?,
-            other => node.getattr(other)?,
-        };
-        if !inner.is_none() {
-            self.visit(py, &inner)?;
-        }
-        Ok(())
-    }
-}
-
-fn strip_aliases_fast<'py>(
-    py: Python<'py>,
-    expr: &Bound<'py, PyAny>,
-    types: &AstTypes,
-) -> PyResult<Bound<'py, PyAny>> {
-    let mut current = expr.clone();
-    while current.is_exact_instance(types.alias.bind(py)) {
-        current = current.getattr(intern!(py, "expr"))?;
-    }
-    Ok(current)
-}
-
-fn looks_like_event_field_fast(py: Python<'_>, expr: &Bound<'_, PyAny>, types: &AstTypes) -> PyResult<bool> {
-    if !expr.is_exact_instance(types.field.bind(py)) {
-        return Ok(false);
-    }
-    let chain = expr.getattr(intern!(py, "chain"))?;
-    let len = chain.len()?;
-    if len == 0 {
-        return Ok(false);
-    }
-    let last = chain.get_item(len - 1)?;
-    Ok(last.extract::<String>().ok().as_deref() == Some("event"))
-}
-
-fn collect_string_constants_fast(
-    py: Python<'_>,
-    expr: &Bound<'_, PyAny>,
-    types: &AstTypes,
-    out: &mut BTreeSet<String>,
-) -> PyResult<()> {
-    if expr.is_exact_instance(types.constant.bind(py)) {
-        if let Ok(s) = expr.getattr(intern!(py, "value"))?.extract::<String>() {
-            if is_interesting_event(&s) {
-                out.insert(s);
-            }
-        }
-    } else if expr.is_exact_instance(types.tuple_.bind(py)) || expr.is_exact_instance(types.array.bind(py)) {
-        for item in expr.getattr(intern!(py, "exprs"))?.iter()? {
-            collect_string_constants_fast(py, &item?, types, out)?;
-        }
-    } else if expr.is_exact_instance(types.alias.bind(py)) {
-        collect_string_constants_fast(py, &expr.getattr(intern!(py, "expr"))?, types, out)?;
-    }
-    Ok(())
-}
-
-#[pyfunction]
-#[pyo3(signature = (query=None))]
-fn extract_features_py_fast<'py>(
-    py: Python<'py>,
-    query: Option<Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyTuple>> {
-    let (tables, events) = match query {
-        None => (Vec::new(), Vec::new()),
-        Some(q) => {
-            let types = ast_types(py)?;
-            let mut v = PyVisitorFast::new(types);
-            v.visit(py, &q)?;
-            (
-                v.tables.into_iter().collect::<Vec<_>>(),
-                v.events.into_iter().collect::<Vec<_>>(),
-            )
-        }
-    };
-    Ok(PyTuple::new_bound(
-        py,
-        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
-    ))
-}
-
-// Mirror handle returned to Python — opaque, the only thing callers do with it
-// is hand it back to `extract_features_from_mirror`. Lets bench code time the
-// conversion and the native walk separately.
+// Opaque mirror handle returned to Python so the bench can measure convert
+// and visit phases separately.
 #[pyclass]
 struct AstMirror {
     inner: AstNode,
 }
 
 #[pyfunction]
-fn to_mirror(query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
-    Ok(AstMirror {
-        inner: convert(&query)?,
-    })
-}
-
-#[pyfunction]
-fn to_mirror_fast(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
+fn to_mirror(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
     let types = ast_types(py)?;
     Ok(AstMirror {
-        inner: convert_fast(py, &query, types)?,
+        inner: convert(py, &query, types)?,
     })
-}
-
-#[pyfunction]
-#[pyo3(signature = (query=None))]
-fn extract_features_via_mirror_fast<'py>(
-    py: Python<'py>,
-    query: Option<Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyTuple>> {
-    let (tables, events) = match query {
-        None => (Vec::new(), Vec::new()),
-        Some(q) => {
-            let types = ast_types(py)?;
-            let mirror = convert_fast(py, &q, types)?;
-            let mut v = NativeVisitor::new();
-            v.visit(&mirror);
-            (
-                v.tables.into_iter().collect::<Vec<_>>(),
-                v.events.into_iter().collect::<Vec<_>>(),
-            )
-        }
-    };
-    Ok(PyTuple::new_bound(
-        py,
-        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
-    ))
 }
 
 #[pyfunction]
@@ -852,11 +547,8 @@ fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyR
 #[pymodule]
 fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
-    m.add_function(wrap_pyfunction!(extract_features_py_fast, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
-    m.add_function(wrap_pyfunction!(extract_features_via_mirror_fast, m)?)?;
     m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
-    m.add_function(wrap_pyfunction!(to_mirror_fast, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
     m.add_class::<AstMirror>()?;
     Ok(())

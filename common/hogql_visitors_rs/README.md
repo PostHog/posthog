@@ -12,18 +12,16 @@ performance trade-offs concrete before we commit to a direction.
 `HogQLFeatureExtractor` is the simplest non-trivial visitor we have, so it
 makes a clean A/B subject. Three implementations:
 
-| Variant                                                | What it does                                                                                                                           |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Python (current)                                       | `posthog/hogql/feature_extractor.py` — `TraversingVisitor` subclass                                                                    |
-| `extract_features_py` (Rust, A)                        | Reads Python AST objects in place via PyO3. Same per-node Python C-API cost as Python, but skips interpreter dispatch overhead         |
-| `extract_features_py_fast` (Rust, A-fast)              | Same as A, but with PyO3 `intern!`'d attribute names and cached AST class type pointers. Dispatch becomes pointer compare, not strcmp. |
-| `extract_features_via_mirror` (Rust, B, full)          | Walks the Python AST once to build a Rust-native enum, then walks the enum natively. Both phases on every call.                        |
-| `extract_features_via_mirror_fast` (Rust, B-fast)      | Same as B but with the A-fast tricks (interned attribute names, cached type pointers) applied to the conversion pass.                  |
-| `to_mirror` + `extract_features_from_mirror` (B split) | Exposes the convert and visit phases separately so the bench can measure them independently                                            |
+| Variant                                                                      | What it does                                                                                                                                                          |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python (current)                                                             | `posthog/hogql/feature_extractor.py` — `TraversingVisitor` subclass                                                                                                   |
+| `extract_features_py`                                                        | Rust strategy A: walks Python AST objects in place via PyO3 with interned attribute names + cached AST class type pointers (`is_exact_instance`).                     |
+| `extract_features_via_mirror` + `to_mirror` / `extract_features_from_mirror` | Rust strategy B: converts the Python AST to a Rust-native enum once, then walks the enum natively. Split API so the bench can measure convert vs visit independently. |
 
-Strategy A has a flat-ish per-call cost. Strategy B has a high one-time cost
-(the conversion) plus a near-zero per-pass cost — so the win shows up only
-when several visitors share the same converted tree.
+This branch also adds `slots=True` to every `@dataclass` in
+`posthog/hogql/{ast.py, base.py}` — the AST has no external subclasses,
+no `setattr` of ad-hoc fields, no `__dict__` reads, and no weakrefs, so
+the conversion is contained.
 
 ## Build process
 
@@ -65,77 +63,63 @@ publishing flow consumes it. For local dev `maturin develop` keeps it cheap.
 
 ## Measured speedup
 
-Numbers from `bench/compare.py` on Apple Silicon, release build, **total ms
-for 5000 invocations** of each variant. B is split into `convert`
-(Python → Rust mirror) and `visit only` (walking the converted mirror) so
-the conversion overhead is visible separately from the visitor cost.
+Numbers from `bench/compare.py` on Apple Silicon, release build. The
+`python (orig)` column is from a separate run on the same machine
+with `slots=True` reverted, so the slots-only win is isolable.
 
 ```text
-query                    python      A   A-fast   B-fast: full   B: visit   B-fast: convert
-tiny                      12.46   1.07     0.61           0.61       0.42              0.19
-events_simple             33.08   4.47     2.42           3.49       1.13              2.36
-events_in_clause          44.78   5.49     3.18           4.92       1.64              3.28
-join_persons              56.26   5.36     2.94           4.75       1.34              3.41
-subquery_with_filters    120.80   6.93     3.21           6.65       0.84              5.80
-trends_like_breakdown    180.81   7.36     3.50           6.02       0.84              5.18
-pathological_deep       1182.35   5.28     2.76           8.72       0.82              7.90
+query                    python (orig)  python (slots)      A   B: full   B: convert   B: visit
+tiny                              17.64           12.12   0.60      0.61         0.20       0.42
+events_simple                     34.66           32.17   2.41      3.81         2.67       1.14
+events_in_clause                  46.27           43.64   3.14      4.89         3.36       1.54
+join_persons                      57.26           55.21   2.96      4.63         3.32       1.32
+subquery_with_filters            123.74          116.04   3.24      6.75         5.89       0.85
+trends_like_breakdown            189.15          175.58   3.48      6.32         5.52       0.80
+pathological_deep               1215.99         1170.69   3.03      9.32         8.52       0.81
 ```
 
-(The full bench output includes "plain B" columns too — same shape, just
-~1.7–1.8× slower than B-fast in every cell that depends on conversion.)
+(All numbers in ms total for 5000 invocations.)
 
 `pathological_deep` is a synthetic 361-AST-node query — multi-CTE, nested
 UNION ALL branches, multi-join — shaped after a complex insight. The row
-is the most compelling argument for Rust here: **Python spends 240 µs per
-call** on that shape; Rust-A finishes in ~1 µs. ~243× speedup, and A is
-actually _faster_ than its smaller-query numbers because the targeted
-visitor only recurses where it needs to, while Python's TraversingVisitor
-base walks every child of every node.
+is the headline: Python spends ~234 µs per call on that shape, Rust-A
+finishes in ~0.6 µs — about **390× faster**.
 
-**A-fast** and **B-fast** are A and B plus two cheap tricks that exploit
-the fact that we know the AST shape ahead of time: PyO3's `intern!`
-caches the attribute-name PyStrings so subsequent `getattr` calls skip
-the hash, and the AST class type objects are cached at first use so
-dispatch becomes a pointer comparison via `is_exact_instance` instead
-of pulling out a class-name string and comparing it.
+What the columns tell us:
 
-The win:
+- **`python (orig)` → `python (slots)`** is the free win from declaring
+  `__slots__` on the AST. Smaller than I'd hoped — roughly 4–8% across
+  the board. Most of the visitor's cost is in `node.accept()` (regex'd
+  name dispatch + `getattr(visitor, method_name)` + method-call overhead),
+  not in field access where slots actually helps. Still positive and
+  essentially free; just not the 10–20% I guessed at upfront.
+- **Strategy A** is the right choice for one-off visitors. Walks Python
+  in place via PyO3 with interned attribute names and cached AST class
+  type pointers; dispatch is `is_exact_instance(&cached_type)` not
+  string compare. 7–22× faster than Python (slots) on small/medium
+  queries, and stretches to **~390×** on `pathological_deep` because
+  the targeted visitor doesn't recurse where it doesn't need to, while
+  Python's `TraversingVisitor` base walks every child of every node
+  regardless.
+- **Strategy B's `convert` step dominates B's total**, ~85–90% of the
+  cost. Each conversion does the same Python `getattr` work A does,
+  plus allocates Rust enum nodes.
+- **Strategy B's `visit only` is essentially free** — under 1 ms for
+  5000 walks of the trends-like or pathological queries. Pure native
+  walk, no PyO3 in the inner loop.
 
-- **A-fast** is 1.7–2.2× over plain A. On the trends-like query that's
-  ~54× vs Python; on `pathological_deep` ~389×.
-- **B-fast's `convert`** is 1.7–1.8× over plain B's convert, dragging
-  B-fast's full cost down with it.
-- The native walk (`B: visit`) is unchanged — already pure Rust.
-
-On small queries A-fast is essentially as fast as B's pure-native walk;
-the gap reopens on big queries because A-fast still pays one (now-cheap)
-PyO3 attribute access per node it visits, while B's native walk is
-walking native enum variants with zero CPython crossings.
-
-What the split makes obvious:
-
-- **A-fast (read Python in place)** is a great single-visitor port —
-  ~50× faster than Python on the trends-like query.
-- **B's `convert` step dominates B's total** — and the same intern +
-  cached-type-pointer tricks shave ~1.7–1.8× off it, dragging B-fast
-  full cost down too.
-- **B's `visit only` step is essentially free** — under 1 ms for 5000
-  walks of the trends-like query. Pure native-tree-walk cost; unaffected
-  by the fast tricks because there's no PyO3 work in it.
-
-For one visitor over a query, A-fast wins. For multiple visitors over
-the same query, B-fast's "pay one cheap convert, run N essentially-free
-walks" wins fast — break-even vs A-fast is ~2 visitors on the trends-like
-query, and at 5 visitors B-fast is ~1.9× faster than A-fast and ~96×
-faster than Python.
+For one visitor over a query, A wins. For multiple visitors over the
+same query, B's "convert once, run N cheap walks" wins fast — break-even
+vs A is ~2 visitors on the trends-like query; at 5 visitors B is ~2×
+faster than A and ~90× faster than Python.
 
 The "minimal interop cost" hypothesis worked out better than I expected:
 yes, every Python attribute access from Rust still goes through CPython's
 C API, but Python's interpreter overhead per method call (frame setup,
-dict lookup for visitor dispatch, isinstance MRO walk) is roughly an
-order of magnitude heavier than the single C call PyO3 makes. Net: even
-a single-visitor Rust port is very much worth it; the multi-visitor batch
-API is icing on top.
+dict lookup for visitor dispatch, isinstance MRO walk, regex'd name
+formatting in `accept`) is roughly an order of magnitude heavier than
+the single C call PyO3 makes. Net: even a single-visitor Rust port is
+very much worth it; the multi-visitor batch API is icing on top.
 
 ## What this points toward (if we like the numbers)
 
@@ -177,9 +161,3 @@ maturin develop --release
 cd ../..
 python common/hogql_visitors_rs/bench/compare.py
 ```
-
-Output columns: Python (current), Rust-A (read Python in place), Rust
-A-fast (A + interned attribute names + cached type pointers), Rust-B
-full (convert + walk on every call), Rust-B visit-only (walk a
-pre-converted mirror), Rust-B convert (the leftover, i.e. the cost
-amortised when reused across multiple visitors).

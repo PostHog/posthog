@@ -1,10 +1,17 @@
-"""Compare Python, PyO3-direct, and PyO3-mirror feature extractors.
+"""Compare Python and Rust HogQL feature extractors.
 
 Run from repo root after `maturin develop --release` in this dir:
     python common/hogql_visitors_rs/bench/compare.py
 
-Reports total ms for 5000 invocations across four variants so the
-conversion overhead of strategy B is visible alongside the visitor cost.
+Reports total ms for 5000 invocations across:
+  - python: the existing Python visitor running on the AST
+  - A: read Python AST in place via PyO3 (intern'd attrs + cached type ptrs)
+  - B: full = convert Python -> Rust mirror + walk; convert and visit shown
+       separately so the amortisation case is visible.
+
+The PR description includes a separate "python (original)" column captured
+on the same machine before AST classes had __slots__; that comparison
+isolates the slots speedup.
 """
 
 # ruff: noqa: T201, E402, B023, I001
@@ -123,17 +130,7 @@ N = 5000
 
 
 def run() -> None:
-    header = (
-        f"{'query':<24} "
-        f"{'python':>9} "
-        f"{'A':>7} "
-        f"{'A-fast':>8} "
-        f"{'B: full':>9} "
-        f"{'B-fast: full':>14} "
-        f"{'B: visit':>10} "
-        f"{'B: convert':>12} "
-        f"{'B-fast: convert':>17}"
-    )
+    header = f"{'query':<24} {'python':>9} {'A':>7} {'B: full':>9} {'B: convert':>12} {'B: visit':>10}"
     print(header)
     print("-" * len(header))
     print(f"{'(total ms / ' + str(N) + ' calls)':<24}")
@@ -145,20 +142,11 @@ def run() -> None:
 
         t_py = timeit.timeit(lambda: extract_python(parsed), number=N) * 1000
         t_a = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py(parsed), number=N) * 1000
-        t_a_fast = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py_fast(parsed), number=N) * 1000
         t_b_full = timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror(parsed), number=N) * 1000
-        t_b_full_fast = (
-            timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror_fast(parsed), number=N) * 1000
-        )
         t_b_visit = timeit.timeit(lambda: hogql_visitors_rs.extract_features_from_mirror(mirror), number=N) * 1000
         t_b_convert = t_b_full - t_b_visit
-        t_b_convert_fast = t_b_full_fast - t_b_visit
 
-        print(
-            f"{name:<24} {t_py:>9.2f} {t_a:>7.2f} {t_a_fast:>8.2f} "
-            f"{t_b_full:>9.2f} {t_b_full_fast:>14.2f} {t_b_visit:>10.2f} "
-            f"{t_b_convert:>12.2f} {t_b_convert_fast:>17.2f}"
-        )
+        print(f"{name:<24} {t_py:>9.2f} {t_a:>7.2f} {t_b_full:>9.2f} {t_b_convert:>12.2f} {t_b_visit:>10.2f}")
 
 
 if __name__ == "__main__":
