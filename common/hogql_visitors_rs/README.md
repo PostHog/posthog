@@ -12,11 +12,12 @@ performance trade-offs concrete before we commit to a direction.
 `HogQLFeatureExtractor` is the simplest non-trivial visitor we have, so it
 makes a clean A/B subject. Three implementations:
 
-| Variant                                 | What it does                                                                                                                   |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Python (current)                        | `posthog/hogql/feature_extractor.py` — `TraversingVisitor` subclass                                                            |
-| `extract_features_py` (Rust, A)         | Reads Python AST objects in place via PyO3. Same per-node Python C-API cost as Python, but skips interpreter dispatch overhead |
-| `extract_features_via_mirror` (Rust, B) | Walks the Python AST once to build a Rust-native enum, then walks the enum natively                                            |
+| Variant                                                | What it does                                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Python (current)                                       | `posthog/hogql/feature_extractor.py` — `TraversingVisitor` subclass                                                            |
+| `extract_features_py` (Rust, A)                        | Reads Python AST objects in place via PyO3. Same per-node Python C-API cost as Python, but skips interpreter dispatch overhead |
+| `extract_features_via_mirror` (Rust, B, full)          | Walks the Python AST once to build a Rust-native enum, then walks the enum natively. Both phases on every call.                |
+| `to_mirror` + `extract_features_from_mirror` (B split) | Exposes the convert and visit phases separately so the bench can measure them independently                                    |
 
 Strategy A has a flat-ish per-call cost. Strategy B has a high one-time cost
 (the conversion) plus a near-zero per-pass cost — so the win shows up only
@@ -151,5 +152,7 @@ cd ../..
 python common/hogql_visitors_rs/bench/compare.py
 ```
 
-Output columns: Python, Rust-A (read Python), Rust-B (convert+walk),
-Rust-B-amortised-over-5-visitors.
+Output columns: Python (current), Rust-A (read Python in place), Rust-B
+full (convert + walk on every call), Rust-B visit-only (walk a
+pre-converted mirror), Rust-B convert (the leftover, i.e. the cost
+amortised when reused across multiple visitors).
