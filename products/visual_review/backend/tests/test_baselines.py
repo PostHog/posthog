@@ -22,7 +22,7 @@ from products.visual_review.backend.facade import api as vr_api
 from products.visual_review.backend.facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult, ToleratedReason
 from products.visual_review.backend.models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
 def _mk_artifact(repo: Repo, content_hash: str, *, with_thumbnail: str | None = None) -> Artifact:
@@ -103,7 +103,7 @@ def _mk_snapshot(
     return snap
 
 
-class TestBaselinesOverview(APIBaseTest):
+class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     def setUp(self):

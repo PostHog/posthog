@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
@@ -41,6 +42,7 @@ import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import { KeyedRateLimiterStepOptions, createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
+import { createLoadErrorTrackingSettingsStep } from './load-error-tracking-settings-step'
 import { createFetchPersonBatchStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -83,6 +85,11 @@ export interface ErrorTrackingPipelineConfig {
      * a `postCymbalRateLimiters` slot rather than reorder this one.
      */
     preCymbalRateLimiters?: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[]
+    /**
+     * When provided, an error-tracking-settings load step runs before the rate limiter
+     * chain so per-team overrides can be read synchronously from the input.
+     */
+    errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
 }
@@ -94,6 +101,7 @@ export interface ErrorTrackingPipelineConfig {
 export interface PreCymbalRateLimiterInput {
     team: { id: number }
     event: PluginEvent
+    errorTrackingSettings?: ErrorTrackingSettings | null
 }
 
 /**
@@ -150,6 +158,7 @@ export function createErrorTrackingPipeline(
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         preCymbalRateLimiters,
+        errorTrackingSettingsManager,
         topHog,
     } = config
 
@@ -184,6 +193,9 @@ export function createErrorTrackingPipeline(
                                 })),
                             ])
                         )
+                        // Attach per-team error-tracking settings. No-op when the manager isn't wired
+                        // (rate limiter disabled) — keeps the type chain consistent regardless.
+                        .pipe(createLoadErrorTrackingSettingsStep(errorTrackingSettingsManager))
                 )
                 // Map team to context for handleIngestionWarnings, and carry
                 // the Kafka message byte size through for Cymbal batch chunking.

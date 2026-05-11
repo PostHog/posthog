@@ -4,17 +4,9 @@
         "cdc_table_mode": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
-                            "enum": ["consolidated", "cdc_only", "both"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+                    "enum": ["consolidated", "cdc_only", "both"],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -40,17 +32,9 @@
         "incremental_field_type": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid",
-                            "enum": ["integer", "numeric", "datetime", "date", "timestamp", "objectid"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid",
+                    "enum": ["integer", "numeric", "datetime", "date", "timestamp", "objectid"],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -78,29 +62,21 @@
         "sync_frequency": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
-                            "enum": [
-                                "never",
-                                "1min",
-                                "5min",
-                                "15min",
-                                "30min",
-                                "1hour",
-                                "6hour",
-                                "12hour",
-                                "24hour",
-                                "7day",
-                                "30day"
-                            ],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+                    "enum": [
+                        "never",
+                        "1min",
+                        "5min",
+                        "15min",
+                        "30min",
+                        "1hour",
+                        "6hour",
+                        "12hour",
+                        "24hour",
+                        "7day",
+                        "30day"
+                    ],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -123,17 +99,9 @@
         "sync_type": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc",
-                            "enum": ["full_refresh", "incremental", "append", "webhook", "cdc"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc",
+                    "enum": ["full_refresh", "incremental", "append", "webhook", "cdc"],
+                    "type": "string"
                 },
                 {
                     "type": "null"

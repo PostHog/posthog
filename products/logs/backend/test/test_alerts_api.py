@@ -1,5 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -13,6 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
@@ -1677,7 +1680,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
     def _make_alert(self, **overrides: object) -> LogsAlertConfiguration:
         from products.logs.backend.alert_state_machine import AlertState
 
-        defaults = {
+        defaults: dict[str, Any] = {
             "team": self.team,
             "name": "Lifecycle test alert",
             "filters": {"serviceNames": [self.service]},
@@ -1692,6 +1695,17 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
             "state": AlertState.NOT_FIRING.value,
         }
         defaults.update(overrides)
+        # Pin the test alert to shard 0 so its evaluator NCAs align with the
+        # simulator's canonical-grid bucket boundaries. Without this, the
+        # evaluator advances NCAs onto the alert's shard offset (e.g. :02/:07
+        # instead of :00/:05) and the simulator's :00/:05 bucket evaluations
+        # disagree on event timing.
+        cadence = int(defaults["check_interval_minutes"])
+        while True:
+            candidate = uuid4()
+            if compute_shard_offset_seconds(candidate, cadence) == 0:
+                defaults["id"] = candidate
+                break
         return LogsAlertConfiguration.objects.create(**defaults)
 
     def _drive_evaluator(

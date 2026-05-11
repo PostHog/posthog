@@ -4,13 +4,14 @@ import { createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
-    /** Custom tick label formatter. When set, it wins over the date-axis auto formatter. */
+    /** Explicit tick formatter. When set, it wins over the auto date formatter. */
     tickFormatter?: (value: string, index: number) => string | null
     hide?: boolean
+    /** Timezone used when interpreting date labels for the auto date formatter. */
     timezone?: string
+    /** Bucket size for the auto date formatter. */
     interval?: TimeInterval
-    /** Raw date strings underlying each label, used to compute boundary-aware ticks.
-     * If omitted, falls back to `labels`. */
+    /** Source dates for the auto date formatter. Falls back to `labels` when omitted. */
     allDays?: string[]
 }
 
@@ -26,19 +27,23 @@ export function useXTickFormatter(
     xAxis: XAxisConfig | undefined,
     labels: string[]
 ): ((value: string, index: number) => string | null) | undefined {
+    // Resolve outside the memo so `labels` only participates as a dep when it's
+    // actually the source — when `xAxis.allDays` is provided, label-only changes
+    // shouldn't rebuild the formatter (and ripple a new identity through context).
+    const effectiveAllDays = xAxis?.allDays ?? labels
     return useMemo(() => {
         if (xAxis?.tickFormatter) {
             return xAxis.tickFormatter
         }
-        if (!xAxis?.timezone || !xAxis?.interval) {
-            return undefined
+        if (xAxis?.timezone && xAxis?.interval) {
+            return createXAxisTickCallback({
+                timezone: xAxis.timezone,
+                interval: xAxis.interval,
+                allDays: effectiveAllDays,
+            })
         }
-        return createXAxisTickCallback({
-            timezone: xAxis.timezone,
-            interval: xAxis.interval,
-            allDays: xAxis.allDays ?? labels,
-        })
-    }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, xAxis?.allDays, labels])
+        return undefined
+    }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, effectiveAllDays])
 }
 
 export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: number) => string) | undefined {

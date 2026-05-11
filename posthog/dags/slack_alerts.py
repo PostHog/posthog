@@ -22,6 +22,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_INGESTION.value: "#alerts-ingestion",
     JobOwners.TEAM_LOGS.value: "#alerts-logs-prod",
     JobOwners.TEAM_POSTHOG_AI.value: "#alerts-max-ai",
+    JobOwners.TEAM_QUERY_PERFORMANCE.value: "#alerts-query-performance",
     JobOwners.TEAM_REVENUE_ANALYTICS.value: "#alerts-growth",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",

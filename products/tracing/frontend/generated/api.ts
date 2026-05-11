@@ -117,7 +117,7 @@ export const getTracingSpansTraceCreateUrl = (projectId: string, traceId: string
 export const tracingSpansTraceCreate = async (
     projectId: string,
     traceId: string,
-    _tracingTraceRequestApi: _TracingTraceRequestApi,
+    _tracingTraceRequestApi?: _TracingTraceRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansTraceCreateUrl(projectId, traceId), {

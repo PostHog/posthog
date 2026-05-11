@@ -93,13 +93,13 @@ function SnapshotThumbnail({
                     </span>
                 </>
             )}
-            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
+            <div className="w-[125px] h-[86px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {imgSrc ? (
                     <img
                         src={imgSrc}
                         alt=""
-                        width={104}
-                        height={72}
+                        width={125}
+                        height={86}
                         loading="lazy"
                         decoding="async"
                         className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
@@ -116,7 +116,7 @@ function SnapshotThumbnail({
                     </span>
                 )}
             </div>
-            <div className="flex items-center gap-1 max-w-[108px] w-full">
+            <div className="flex items-center gap-1 max-w-[130px] w-full">
                 {hasDiff ? (
                     <SnapshotChangeBadge snapshot={snapshot} size="small" />
                 ) : (

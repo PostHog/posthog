@@ -22,6 +22,12 @@ export const UpdateSessionSummariesConfigBody = /* @__PURE__ */ zod.object({
         .describe(
             "Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page."
         ),
+    custom_tags: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.'
+        ),
 })
 
 /**

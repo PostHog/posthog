@@ -242,7 +242,7 @@ export function SnapshotDiffViewer({
                 </div>
 
                 {/* Right sidebar */}
-                <div className="w-52 shrink-0 border-l pl-4 space-y-4">
+                <div className="w-[250px] shrink-0 border-l pl-4 space-y-4">
                     {/* === Diff minimap === */}
                     {snapshot.diff_artifact?.download_url && (
                         <DiffMinimap
