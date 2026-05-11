@@ -23,28 +23,37 @@ class TestParserCache(BaseTest):
         super().setUp()
         clear_parse_caches()
 
+    def _total_cache_size(self) -> int:
+        return int(_builtin_parse_cache.currsize + _user_parse_cache.currsize)
+
     def test_cache_hit_returns_equivalent_ast(self):
-        sql = "SELECT count() FROM events"
+        sql = "SELECT count() FROM events WHERE event = '$pageview' -- cache test"
         first = parse_select(sql)
         second = parse_select(sql)
         self.assertEqual(first, second)
+        # Verify the second call was actually a cache hit, not a re-parse.
+        self.assertEqual(self._total_cache_size(), 1)
 
     def test_cache_hit_returns_distinct_object(self):
         # The resolver and printer mutate the AST in place — cache hits must
         # not share node identity with previous returns.
-        sql = "SELECT count() FROM events"
+        sql = "SELECT count() FROM events WHERE event = '$pageview' -- distinct test"
         first = parse_select(sql)
         second = parse_select(sql)
         self.assertIsNot(first, second)
+        self.assertEqual(self._total_cache_size(), 1)
 
     def test_mutation_does_not_leak_across_calls(self):
-        sql = "SELECT 1"
+        sql = "SELECT 1 FROM events WHERE event = '$exception' -- mutation isolation"
         first = parse_select(sql)
         assert isinstance(first, ast.SelectQuery)
         first.limit = ast.Constant(value=10)
         second = parse_select(sql)
         assert isinstance(second, ast.SelectQuery)
         self.assertIsNone(second.limit)
+        # The second call must have hit the cache; otherwise mutation isolation
+        # is trivially satisfied by re-parsing, which isn't what we're testing.
+        self.assertEqual(self._total_cache_size(), 1)
 
     @parameterized.expand(
         [
@@ -111,13 +120,16 @@ class TestParserCache(BaseTest):
     def test_returned_ast_has_independent_nested_objects(self):
         # deepcopy must reach nested children — mutating a deep field must
         # not leak to the cached entry.
-        sql = "SELECT count() FROM events WHERE event = '$pageview'"
+        sql = "SELECT count() FROM events WHERE event = '$pageview' -- nested mutation"
         first = parse_select(sql)
         assert isinstance(first, ast.SelectQuery) and first.where is not None
         first.where = ast.Constant(value=False)
         second = parse_select(sql)
         assert isinstance(second, ast.SelectQuery) and second.where is not None
         self.assertNotEqual(second.where, ast.Constant(value=False))
+        # Cache must have served the second call; otherwise this only proves
+        # that a fresh parse produces a fresh AST, which is uninteresting.
+        self.assertEqual(self._total_cache_size(), 1)
 
     def test_parse_expr_cached_separately_by_start_arg(self):
         # `parse_expr` short identifier-only inputs route to user cache via
