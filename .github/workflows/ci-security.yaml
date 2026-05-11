@@ -253,6 +253,7 @@ jobs:
             - semgrep-js
             - semgrep-products-frontend
             - semgrep-general
+            - semgrep-devex
             - semgrep-test-rules
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
@@ -283,6 +284,10 @@ jobs:
                   fi
                   if [[ "${{ needs.semgrep-general.result }}" != "success" && "${{ needs.semgrep-general.result }}" != "skipped" ]]; then
                     echo "semgrep-general did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-devex.result }}" != "success" && "${{ needs.semgrep-devex.result }}" != "skipped" ]]; then
+                    echo "semgrep-devex did not complete successfully."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-test-rules.result }}" != "success" && "${{ needs.semgrep-test-rules.result }}" != "skipped" ]]; then
