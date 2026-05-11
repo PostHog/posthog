@@ -38,7 +38,13 @@ class CacheOrigin(StrEnum):
     USER = "user"
 
 
-ParseRule = Literal["expr", "order_expr", "select", "full_template_string", "program"]
+class ParseRule(StrEnum):
+    EXPR = "expr"
+    ORDER_EXPR = "order_expr"
+    SELECT = "select"
+    FULL_TEMPLATE_STRING = "full_template_string"
+    PROGRAM = "program"
+
 
 tracer = trace.get_tracer(__name__)
 
@@ -76,37 +82,37 @@ def safe_lambda(f):
     return wrapped
 
 
-RULE_TO_PARSE_FUNCTION: dict[
-    HogQLParserBackend,
-    dict[Literal["expr", "order_expr", "select", "full_template_string", "program"], Callable],
-] = {
+RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
     "python": {
-        "expr": safe_lambda(
+        ParseRule.EXPR: safe_lambda(
             lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr())
         ),
-        "order_expr": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr())),
-        "select": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).select())),
-        "full_template_string": safe_lambda(
+        ParseRule.ORDER_EXPR: safe_lambda(
+            lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr())
+        ),
+        ParseRule.SELECT: safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).select())),
+        ParseRule.FULL_TEMPLATE_STRING: safe_lambda(
             lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString())
         ),
-        "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
+        ParseRule.PROGRAM: safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
     "cpp-json": {
-        "expr": lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
-        "order_expr": lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
-        "select": lambda string: deserialize_ast(_parse_select_json_cpp(string)),
-        "full_template_string": lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
-        "program": lambda string: deserialize_ast(_parse_program_json_cpp(string)),
+        ParseRule.EXPR: lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
+        ParseRule.ORDER_EXPR: lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
+        ParseRule.SELECT: lambda string: deserialize_ast(_parse_select_json_cpp(string)),
+        ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
+        ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_cpp(string)),
     },
 }
 
-RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_string"], Histogram] = {
-    cast(Literal["expr", "order_expr", "select", "full_template_string"], rule): Histogram(
+# `PROGRAM` doesn't have a parse histogram (matches the original code's behavior).
+RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
+    rule: Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
         labelnames=["backend"],
     )
-    for rule in ("expr", "order_expr", "select", "full_template_string")
+    for rule in (ParseRule.EXPR, ParseRule.ORDER_EXPR, ParseRule.SELECT, ParseRule.FULL_TEMPLATE_STRING)
 }
 
 DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
@@ -208,11 +214,11 @@ def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str,
     # it, so the `parse_*_seconds` distribution stays meaningful as a parser
     # perf signal once caches are warm. `program` has no histogram (matching
     # the original code's behavior).
-    histogram = RULE_TO_HISTOGRAM.get(rule)  # type: ignore[arg-type]
+    histogram = RULE_TO_HISTOGRAM.get(rule)
     if histogram is None:
-        return fn(statement, start) if rule == "expr" else fn(statement)
+        return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
     with histogram.labels(backend=backend).time():
-        return fn(statement, start) if rule == "expr" else fn(statement)
+        return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
 
 
 def _parse_cached(
@@ -299,7 +305,7 @@ def parse_string_template(
     if cache_origin == CacheOrigin.AUTO:
         cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(string) else CacheOrigin.USER
     with timings.measure(f"parse_full_template_string_{backend}"):
-        node = _parse_cached("full_template_string", "F'" + string, backend, cache_origin)
+        node = _parse_cached(ParseRule.FULL_TEMPLATE_STRING, "F'" + string, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -320,7 +326,7 @@ def parse_expr(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        node = _parse_cached("expr", expr, backend, cache_origin, start=start)
+        node = _parse_cached(ParseRule.EXPR, expr, backend, cache_origin, start=start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -338,7 +344,7 @@ def parse_order_expr(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
-        node = _parse_cached("order_expr", order_expr, backend, cache_origin)
+        node = _parse_cached(ParseRule.ORDER_EXPR, order_expr, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -357,7 +363,7 @@ def parse_select(
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
         with tracer.start_as_current_span("parse_statement_to_node"):
-            node = _parse_cached("select", statement, backend, cache_origin)
+            node = _parse_cached(ParseRule.SELECT, statement, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -374,7 +380,7 @@ def parse_program(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        node = _parse_cached("program", source, backend, cache_origin)
+        node = _parse_cached(ParseRule.PROGRAM, source, backend, cache_origin)
     return cast("ast.Program", node)
 
 
