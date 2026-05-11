@@ -212,12 +212,9 @@ class TestVisitor(BaseTest):
         class EmptyVisitor(Visitor):
             pass
 
-        try:
+        with self.assertRaises(HogQLNotImplementedError) as ctx:
             EmptyVisitor().visit(ast.Field(chain=["x"]))
-        except HogQLNotImplementedError as e:
-            assert "visit_field" in str(e), f"expected method name in error: {e}"
-        else:
-            raise AssertionError("expected HogQLNotImplementedError")
+        self.assertIn("visit_field", str(ctx.exception))
 
     @parameterized.expand(
         [
