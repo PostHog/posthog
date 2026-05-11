@@ -18,7 +18,7 @@ import { promisifyCallback } from '../../utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError, isPostHogIngestHost } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -1406,6 +1406,138 @@ describe('Hog Executor', () => {
             `)
         })
 
+        describe('rejects fetches that would loop events back into the same project', () => {
+            const TEAM_API_TOKEN = 'phc_teamtoken123'
+            const TEAM_SECRET_API_TOKEN = 'phsk_secrettoken456'
+
+            beforeEach(() => {
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    api_token: TEAM_API_TOKEN,
+                    secret_api_token: TEAM_SECRET_API_TOKEN,
+                } as any)
+                // Tests in this block check whether the underlying fetch was invoked, so start
+                // each case with a clean call history.
+                jest.mocked(fetch).mockClear()
+            })
+
+            const expectedRejectionMessage =
+                "Refusing to fetch a posthog.com endpoint using this project's own API token"
+
+            it.each([
+                ['us.posthog.com host with api_token in body', 'https://us.posthog.com/i/v0/e/', TEAM_API_TOKEN],
+                [
+                    'eu.posthog.com host with secret_api_token in body',
+                    'https://eu.posthog.com/i/v0/e/',
+                    TEAM_SECRET_API_TOKEN,
+                ],
+                ['bare posthog.com host with api_token in body', 'https://posthog.com/capture/', TEAM_API_TOKEN],
+                ['app.posthog.com host with api_token in body', 'https://app.posthog.com/capture/', TEAM_API_TOKEN],
+            ])('rejects %s', async (_name, url, token) => {
+                const invocation = await createFetchInvocation({
+                    url,
+                    method: 'POST',
+                    body: JSON.stringify({ api_token: token, event: '$pageview' }),
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(String(result.error)).toContain(expectedRejectionMessage)
+                expect(result.metrics).toEqual([
+                    expect.objectContaining({
+                        metric_kind: 'failure',
+                        metric_name: 'failed',
+                    }),
+                ])
+            })
+
+            it('rejects when the team token appears in the URL query string', async () => {
+                const invocation = await createFetchInvocation({
+                    url: `https://us.posthog.com/decide/?token=${TEAM_API_TOKEN}`,
+                    method: 'GET',
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(String(result.error)).toContain(expectedRejectionMessage)
+            })
+
+            it('allows posthog.com fetches that use a different token', async () => {
+                jest.mocked(fetch).mockResolvedValue({
+                    status: 200,
+                    body: 'ok',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('ok'),
+                    dump: () => Promise.resolve(),
+                } as any)
+
+                const invocation = await createFetchInvocation({
+                    url: 'https://us.posthog.com/capture/',
+                    method: 'POST',
+                    body: JSON.stringify({ api_token: 'phc_some_other_project', event: '$pageview' }),
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(jest.mocked(fetch)).toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+            })
+
+            it('allows fetches to non-posthog domains even when they contain the team token', async () => {
+                jest.mocked(fetch).mockResolvedValue({
+                    status: 200,
+                    body: 'ok',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('ok'),
+                    dump: () => Promise.resolve(),
+                } as any)
+
+                const invocation = await createFetchInvocation({
+                    url: 'https://example.com/webhook',
+                    method: 'POST',
+                    body: JSON.stringify({ api_token: TEAM_API_TOKEN }),
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(jest.mocked(fetch)).toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+            })
+
+            it('allows fetches when the team has no api token', async () => {
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    api_token: '',
+                    secret_api_token: null,
+                } as any)
+                jest.mocked(fetch).mockResolvedValue({
+                    status: 200,
+                    body: 'ok',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('ok'),
+                    dump: () => Promise.resolve(),
+                } as any)
+
+                const invocation = await createFetchInvocation({
+                    url: 'https://us.posthog.com/capture/',
+                    method: 'POST',
+                    body: JSON.stringify({ api_token: 'phc_anything' }),
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(jest.mocked(fetch)).toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+            })
+        })
+
         it('replaces access token placeholders in body, headers, and url', async () => {
             const mockIntegrationInputs = {
                 oauth: {
@@ -1449,6 +1581,23 @@ describe('Hog Executor', () => {
                   },
                 ]
             `)
+        })
+    })
+
+    describe('isPostHogIngestHost', () => {
+        it.each([
+            ['https://posthog.com', true],
+            ['https://us.posthog.com/capture/', true],
+            ['https://eu.posthog.com/i/v0/e/', true],
+            ['https://app.posthog.com/decide/', true],
+            ['http://posthog.com/anything', true],
+            ['https://notposthog.com/capture/', false],
+            ['https://posthog.com.evil.example/capture/', false],
+            ['https://example.com/posthog.com/', false],
+            ['not a url', false],
+            ['', false],
+        ])('returns %s for %s', (url, expected) => {
+            expect(isPostHogIngestHost(url)).toBe(expected)
         })
     })
 
