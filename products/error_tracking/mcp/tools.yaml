@@ -307,7 +307,7 @@ tools:
             - error_tracking:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Create error tracking suppression rule
         description: >
@@ -350,7 +350,7 @@ tools:
             - error_tracking:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update error tracking suppression rule
         description: >

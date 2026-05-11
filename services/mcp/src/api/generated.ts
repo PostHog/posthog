@@ -13878,7 +13878,7 @@ export namespace Schemas {
 
     export interface ErrorTrackingSuppressionRuleUpdateRequest {
       /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
-      filters?: PropertyGroupFilterValue | null;
+      filters?: PropertyGroupFilterValue;
       /**
          * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
          * @minimum 0
@@ -25424,7 +25424,7 @@ export namespace Schemas {
 
     export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
       /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
-      filters?: PropertyGroupFilterValue | null;
+      filters?: PropertyGroupFilterValue;
       /**
          * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
          * @minimum 0

@@ -68,7 +68,6 @@ class ErrorTrackingSuppressionRuleCreateRequestSerializer(serializers.Serializer
 class ErrorTrackingSuppressionRuleUpdateRequestSerializer(serializers.Serializer):
     filters = ErrorTrackingSuppressionRuleFiltersField(
         required=False,
-        allow_null=True,
         help_text=(
             "Property-group filters that define which incoming error events should be suppressed. "
             "Provide an empty `values` array to convert the rule into a match-all suppression. "

@@ -1332,7 +1332,7 @@
         "required_scopes": ["error_tracking:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -1362,7 +1362,7 @@
         "required_scopes": ["error_tracking:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
