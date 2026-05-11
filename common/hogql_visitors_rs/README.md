@@ -68,39 +68,45 @@ Numbers from `bench/compare.py` on Apple Silicon, release build. The
 with `slots=True` reverted, so the slots-only win is isolable.
 
 ```text
-query                    python (orig)  python (slots)      A   B: full   B: convert   B: visit
-tiny                              17.64           12.12   0.60      0.61         0.20       0.42
-events_simple                     34.66           32.17   2.41      3.81         2.67       1.14
-events_in_clause                  46.27           43.64   3.14      4.89         3.36       1.54
-join_persons                      57.26           55.21   2.96      4.63         3.32       1.32
-subquery_with_filters            123.74          116.04   3.24      6.75         5.89       0.85
-trends_like_breakdown            189.15          175.58   3.48      6.32         5.52       0.80
-pathological_deep               1215.99         1170.69   3.03      9.32         8.52       0.81
+query                    py(orig)  py(+slots)  py(+slots,+cached)      A   B: full   B: convert   B: visit
+tiny                        17.64       12.12                9.33   0.85      0.89         0.30       0.59
+events_simple               34.66       32.17               15.27   2.68      3.96         2.80       1.16
+events_in_clause            46.27       43.64               17.35   3.35      5.23         3.64       1.59
+join_persons                57.26       55.21               19.47   3.00      4.73         3.39       1.34
+subquery_with_filters      123.74      116.04               30.77   3.06      6.85         6.04       0.81
+trends_like_breakdown      189.15      175.58               45.12   3.46      6.04         5.21       0.84
+pathological_deep         1215.99     1170.69              286.00   2.95      9.68         8.85       0.84
 ```
 
 (All numbers in ms total for 5000 invocations.)
 
-`pathological_deep` is a synthetic 361-AST-node query — multi-CTE, nested
-UNION ALL branches, multi-join — shaped after a complex insight. The row
-is the headline: Python spends ~234 µs per call on that shape, Rust-A
-finishes in ~0.6 µs — about **390× faster**.
+`pathological_deep` is a synthetic 361-AST-node query — multi-CTE,
+nested UNION ALL branches, multi-join — shaped after a complex insight.
+The row is the headline: with both Python optimisations applied, the
+visitor goes from ~243 µs/call (original) to ~57 µs/call (~4× faster
+without leaving Python), and Rust-A finishes the same work in ~0.6 µs
+(~410× vs the original).
 
 What the columns tell us:
 
-- **`python (orig)` → `python (slots)`** is the free win from declaring
+- **`py(orig)` → `py(+slots)`** is the free win from declaring
   `__slots__` on the AST. Smaller than I'd hoped — roughly 4–8% across
-  the board. Most of the visitor's cost is in `node.accept()` (regex'd
-  name dispatch + `getattr(visitor, method_name)` + method-call overhead),
-  not in field access where slots actually helps. Still positive and
-  essentially free; just not the 10–20% I guessed at upfront.
+  the board. Most of the visitor's cost wasn't in field access.
+- **`py(+slots)` → `py(+slots, +cached)`** is the much bigger Python
+  win: caching `accept()`'s method-name computation on the class via
+  `__init_subclass__`. The original `AST.accept` ran a regex sub, four
+  `str.replace` calls, and an f-string on every single node visit —
+  pure dispatch overhead that doesn't depend on what the visitor
+  actually does. Computing the method name once at class creation and
+  reading it back as a plain class attribute gets us **3–4× over the
+  slots-only number**. On `pathological_deep` that's 1170 ms → 286 ms.
 - **Strategy A** is the right choice for one-off visitors. Walks Python
   in place via PyO3 with interned attribute names and cached AST class
   type pointers; dispatch is `is_exact_instance(&cached_type)` not
-  string compare. 7–22× faster than Python (slots) on small/medium
-  queries, and stretches to **~390×** on `pathological_deep` because
-  the targeted visitor doesn't recurse where it doesn't need to, while
-  Python's `TraversingVisitor` base walks every child of every node
-  regardless.
+  string compare. ~5–10× faster than the optimised Python on
+  small/medium queries, and stretches to **~97×** on
+  `pathological_deep` because the targeted visitor doesn't recurse
+  where it doesn't need to.
 - **Strategy B's `convert` step dominates B's total**, ~85–90% of the
   cost. Each conversion does the same Python `getattr` work A does,
   plus allocates Rust enum nodes.
@@ -111,7 +117,7 @@ What the columns tell us:
 For one visitor over a query, A wins. For multiple visitors over the
 same query, B's "convert once, run N cheap walks" wins fast — break-even
 vs A is ~2 visitors on the trends-like query; at 5 visitors B is ~2×
-faster than A and ~90× faster than Python.
+faster than A.
 
 The "minimal interop cost" hypothesis worked out better than I expected:
 yes, every Python attribute access from Rust still goes through CPython's
