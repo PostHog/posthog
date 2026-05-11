@@ -1,5 +1,6 @@
 import sys
 import copy
+import threading
 from collections.abc import Callable
 from enum import StrEnum
 from types import FrameType
@@ -146,6 +147,18 @@ _LITERAL_DETECTION_FRAME_DEPTH = 40
 # as a code literal.
 _LITERAL_DETECTION_MIN_LEN = 32
 
+# Skip caching queries longer than this — bounds worst-case memory growth from
+# user-controlled inputs. Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` allows 20 MB
+# request bodies; without this cap, an attacker could submit 512 distinct
+# megabyte-scale queries and pin gigabytes per worker. 64 KiB is well above
+# any production HogQL query observed in practice (the deepest synthetic
+# pathological in our benchmark is <5 KiB). Applied to the USER cache and
+# to AUTO classifications (we don't have 100% confidence in auto-routing,
+# and a misclassification that puts a huge user query in BUILTIN would defeat
+# the bucket-split protection). Explicit `cache_origin=BUILTIN` is trusted —
+# it's an opt-in by code that knows what it's storing.
+_MAX_CACHEABLE_STATEMENT_LEN = 64 * 1024
+
 _PARSE_CACHE_EVENTS = Counter(
     "hogql_parse_cache_events_total",
     "HogQL parse-cache lookups",
@@ -202,6 +215,13 @@ _MISS: Any = object()
 
 _builtin_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_BUILTIN_CACHE_SIZE)
 _user_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_USER_CACHE_SIZE)
+# Single lock for both caches. `cachetools.LRUCache` is explicitly NOT
+# thread-safe — its `__setitem__` is a compound check-evict-insert and its
+# `__getitem__` moves the entry to the front, both of which can transiently
+# violate the bounded-size invariant under concurrent access from threaded
+# WSGI/Celery workers. The cache hit cost is dominated by `deepcopy`
+# (~14-200 µs), so the lock acquire/release overhead (~50 ns) is negligible.
+_PARSE_CACHE_LOCK = threading.Lock()
 
 _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.BUILTIN).set(_BUILTIN_CACHE_SIZE)
 _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
@@ -249,41 +269,59 @@ def _parse_cached(
     # validated and a typo raises rather than silently routing to the user
     # cache via the `==` else-branch.
     cache_origin = CacheOrigin(cache_origin)
+
+    # Skip caching for oversized statements unless the caller explicitly
+    # opts into the built-in cache. This caps worst-case memory growth
+    # from user-controlled inputs without affecting the typical fast path.
+    if cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN:
+        _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="skip", rule=rule).inc()
+        return _invoke_parser(backend, rule, statement, start)
+
     key = (statement, backend, rule, start)
 
     if cache_origin == CacheOrigin.AUTO:
         # Built-in is checked first because it holds the hot, in-process
         # literal queries — the case we expect to dominate production traffic.
-        cached = _builtin_parse_cache.get(key, _MISS)
-        if cached is not _MISS:
-            _PARSE_CACHE_EVENTS.labels(origin=CacheOrigin.BUILTIN, result="hit", rule=rule).inc()
-            return copy.deepcopy(cached)
-        cached = _user_parse_cache.get(key, _MISS)
-        if cached is not _MISS:
-            _PARSE_CACHE_EVENTS.labels(origin=CacheOrigin.USER, result="hit", rule=rule).inc()
+        with _PARSE_CACHE_LOCK:
+            cached = _builtin_parse_cache.get(key, _MISS)
+            if cached is _MISS:
+                cached = _user_parse_cache.get(key, _MISS)
+                hit_origin = CacheOrigin.USER if cached is not _MISS else None
+            else:
+                hit_origin = CacheOrigin.BUILTIN
+        if hit_origin is not None:
+            _PARSE_CACHE_EVENTS.labels(origin=hit_origin, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
         # Full miss — classify so we know which cache to fill.
         cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(statement) else CacheOrigin.USER
     else:
         cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
-        cached = cache.get(key, _MISS)
+        with _PARSE_CACHE_LOCK:
+            cached = cache.get(key, _MISS)
         if cached is not _MISS:
             _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
 
-    # Miss path: parse, store a deepcopy in the cache, return the fresh parse.
+    # Miss path: parse without holding the lock (parsing is the expensive part
+    # and is pure — concurrent parses of the same key race idempotently), then
+    # take the lock to store. The fresh parse (single owner) is returned
+    # directly without an extra deepcopy.
     cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
     parsed = _invoke_parser(backend, rule, statement, start)
-    cache[key] = copy.deepcopy(parsed)
+    cached_copy = copy.deepcopy(parsed)
+    with _PARSE_CACHE_LOCK:
+        cache[key] = cached_copy
+        currsize = cache.currsize
     _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="miss", rule=rule).inc()
-    _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(cache.currsize)
+    _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(currsize)
     return parsed
 
 
 def clear_parse_caches() -> None:
     """Drop both parse caches. Used by tests."""
-    _builtin_parse_cache.clear()
-    _user_parse_cache.clear()
+    with _PARSE_CACHE_LOCK:
+        _builtin_parse_cache.clear()
+        _user_parse_cache.clear()
     _PARSE_CACHE_SIZE.labels(cache=CacheOrigin.BUILTIN).set(0)
     _PARSE_CACHE_SIZE.labels(cache=CacheOrigin.USER).set(0)
 

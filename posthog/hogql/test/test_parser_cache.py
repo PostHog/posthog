@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.parser import (
     CacheOrigin,
@@ -41,15 +43,16 @@ class TestParserCache(BaseTest):
         assert isinstance(second, ast.SelectQuery)
         self.assertIsNone(second.limit)
 
-    def test_user_origin_routes_to_user_cache(self):
-        parse_select("SELECT 1", cache_origin=CacheOrigin.USER)
-        self.assertEqual(_user_parse_cache.currsize, 1)
-        self.assertEqual(_builtin_parse_cache.currsize, 0)
-
-    def test_builtin_origin_routes_to_builtin_cache(self):
-        parse_select("SELECT 2", cache_origin=CacheOrigin.BUILTIN)
-        self.assertEqual(_builtin_parse_cache.currsize, 1)
-        self.assertEqual(_user_parse_cache.currsize, 0)
+    @parameterized.expand(
+        [
+            (CacheOrigin.BUILTIN, lambda: _builtin_parse_cache, lambda: _user_parse_cache),
+            (CacheOrigin.USER, lambda: _user_parse_cache, lambda: _builtin_parse_cache),
+        ]
+    )
+    def test_explicit_origin_routes_to_matching_cache(self, origin, target_getter, other_getter):
+        parse_select(f"SELECT 1 -- routing test {origin}", cache_origin=origin)
+        self.assertEqual(target_getter().currsize, 1)
+        self.assertEqual(other_getter().currsize, 0)
 
     def test_auto_detects_function_local_literal(self):
         # Literal must be long enough to bypass the auto-interning guard
@@ -144,6 +147,35 @@ class TestParserCache(BaseTest):
         with self.assertRaises(ValueError):
             parse_select("SELECT 1", cache_origin="buultin")  # type: ignore[arg-type]
 
+    @parameterized.expand(
+        [
+            (CacheOrigin.AUTO,),
+            (CacheOrigin.USER,),
+        ]
+    )
+    def test_oversized_query_skips_user_and_auto_caches(self, origin):
+        # An attacker-controlled HogQL query larger than the size cap must
+        # NOT enter the cache — bounds worst-case memory growth.
+        from posthog.hogql.parser import _MAX_CACHEABLE_STATEMENT_LEN
+
+        # Build a syntactically valid query over the size limit. Use a long
+        # comment so we don't blow up parse time on something pathological.
+        padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
+        sql = f"SELECT 1 -- {padding}"
+        parse_select(sql, cache_origin=origin)
+        self.assertEqual(_builtin_parse_cache.currsize, 0)
+        self.assertEqual(_user_parse_cache.currsize, 0)
+
+    def test_oversized_query_still_caches_under_explicit_builtin(self):
+        # Explicit BUILTIN is opt-in by code that knows what it's storing —
+        # the size cap doesn't apply.
+        from posthog.hogql.parser import _MAX_CACHEABLE_STATEMENT_LEN
+
+        padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
+        sql = f"SELECT 1 -- {padding}"
+        parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
+        self.assertEqual(_builtin_parse_cache.currsize, 1)
+
     def test_parse_string_template_literal_routes_to_builtin(self):
         # Template strings used to always land in the user cache because the
         # key is `"F'" + string` (runtime concat). Auto-detect now classifies
@@ -163,21 +195,16 @@ class TestParserCache(BaseTest):
         self.assertEqual(_user_parse_cache.currsize, 0)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
-    def test_auto_path_skips_frame_walk_on_hit(self):
+    @parameterized.expand(
+        [
+            (CacheOrigin.BUILTIN, "SELECT 4 -- prior built-in cache entry, plenty long enough"),
+            (CacheOrigin.USER, "SELECT 5 -- prior user cache entry, also plenty long enough"),
+        ]
+    )
+    def test_auto_path_skips_frame_walk_on_hit(self, prior_origin, sql):
         # The whole point of the fast path: when an entry exists in either
         # cache, _looks_like_code_literal should not be invoked.
-        parse_select("SELECT 4", cache_origin=CacheOrigin.BUILTIN)
+        parse_select(sql, cache_origin=prior_origin)
         with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
-            parse_select("SELECT 4")  # cache_origin defaults to AUTO
-            detector.assert_not_called()
-
-    def test_auto_path_serves_from_user_cache_without_classifying(self):
-        # An entry previously stashed in the user cache should also be served
-        # without invoking the frame walk.
-        parse_select(" ".join(["SELECT", "5"]), cache_origin=CacheOrigin.USER)
-        with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
-            # Reconstruct the same statement at runtime (so it'd be classified
-            # as user if we did walk the stack — we should hit the user cache
-            # without needing to.).
-            parse_select(" ".join(["SELECT", "5"]))
+            parse_select(sql)  # cache_origin defaults to AUTO
             detector.assert_not_called()
