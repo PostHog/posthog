@@ -59,11 +59,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            # `self.query.query` is a user-supplied HogQL string from the API
-            # (insight definitions, dashboard queries, ad-hoc explorations).
-            # Mark as USER explicitly so it bypasses the call-stack literal
-            # detection and lands in the protected user cache regardless of
-            # how this method gets called.
             parsed_select = parse_select(
                 self.query.query,
                 timings=self.timings,
