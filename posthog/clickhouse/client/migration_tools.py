@@ -5,7 +5,7 @@ from typing import Optional
 from infi.clickhouse_orm import migrations
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.connection import DATA_NODE_ROLES, SINGLE_SHARD_DATA_NODE_ROLES, NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query, get_cluster
 from posthog.settings.data_stores import (
     CLICKHOUSE_CLUSTER,
@@ -83,9 +83,17 @@ def run_sql_with_exceptions(
         query = Query(sql)
 
         if sharded and is_alter_on_replicated_table:
-            assert (NodeRole.DATA in node_roles_list and len(node_roles_list) == 1) or (
-                settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
-            ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
+            is_local_or_test = settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
+            single_role = node_roles_list[0] if len(node_roles_list) == 1 else None
+            assert is_local_or_test or (single_role is not None and single_role in DATA_NODE_ROLES), (
+                "When running migrations on sharded tables, node_roles must be exactly one of "
+                f"{sorted(r.name for r in DATA_NODE_ROLES)}"
+            )
+            # Satellite clusters are single-shard and live in __extra_hosts, which
+            # map_one_host_per_shard cannot reach; any_host_by_roles can.
+            if not is_local_or_test and single_role in SINGLE_SHARD_DATA_NODE_ROLES:
+                logger.info("       Running ALTER on sharded replicated table on one host of role %s", single_role)
+                return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
             logger.info("       Running ALTER on replicated table on just one host")

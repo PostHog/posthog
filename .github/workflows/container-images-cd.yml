@@ -73,7 +73,7 @@ jobs:
 
             - name: report failure
               if: failure()
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
@@ -81,7 +81,7 @@ jobs:
             - name: report failure to DevEx PostHog
               if: failure()
               continue-on-error: true
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-image-build'
@@ -250,12 +250,12 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/usage_reports|^posthog/temporal/llm_analytics|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/llm_analytics|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker

@@ -6,16 +6,17 @@
     }
 }
 
-.active-query-highlight {
-    background-color: rgb(54 130 246 / 12%);
+.active-query-outline {
+    box-sizing: border-box;
+    pointer-events: none;
+    border: 1px solid rgb(54 130 246 / 45%);
+    border-radius: 3px;
 }
 
-.active-subquery-highlight {
-    background-color: rgb(54 130 246 / 22%);
-}
-
-.active-subquery-highlight-invalid {
-    background-color: rgb(54 130 246 / 22%);
+.active-query-gutter {
+    width: 2px !important;
+    margin-left: 3px;
+    background-color: rgb(54 130 246 / 40%);
 }
 
 .active-subquery-border-invalid {

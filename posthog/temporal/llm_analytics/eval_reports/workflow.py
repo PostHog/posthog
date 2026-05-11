@@ -2,9 +2,14 @@
 
 import json
 import asyncio
+from datetime import timedelta
+
+from django.conf import settings
 
 import temporalio.workflow
 from structlog import get_logger
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.eval_reports.activities import (
@@ -34,6 +39,10 @@ from posthog.temporal.llm_analytics.eval_reports.constants import (
     UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
     UPDATE_SCHEDULE_RETRY_POLICY,
     WORKFLOW_EXECUTION_TIMEOUT,
+)
+from posthog.temporal.llm_analytics.eval_reports.emit_signal import (
+    EmitEvalReportSignalInputs,
+    EmitEvalReportSignalWorkflow,
 )
 from posthog.temporal.llm_analytics.eval_reports.types import (
     CheckCountTriggeredReportsWorkflowInputs,
@@ -194,6 +203,46 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             start_to_close_timeout=STORE_ACTIVITY_TIMEOUT,
             retry_policy=STORE_RETRY_POLICY,
         )
+
+        # 3b. Emit a signal for this report run (fire-and-forget).
+        # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
+        # parent-close lets the LLM summary call continue independently so it doesn't
+        # block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS, EVALUATION)
+        # row that gates per-result emission — the activity bails out early for
+        # teams/evaluations that haven't opted in.
+        # Wrapped in workflow.patched so in-flight workflows started before this code
+        # was deployed don't hit a nondeterminism error on replay — they'll skip the
+        # child-workflow command entirely.
+        if temporalio.workflow.patched("eval-report-emit-signal-2026-04"):
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    EmitEvalReportSignalWorkflow.run,
+                    EmitEvalReportSignalInputs(
+                        team_id=context.team_id,
+                        evaluation_id=context.evaluation_id,
+                        evaluation_name=context.evaluation_name,
+                        evaluation_description=context.evaluation_description,
+                        evaluation_prompt=context.evaluation_prompt,
+                        report_id=agent_result.report_id,
+                        report_run_id=store_result.report_run_id,
+                        period_start=agent_result.period_start,
+                        period_end=agent_result.period_end,
+                    ),
+                    id=f"emit-eval-report-signal-{context.team_id}-{context.evaluation_id}-{store_result.report_run_id}",
+                    task_queue=settings.LLMA_TASK_QUEUE,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=5),
+                )
+            except WorkflowAlreadyStartedError:
+                # Same parent workflow replayed/retried with the same report_run_id.
+                # Safe to skip — the previous run is already handling emission.
+                temporalio.workflow.logger.info(
+                    "Eval report signal workflow already started for this run",
+                    evaluation_id=context.evaluation_id,
+                    team_id=context.team_id,
+                    report_run_id=store_result.report_run_id,
+                )
 
         # 4. Deliver
         await temporalio.workflow.execute_activity(

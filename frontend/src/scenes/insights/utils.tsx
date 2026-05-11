@@ -1,4 +1,4 @@
-import isEqual from 'lodash.isequal'
+import equal from 'fast-deep-equal'
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -734,7 +734,7 @@ function arraysEqual(arr1: any[], arr2: any[]): boolean {
 
     // Compare each element
     for (let i = 0; i < sorted1.length; i++) {
-        if (!isEqual(sorted1[i], sorted2[i])) {
+        if (!equal(sorted1[i], sorted2[i])) {
             return false
         }
     }
@@ -745,7 +745,7 @@ function deepEqual(val1: any, val2: any): boolean {
     if (Array.isArray(val1) && Array.isArray(val2)) {
         return arraysEqual(val1, val2)
     }
-    return isEqual(val1, val2)
+    return equal(val1, val2)
 }
 
 export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {

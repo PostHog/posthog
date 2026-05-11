@@ -145,6 +145,12 @@ export const urls = {
     login2FASetup: (): string => '/login/2fa_setup',
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
+    /**
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO) or
+     * `github-integration` (user GitHub App integration); see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     */
+    accountConnected: (kind: string = ':kind'): string =>
+        kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -164,11 +170,20 @@ export const urls = {
         productKey,
         stepKey,
         sdk,
+        secondary,
+        from,
+        resumeStep,
     }: {
         campaign?: string
         productKey?: string
         stepKey?: OnboardingStepKey
         sdk?: SDKKey
+        /** Secondary product keys selected in this onboarding session (comma-joined in URL) */
+        secondary?: string[]
+        /** Product key the user navigated from (used for back navigation when diverted) */
+        from?: string
+        /** Step on the from-product to resume after a divert completes */
+        resumeStep?: OnboardingStepKey
     } = {}): string => {
         if (campaign) {
             return `/onboarding/coupons/${campaign}`
@@ -180,6 +195,15 @@ export const urls = {
         }
         if (sdk) {
             params.set('sdk', sdk)
+        }
+        if (secondary?.length) {
+            params.set('secondary', secondary.join(','))
+        }
+        if (from) {
+            params.set('from', from)
+        }
+        if (resumeStep) {
+            params.set('resumeStep', resumeStep)
         }
 
         const base = `/onboarding${productKey ? `/${productKey}` : ''}`
@@ -267,7 +291,6 @@ export const urls = {
     healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
-    webAnalyticsBotDetail: (botName: string): string => `/web/bots/${encodeURIComponent(botName)}`,
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',

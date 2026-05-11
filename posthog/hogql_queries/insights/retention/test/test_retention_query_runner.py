@@ -2888,6 +2888,84 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_retention_first_time_ever_breakdown_does_not_inflate_buckets(self):
+        # First-ever retention with a breakdown by an event property that was
+        # captured later than the user's first event (e.g. a flag rolled out
+        # after they first opened the app). Each user must land in exactly one
+        # bucket — the breakdown value on their absolute-first start event.
+        # old_user must land only in the empty bucket on day 0; their later
+        # control-tagged event must not pull them into the control bucket.
+        _create_person(team_id=self.team.pk, distinct_ids=["old_user"])
+        _create_person(team_id=self.team.pk, distinct_ids=["new_user"])
+
+        # old_user: first app_opened on day 0 (pre-flag), again on day 2 tagged control, insight_viewed day 3.
+        _create_events(self.team, [("old_user", _date(0))], "app_opened")
+        _create_events(self.team, [("old_user", _date(2), {"$feature/new_design": "control"})], "app_opened")
+        _create_events(self.team, [("old_user", _date(3), {"$feature/new_design": "control"})], "insight_viewed")
+
+        # new_user: first app_opened on day 2 tagged variant_a, insight_viewed day 3.
+        _create_events(self.team, [("new_user", _date(2), {"$feature/new_design": "variant_a"})], "app_opened")
+        _create_events(self.team, [("new_user", _date(3), {"$feature/new_design": "variant_a"})], "insight_viewed")
+
+        flush_persons_and_events()
+
+        base_query: dict[str, Any] = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(4)},
+            "retentionFilter": {
+                "period": "Day",
+                "totalIntervals": 4,
+                "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                "targetEntity": {"id": "app_opened", "name": "app_opened", "type": TREND_FILTER_TYPE_EVENTS},
+                "returningEntity": {"id": "insight_viewed", "name": "insight_viewed", "type": "events"},
+            },
+        }
+
+        unbroken = self.run_query(query=base_query)
+        broken_down = self.run_query(
+            query={
+                **base_query,
+                "breakdownFilter": {"breakdown": "$feature/new_design", "breakdown_type": "event"},
+            }
+        )
+
+        # Per-day, breakdown buckets must sum to the unbroken total.
+        per_date_totals: dict[Any, int] = {}
+        for row in broken_down:
+            per_date_totals[row["date"]] = per_date_totals.get(row["date"], 0) + row["values"][0]["count"]
+
+        for unbroken_row in unbroken:
+            self.assertEqual(
+                per_date_totals.get(unbroken_row["date"], 0),
+                unbroken_row["values"][0]["count"],
+                f"breakdown bucket sum should equal unbroken total on {unbroken_row['date']}",
+            )
+
+        def cohort_count(breakdown_value: str, day_index: int) -> int:
+            target_date = unbroken[day_index]["date"]
+            return sum(
+                row["values"][0]["count"]
+                for row in broken_down
+                if row.get("breakdown_value") == breakdown_value and row["date"] == target_date
+            )
+
+        self.assertEqual(cohort_count("", 0), 1)  # old_user, first event had no flag
+        self.assertEqual(cohort_count("variant_a", 2), 1)  # new_user
+        self.assertEqual(cohort_count("control", 2), 0)  # old_user must not leak here
+
+        # Pin down person identities per bucket — same data the cohort modal shows.
+        actors_query = {
+            **base_query,
+            "breakdownFilter": {"breakdown": "$feature/new_design", "breakdown_type": "event"},
+        }
+
+        def actor_distinct_ids(interval: int, breakdown_value: str) -> list[str]:
+            rows = self.run_actors_query(interval=interval, query=actors_query, breakdown=[breakdown_value])
+            return sorted(distinct_id for row in rows for distinct_id in row[0]["distinct_ids"])
+
+        self.assertEqual(actor_distinct_ids(0, ""), ["old_user"])
+        self.assertEqual(actor_distinct_ids(2, "variant_a"), ["new_user"])
+        self.assertEqual(actor_distinct_ids(2, "control"), [])
+
     def test_retention_first_time_ever_with_cohort_breakdown(self):
         """Test first time ever retention with cohort breakdown"""
         # Create cohorts
@@ -4702,6 +4780,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Verify the cohort filter was actually merged into query properties
         assert runner.query.properties is not None
 
+    @snapshot_clickhouse_queries
     def test_retention_aggregation_sum(self):
         """Test retention with SUM aggregation on a property"""
         Person.objects.create(team=self.team, distinct_ids=["user1"])
@@ -5097,6 +5176,32 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day0_values[0]["aggregation_value"], 80)
         # Interval 1: user1(100) only — user2 didn't return on day 1
         self.assertEqual(day0_values[1]["aggregation_value"], 100)
+
+    @snapshot_clickhouse_queries
+    def test_retention_aggregation_different_events_ignores_start_event_property_value(self):
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        _create_events(self.team, [("user1", _date(0, hour=10), {"revenue": 999})], event="signed_up")
+        _create_events(self.team, [("user1", _date(0, hour=12), {"revenue": 50})], event="purchased")
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 1)
+        self.assertEqual(day0_values[0]["aggregation_value"], 50)
 
     def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
         # Return events that happen BEFORE the start event in the same interval must NOT be

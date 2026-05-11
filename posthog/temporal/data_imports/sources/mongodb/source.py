@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
+    get_leading_index_keys,
     get_schemas as get_mongo_schemas,
     mongo_client,
     mongo_source,
@@ -41,12 +42,15 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
         connection_params = _parse_connection_string(config.connection_string)
+        leading_keys_by_collection: dict[str, set[str] | None] = {}
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
             filtered_results = [
                 (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
                 for collection_name, columns in mongo_schemas.items()
             ]
+            for collection_name in mongo_schemas:
+                leading_keys_by_collection[collection_name] = get_leading_index_keys(db[collection_name])
 
         return [
             SourceSchema(
@@ -59,6 +63,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                         "type": field_type,
                         "field": field_name,
                         "field_type": field_type,
+                        "is_indexed": (
+                            True
+                            if leading_keys_by_collection.get(name) is None
+                            else field_name in (leading_keys_by_collection.get(name) or set())
+                        ),
                     }
                     for field_name, field_type in incremental_fields
                 ],

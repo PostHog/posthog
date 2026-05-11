@@ -17,6 +17,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
+import { selectOutcome } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -271,25 +272,29 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
     const { startSummarization } = useActions(sessionSummaryProgressLogic)
 
     const isSummarizing = !!loadingBySessionId[recording.id]
-    const summaryOutcome = recording.summary_outcome ?? summaryBySessionId[recording.id]?.session_outcome ?? null
+    const summaryOutcome = selectOutcome([summaryBySessionId[recording.id]?.session_outcome, recording.summary_outcome])
     const hasSummary = !!summaryOutcome?.description
 
     if (isSummarizing) {
         return (
             <Tooltip title="Generating summary…">
-                <Spinner className="shrink-0 text-lg mb-1" />
+                <span className="flex items-center">
+                    <Spinner className="shrink-0 text-lg mb-1" />
+                </span>
             </Tooltip>
         )
     }
     if (hasSummary && summaryOutcome) {
         return (
             <Tooltip title={summaryOutcome.description}>
-                <IconAIText
-                    className={clsx(
-                        'shrink-0 text-lg mb-1',
-                        summaryOutcome.success === false ? 'text-danger' : 'text-success'
-                    )}
-                />
+                <span className="flex items-center">
+                    <IconAIText
+                        className={clsx(
+                            'shrink-0 text-lg mb-1',
+                            summaryOutcome.success === false ? 'text-danger' : 'text-success'
+                        )}
+                    />
+                </span>
             </Tooltip>
         )
     }

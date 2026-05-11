@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CohortApi,
+    CohortPersonsResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     PaginatedCohortListApi,
@@ -68,7 +69,7 @@ export const getCohortsCreateUrl = (projectId: string) => {
 
 export const cohortsCreate = async (
     projectId: string,
-    cohortApi: NonReadonly<CohortApi>,
+    cohortApi?: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsCreateUrl(projectId), {
@@ -97,7 +98,7 @@ export const getCohortsUpdateUrl = (projectId: string, id: number) => {
 export const cohortsUpdate = async (
     projectId: string,
     id: number,
-    cohortApi: NonReadonly<CohortApi>,
+    cohortApi?: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsUpdateUrl(projectId, id), {
@@ -115,7 +116,7 @@ export const getCohortsPartialUpdateUrl = (projectId: string, id: number) => {
 export const cohortsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedCohortApi: NonReadonly<PatchedCohortApi>,
+    patchedCohortApi?: NonReadonly<PatchedCohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsPartialUpdateUrl(projectId, id), {
@@ -126,13 +127,13 @@ export const cohortsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getCohortsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const cohortsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getCohortsDestroyUrl(projectId, id), {
         ...options,
@@ -158,7 +159,7 @@ export const getCohortsAddPersonsToStaticCohortPartialUpdateUrl = (projectId: st
 export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedAddPersonsToStaticCohortRequestApi: PatchedAddPersonsToStaticCohortRequestApi,
+    patchedAddPersonsToStaticCohortRequestApi?: PatchedAddPersonsToStaticCohortRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getCohortsAddPersonsToStaticCohortPartialUpdateUrl(projectId, id), {
@@ -205,8 +206,8 @@ export const cohortsPersonsRetrieve = async (
     id: number,
     params?: CohortsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
+): Promise<CohortPersonsResponseApi> => {
+    return apiMutator<CohortPersonsResponseApi>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -219,7 +220,7 @@ export const getCohortsRemovePersonFromStaticCohortPartialUpdateUrl = (projectId
 export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedRemovePersonRequestApi: PatchedRemovePersonRequestApi,
+    patchedRemovePersonRequestApi?: PatchedRemovePersonRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getCohortsRemovePersonFromStaticCohortPartialUpdateUrl(projectId, id), {

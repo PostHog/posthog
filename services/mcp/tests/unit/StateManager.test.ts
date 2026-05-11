@@ -260,6 +260,81 @@ describe('StateManager', () => {
             expect(result).toBe('default-org')
             expect(spy).toHaveBeenCalledOnce()
         })
+
+        it('falls back to project.organization for team-scoped keys that omit orgId', async () => {
+            // Mirrors the team-scoped path in `_getDefaultOrganizationAndProject`
+            // which intentionally returns `{ projectId }` only — getOrgID should
+            // recover via the cached project.
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: 456,
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                uuid: 'uuid-456',
+                name: 'My Project',
+                organization: 'derived-org',
+            } as any)
+
+            const result = await stateManager.getOrgID()
+
+            expect(result).toBe('derived-org')
+        })
+
+        it('caches the derived org id so repeat calls short-circuit', async () => {
+            // Without this caching, every tool that calls getOrgID would re-hit
+            // setDefaultOrganizationAndProject + getCachedOrFetchProject for a
+            // team-scoped key.
+            const setDefaultSpy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: 456,
+            })
+            const getProjectSpy = vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                uuid: 'uuid-456',
+                name: 'My Project',
+                organization: 'derived-org',
+            } as any)
+
+            const first = await stateManager.getOrgID()
+            const second = await stateManager.getOrgID()
+
+            expect(first).toBe('derived-org')
+            expect(second).toBe('derived-org')
+            expect(await cache.get('orgId')).toBe('derived-org')
+            // Second call hits cache, not the resolver path.
+            expect(setDefaultSpy).toHaveBeenCalledOnce()
+            expect(getProjectSpy).toHaveBeenCalledOnce()
+        })
+
+        it('throws MissingOrganizationContextError when no org can be resolved', async () => {
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: undefined,
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            await expect(stateManager.getOrgID()).rejects.toMatchObject({
+                name: 'MissingOrganizationContextError',
+                message: expect.stringContaining('switch-organization'),
+            })
+        })
+    })
+
+    describe('getCachedOrFetchOrg', () => {
+        it('returns undefined when no org can be resolved (does not throw)', async () => {
+            // Preserves the best-effort contract used by getEnvironmentPrompt and
+            // consent checks: if no org is in scope, the call is a no-op.
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: undefined,
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toBeUndefined()
+        })
     })
 
     describe('getProjectId', () => {

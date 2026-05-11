@@ -1,6 +1,11 @@
 ---
 name: signals
-description: 'How to query the document_embeddings table for signals data using HogQL. Read when you need to perform semantic search over signals, fetch signals for a report or list signal types.'
+description: >
+  How to query the document_embeddings table for raw signal data using HogQL. Use when you need to
+  perform semantic search over signals, fetch every signal that contributed to a specific report,
+  or list signal types. For browsing the curated report layer (the Inbox) — listing reports,
+  filtering by status/source, drilling into a single report by ID — use the `inbox-exploration`
+  skill first; drop into this skill afterwards if the user wants the underlying observations.
 ---
 
 # Querying Signals
@@ -12,6 +17,15 @@ Signals are automated observations that PostHog generates by monitoring a custom
 Signals are grouped into **Signal Reports**. When a report accumulates enough weight it gets summarized and assessed for actionability. A signal report represents a cluster of related observations that together describe a meaningful issue or trend.
 
 Signals and their embeddings are stored in the `document_embeddings` ClickHouse table, queryable via HogQL through the `posthog:execute-sql` MCP tool. They may provide a useful way to semantically query for recent things that happened in the user's product.
+
+## When to use this skill vs. `inbox-exploration`
+
+The two skills cover different layers of the same product:
+
+- **`inbox-exploration`** — curated report layer via dedicated MCP tools (`inbox-reports-list`, `inbox-reports-retrieve`, `inbox-source-configs-list`, `inbox-source-configs-retrieve`). Use for "what's in my inbox?", "what's actionable?", filtering reports by status / source / suggested reviewer, looking up a specific report by ID or URL.
+- **This skill (`signals`)** — raw signal layer via HogQL on `document_embeddings`. Use when the curated report layer is not enough: semantic search over signal text, fetching every signal that contributed to a specific report, listing what kinds of signals exist, or any ad-hoc analytics that the report tools don't expose.
+
+The typical pattern is to start with `inbox-exploration`, get a `report_id` or a sense of the area the user cares about, then drop into this skill when the user wants to see the raw observations.
 
 ## Table and Column Reference
 

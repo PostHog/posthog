@@ -75,6 +75,10 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # that the current user is denied access to. Populated before type resolution so that
+    # FieldType.get_child() can raise QueryError for restricted properties.
+    restricted_properties: Optional[set[tuple[str, int]]] = None
 
     def __post_init__(self):
         if self.team:

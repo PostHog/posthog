@@ -1,0 +1,34 @@
+rules:
+    - id: prefer-codegen-api
+      message: >-
+          Manual `api.<verb>(...)` call in product frontend code. Prefer the generated
+          client in `products/<product>/frontend/generated/api.ts`.
+
+          Agents: invoke the `adopting-generated-api-types` skill
+          (`.agents/skills/adopting-generated-api-types/SKILL.md`) for the migration
+          workflow. Humans: run `hogli product:maturity --codegen <product>` to see
+          the suggested generated function per call site.
+
+          If no generated equivalent is available yet (endpoint missing OpenAPI tags,
+          dynamic URL, etc.), add `// nosemgrep: prefer-codegen-api` above this line —
+          the maturity tooling continues to track tagged sites.
+      severity: ERROR
+      languages: [typescript, javascript]
+      pattern-either:
+          - pattern: api.get(...)
+          - pattern: api.post(...)
+          - pattern: api.put(...)
+          - pattern: api.patch(...)
+          - pattern: api.delete(...)
+          - pattern: api.create(...)
+          - pattern: api.update(...)
+          # Semgrep's TypeScript parser treats generic-typed calls (api.create<T>())
+          # as a different AST shape that AST-level patterns above don't match,
+          # so fall back to a regex. Bounds the type args by `(` rather than `>` so
+          # nested generics like api.get<PaginatedResponse<Foo>>(...) still match.
+          - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\('
+      paths:
+          include:
+              - '/products/*/frontend/'
+          exclude:
+              - '**/generated/**'

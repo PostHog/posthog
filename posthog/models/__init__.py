@@ -57,6 +57,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .integration_repository_cache import IntegrationRepositoryCacheEntry
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .messaging import MessagingRecord
@@ -89,12 +90,20 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
+from .user_integration import UserIntegration
 from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
-from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from .oauth import (
+    CIMDVerificationToken,
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthGrant,
+    OAuthIDToken,
+    OAuthRefreshToken,
+)
 
 from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
 
@@ -115,6 +124,7 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
+    "CIMDVerificationToken",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
@@ -162,6 +172,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "IntegrationRepositoryCacheEntry",
     "InviteExpiredException",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
@@ -225,6 +236,7 @@ __all__ = [
     "UserManager",
     "UserGroup",
     "UserGroupMembership",
+    "UserIntegration",
     "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",

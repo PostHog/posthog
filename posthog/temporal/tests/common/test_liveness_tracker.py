@@ -3,9 +3,13 @@ import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from django.conf import settings
+
 from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput
 
+from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import (
+    LivenessInterceptor,
     LivenessTracker,
     _LivenessActivityInboundInterceptor,
     _LivenessWorkflowInterceptor,
@@ -146,6 +150,19 @@ class TestLivenessTracker:
         tracker2 = get_liveness_tracker()
 
         assert tracker1 is tracker2
+
+
+@pytest.mark.parametrize(
+    "task_queue,supported",
+    (
+        (settings.DATA_WAREHOUSE_TASK_QUEUE, True),
+        (settings.MAX_AI_TASK_QUEUE, True),
+        (settings.TASKS_TASK_QUEUE, True),
+        ("some-other-queue", False),
+    ),
+)
+def test_liveness_interceptor_supports_expected_task_queues(task_queue, supported):
+    assert is_task_queue_supported(task_queue, LivenessInterceptor) is supported
 
 
 @pytest.mark.asyncio

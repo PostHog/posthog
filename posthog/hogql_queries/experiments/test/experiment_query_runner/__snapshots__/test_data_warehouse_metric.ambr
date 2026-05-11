@@ -8,7 +8,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -18,8 +18,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -64,8 +63,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier_num,
-            events__person.properties___email AS exposure_identifier_denom
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier_num,
+            argMin(events__person.properties___email, toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier_denom
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -85,9 +84,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''),
-              events__person.properties___email),
+     GROUP BY entity_id),
        numerator_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -162,7 +159,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -172,8 +169,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -218,7 +214,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -228,8 +224,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -274,7 +269,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -284,8 +279,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -330,7 +324,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -340,8 +334,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -386,7 +379,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -396,8 +389,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -442,7 +434,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -452,8 +444,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -498,7 +489,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -508,8 +499,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -554,7 +544,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -564,8 +554,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -610,7 +599,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -620,8 +609,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -666,7 +654,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -686,8 +674,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -732,7 +719,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -752,8 +739,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -798,7 +784,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -808,8 +794,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -854,7 +839,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -864,8 +849,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -910,7 +894,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -920,8 +904,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -966,7 +949,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -976,8 +959,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), tuple('test', 'control')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1022,7 +1004,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1032,8 +1014,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1078,7 +1059,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1091,8 +1072,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                 (SELECT person_static_cohort.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1137,7 +1117,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1147,8 +1127,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1203,7 +1182,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1216,8 +1195,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1262,7 +1240,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1272,8 +1250,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1318,7 +1295,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1336,8 +1313,7 @@
         GROUP BY groups.group_type_index,
                  groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1382,7 +1358,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1392,8 +1368,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1438,7 +1413,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1448,8 +1423,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1494,7 +1468,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1504,8 +1478,7 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,
@@ -1550,7 +1523,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            events__person.properties___email AS exposure_identifier
+            argMin(events__person.properties___email, toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1570,8 +1543,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              events__person.properties___email),
+     GROUP BY entity_id),
        metric_events AS
     (SELECT posthog_test_stripe_subscriptions__subscription_customer.customer_email AS entity_id,
             toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC') AS timestamp,
@@ -1622,8 +1594,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier_num,
-            events__person.properties___email AS exposure_identifier_denom
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier_num,
+            argMin(events__person.properties___email, toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier_denom
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1643,9 +1615,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id,
-              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''),
-              events__person.properties___email),
+     GROUP BY entity_id),
        numerator_events AS
     (SELECT posthog_test_usage.userid AS entity_id,
             posthog_test_usage.ds AS timestamp,

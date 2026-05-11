@@ -10,12 +10,14 @@ from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.action.action import Action
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def refresh_affected_hog_functions(
     team_id: Optional[int] = None, action_id: Optional[int] = None, cohort_id: Optional[int] = None
 ) -> int:

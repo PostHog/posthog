@@ -29,7 +29,7 @@ tools:
             - query
             - description
             - is_materialized
-            - cache_age_seconds
+            - data_freshness_seconds
     endpoint-delete:
         operation: endpoints_destroy
         enabled: true
@@ -123,15 +123,15 @@ tools:
         enrich_url: '{name}'
         title: Update endpoint
         description: >
-            Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache
-            age, active status, and materialization. Pass version in body to target a specific version for non-query
-            updates.
+            Update an existing endpoint by name. Can update the query (auto-creates a new version), description, data
+            freshness, active status, and materialization. Pass version in body to target a specific version for
+            non-query updates.
         include_params:
             - query
             - description
             - is_active
             - is_materialized
-            - cache_age_seconds
+            - data_freshness_seconds
             - version
     endpoint-versions:
         operation: endpoints_versions_list
@@ -147,7 +147,7 @@ tools:
         title: Get endpoint versions
         description: >
             List all versions for an endpoint, in descending order (latest first). Each version contains the query
-            snapshot, description, cache settings, and materialization status at that point in time.
+            snapshot, description, data freshness, and materialization status at that point in time.
     endpoints-get-all:
         operation: endpoints_list
         enabled: true

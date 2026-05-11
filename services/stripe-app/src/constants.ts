@@ -27,6 +27,18 @@ export function getConstants(environment: ExtensionContextValue['environment']):
     return (environment?.constants as unknown as AppConstants | undefined) ?? FALLBACK_CONSTANTS
 }
 
+// Stripe issues separate client_ids for sandbox vs live installs of the same app,
+// so PostHog needs to know which one to use when starting OAuth. The Stripe app
+// passes is_sandbox=true through to PostHog when the user is connecting from a
+// sandbox account; PostHog forwards it to /integrations/authorize.
+export function appendSandboxParam(url: string, isSandbox: boolean): string {
+    if (!isSandbox) {
+        return url
+    }
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}is_sandbox=true`
+}
+
 export { BrandIcon }
 
 export interface Timeframe {

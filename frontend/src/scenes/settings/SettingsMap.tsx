@@ -2,6 +2,7 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
+import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -37,17 +38,15 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
-import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiSection'
-import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
+import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
+import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
-import { TeamsSection } from 'products/conversations/frontend/scenes/settings/TeamsSection'
-import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
-import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -107,6 +106,7 @@ import {
     ReplayNetworkCapture,
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
+import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
@@ -117,7 +117,6 @@ import {
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
-    WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
@@ -125,6 +124,7 @@ import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalytic
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
+import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OAuthApps } from './organization/OAuthApps'
@@ -146,6 +146,8 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { PersonalIntegrations } from './user/PersonalIntegrations'
+import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -230,22 +232,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: ['JS_SNIPPET_VERSIONING'],
                 component: <JsSnippetVersionPin />,
                 keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
-            },
-            {
-                id: 'snippet-v2',
-                title: (
-                    <>
-                        Web snippet V2{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Experimental
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'The V2 snippet includes your project config automatically along with the PostHog JS code, leading to faster load times and fewer calls needed before the SDK is fully functional.',
-                flag: 'REMOTE_CONFIG',
-                component: <WebSnippetV2 />,
-                keywords: ['javascript', 'install', 'setup', 'v2', 'fast'],
             },
         ],
     },
@@ -428,63 +414,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-conversations',
-        title: 'Conversations',
-        group: 'Products',
-        flag: 'PRODUCT_SUPPORT',
-        settings: [
-            {
-                id: 'conversations-api',
-                title: 'Conversations',
-                component: <ApiSection />,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-notifications',
-                title: 'Notifications',
-                component: <NotificationsSection />,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-widget',
-                title: 'In-app widget',
-                component: <WidgetSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-email',
-                title: 'Email channel',
-                component: <EmailSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-slack',
-                title: 'Slack channel',
-                component: <SlackSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-teams',
-                title: 'Microsoft Teams',
-                component: <TeamsSection />,
-                flag: 'PRODUCT_SUPPORT_TEAMS_ENABLED',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support', 'teams', 'microsoft'],
-            },
-            {
-                id: 'conversations-workflows',
-                title: 'Workflows',
-                component: <WorkflowsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
         flag: 'CUSTOMER_ANALYTICS',
@@ -581,6 +510,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-spike-detection',
                 title: 'Spike detection',
                 component: <SpikeDetectionSettings />,
+            },
+            {
+                id: 'error-tracking-rate-limits',
+                title: 'Rate limits',
+                component: <RateLimitSettings />,
+                flag: 'ERROR_TRACKING_RATE_LIMITING',
+                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -803,6 +739,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
+            },
+            {
+                id: 'logs-drop-rules',
+                title: 'Drop rules',
+                description:
+                    'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
+                component: <LogsSamplingSection />,
+                flag: LogsFeatureFlagKeys.dropRules,
+                keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
                 id: 'logs-alerting',
@@ -1081,14 +1026,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-retention',
-                title: (
-                    <>
-                        Data retention
-                        <LemonTag type="success" className="ml-1 uppercase">
-                            New
-                        </LemonTag>
-                    </>
-                ),
+                title: 'Data retention',
                 description:
                     'Control how long your recordings are stored. Changes only affect the retention period for future recordings.',
                 component: <ReplayDataRetentionSettings />,
@@ -1096,17 +1034,87 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-integrations',
+                title: 'Integrations',
+                description: 'Configure integrations to create and link issues from session replays.',
+                component: <ReplayIntegrations />,
+                keywords: ['integration', 'connect', 'third-party'],
+            },
+            {
+                id: 'replay-ai-config',
                 title: (
                     <>
-                        Integrations
+                        AI product context
                         <LemonTag type="success" className="ml-1 uppercase">
                             New
                         </LemonTag>
                     </>
                 ),
-                description: 'Configure integrations to create and link issues from session replays.',
-                component: <ReplayIntegrations />,
-                keywords: ['integration', 'connect', 'third-party'],
+                description:
+                    'Team-wide context the AI uses when summarizing session replays (custom events, intentional behaviors, known friction, etc.)',
+                component: <SessionSummariesSettings />,
+                flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
+                keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-conversations',
+        title: 'Support',
+        group: 'Products',
+        settings: [
+            {
+                id: 'conversations-general',
+                title: 'General',
+                component: <GeneralSection />,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'general',
+                    'api',
+                    'domain',
+                    'identity',
+                    'secret',
+                ],
+            },
+            {
+                id: 'conversations-channels',
+                title: 'Channels',
+                description: 'Choose where customers can reach you. Each channel can be configured independently.',
+                component: <ChannelsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'channel',
+                    'widget',
+                    'email',
+                    'slack',
+                    'teams',
+                    'microsoft',
+                ],
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                description:
+                    'We recommend setting up a workflow for fine-grained automation — Slack pings, SLA escalations, auto-tagging. For the basics, configure email or browser notifications.',
+                component: <NotificationsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'notification',
+                    'workflow',
+                    'email',
+                    'browser',
+                ],
             },
         ],
     },
@@ -1260,7 +1268,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'activity-log-settings',
-                title: 'Logs',
+                title: 'Activity logs',
                 description: 'View a log of changes made to this environment by team members.',
                 component: <ActivityLogSettings />,
                 keywords: ['audit', 'history', 'change', 'activity'],
@@ -1581,6 +1589,20 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-cimd-verification-tokens',
+        title: 'CIMD verification tokens',
+        settings: [
+            {
+                id: 'organization-cimd-verification-tokens-list',
+                title: 'CIMD verification tokens',
+                description: 'Link CIMD partner applications to this organization for higher rate limits and identity.',
+                component: <CIMDVerificationTokens />,
+                keywords: ['cimd', 'oauth', 'partner', 'provisioning', 'verification', 'token', 'api', 'rate limit'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-proxy',
         title: 'Managed reverse proxy',
         settings: [
@@ -1683,6 +1705,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <UpdateEmailPreferences />,
                 keywords: ['email', 'notification', 'digest', 'unsubscribe'],
             },
+            {
+                id: 'realtime-notifications',
+                title: 'In-app notifications',
+                description: 'Choose which real-time notifications you receive in the PostHog app, per project.',
+                component: <RealtimeNotificationPreferences />,
+                flag: 'REAL_TIME_NOTIFICATIONS',
+                keywords: ['notification', 'in-app', 'realtime', 'popover', 'mention'],
+            },
         ],
     },
     {
@@ -1718,7 +1748,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
                 component: <SidebarAutoSuggestSetting />,
-                flag: 'AI_FIRST',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
             },
             {
@@ -1762,6 +1791,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified when upcoming features are ready for preview.',
                 component: <FeaturePreviewsComingSoon />,
                 keywords: ['upcoming', 'notify', 'concept', 'future'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-personal-integrations',
+        title: 'Personal integrations',
+        settings: [
+            {
+                id: 'personal-integrations',
+                title: 'Personal integrations',
+                description:
+                    'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
+                component: <PersonalIntegrations />,
+                keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
             },
         ],
     },

@@ -17,6 +17,7 @@ const createMockTask = (id: string): Task => ({
     repository: 'test/repo',
     github_integration: null,
     json_schema: null,
+    internal: false,
     latest_run: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',

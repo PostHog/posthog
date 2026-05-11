@@ -29,10 +29,14 @@ class EndpointRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Human-readable description of what this endpoint returns.",
     )
-    cache_age_seconds = serializers.FloatField(
+    data_freshness_seconds = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Cache TTL in seconds (60–86400).",
+        help_text=(
+            "How fresh the data should be, in seconds. Must be one of: "
+            "900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), "
+            "86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency."
+        ),
     )
     is_active = serializers.BooleanField(
         required=False,
@@ -43,11 +47,6 @@ class EndpointRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether query results are materialized to S3.",
-    )
-    sync_frequency = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Materialization refresh frequency (e.g. 'every_hour', 'every_day').",
     )
     derived_from_insight = serializers.CharField(
         required=False,
@@ -99,11 +98,6 @@ class EndpointMaterializationSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Last materialization error message, if any.",
     )
-    sync_frequency = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="How often the materialization refreshes (e.g. 'every_hour').",
-    )
     saved_query_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -136,9 +130,8 @@ class EndpointResponseSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(
         help_text="Whether the endpoint can be executed via the API.",
     )
-    cache_age_seconds = serializers.FloatField(
-        allow_null=True,
-        help_text="Cache TTL in seconds, or null for default interval-based caching.",
+    data_freshness_seconds = serializers.IntegerField(
+        help_text="How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
     )
     endpoint_path = serializers.CharField(
         help_text="Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run).",

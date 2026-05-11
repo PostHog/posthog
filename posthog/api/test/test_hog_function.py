@@ -7,6 +7,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
@@ -1693,6 +1694,147 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Slack notification", "Unrelated"],
+                "slcak",
+                "Slack notification",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing webhook", "Engineering metrics"],
+                "Marke",
+                "Marketing webhook",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["Revenue webhook", "Engineering metrics"],
+                "revenue",
+                "Revenue webhook",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["Revenue webhook", "Engineering metrics"],
+                "REVENUE",
+                "Revenue webhook",
+                ["Engineering metrics"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, function_names, search, expected_first, excluded):
+        for name in function_names:
+            HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        name_match = HogFunction.objects.create(team=self.team, name="revenue", type="destination", hog="return event")
+        description_match = HogFunction.objects.create(
+            team=self.team,
+            name="Q4 review",
+            description="Quarterly revenue webhook",
+            type="destination",
+            hog="return event",
+        )
+        HogFunction.objects.create(team=self.team, name="Unrelated", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=revenue")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids[:2] == [str(name_match.id), str(description_match.id)]
+        assert all(r["name"] != "Unrelated" for r in response.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a = HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
+        b = HogFunction.objects.create(team=self.team, name="Beta", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+
+        assert {str(a.id), str(b.id)}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        HogFunction.objects.create(team=self.team, name="Webhook overview", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_nul_bytes_do_not_500(self):
+        HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": "\x00\x00\x00"})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_handles_null_name_with_description_match(self):
+        named_match = HogFunction.objects.create(
+            team=self.team, name="Marketing webhook", type="destination", hog="return event"
+        )
+        unnamed_match = HogFunction.objects.create(
+            team=self.team,
+            name=None,
+            description="A marketing-focused destination",
+            type="destination",
+            hog="return event",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=marketing")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert str(named_match.id) in result_ids
+        assert str(unnamed_match.id) in result_ids
+        assert result_ids.index(str(named_match.id)) < result_ids.index(str(unnamed_match.id)), (
+            f"named match should rank above unnamed description match, got {result_ids}"
+        )
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
     def test_can_update_with_null_filters(self):
         # First create a function with filters
         response = self.client.post(
@@ -1744,6 +1886,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
+
+    def test_transformation_rejects_inputs_referencing_unavailable_globals(self):
+        # Realtime transformations only have project, event, and inputs in scope
+        # (HogTransformerService.createInvocationGlobals). Saving an input template
+        # that references person/groups/source must fail validation rather than
+        # crash ingestion at runtime.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Bad transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": False,
+                "inputs_schema": [{"key": "pid", "type": "string", "required": False}],
+                "inputs": {"pid": {"value": "person_id = {person?.id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "attr": "inputs__pid",
+            "detail": (
+                "Invalid template: Variable not available in transformations: person. "
+                "Transformations only have access to project, event, and inputs."
+            ),
+        }
 
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""

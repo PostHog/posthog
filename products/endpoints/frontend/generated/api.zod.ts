@@ -18,20 +18,21 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
@@ -48,7 +49,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.
@@ -59,20 +60,21 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
@@ -89,7 +91,7 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Update an existing endpoint.
@@ -100,20 +102,21 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
@@ -130,7 +133,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
@@ -148,7 +151,7 @@ export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.obj
  */
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Get the last execution times in the past 6 months for multiple endpoints.

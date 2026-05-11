@@ -49,7 +49,7 @@ def _columns_for(
     cols.extend(["num_users", "total_sum", "total_sum_of_squares"])
 
     if isinstance(metric, ExperimentMeanMetric) and cuped:
-        cols.extend(["covariate_sum", "covariate_sum_squares", "main_covariate_sum_product"])
+        cols.extend(["covariate_sum", "covariate_sum_squares", "covariate_sum_product"])
 
     if isinstance(metric, ExperimentFunnelMetric):
         cols.append("step_counts")
@@ -122,7 +122,7 @@ class TestGetVariantResult:
 
     def test_mean_metric_with_cuped(self):
         metric = self.create_mean_metric()
-        # variant, num_users, total_sum, total_sum_of_squares, covariate_sum, covariate_sum_squares, main_covariate_sum_product
+        # variant, num_users, total_sum, total_sum_of_squares, covariate_sum, covariate_sum_squares, covariate_sum_product
         result = ("control", 100, 250.5, 750.25, 90.0, 270.0, 220.0)
 
         breakdown_value, stats = get_variant_result(result, _columns_for(metric, cuped=True))
@@ -134,14 +134,14 @@ class TestGetVariantResult:
         assert stats.sum_squares == 750.25
         assert stats.covariate_sum == 90.0
         assert stats.covariate_sum_squares == 270.0
-        assert stats.main_covariate_sum_product == 220.0
+        assert stats.covariate_sum_product == 220.0
 
     def test_mean_metric_with_cuped_and_breakdown(self):
         metric = ExperimentMeanMetric(
             source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
             breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
         )
-        # variant, breakdown, num_users, total_sum, total_sum_of_squares, covariate_sum, covariate_sum_squares, main_covariate_sum_product
+        # variant, breakdown, num_users, total_sum, total_sum_of_squares, covariate_sum, covariate_sum_squares, covariate_sum_product
         result = ("test", "Chrome", 150, 400.0, 1200.0, 130.0, 380.0, 310.0)
 
         breakdown_tuple, stats = get_variant_result(result, _columns_for(metric, cuped=True))
@@ -151,7 +151,7 @@ class TestGetVariantResult:
         assert stats.sum == 400.0
         assert stats.covariate_sum == 130.0
         assert stats.covariate_sum_squares == 380.0
-        assert stats.main_covariate_sum_product == 310.0
+        assert stats.covariate_sum_product == 310.0
 
     # Funnel Metric Tests
     def test_funnel_metric_without_breakdown_no_sessions(self):

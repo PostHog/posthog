@@ -1,15 +1,15 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
@@ -22,11 +22,7 @@ import {
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import {
-    SSH_FIELD,
-    buildKeaFormDefaultFromSourceDetails,
-    getErrorsForFields,
-} from '../../NewSourceScene/sourceWizardLogic'
+import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
@@ -244,7 +240,17 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             null as ExternalDataSource | null,
             {
                 loadSource: async () => {
-                    return await api.externalDataSources.get(values.sourceId)
+                    try {
+                        return await api.externalDataSources.get(values.sourceId)
+                    } catch (error: any) {
+                        // Source soft-deleted. Bounce to the list and swallow
+                        // the failure so kea-loaders doesn't toast "Not found".
+                        if (error?.status === 404) {
+                            router.actions.replace(urls.sources())
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -404,9 +410,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         sourceConfig: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources ?? {}),
+            // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
+            // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
+            // The cast widens the inferred form value type so reads of `access_method`, payload
+            // sub-fields, etc. type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
@@ -570,10 +580,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
-                const isDirectQueryEnabled =
-                    !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
                 const breadcrumbName =
-                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+                    values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 

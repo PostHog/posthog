@@ -66,7 +66,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     filters = models.JSONField(default=dict)
 
     # Threshold
-    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)], default=100)
     threshold_operator = models.CharField(
         max_length=10,
         choices=ThresholdOperator,
@@ -98,6 +98,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "logs_logsalertconfiguration"
@@ -239,3 +240,35 @@ class LogsAlertEvent(UUIDModel):
         oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
         count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count
+
+
+class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules to drop or exclude log lines before storage (evaluated in ingestion when enabled)."""
+
+    class RuleType(models.TextChoices):
+        SEVERITY_SAMPLING = "severity_sampling", "Severity-based reduction"
+        PATH_DROP = "path_drop", "Path exclusion"
+        RATE_LIMIT = "rate_limit", "Rate limit"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    rule_type = models.CharField(max_length=32, choices=RuleType.choices)
+    scope_service = models.CharField(max_length=512, null=True, blank=True)
+    scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
+    scope_attribute_filters = models.JSONField(default=list)
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsexclusionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
