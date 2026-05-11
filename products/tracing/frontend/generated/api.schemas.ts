@@ -161,6 +161,24 @@ export interface _TracingTraceRequestApi {
     dateRange?: _TracingDateRangeApi
 }
 
+export interface _TracingTreeQueryBodyApi {
+    /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
+    spanName: string
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Additional property filters applied to spans in both windows. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingTreeRequestApi {
+    /** The span call-tree aggregation query to execute. */
+    query: _TracingTreeQueryBodyApi
+}
+
 export type TracingSpansAttributesRetrieveParams = {
     /**
  * Type of attributes: "span" for span attributes, "resource" for resource attributes.

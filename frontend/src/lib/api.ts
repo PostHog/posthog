@@ -57,6 +57,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    SpanTreeNode,
     TileFilters,
     UserProductListItem,
 } from '~/queries/schema/schema-general'
@@ -2873,9 +2874,20 @@ const api = {
         }): Promise<{
             results: AggregatedSpanRow[]
             compare?: AggregatedSpanRow[] | null
-            mode: 'tree' | 'flat'
         }> {
             return new ApiRequest().tracingSpans().withAction('aggregate').create({ data: { query } })
+        },
+        async tree(query: {
+            spanName: string
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            filterGroup?: PropertyGroupFilter
+            compareFilter?: { compare?: boolean; compare_to?: string | null }
+        }): Promise<{
+            results: SpanTreeNode[]
+            compare?: SpanTreeNode[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('tree').create({ data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
             return new ApiRequest()

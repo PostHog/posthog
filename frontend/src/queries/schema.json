@@ -377,13 +377,9 @@
         },
         "AggregatedSpanRow": {
             "additionalProperties": false,
-            "description": "One node in the aggregated span call tree. The `(service_name, name)` pair is the node identifier; `(parent_service, parent_name)` links it to its parent in the tree. Spans with no parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.",
+            "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
             "properties": {
                 "avg_duration_nano": {
-                    "type": "number"
-                },
-                "avg_start_offset_nano": {
-                    "description": "Average nanoseconds from the parent span's start to this span's start. Null/0 for root spans or in flat mode (no parent linkage). Used to order children left-to-right by typical start time in the flame graph.",
                     "type": "number"
                 },
                 "count": {
@@ -401,12 +397,6 @@
                 "p95_duration_nano": {
                     "type": "number"
                 },
-                "parent_name": {
-                    "type": "string"
-                },
-                "parent_service": {
-                    "type": "string"
-                },
                 "service_name": {
                     "type": "string"
                 },
@@ -417,15 +407,12 @@
             "required": [
                 "service_name",
                 "name",
-                "parent_service",
-                "parent_name",
                 "count",
                 "total_duration_nano",
                 "avg_duration_nano",
                 "p50_duration_nano",
                 "p95_duration_nano",
-                "error_count",
-                "avg_start_offset_nano"
+                "error_count"
             ],
             "type": "object"
         },
@@ -683,6 +670,9 @@
                     "$ref": "#/definitions/TraceSpansAggregationQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceSpansTreeQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -935,6 +925,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansAggregationQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansTreeQueryResponse"
                 }
             ]
         },
@@ -8932,11 +8925,6 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "mode": {
-                    "description": "`tree` when results carry parent linkage (a span-name filter scoped the query and the runner ran the self-join). `flat` when no parent info is available — the front end should render a delta table rather than a flame graph.",
-                    "enum": ["tree", "flat"],
-                    "type": "string"
-                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -8977,7 +8965,6 @@
                 "cache_key",
                 "is_cached",
                 "last_refresh",
-                "mode",
                 "next_allowed_client_refresh",
                 "results",
                 "timezone"
@@ -9046,6 +9033,88 @@
                     "description": "The date range used for the query"
                 },
                 "results": {},
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTraceSpansTreeQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -26017,6 +26086,7 @@
                 "LogValuesQuery",
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
+                "TraceSpansTreeQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -31575,11 +31645,6 @@
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
-                        "mode": {
-                            "description": "`tree` when results carry parent linkage (a span-name filter scoped the query and the runner ran the self-join). `flat` when no parent info is available — the front end should render a delta table rather than a flame graph.",
-                            "enum": ["tree", "flat"],
-                            "type": "string"
-                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -31606,7 +31671,54 @@
                             "type": "array"
                         }
                     },
-                    "required": ["mode", "results"],
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "compare": {
+                            "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                            "items": {
+                                "$ref": "#/definitions/SpanTreeNode"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/SpanTreeNode"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -32350,6 +32462,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansAggregationQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
@@ -36073,6 +36188,60 @@
             "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
+        "SpanTreeNode": {
+            "additionalProperties": false,
+            "description": "One node in an aggregated span call tree. The `(service_name, name)` pair identifies the node; `(parent_service, parent_name)` links it to its parent. Spans without a matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.",
+            "properties": {
+                "avg_duration_nano": {
+                    "type": "number"
+                },
+                "avg_start_offset_nano": {
+                    "description": "Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph.",
+                    "type": "number"
+                },
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "p50_duration_nano": {
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "type": "number"
+                },
+                "parent_name": {
+                    "type": "string"
+                },
+                "parent_service": {
+                    "type": "string"
+                },
+                "service_name": {
+                    "type": "string"
+                },
+                "total_duration_nano": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "parent_service",
+                "parent_name",
+                "service_name",
+                "name",
+                "count",
+                "total_duration_nano",
+                "avg_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "error_count",
+                "avg_start_offset_nano"
+            ],
+            "type": "object"
+        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -37480,11 +37649,6 @@
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
-                "mode": {
-                    "description": "`tree` when results carry parent linkage (a span-name filter scoped the query and the runner ran the self-join). `flat` when no parent info is available — the front end should render a delta table rather than a flame graph.",
-                    "enum": ["tree", "flat"],
-                    "type": "string"
-                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -37511,7 +37675,7 @@
                     "type": "array"
                 }
             },
-            "required": ["mode", "results"],
+            "required": ["results"],
             "type": "object"
         },
         "TraceSpansQuery": {
@@ -37617,6 +37781,98 @@
                     "description": "The date range used for the query"
                 },
                 "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "TraceSpansTreeQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "TraceSpansTreeQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansTreeQueryResponse"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "spanName": {
+                    "description": "Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run.",
+                    "type": "string"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "kind", "spanName"],
+            "type": "object"
+        },
+        "TraceSpansTreeQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {

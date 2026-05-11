@@ -205,6 +205,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
+            | NodeKind.TRACE_SPANS_TREE_QUERY
         ):
             return {"product": Product.LLM_ANALYTICS}
         case (
