@@ -246,10 +246,36 @@ export class CyclotronJobQueue {
         return target
     }
 
-    public async queueInvocations(invocations: CyclotronJobInvocation[]) {
+    public async queueInvocations(
+        invocations: CyclotronJobInvocation[],
+        options: { overwriteExisting?: boolean } = {}
+    ) {
         const sanitized = invocations.map((inv) =>
             sanitizeInvocationForPersistence(inv, { stripPerson: this.stripPersonMatcher(inv.teamId) })
         )
+
+        // Overwrite mode only makes sense on cyclotron-v2 (the Rust v1 path and
+        // the Kafka path can't express an ON CONFLICT semantic). The replay
+        // path uses this so a re-enqueue of an already-completed
+        // `invocation_id` resets the existing row to 'available' rather than
+        // colliding on the PK. Routing this through v2 unconditionally avoids
+        // the deployment-mapping dance — the cyclotron worker just needs to be
+        // configured to consume from v2 for the replay rollout.
+        if (options.overwriteExisting) {
+            if (!this.jobQueuePostgresV2) {
+                throw new Error('queueInvocations({ overwriteExisting: true }) requires cyclotron-v2 to be configured')
+            }
+            await instrumentFn(
+                {
+                    key: 'cyclotron.queue_invocations.postgres_v2',
+                    sendException: false,
+                    getLoggingContext: () => ({ count: sanitized.length, overwriteExisting: true }),
+                },
+                () => this.jobQueuePostgresV2!.queueInvocations(sanitized, { overwriteExisting: true })
+            )
+            return
+        }
+
         const postgresInvocations: CyclotronJobInvocation[] = []
         const postgresV2Invocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []

@@ -1,3 +1,4 @@
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
@@ -18,7 +19,10 @@ import {
 } from './outputs/producers'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
-export type CdpConfig = {
+// CdpConfig intersects ClickhouseConfig so any consumer reading
+// `this.config.CLICKHOUSE_HOST` etc. gets typed, defaulted values — fixes the
+// case where `CdpReplayWorkerConsumer` silently fell back to `default` DB.
+export type CdpConfig = ClickhouseConfig & {
     CDP_WATCHER_COST_ERROR: number
     CDP_WATCHER_HOG_COST_TIMING: number
     CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number
@@ -131,6 +135,7 @@ export type CdpConfig = {
 
 export function getDefaultCdpConfig(): CdpConfig {
     return {
+        ...getDefaultClickhouseConfig(),
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,

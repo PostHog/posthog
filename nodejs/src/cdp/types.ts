@@ -294,6 +294,12 @@ export type CyclotronJobInvocationHogFunctionContext = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+    // Distinct from `attempts` (fetch-retry counter, reset between runs).
+    // `replayAttempts` is incremented when an invocation is rehydrated by the
+    // replay paginator and stays sticky across the entire replay run. The
+    // lifecycle row producer reads this to drive the `attempts` + `is_retry`
+    // columns in `hog_invocation_results`.
+    replayAttempts?: number
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 

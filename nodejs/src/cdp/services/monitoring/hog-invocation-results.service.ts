@@ -202,7 +202,10 @@ const sumDurationMs = (invocation: CyclotronJobInvocation): number | null => {
     if (!timings || timings.length === 0) {
         return null
     }
-    return timings.reduce((sum, t) => sum + t.duration_ms, 0)
+    // Per-step timings are fractional ms (perf.now() deltas). ClickHouse stores
+    // duration_ms as UInt32 — Kafka's JSONEachRow parser rejects the row if the
+    // field arrives as a float, so round before serialization.
+    return Math.round(timings.reduce((sum, t) => sum + t.duration_ms, 0))
 }
 
 /**
@@ -241,6 +244,10 @@ export class HogInvocationResultsService {
      * Queue a lifecycle row. `status='running'` should be called when the
      * worker dequeues an invocation and is about to execute it; `succeeded` /
      * `failed` are derived inside `queueInvocationResults` from the result.
+     *
+     * `attempts` and `is_retry` are derived from `invocation.state.replayAttempts`
+     * — set by the replay paginator on rehydration and never touched by the
+     * executor's fetch-retry counter (`state.attempts`).
      */
     queueLifecycleRow(
         invocation: CyclotronJobInvocation,
@@ -249,7 +256,6 @@ export class HogInvocationResultsService {
             error?: unknown
             startedAt?: Date
             finishedAt?: Date
-            isRetry?: boolean
         } = {}
     ): void {
         if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
@@ -265,7 +271,9 @@ export class HogInvocationResultsService {
             startedAt && finishedAt
                 ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
                 : sumDurationMs(invocation)
-        const attempts = isHogFunctionInvocation(invocation) ? (invocation.state?.attempts ?? 1) : 1
+        // replayAttempts lives on the hog function state; hog flows haven't
+        // wired up a corresponding field yet so they always read 0.
+        const replayAttempts = isHogFunctionInvocation(invocation) ? (invocation.state?.replayAttempts ?? 0) : 0
 
         const row: HogInvocationResultRow = {
             team_id: invocation.teamId,
@@ -274,8 +282,8 @@ export class HogInvocationResultsService {
             invocation_id: invocation.id,
             parent_run_id: invocation.parentRunId ?? '',
             status,
-            attempts,
-            is_retry: opts.isRetry ? 1 : 0,
+            attempts: replayAttempts,
+            is_retry: replayAttempts > 0 ? 1 : 0,
             scheduled_at: isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now),
             started_at: startedAt ? isoMicroseconds(startedAt) : null,
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
@@ -311,6 +319,21 @@ export class HogInvocationResultsService {
             const status: 'succeeded' | 'failed' = result.error ? 'failed' : 'succeeded'
             this.queueLifecycleRow(result.invocation, status, { error: result.error })
         }
+    }
+
+    /**
+     * Discard any queued (un-flushed) lifecycle rows for the given invocation
+     * ids. Used by the replay paginator when a re-enqueue is refused (existing
+     * job is still in-flight) — we already queued a 'running' row for that
+     * invocation_id; drop it so we don't surface a stale running marker.
+     */
+    dropQueuedRowsFor(invocationIds: string[]): void {
+        if (invocationIds.length === 0) {
+            return
+        }
+        const drop = new Set(invocationIds)
+        this.queuedRows = this.queuedRows.filter((r) => !drop.has(r.invocation_id))
+        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
     }
 
     async flush(): Promise<void> {

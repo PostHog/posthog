@@ -22,6 +22,20 @@ export type ReplayFunctionKind = 'hog_function' | 'hog_flow'
 
 export type ReplayStatusValue = 'running' | 'succeeded' | 'failed'
 
+/**
+ * Filter shape for a replay request.
+ *
+ * `window_start` / `window_end` are REQUIRED — the lifecycle table is
+ * partitioned by `toYYYYMMDD(scheduled_at)`, so a query without a time bound
+ * scans every partition (up to 30 of them, since the TTL drops parts older
+ * than that). The window also caps replay to data that's still resident in the
+ * table — older rows are gone via TTL anyway.
+ *
+ * `invocation_ids` is an OPTIONAL additional restriction. When set, the
+ * paginator pulls only those ids within the window — a UI "replay these
+ * specific failed runs" affordance. Server-side cap on the list size is
+ * enforced via `HOG_INVOCATION_REPLAY_MAX_COUNT`.
+ */
 export interface ReplayFilter {
     window_start: string
     window_end: string
@@ -29,12 +43,18 @@ export interface ReplayFilter {
     error_kind?: string[]
     max_attempts?: number
     max_count?: number
+    invocation_ids?: string[]
 }
 
 export interface ReplayRequest {
-    invocation_ids?: string[]
-    filter?: ReplayFilter
+    filter: ReplayFilter
 }
+
+/**
+ * Max window the user may pass — matches the ClickHouse TTL on
+ * `hog_invocation_results`. Older rows are already gone via part drop.
+ */
+export const REPLAY_MAX_WINDOW_DAYS = 30
 
 export interface ReplayCursor {
     scheduled_at: string
@@ -44,10 +64,8 @@ export interface ReplayCursor {
 export interface ReplayJobProgress {
     queued: number
     skipped: number
-    /** Keyset cursor for the by-filter mode. Undefined on first page; null when exhausted. */
+    /** Keyset cursor on (scheduled_at, invocation_id). Undefined on first page; null when exhausted. */
     cursor?: ReplayCursor | null
-    /** For by-IDs mode, the slice of ids not yet processed. */
-    remaining_ids?: string[]
     /** True once the worker has processed every page or exhausted max_count. */
     done: boolean
     /** Last error from a page; non-fatal — the next reschedule retries. */

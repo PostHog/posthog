@@ -8,15 +8,21 @@ reads matching rows from ClickHouse `hog_invocation_results`, rehydrates from
 the stored `invocation_globals`, and re-enqueues onto cyclotron.
 """
 
+from datetime import timedelta
+
 from rest_framework import serializers
 
 # Hard cap on how many invocations can be queued for replay in a single request.
 # The Node side enforces the same limit defensively — keep both in sync.
 HOG_INVOCATION_REPLAY_MAX_COUNT = 1000
 
+# Matches the ClickHouse TTL on `hog_invocation_results` (30 days). A replay
+# window any longer would point at partitions that have already been dropped.
+REPLAY_MAX_WINDOW_DAYS = 30
+
 
 class HogInvocationReplayFilterSerializer(serializers.Serializer):
-    """Filter shape used by the by-filter mode of the replay endpoint."""
+    """Filter shape for the replay endpoint. `window_start`/`window_end` are required."""
 
     window_start = serializers.DateTimeField(required=True, help_text="Inclusive lower bound on `scheduled_at` (UTC).")
     window_end = serializers.DateTimeField(required=True, help_text="Exclusive upper bound on `scheduled_at` (UTC).")
@@ -45,34 +51,42 @@ class HogInvocationReplayFilterSerializer(serializers.Serializer):
             f"Server-side cap is {HOG_INVOCATION_REPLAY_MAX_COUNT}."
         ),
     )
-
-
-class HogInvocationReplayRequestSerializer(serializers.Serializer):
-    """
-    Replay invocations of a hog function or hog flow from their stored payloads.
-    Provide EITHER `invocation_ids` (explicit list) OR `filter` (filter selection),
-    not both.
-    """
-
     invocation_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
         max_length=HOG_INVOCATION_REPLAY_MAX_COUNT,
         help_text=(
-            f"Explicit list of invocation IDs to replay. Capped at {HOG_INVOCATION_REPLAY_MAX_COUNT} per request."
+            "Optional restriction to specific invocation IDs within the window. "
+            f"Capped at {HOG_INVOCATION_REPLAY_MAX_COUNT} per request. Always combined with "
+            "`window_start`/`window_end` so the ClickHouse query can be partition-pruned."
         ),
-    )
-    filter = HogInvocationReplayFilterSerializer(
-        required=False,
-        help_text="Filter-based selection. Mutually exclusive with `invocation_ids`.",
     )
 
     def validate(self, attrs: dict) -> dict:
-        has_ids = bool(attrs.get("invocation_ids"))
-        has_filter = attrs.get("filter") is not None
-        if has_ids == has_filter:
-            raise serializers.ValidationError("Provide exactly one of 'invocation_ids' or 'filter'.")
+        start = attrs.get("window_start")
+        end = attrs.get("window_end")
+        if start and end:
+            if end <= start:
+                raise serializers.ValidationError("'window_end' must be after 'window_start'.")
+            if end - start > timedelta(days=REPLAY_MAX_WINDOW_DAYS):
+                raise serializers.ValidationError(
+                    f"Replay window cannot exceed {REPLAY_MAX_WINDOW_DAYS} days "
+                    f"(ClickHouse TTL on hog_invocation_results)."
+                )
         return attrs
+
+
+class HogInvocationReplayRequestSerializer(serializers.Serializer):
+    """Replay invocations of a hog function or hog flow from their stored payloads."""
+
+    filter = HogInvocationReplayFilterSerializer(
+        required=True,
+        help_text=(
+            "Required. `window_start` / `window_end` pin the query to a small set of date "
+            "partitions on the `hog_invocation_results` table. Optional `invocation_ids` "
+            "restricts to specific invocations within that window."
+        ),
+    )
 
 
 class HogInvocationReplayResponseSerializer(serializers.Serializer):

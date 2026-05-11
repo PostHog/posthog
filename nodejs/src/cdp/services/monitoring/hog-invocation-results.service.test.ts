@@ -102,13 +102,28 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].invocation_globals).not.toContain('abc123')
         })
 
-        it('marks is_retry=1 when opts.isRetry is set', async () => {
+        it('marks is_retry=1 and attempts=N when state.replayAttempts is set', async () => {
             const invocation = createExampleInvocation()
-            service.queueLifecycleRow(invocation, 'running', { isRetry: true })
+            invocation.state.replayAttempts = 1
+            service.queueLifecycleRow(invocation, 'running')
             await service.flush()
 
             const rows = parseProducedRows(outputs)
             expect(rows[0].is_retry).toBe(1)
+            expect(rows[0].attempts).toBe(1)
+        })
+
+        it('leaves is_retry=0 and attempts=0 when state.replayAttempts is unset (original run)', async () => {
+            const invocation = createExampleInvocation()
+            // Fetch-retry counter is bumped by the executor — it must NOT bleed
+            // into the lifecycle row's `attempts`/`is_retry` fields.
+            invocation.state.attempts = 3
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            expect(rows[0].is_retry).toBe(0)
+            expect(rows[0].attempts).toBe(0)
         })
 
         it('extracts event_uuid, distinct_id, and person_id into promoted columns', async () => {

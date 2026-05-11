@@ -1,3 +1,4 @@
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
@@ -26,16 +27,11 @@ import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from '.
  */
 export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer | IngestionProducer
 
-export type SessionRecordingApiConfig = {
+export type SessionRecordingApiConfig = ClickhouseConfig & {
     SESSION_RECORDING_API_REDIS_HOST: string
     SESSION_RECORDING_API_REDIS_PORT: number
     SESSION_RECORDING_KMS_ENDPOINT: string | undefined
     SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_DATABASE: string
-    CLICKHOUSE_USER: string
-    CLICKHOUSE_PASSWORD: string | undefined
-    CLICKHOUSE_SECURE: boolean
 }
 
 export type SessionRecordingConfig = {
@@ -88,15 +84,15 @@ export type SessionRecordingConfig = {
 
 export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig {
     return {
+        ...getDefaultClickhouseConfig(),
+        // session-recording predates the shared default and pre-test-env didn't
+        // pick a database — keep the long-standing 'default' value to avoid
+        // changing prod behavior for this service in particular.
+        CLICKHOUSE_DATABASE: 'default',
         SESSION_RECORDING_API_REDIS_HOST: '127.0.0.1',
         SESSION_RECORDING_API_REDIS_PORT: 6379,
         SESSION_RECORDING_KMS_ENDPOINT: undefined,
         SESSION_RECORDING_DYNAMODB_ENDPOINT: undefined,
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_DATABASE: 'default',
-        CLICKHOUSE_USER: 'default',
-        CLICKHOUSE_PASSWORD: undefined,
-        CLICKHOUSE_SECURE: false,
     }
 }
 

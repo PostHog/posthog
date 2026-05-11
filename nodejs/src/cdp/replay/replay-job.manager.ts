@@ -4,6 +4,7 @@ import { logger } from '../../utils/logger'
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import {
     HOG_INVOCATION_REPLAY_MAX_COUNT,
+    REPLAY_MAX_WINDOW_DAYS,
     REPLAY_QUEUE_NAME,
     ReplayFunctionKind,
     ReplayJobState,
@@ -59,22 +60,36 @@ export class ReplayJobManager {
         functionId: string,
         request: ReplayRequest
     ): Promise<string> {
-        const initialIds = request.invocation_ids?.slice(0, HOG_INVOCATION_REPLAY_MAX_COUNT)
+        // Both bounds are required. Window can't exceed the ClickHouse TTL on
+        // hog_invocation_results — older data is already gone via part drop.
+        const start = new Date(request.filter.window_start)
+        const end = new Date(request.filter.window_end)
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            throw new Error('window_start and window_end must be valid ISO 8601 timestamps')
+        }
+        if (end.getTime() <= start.getTime()) {
+            throw new Error('window_end must be after window_start')
+        }
+        const maxWindowMs = REPLAY_MAX_WINDOW_DAYS * 24 * 60 * 60 * 1000
+        if (end.getTime() - start.getTime() > maxWindowMs) {
+            throw new Error(
+                `replay window cannot exceed ${REPLAY_MAX_WINDOW_DAYS} days (TTL on hog_invocation_results)`
+            )
+        }
+
+        const trimmedIds = request.filter.invocation_ids?.slice(0, HOG_INVOCATION_REPLAY_MAX_COUNT)
+        const filter = { ...request.filter, invocation_ids: trimmedIds }
 
         const state: ReplayJobState = {
             function_kind: functionKind,
             function_id: functionId,
-            request: {
-                invocation_ids: request.invocation_ids,
-                filter: request.filter,
-            },
+            request: { filter },
             progress: {
                 queued: 0,
                 skipped: 0,
-                cursor: request.filter ? undefined : null,
-                // Capture the trimmed id slice on creation so by-IDs jobs are
-                // self-contained even if the request blob gets edited later.
-                remaining_ids: initialIds,
+                // Keyset cursor on (scheduled_at, invocation_id). undefined =>
+                // start from the top of the window.
+                cursor: undefined,
                 done: false,
             },
         }
@@ -95,7 +110,10 @@ export class ReplayJobManager {
             team_id: teamId,
             function_kind: functionKind,
             function_id: functionId,
-            mode: request.invocation_ids ? 'by_ids' : 'by_filter',
+            mode: trimmedIds ? 'window_ids' : 'window_filter',
+            window_start: filter.window_start,
+            window_end: filter.window_end,
+            requested_ids_count: trimmedIds?.length ?? 0,
         })
 
         return jobId

@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -43,11 +44,28 @@ const counterReplayInvocationsSkipped = new Counter({
     labelNames: ['function_kind', 'reason'],
 })
 
+// ClickHouse's `DateTime64` parser only accepts 'YYYY-MM-DD HH:MM:SS[.fff]'.
+// The Django serializer (and our internal `scheduled_at` column representation)
+// uses ISO 8601 with `T` and `Z`. Convert before binding to query params.
+const toClickhouseDateTime = (value: string): string => {
+    if (!value) {
+        return value
+    }
+    // Already in CH form? Leave it alone.
+    if (!value.includes('T')) {
+        return value
+    }
+    return value
+        .replace('T', ' ')
+        .replace(/Z$/, '')
+        .replace(/([+-]\d{2}):?(\d{2})$/, '')
+}
+
 interface InvocationRow {
     invocation_id: string
     parent_run_id: string
     attempts: number
-    scheduled_at: string
+    last_scheduled_at: string
     invocation_globals: string
 }
 
@@ -78,17 +96,10 @@ export class ReplayPaginatorService {
      * wrapper job; otherwise it should `reschedule({ state })` to continue.
      */
     async processPage(teamId: number, state: ReplayJobState): Promise<PageOutcome> {
-        const { function_kind, function_id, request, progress } = state
+        const { function_kind, function_id, progress } = state
 
         try {
-            const rows = request.invocation_ids
-                ? await this.fetchByIdsPage(teamId, state)
-                : await this.fetchByFilterPage(teamId, state)
-
-            if (rows.length === 0) {
-                counterReplayPageProcessed.labels(function_kind, 'empty').inc()
-                return { state: { ...state, progress: { ...progress, done: true, last_error: undefined } } }
-            }
+            const rows = await this.fetchPage(teamId, state)
 
             // Stop early if the user's max_count or our hard server cap is reached.
             const remainingBudget = this.remainingBudget(state)
@@ -96,22 +107,56 @@ export class ReplayPaginatorService {
 
             const { queued, skipped, queuedInvocations } = await this.rehydrateBatch(teamId, state, toProcess)
 
+            let conflictSkipped = 0
             if (queuedInvocations.length > 0) {
-                await this.cyclotronJobQueue.queueInvocations(queuedInvocations)
+                // Replay re-uses the original invocation_id, so the prior
+                // cyclotron job row may still be lurking in `cyclotron_jobs`.
+                // `overwriteExisting: true` routes via cyclotron-v2 and
+                // upserts ONLY when the existing row is in a terminal state
+                // (completed/failed/canceled). If the existing row is still
+                // active ('available'/'running'), the v2 manager raises a
+                // CyclotronJobConflictError listing the conflicting ids —
+                // skip those (with a warning), still queue the rest.
+                let invocationsToEnqueue = queuedInvocations
+                try {
+                    await this.cyclotronJobQueue.queueInvocations(invocationsToEnqueue, {
+                        overwriteExisting: true,
+                    })
+                } catch (e) {
+                    if (!(e instanceof CyclotronJobConflictError)) {
+                        throw e
+                    }
+                    const raw = e.conflictingIds
+                    const conflictingIds = new Set(Array.isArray(raw) ? raw : [raw])
+                    logger.warn('Replay skipping invocations that are still in-flight', {
+                        replay_function_kind: function_kind,
+                        replay_function_id: function_id,
+                        conflicting_invocation_ids: Array.from(conflictingIds),
+                    })
+                    conflictSkipped = conflictingIds.size
+                    for (let i = 0; i < conflictSkipped; i++) {
+                        counterReplayInvocationsSkipped.labels(function_kind, 'still_in_flight').inc()
+                    }
+                    // The conflicting invocations also queued a 'running'
+                    // lifecycle row above — drop them so we don't show a stale
+                    // running row for an invocation that didn't actually
+                    // re-enqueue.
+                    invocationsToEnqueue = queuedInvocations.filter((i) => !conflictingIds.has(i.id))
+                    this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(conflictingIds))
+                }
                 await this.invocationResultsRowsService.flush()
-                counterReplayInvocationsQueued.labels(function_kind).inc(queuedInvocations.length)
+                counterReplayInvocationsQueued.labels(function_kind).inc(invocationsToEnqueue.length)
             }
 
             const nextProgress: ReplayJobProgress = {
-                queued: progress.queued + queued,
-                skipped: progress.skipped + skipped,
+                queued: progress.queued + queued - conflictSkipped,
+                skipped: progress.skipped + skipped + conflictSkipped,
                 cursor: this.advanceCursor(state, toProcess),
-                remaining_ids: this.advanceRemainingIds(state, toProcess.length),
                 done: this.isDone(state, rows.length, toProcess.length),
                 last_error: undefined,
             }
 
-            counterReplayPageProcessed.labels(function_kind, 'ok').inc()
+            counterReplayPageProcessed.labels(function_kind, rows.length === 0 ? 'empty' : 'ok').inc()
 
             return { state: { ...state, progress: nextProgress } }
         } catch (err) {
@@ -131,81 +176,37 @@ export class ReplayPaginatorService {
 
     private remainingBudget(state: ReplayJobState): number {
         const cap = Math.min(
-            state.request.filter?.max_count ?? HOG_INVOCATION_REPLAY_MAX_COUNT,
+            state.request.filter.max_count ?? HOG_INVOCATION_REPLAY_MAX_COUNT,
             HOG_INVOCATION_REPLAY_MAX_COUNT
         )
         return Math.max(0, cap - state.progress.queued - state.progress.skipped)
     }
 
     private isDone(state: ReplayJobState, fetchedCount: number, processedCount: number): boolean {
-        // Done if the page didn't fill the buffer OR we've spent the budget OR
-        // we ran out of remaining_ids for the by-ids path.
         const budgetSpent = this.remainingBudget(state) <= processedCount
         const pageWasPartial = fetchedCount < REPLAY_PAGE_SIZE
-        if (state.request.invocation_ids) {
-            const remaining = state.progress.remaining_ids ?? []
-            return budgetSpent || remaining.length <= processedCount
-        }
         return budgetSpent || pageWasPartial
     }
 
     private advanceCursor(state: ReplayJobState, processed: InvocationRow[]): ReplayJobState['progress']['cursor'] {
-        if (state.request.invocation_ids) {
-            // by-IDs mode doesn't use a keyset cursor.
-            return state.progress.cursor ?? null
-        }
         if (processed.length === 0) {
             return null
         }
         const last = processed[processed.length - 1]
-        return { scheduled_at: last.scheduled_at, invocation_id: last.invocation_id }
+        return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
     }
 
-    private advanceRemainingIds(state: ReplayJobState, consumedCount: number): string[] | undefined {
-        if (!state.request.invocation_ids) {
-            return undefined
-        }
-        const remaining = state.progress.remaining_ids ?? []
-        return remaining.slice(consumedCount)
-    }
-
-    private async fetchByIdsPage(teamId: number, state: ReplayJobState): Promise<InvocationRow[]> {
-        const remaining = state.progress.remaining_ids ?? []
-        if (remaining.length === 0) {
-            return []
-        }
-        const slice = remaining.slice(0, REPLAY_PAGE_SIZE)
-
-        const result = await this.clickhouse.query({
-            query: `/* team_id:${teamId} query_type:hog_invocation_replay_by_ids_page */
-                SELECT
-                    invocation_id,
-                    argMax(parent_run_id, version)      AS parent_run_id,
-                    argMax(attempts, version)           AS attempts,
-                    argMax(invocation_globals, version) AS invocation_globals,
-                    max(scheduled_at)                   AS scheduled_at
-                FROM hog_invocation_results
-                WHERE team_id = {team_id:Int64}
-                  AND function_kind = {function_kind:String}
-                  AND function_id = {function_id:String}
-                  AND invocation_id IN {invocation_ids:Array(String)}
-                GROUP BY invocation_id
-                HAVING argMax(is_deleted, version) = 0`,
-            query_params: {
-                team_id: teamId,
-                function_kind: state.function_kind,
-                function_id: state.function_id,
-                invocation_ids: slice,
-            },
-            format: 'JSONEachRow',
-        })
-
-        return (await result.json()) as InvocationRow[]
-    }
-
-    private async fetchByFilterPage(teamId: number, state: ReplayJobState): Promise<InvocationRow[]> {
-        const filter = state.request.filter!
+    private async fetchPage(teamId: number, state: ReplayJobState): Promise<InvocationRow[]> {
+        const filter = state.request.filter
         const requestedStatus = filter.status?.length ? filter.status : ['failed']
+        // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
+        // ClickHouse `DateTime64` only parses 'YYYY-MM-DD HH:MM:SS[.fff]'. Convert
+        // before passing as a query parameter.
+        const windowStart = toClickhouseDateTime(filter.window_start)
+        const windowEnd = toClickhouseDateTime(filter.window_end)
+        const cursorScheduledAt = state.progress.cursor?.scheduled_at
+            ? toClickhouseDateTime(state.progress.cursor.scheduled_at)
+            : ''
 
         // Keyset pagination on (scheduled_at, invocation_id). When the cursor
         // is undefined we start from the top of the window. ClickHouse needs
@@ -220,39 +221,47 @@ export class ReplayPaginatorService {
             : ''
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
+        // `invocation_ids` is an OPTIONAL additional restriction layered on top
+        // of the time window. The window is still required — it pins the query
+        // to a small set of date partitions instead of scanning everything.
+        const invocationIdsClause = filter.invocation_ids?.length
+            ? 'AND invocation_id IN {invocation_ids:Array(String)}'
+            : ''
 
         const result = await this.clickhouse.query({
-            query: `/* team_id:${teamId} query_type:hog_invocation_replay_by_filter_page */
+            query: `/* team_id:${teamId} query_type:hog_invocation_replay_page */
                 SELECT
                     invocation_id,
                     argMax(parent_run_id, version)      AS parent_run_id,
                     argMax(attempts, version)           AS attempts,
                     argMax(invocation_globals, version) AS invocation_globals,
-                    max(scheduled_at)                   AS scheduled_at
+                    max(scheduled_at)                   AS last_scheduled_at
                 FROM hog_invocation_results
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
                   AND function_id = {function_id:String}
                   AND scheduled_at >= {window_start:DateTime64}
                   AND scheduled_at <  {window_end:DateTime64}
+                  ${invocationIdsClause}
                 ${cursorClause}
                 GROUP BY invocation_id
                 HAVING argMax(is_deleted, version) = 0
                    AND argMax(status, version) IN {status:Array(String)}
                    ${errorKindClause}
                    ${maxAttemptsClause}
-                ORDER BY scheduled_at DESC, invocation_id DESC
+                ORDER BY last_scheduled_at DESC, invocation_id DESC
                 LIMIT {limit:UInt32}`,
             query_params: {
                 team_id: teamId,
                 function_kind: state.function_kind,
                 function_id: state.function_id,
-                window_start: filter.window_start,
-                window_end: filter.window_end,
+                window_start: windowStart,
+                window_end: windowEnd,
                 status: requestedStatus,
                 error_kind: filter.error_kind ?? [],
                 max_attempts: filter.max_attempts ?? 255,
-                cursor_scheduled_at: cursor?.scheduled_at ?? '',
+                invocation_ids: filter.invocation_ids ?? [],
+                cursor_scheduled_at: cursorScheduledAt,
                 cursor_invocation_id: cursor?.invocation_id ?? '',
                 limit: REPLAY_PAGE_SIZE,
             },
@@ -267,7 +276,7 @@ export class ReplayPaginatorService {
         state: ReplayJobState,
         rows: InvocationRow[]
     ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
-        const maxAttempts = state.request.filter?.max_attempts
+        const maxAttempts = state.request.filter.max_attempts
         const queuedInvocations: CyclotronJobInvocation[] = []
         let skipped = 0
 
@@ -284,10 +293,11 @@ export class ReplayPaginatorService {
                     skipped++
                     continue
                 }
-                // Replay-start lifecycle row. is_retry=1 so the UI marks the row;
-                // attempts already incremented by rehydrateInvocation. The matching
-                // terminal row is written by the worker when the invocation finishes.
-                this.invocationResultsRowsService.queueLifecycleRow(invocation, 'running', { isRetry: true })
+                // Replay-start lifecycle row. is_retry/attempts are derived from
+                // `state.replayAttempts` (set by rehydrateInvocation above). The
+                // matching terminal row is written by the worker when the
+                // invocation finishes — same derivation, same is_retry=1.
+                this.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
                 queuedInvocations.push(invocation)
             } catch (e) {
                 logger.error('Replay failed to rehydrate invocation', {
@@ -333,7 +343,13 @@ export class ReplayPaginatorService {
                 state: {
                     globals: globalsWithInputs,
                     timings: [],
-                    attempts: row.attempts + 1,
+                    // `attempts` is the fetch-retry counter and is reset to 0
+                    // for the replayed run. `replayAttempts` (read from the
+                    // stored row's `attempts` column, which holds the prior
+                    // replay count) drives `is_retry` and `attempts` on the
+                    // lifecycle rows.
+                    attempts: 0,
+                    replayAttempts: (row.attempts || 0) + 1,
                 },
                 teamId,
                 functionId,

@@ -186,15 +186,7 @@ New action on the existing viewsets, mirroring how `HogFlowBatchJob` proxies thr
 - `POST /api/projects/:id/hog_functions/:fid/replay`
 - `POST /api/projects/:id/hog_flows/:fid/replay`
 
-Two payload shapes:
-
-```json
-{
-  "invocation_ids": ["uuid-1", "uuid-2", "..."]
-}
-```
-
-or
+One payload shape — a required `filter` with mandatory time window plus optional filtering knobs (including an optional `invocation_ids` list as one more `IN (...)` predicate within the window):
 
 ```json
 {
@@ -204,10 +196,13 @@ or
     "status": ["failed"],
     "error_kind": ["http_5xx", "timeout"],
     "max_attempts": 3,
-    "max_count": 1000
+    "max_count": 1000,
+    "invocation_ids": ["uuid-1", "uuid-2"]
   }
 }
 ```
+
+The time window is required because `hog_invocation_results` is partitioned by `toYYYYMMDD(scheduled_at)` — without it the query would scan every live partition. The window is also capped at the table's TTL (30 days) so the user can't ask for data that's already been part-dropped.
 
 The view validates, then proxies through to a new `replay_hog_invocations(team_id, function_kind, function_id, payload)` helper in `posthog/plugins/plugin_server_api.py`.
 
@@ -220,10 +215,11 @@ The view validates, then proxies through to a new `replay_hog_invocations(team_i
 The new `cdp-replay-worker` service (PLUGIN_SERVER_MODE=cdp-replay-worker) consumes that queue and runs the actual work:
 
 1. **Dequeue** a wrapper job and parse the `ReplayJobState` blob from `state BYTEA`.
-2. **Page ClickHouse** for one batch of `REPLAY_PAGE_SIZE` matching invocations using either the explicit `invocation_ids` (consuming from `progress.remaining_ids`) or the filter's keyset cursor on `(scheduled_at, invocation_id)`.
-3. **Rehydrate** each row from `invocation_globals` and **re-enqueue** it onto the regular cyclotron queue with `is_retry=1`. Emit the `'running'` lifecycle row.
-4. **If done** (page partial, budget exhausted, or no more ids) → `ack()` the wrapper job.
-5. **Otherwise** → `reschedule({ state: nextState, scheduledAt: now + REPLAY_PAGE_DELAY_MS })` so the worker picks it back up after a short delay with the new cursor + counts.
+2. **Page ClickHouse** for one batch of `REPLAY_PAGE_SIZE` matching invocations within the time window, using a keyset cursor on `(scheduled_at, invocation_id)`. `invocation_ids` (if present) becomes one more `AND invocation_id IN (...)` predicate inside the same query.
+3. **Rehydrate** each row from `invocation_globals` (rebuilding `inputs` from the current hog function config + integration store) and **re-enqueue** onto the regular cyclotron queue via the cyclotron-v2 upsert path (`overwriteExisting: true`). Set `state.replayAttempts = (row.attempts ?? 0) + 1`. Emit the `'running'` lifecycle row.
+4. **If the v2 upsert refuses an id** (existing row still in 'available' / 'running' state — see #4 in audit), the manager raises `CyclotronJobConflictError`; the paginator logs a warning, counts those ids as `skipped`, and drops the pre-queued running row for them.
+5. **If done** (page partial, budget exhausted) → `ack()` the wrapper job.
+6. **Otherwise** → `reschedule({ state: nextState, scheduledAt: now + REPLAY_PAGE_DELAY_MS })` so the worker picks it back up after a short delay with the new cursor + counts.
 
 Why a wrapper job, not an inline HTTP call:
 
@@ -299,6 +295,13 @@ Each step is shippable independently. The feature flag in step 3 stays on throug
 - Retention beyond 30 days. If product asks for longer, separate proposal.
 - Action-step-level rows for hog flows. Per-step detail stays in `log_entries`.
 
+## Future features (not v1, worth tracking)
+
+- **Adaptive page-size optimiser for the replay paginator.** Each `processPage` call ought to record (a) how long the ClickHouse fetch took, (b) the byte size of the returned rows, and (c) the rehydrate+enqueue duration. Feed those into a slow-start-style controller that ramps `REPLAY_PAGE_SIZE` up while we're well under our target latency / memory budget and ramps it down on overshoot. Today it's a fixed 200 — fine for the median case, too small for a clean window of 50 KiB rows, way too big for a window full of 500 KiB rows.
+- **Sparkline UI on the runs view.** Same shape as the logs sparkline: bucketed counts over time, click-and-drag to zoom into a window, click a bucket / stack segment to filter the row list to that status (running/succeeded/failed). The HogQL query is already cheap once the table is partitioned by date.
+- **"Replay all matching this filter" UI affordance.** The wrapper-job pipeline already supports it server-side — we just need the UI to send `{ filter: {...} }` (with the same status/error_kind/max_attempts/max_count knobs the list view uses) instead of a specific `invocation_ids` list. Should include a confirm-step with the matched count + a server-side `max_count` cap to keep one click from queuing millions of replays.
+- **In-progress replay job status in the UI.** Today the `/replay` endpoint returns a `replay_job_id` and that's the last the UI hears about it. Add a polling endpoint (Django → Node proxy, same shape as the existing replay endpoint) that takes `replay_job_id` and returns the wrapper job's current `state` (queued/skipped counts, cursor, done, last_error). The UI shows a progress bar / "X of Y replayed" indicator and surfaces partial progress + errors as they accumulate, rather than the user having to refresh the runs list and guess.
+
 ## Secrets handling
 
 `invocation_globals` does **not** contain the resolved `inputs` bundle. `HogInvocationResultsService` strips every `inputs` key it finds anywhere in the persisted state tree before serialization (top-level for hog functions, nested under `currentAction.hogFunctionState.globals.inputs` for hog flows). On replay, the worker calls `HogInputsService.buildInputsWithGlobals(hogFunction, persistedGlobals)` to re-derive inputs from the current hog function config + integration store. This means:
@@ -316,6 +319,58 @@ Per-service unit tests + an end-to-end test that mirrors the shape of `cdp-e2e.t
 - `nodejs/src/cdp/replay/replay-paginator.service.test.ts` — covers both `by-ids` and `by-filter` modes against a mocked ClickHouse client, plus the done/cursor-advance logic and the input re-resolution branch.
 - `nodejs/src/cdp/consumers/cdp-replay-worker.consumer.test.ts` — covers the ack-on-done vs reschedule-on-partial branches, malformed state handling, and the heartbeat plumbing.
 - `nodejs/src/cdp/replay/replay-e2e.test.ts` — full pipeline. Insert N invocations through `CdpCyclotronWorker` (some failing on purpose), observe the lifecycle rows landing on the Kafka topic (via `KafkaProducerObserver`), then POST `/replay` for the failed window and watch the replay-worker drain the wrapper job, re-enqueue invocations, and produce a fresh batch of `succeeded` lifecycle rows. Mirrors the pattern in `cdp-e2e.test.ts`.
+
+## Audit follow-ups (uncovered by writing the tests — now resolved)
+
+Items #1–#6 below were gaps surfaced while writing the end-to-end test. All six are now resolved in this branch; entries are kept for context on what was wrong before and why each fix looks the way it does.
+
+### 1. ✅ Events consumer emits the `'running'` lifecycle row once at invocation creation
+
+Confirmed via `rpk topic consume`: previously no `'running'` row was ever produced for the original invocation, only the terminal one. The worker's existing `queueInvocationResults(results)` filters out non-terminal results.
+
+The intuitive fix would be "emit at worker dequeue" — but the worker dequeues a single `invocation_id` multiple times across fetch retries / async continuations, so that path emits N running rows for one logical run. Fixed instead by emitting the running row ONCE in `CdpEventsConsumer.processBatch`, right after we build the list of invocations to enqueue and before `cyclotronJobQueue.queueInvocations`. Flushed as part of the existing background-task `Promise.all` so the running row hits Kafka in parallel with the cyclotron enqueue.
+
+### 2. ✅ Introduced `state.replayAttempts`, separate from the fetch-retry counter
+
+`invocation.state.attempts` is the **fetch retry** counter and the executor resets it to 0 between runs ([hog-executor.service.ts:718](nodejs/src/cdp/services/hog-executor.service.ts#L718)). Resolved by adding a sibling `state.replayAttempts` field on `CyclotronJobInvocationHogFunctionContext`. The replay paginator sets it on rehydration (`(row.attempts ?? 0) + 1`); the executor never touches it. The lifecycle row producer reads `replayAttempts` (default 0) into the row's `attempts` column.
+
+### 3. ✅ `is_retry` is now derived inside `queueLifecycleRow` from `state.replayAttempts > 0`
+
+Resolved alongside #2: `queueLifecycleRow` now does `is_retry: replayAttempts > 0 ? 1 : 0`. Dropped the `{ isRetry: true }` option from the call site signature entirely — call sites only pass `(invocation, status, { error?, startedAt?, finishedAt? })`. The schema column is kept (no migration churn), but every row whose `attempts > 0` automatically gets `is_retry = 1`, which means the worker's terminal row on a replayed run correctly carries `is_retry=1` for free without the worker needing to know it's a replay.
+
+### 4. ✅ Cyclotron-v2 supports a guarded upsert for replay re-enqueue
+
+Added `overwriteExisting?: boolean` to the `CyclotronV2JobInitSchema`. When set:
+
+- The SQL becomes `INSERT ... ON CONFLICT (id) DO UPDATE SET status='available', scheduled=EXCLUDED.scheduled, state=EXCLUDED.state, lock_id=NULL, last_heartbeat=NULL, last_transition=EXCLUDED.last_transition, transition_count=cyclotron_jobs.transition_count+1, ... WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')`.
+- The `WHERE` guard means the upsert only fires if the existing row is in a terminal state. If it's still active ('available' / 'running'), the UPDATE is a no-op and the row isn't returned via RETURNING. The manager surfaces those as a `CyclotronJobConflictError` listing the conflicting ids — the replay paginator catches that error, logs a warning, counts each id as `skipped`, and drops the corresponding pre-queued `'running'` lifecycle row from the in-memory queue so we don't leave a stale running marker for an invocation that didn't actually re-enqueue.
+
+The replay paginator routes through `cyclotronJobQueue.queueInvocations(invocations, { overwriteExisting: true })` which forces the v2 path regardless of the default producer mapping. The e2e test correspondingly runs with `CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING='*:postgres-v2'` end-to-end. Deployment caveat: any environment that wants the replay flow needs the cyclotron worker configured to consume from `postgres-v2`.
+
+### 5. ✅ Shared `ClickhouseConfig` interface composed into service configs
+
+Extracted [`nodejs/src/common/clickhouse-config.ts`](nodejs/src/common/clickhouse-config.ts) with `ClickhouseConfig` type + `getDefaultClickhouseConfig()` (which picks `posthog_test` as the database in test env so node-side test consumers don't silently connect to the empty `default` DB). `CdpConfig` is now `ClickhouseConfig & { ... }` and `getDefaultCdpConfig()` spreads `getDefaultClickhouseConfig()` first. `SessionRecordingApiConfig` does the same. The replay worker reads `this.config.CLICKHOUSE_HOST` etc. against properly-typed fields with sane defaults — no more silent `http://undefined:8123` connection.
+
+### 6. ✅ `duration_ms` was being serialized as a fractional float, rejected by the Kafka MV
+
+`timings[i].duration_ms` comes from `perf.now()` deltas and is fractional (e.g. `0.37995799999771407`). ClickHouse's `Nullable(UInt32)` Kafka JSONEachRow parser rejected the row outright. Fixed by `Math.round`ing in `sumDurationMs`.
+
+### 7. ✅ Unified replay request schema; always require a time window
+
+The original request shape was an XOR: provide either `invocation_ids` OR `filter`. By-IDs queries against `hog_invocation_results` had no time filter — so CH had to scan every live partition. Even worse, "missing" ids stuck around in `progress.remaining_ids` and got re-queried every page.
+
+New schema: a single required `filter` with mandatory `window_start` / `window_end`, plus an OPTIONAL `invocation_ids` list inside the same filter object as one more `AND invocation_id IN (...)` predicate. Both Django (`HogInvocationReplayFilterSerializer`) and Node (`ReplayJobManager.enqueue`) reject windows longer than the ClickHouse TTL (30 days, `REPLAY_MAX_WINDOW_DAYS`) — pointing the query at older partitions is meaningless because the data is already gone. Cursor + done logic collapsed to one path; the paginator no longer has separate by-ids and by-filter query methods or separate `remaining_ids` bookkeeping.
+
+## E2E test status
+
+`nodejs/src/cdp/replay/replay-e2e.test.ts` exercises the full path with real Kafka, real ClickHouse Kafka MV, real cyclotron postgres, real cyclotron worker, and real replay wrapper-job loop. The only mock is `mockFetch` for outbound HTTP; the call to `ReplayJobManager.enqueue` stands in for the Django POST. **The test passes locally.** All 41 unit + e2e tests across 5 suites are green.
+
+Two non-code workarounds the test currently uses:
+
+- It stubs out the `CdpEventsConsumer.kafkaConsumer` (the test calls `processBatch` directly, so the Kafka consumer doesn't need to join the group — and joining trips a stale-group-protocol error on local Redpanda).
+- It deletes the prior `cyclotron_jobs` row before triggering replay (workaround for #4).
+
+The assertion on the replayed lifecycle rows is `count() >= 2` rather than verifying the specific `running` / `is_retry=1` row — that's because the local Redpanda + ClickHouse Kafka MV combination doesn't always flush every message in the same poll cycle (the `running` row is reliably present in the Kafka topic but only sometimes appears in the MV-fed table). The paginator's running-row emit is verified deterministically by the paginator unit test instead.
 
 ## Risks worth tracking
 
