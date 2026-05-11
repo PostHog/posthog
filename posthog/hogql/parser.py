@@ -160,6 +160,11 @@ def _looks_like_code_literal(s: str) -> bool:
     runtime-constructed strings don't. Module/class-level constants
     referenced via ``LOAD_GLOBAL`` are missed — callers pass
     ``cache_origin=CacheOrigin.BUILTIN`` explicitly for those.
+
+    This is a best-effort heuristic. A wrong classification only affects
+    which bucket a cache entry lands in; the returned AST is the same
+    either way, so functional behavior is correct regardless. The cost
+    of a miss is at worst a less-optimal cache layout.
     """
     if len(s) < _LITERAL_DETECTION_MIN_LEN:
         return False
