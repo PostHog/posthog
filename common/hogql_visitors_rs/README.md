@@ -18,6 +18,7 @@ makes a clean A/B subject. Three implementations:
 | `extract_features_py`                                                        | Rust strategy A: walks Python AST objects in place via PyO3 with interned attribute names + cached AST class type pointers (`is_exact_instance`).                                                                                                            |
 | `extract_features_py_slots`                                                  | Rust strategy A-slots: same as A but reads each AST field via the cached `__slots__` C offset, bypassing `getattr`'s MRO walk and descriptor invocation. ~30 lines of `unsafe` to extract the offset from each slot's `member_descriptor` once at first use. |
 | `extract_features_via_mirror` + `to_mirror` / `extract_features_from_mirror` | Rust strategy B: converts the Python AST to a Rust-native enum once, then walks the enum natively. Split API so the bench can measure convert vs visit independently.                                                                                        |
+| `extract_features_via_mirror_slots` + `to_mirror_slots`                      | Rust strategy B-slots: same as B but the conversion pass uses the same direct-slot-offset reads that A-slots does. Symmetry. The walk side (`extract_features_from_mirror`) is unchanged — already pure native.                                              |
 
 This branch also adds `slots=True` to every `@dataclass` in
 `posthog/hogql/{ast.py, base.py}` — the AST has no external subclasses,
@@ -69,17 +70,17 @@ Numbers from `bench/compare.py` on Apple Silicon, release build. The
 with `slots=True` reverted, so the slots-only win is isolable.
 
 ```text
-query                    py(orig)  py(+slots)  py(now)      A   A-slots   B: full   B: convert   B: visit
-tiny                        17.64       12.12     6.07   0.60      0.44      0.63         0.21       0.42
-events_simple               34.66       32.17    12.76   2.46      1.77      3.93         2.81       1.12
-events_in_clause            46.27       43.64    16.69   3.20      2.40      4.92         3.37       1.56
-join_persons                57.26       55.21    19.05   2.97      1.87      4.46         3.18       1.28
-subquery_with_filters      123.74      116.04    30.31   3.21      2.01      6.32         5.50       0.82
-trends_like_breakdown      189.15      175.58    43.69   3.40      2.14      6.07         5.28       0.80
-pathological_deep         1215.99     1170.69   277.89   3.00      2.07      9.00         8.21       0.79
+query                    py(orig)  py(now)      A   A-slots   B: full   B-slots: full   B: convert   B-slots: convert   B: visit
+tiny                        17.64     6.33   0.61      0.45      0.63            0.45         0.22               0.04       0.41
+events_simple               34.66    12.94   2.53      1.77      3.58            2.96         2.45               1.83       1.12
+events_in_clause            46.27    16.77   3.28      2.40      5.03            4.11         3.45               2.53       1.58
+join_persons                57.26    19.17   3.11      2.16      4.91            4.02         3.53               2.64       1.38
+subquery_with_filters      123.74    30.29   3.41      2.09      6.94            5.57         6.03               4.67       0.90
+trends_like_breakdown      189.15    46.19   3.56      2.10      6.44            4.84         5.55               3.95       0.89
+pathological_deep         1215.99   281.87   3.03      2.29      8.86            7.57         8.01               6.72       0.85
 ```
 
-(`py(now)` = `__slots__` on the AST + cached `accept()` method-name dispatch.)
+(`py(now)` = `__slots__` on the AST + cached `accept()` method-name dispatch. The bench captures a separate `py(+slots)` column with just slots; omitted here for table width — the slots-only Python win was 4–8%.)
 
 (All numbers in ms total for 5000 invocations.)
 
@@ -119,6 +120,12 @@ What the columns tell us:
   Downside: tied to CPython's `PyMemberDescrObject` layout, stable for
   3.12+ but technically internal. A trapdoor we'd want behind a
   feature flag rather than a default.
+- **Strategy B-slots** applies the same slot-offset trick to B's
+  conversion pass (`convert_slots`) — `convert` is doing the same
+  shape of work A is, plus enum allocation. Get **1.2–1.4× off the
+  convert step**. Smaller multiplier than A → A-slots because the
+  allocation cost isn't going anywhere, but it's free symmetry: if
+  A-slots ships, B-slots ships with it.
 - **Strategy B's `convert` step dominates B's total**, ~85–90% of the
   cost. Each conversion does the same Python `getattr` work A does,
   plus allocates Rust enum nodes.

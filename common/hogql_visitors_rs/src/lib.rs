@@ -823,6 +823,132 @@ fn convert_exprs_list(
     Ok(out)
 }
 
+// ---- B-slots: same conversion shape, using direct slot-offset reads ----
+//
+// Mirror of `convert`/`convert_opt_attr`/`convert_exprs_list` that uses the
+// cached `AstOffsets` to read each field via raw pointer arithmetic instead
+// of PyO3 `getattr`. Same trick A-slots uses, applied symmetrically to the
+// Python → Rust mirror conversion pass.
+
+fn convert_slots(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes, o: &AstOffsets) -> PyResult<AstNode> {
+    unsafe {
+        if node.is_exact_instance(t.select_query.bind(py)) {
+            Ok(AstNode::SelectQuery {
+                select_from: convert_opt_offset(py, node, o.select_query.select_from, t, o)?,
+                where_clause: convert_opt_offset(py, node, o.select_query.where_, t, o)?,
+                prewhere: convert_opt_offset(py, node, o.select_query.prewhere, t, o)?,
+                having: convert_opt_offset(py, node, o.select_query.having, t, o)?,
+            })
+        } else if node.is_exact_instance(t.select_set_query.bind(py)) {
+            let mut children = Vec::new();
+            if let Some(initial) = read_slot(node, o.select_set_query.initial_select_query) {
+                children.push(convert_slots(py, &initial, t, o)?);
+            }
+            if let Some(subs) = read_slot(node, o.select_set_query.subsequent_select_queries) {
+                for item in subs.iter()? {
+                    let sub = item?;
+                    if let Some(q) = read_slot(&sub, o.select_set_node.select_query) {
+                        children.push(convert_slots(py, &q, t, o)?);
+                    }
+                }
+            }
+            Ok(AstNode::SelectSet { children })
+        } else if node.is_exact_instance(t.join_expr.bind(py)) {
+            Ok(AstNode::JoinExpr {
+                table: convert_opt_offset(py, node, o.join_expr.table, t, o)?,
+                next_join: convert_opt_offset(py, node, o.join_expr.next_join, t, o)?,
+            })
+        } else if node.is_exact_instance(t.compare_operation.bind(py)) {
+            // `op` is read raw because the value can semantically be anything
+            // (None included). Left/right are required Expr fields.
+            let op_obj = read_slot_raw(node, o.compare_operation.op)
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing op"))?;
+            let left = read_slot_raw(node, o.compare_operation.left)
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing left"))?;
+            let right = read_slot_raw(node, o.compare_operation.right)
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing right"))?;
+            Ok(AstNode::CompareOperation {
+                op: op_obj.extract()?,
+                left: Box::new(convert_slots(py, &left, t, o)?),
+                right: Box::new(convert_slots(py, &right, t, o)?),
+            })
+        } else if node.is_exact_instance(t.field.bind(py)) {
+            let mut chain = Vec::new();
+            if let Some(c) = read_slot(node, o.field.chain) {
+                for item in c.iter()? {
+                    if let Ok(s) = item?.extract::<String>() {
+                        chain.push(s);
+                    }
+                }
+            }
+            Ok(AstNode::Field { chain })
+        } else if node.is_exact_instance(t.constant.bind(py)) {
+            let value = read_slot_raw(node, o.constant.value).and_then(|v| v.extract::<String>().ok());
+            Ok(AstNode::Constant { value })
+        } else if node.is_exact_instance(t.tuple_.bind(py)) {
+            Ok(AstNode::Tuple {
+                exprs: convert_exprs_offset(py, node, o.tuple_.exprs, t, o)?,
+            })
+        } else if node.is_exact_instance(t.array.bind(py)) {
+            Ok(AstNode::Array {
+                exprs: convert_exprs_offset(py, node, o.array.exprs, t, o)?,
+            })
+        } else if node.is_exact_instance(t.alias.bind(py)) {
+            let inner = read_slot_raw(node, o.alias.expr)
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing alias.expr"))?;
+            Ok(AstNode::Alias {
+                expr: Box::new(convert_slots(py, &inner, t, o)?),
+            })
+        } else if node.is_exact_instance(t.and_.bind(py)) {
+            Ok(AstNode::And {
+                exprs: convert_exprs_offset(py, node, o.and_.exprs, t, o)?,
+            })
+        } else if node.is_exact_instance(t.or_.bind(py)) {
+            Ok(AstNode::Or {
+                exprs: convert_exprs_offset(py, node, o.or_.exprs, t, o)?,
+            })
+        } else if node.is_exact_instance(t.not_.bind(py)) {
+            let inner = read_slot_raw(node, o.not_.expr)
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing not.expr"))?;
+            Ok(AstNode::Not {
+                expr: Box::new(convert_slots(py, &inner, t, o)?),
+            })
+        } else {
+            Ok(AstNode::Other)
+        }
+    }
+}
+
+fn convert_opt_offset(
+    py: Python<'_>,
+    node: &Bound<'_, PyAny>,
+    offset: isize,
+    types: &AstTypes,
+    offsets: &AstOffsets,
+) -> PyResult<Option<Box<AstNode>>> {
+    let val = match unsafe { read_slot(node, offset) } {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+    Ok(Some(Box::new(convert_slots(py, &val, types, offsets)?)))
+}
+
+fn convert_exprs_offset(
+    py: Python<'_>,
+    node: &Bound<'_, PyAny>,
+    offset: isize,
+    types: &AstTypes,
+    offsets: &AstOffsets,
+) -> PyResult<Vec<AstNode>> {
+    let mut out = Vec::new();
+    if let Some(exprs) = unsafe { read_slot(node, offset) } {
+        for item in exprs.iter()? {
+            out.push(convert_slots(py, &item?, types, offsets)?);
+        }
+    }
+    Ok(out)
+}
+
 struct NativeVisitor {
     tables: BTreeSet<String>,
     events: BTreeSet<String>,
@@ -959,6 +1085,41 @@ fn to_mirror(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
 }
 
 #[pyfunction]
+fn to_mirror_slots(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
+    let types = ast_types(py)?;
+    let offsets = ast_offsets(py)?;
+    Ok(AstMirror {
+        inner: convert_slots(py, &query, types, offsets)?,
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (query=None))]
+fn extract_features_via_mirror_slots<'py>(
+    py: Python<'py>,
+    query: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let (tables, events) = match query {
+        None => (Vec::new(), Vec::new()),
+        Some(q) => {
+            let types = ast_types(py)?;
+            let offsets = ast_offsets(py)?;
+            let mirror = convert_slots(py, &q, types, offsets)?;
+            let mut v = NativeVisitor::new();
+            v.visit(&mirror);
+            (
+                v.tables.into_iter().collect::<Vec<_>>(),
+                v.events.into_iter().collect::<Vec<_>>(),
+            )
+        }
+    };
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
+}
+
+#[pyfunction]
 fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyResult<Bound<'py, PyTuple>> {
     let mut v = NativeVisitor::new();
     v.visit(&mirror.inner);
@@ -975,7 +1136,9 @@ fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_py_slots, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_features_via_mirror_slots, m)?)?;
     m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(to_mirror_slots, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
     m.add_class::<AstMirror>()?;
     Ok(())

@@ -130,7 +130,17 @@ N = 5000
 
 
 def run() -> None:
-    header = f"{'query':<24} {'python':>9} {'A':>7} {'A-slots':>9} {'B: full':>9} {'B: convert':>12} {'B: visit':>10}"
+    header = (
+        f"{'query':<24} "
+        f"{'python':>9} "
+        f"{'A':>7} "
+        f"{'A-slots':>9} "
+        f"{'B: full':>9} "
+        f"{'B-slots: full':>15} "
+        f"{'B: convert':>12} "
+        f"{'B-slots: convert':>18} "
+        f"{'B: visit':>10}"
+    )
     print(header)
     print("-" * len(header))
     print(f"{'(total ms / ' + str(N) + ' calls)':<24}")
@@ -144,12 +154,17 @@ def run() -> None:
         t_a = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py(parsed), number=N) * 1000
         t_a_slots = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py_slots(parsed), number=N) * 1000
         t_b_full = timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror(parsed), number=N) * 1000
+        t_b_full_slots = (
+            timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror_slots(parsed), number=N) * 1000
+        )
         t_b_visit = timeit.timeit(lambda: hogql_visitors_rs.extract_features_from_mirror(mirror), number=N) * 1000
         t_b_convert = t_b_full - t_b_visit
+        t_b_convert_slots = t_b_full_slots - t_b_visit
 
         print(
             f"{name:<24} {t_py:>9.2f} {t_a:>7.2f} {t_a_slots:>9.2f} "
-            f"{t_b_full:>9.2f} {t_b_convert:>12.2f} {t_b_visit:>10.2f}"
+            f"{t_b_full:>9.2f} {t_b_full_slots:>15.2f} "
+            f"{t_b_convert:>12.2f} {t_b_convert_slots:>18.2f} {t_b_visit:>10.2f}"
         )
 
 
