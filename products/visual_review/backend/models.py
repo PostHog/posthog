@@ -158,6 +158,12 @@ class Run(ProductTeamModel):
     # e.g., {"pr_title": "...", "base_branch": "main", "ci_job_url": "..."}
     metadata = models.JSONField(default=dict, blank=True)
 
+    # True when CI ran only a subset of the test suite (e.g. PR-selective storybook).
+    # The classifier skips REMOVED-row fabrication for these runs so omitted
+    # baseline identifiers stay at their existing baseline rather than getting
+    # flagged as deleted on every partial PR.
+    is_partial = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 

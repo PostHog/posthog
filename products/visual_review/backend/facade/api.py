@@ -310,6 +310,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         removed_identifiers=list(input.removed_identifiers),
         purpose=input.purpose,
         metadata=dict(input.metadata) if input.metadata else {},
+        is_partial=input.is_partial,
     )
 
     upload_targets = [

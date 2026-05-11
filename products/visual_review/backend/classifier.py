@@ -144,6 +144,11 @@ class SnapshotClassifier:
         """Detect baseline identifiers missing from the run and create REMOVED rows."""
         if not self.baseline:
             return
+        if self.run.is_partial:
+            # Partial runs (e.g. PR-selective storybook) only render a subset of
+            # the suite. The omitted baseline identifiers haven't been deleted,
+            # they just weren't exercised — leave them untouched.
+            return
         produced = set(self.snapshots_qs.values_list("identifier", flat=True))
         removed = [
             RunSnapshot(
