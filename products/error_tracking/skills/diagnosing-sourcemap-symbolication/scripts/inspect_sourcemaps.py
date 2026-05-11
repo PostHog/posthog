@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import io
 import json
 import re
 import struct
@@ -34,8 +35,6 @@ def read_u64(data: bytes, offset: int) -> tuple[int, int]:
 
 def decode_zstd(data: bytes) -> bytes:
     try:
-        import io
-
         import zstandard
     except ImportError as err:
         raise RuntimeError("zstandard is required to decode compressed v2 symbol data") from err
@@ -126,7 +125,7 @@ def summarize_sourcemap_text(text: str) -> dict[str, Any]:
         "sources_content_length": len(sources_content) if isinstance(sources_content, list) else None,
         "names_length": len(names) if isinstance(names, list) else None,
         "first_sources": sources[:5] if isinstance(sources, list) else None,
-        "empty_mappings": mappings == "",
+        "empty_mappings": mappings == "" or mappings is None,
     }
 
 
@@ -219,7 +218,9 @@ def print_json(value: dict[str, Any]) -> None:
 
 
 def is_interesting_path(path: Path) -> bool:
-    return path.suffix == ".map" or path.suffix in JAVASCRIPT_SUFFIXES
+    # `.bin` is a common name for downloaded symbol-data containers; containers
+    # with other extensions must be passed by name to be picked up.
+    return path.suffix in {".map", ".bin"} or path.suffix in JAVASCRIPT_SUFFIXES
 
 
 def expand_input_path(path: Path) -> list[Path]:
