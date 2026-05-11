@@ -4,7 +4,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import (
+    _MAX_CACHEABLE_STATEMENT_LEN,
     CacheOrigin,
     _builtin_parse_cache,
     _looks_like_code_literal,
@@ -12,6 +14,7 @@ from posthog.hogql.parser import (
     clear_parse_caches,
     parse_expr,
     parse_select,
+    parse_string_template,
 )
 
 
@@ -28,7 +31,7 @@ class TestParserCache(BaseTest):
 
     def test_cache_hit_returns_distinct_object(self):
         # The resolver and printer mutate the AST in place — cache hits must
-        # not share node identity with previous returns or each other.
+        # not share node identity with previous returns.
         sql = "SELECT count() FROM events"
         first = parse_select(sql)
         second = parse_select(sql)
@@ -56,69 +59,70 @@ class TestParserCache(BaseTest):
 
     def test_auto_detects_function_local_literal(self):
         # Literal must be long enough to bypass the auto-interning guard
-        # (`_LITERAL_DETECTION_MIN_LEN`). Real production HogQL queries are
-        # well past 32 chars.
+        # (`_LITERAL_DETECTION_MIN_LEN`).
         parse_select("SELECT count() FROM events WHERE event = '$exception'")
         self.assertEqual(_builtin_parse_cache.currsize, 1)
         self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_auto_routes_constructed_strings_to_user_cache(self):
-        # `.join` produces a fresh string object that isn't in any frame's
-        # co_consts (constant string concat like `"a " + "b"` would be folded
-        # at compile time into a single literal and incorrectly look built-in).
+        # `.join` produces a fresh runtime string. Concat of two string
+        # literals (`"a " + "b"`) would be folded by the compiler into a
+        # single literal and incorrectly look built-in.
         sql = " ".join(["SELECT", "count()", "FROM", "events", "WHERE", "event", "=", "'$pageview'"])
         parse_select(sql)
         self.assertEqual(_user_parse_cache.currsize, 1)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
     def test_auto_short_strings_route_to_user_cache(self):
-        # Short identifier-shaped strings can be auto-interned by CPython and
-        # spuriously identity-match `co_consts` elsewhere. The min-length
-        # guard sends them to the user cache regardless.
+        # Short identifier-shaped strings can be auto-interned by CPython
+        # and spuriously identity-match `co_consts` entries elsewhere.
         parse_expr("count()")
         self.assertEqual(_user_parse_cache.currsize, 1)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
     def test_user_pollution_does_not_displace_builtin(self):
-        # Fill the built-in cache with one entry, then flood the user cache.
         parse_select("SELECT 'builtin entry'", cache_origin=CacheOrigin.BUILTIN)
         user_maxsize = int(_user_parse_cache.maxsize)
         for i in range(user_maxsize + 50):
             parse_select(f"SELECT {i}", cache_origin=CacheOrigin.USER)
-        # Built-in cache still has its entry; user cache is at maxsize.
         self.assertEqual(_builtin_parse_cache.currsize, 1)
         self.assertEqual(_user_parse_cache.currsize, user_maxsize)
 
-    def test_placeholders_still_substitute_after_cache_hit(self):
-        sql = "SELECT {x}"
-        placeholders: dict[str, ast.Expr] = {"x": ast.Constant(value=42)}
-        # Warm the cache without placeholders.
-        parse_select(sql)
-        # Second call with placeholders must produce the substituted AST.
-        node = parse_select(sql, placeholders=placeholders)
-        assert isinstance(node, ast.SelectQuery)
-        self.assertEqual(len(node.select), 1)
-        substituted = node.select[0]
-        assert isinstance(substituted, ast.Constant)
-        self.assertEqual(substituted.value, 42)
+    def test_different_placeholders_share_cache_entry(self):
+        # Cache key is the raw SQL; placeholders are substituted on the
+        # deepcopy returned from cache. The whole templated-query workload
+        # depends on this sharing — assert it explicitly.
+        sql = "SELECT {x} FROM events WHERE event = '$pageview' LIMIT {n}"
+
+        first = parse_select(sql, placeholders={"x": ast.Constant(value=1), "n": ast.Constant(value=10)})
+        self.assertEqual(_builtin_parse_cache.currsize + _user_parse_cache.currsize, 1)
+        assert isinstance(first, ast.SelectQuery)
+        first_select = first.select[0]
+        assert isinstance(first_select, ast.Constant)
+        self.assertEqual(first_select.value, 1)
+
+        second = parse_select(sql, placeholders={"x": ast.Constant(value=99), "n": ast.Constant(value=50)})
+        self.assertEqual(_builtin_parse_cache.currsize + _user_parse_cache.currsize, 1)
+        assert isinstance(second, ast.SelectQuery)
+        second_select = second.select[0]
+        assert isinstance(second_select, ast.Constant)
+        self.assertEqual(second_select.value, 99)
 
     def test_returned_ast_has_independent_nested_objects(self):
         # deepcopy must reach nested children — mutating a deep field must
-        # not leak to the cached entry. Pick a query with nested structure.
+        # not leak to the cached entry.
         sql = "SELECT count() FROM events WHERE event = '$pageview'"
         first = parse_select(sql)
         assert isinstance(first, ast.SelectQuery) and first.where is not None
-        # Replace a deeply nested field
         first.where = ast.Constant(value=False)
         second = parse_select(sql)
         assert isinstance(second, ast.SelectQuery) and second.where is not None
-        # The cached entry was untouched
         self.assertNotEqual(second.where, ast.Constant(value=False))
 
     def test_parse_expr_cached_separately_by_start_arg(self):
-        # Two different start values must produce two different cache entries.
-        # `parse_expr` short identifier-only inputs go to user cache (interning
-        # guard); use explicit BUILTIN to test the start-arg keying.
+        # `parse_expr` short identifier-only inputs route to user cache via
+        # the interning guard; use explicit BUILTIN to test start-arg keying
+        # in isolation.
         parse_expr("1 + 1", start=0, cache_origin=CacheOrigin.BUILTIN)
         parse_expr("1 + 1", start=1, cache_origin=CacheOrigin.BUILTIN)
         self.assertEqual(_builtin_parse_cache.currsize, 2)
@@ -128,38 +132,23 @@ class TestParserCache(BaseTest):
         self.assertTrue(_looks_like_code_literal(s))
 
     def test_looks_like_code_literal_rejects_constructed_strings(self):
-        # `.join` produces a fresh runtime string (concat of two literals would
-        # be folded at compile time and incorrectly look like a literal). Use
-        # enough parts to clear the min-length guard.
+        # `.join` produces a fresh runtime string (compile-time concat would
+        # be folded into a single literal).
         s = " ".join(["constructed", "string", "definitely", "long", "enough", "now"])
         self.assertFalse(_looks_like_code_literal(s))
 
     def test_looks_like_code_literal_rejects_short_strings(self):
-        # Short literals are rejected up-front because Python auto-interns
-        # short identifier-shaped strings — user input may share identity
-        # with `co_consts` entries elsewhere.
-        s = "event"  # literal in this function, but too short
+        # Short identifier-shaped strings may be process-wide-interned by
+        # CPython and falsely identity-match `co_consts` elsewhere.
+        s = "event"
         self.assertFalse(_looks_like_code_literal(s))
 
     def test_cache_origin_typo_raises(self):
-        # A misspelled origin must raise rather than silently routing to the
-        # user cache via `==` else-branch.
         with self.assertRaises(ValueError):
             parse_select("SELECT 1", cache_origin="buultin")  # type: ignore[arg-type]
 
-    @parameterized.expand(
-        [
-            (CacheOrigin.AUTO,),
-            (CacheOrigin.USER,),
-        ]
-    )
+    @parameterized.expand([(CacheOrigin.AUTO,), (CacheOrigin.USER,)])
     def test_oversized_query_skips_user_and_auto_caches(self, origin):
-        # An attacker-controlled HogQL query larger than the size cap must
-        # NOT enter the cache — bounds worst-case memory growth.
-        from posthog.hogql.parser import _MAX_CACHEABLE_STATEMENT_LEN
-
-        # Build a syntactically valid query over the size limit. Use a long
-        # comment so we don't blow up parse time on something pathological.
         padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
         sql = f"SELECT 1 -- {padding}"
         parse_select(sql, cache_origin=origin)
@@ -167,31 +156,24 @@ class TestParserCache(BaseTest):
         self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_oversized_query_still_caches_under_explicit_builtin(self):
-        # Explicit BUILTIN is opt-in by code that knows what it's storing —
+        # Explicit BUILTIN is opt-in by code that knows what it's storing;
         # the size cap doesn't apply.
-        from posthog.hogql.parser import _MAX_CACHEABLE_STATEMENT_LEN
-
         padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
         sql = f"SELECT 1 -- {padding}"
         parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
         self.assertEqual(_builtin_parse_cache.currsize, 1)
 
     def test_parse_string_template_literal_routes_to_builtin(self):
-        # Template strings used to always land in the user cache because the
-        # key is `"F'" + string` (runtime concat). Auto-detect now classifies
-        # against the raw `string` first.
-        from posthog.hogql.parser import parse_string_template
-
+        # The cache key is `"F'" + string` (runtime concat) so naive
+        # auto-detect would never see a built-in literal here — we
+        # classify against the raw `string` arg instead.
         parse_string_template("hello {x} world, this is a long enough template now")
         self.assertEqual(_builtin_parse_cache.currsize, 1)
         self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_syntax_errors_are_not_cached(self):
-        from posthog.hogql.errors import BaseHogQLError
-
         with self.assertRaises(BaseHogQLError):
             parse_select("NOT VALID SQL", cache_origin=CacheOrigin.USER)
-        # The failed parse shouldn't have populated either cache.
         self.assertEqual(_user_parse_cache.currsize, 0)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
@@ -202,9 +184,7 @@ class TestParserCache(BaseTest):
         ]
     )
     def test_auto_path_skips_frame_walk_on_hit(self, prior_origin, sql):
-        # The whole point of the fast path: when an entry exists in either
-        # cache, _looks_like_code_literal should not be invoked.
         parse_select(sql, cache_origin=prior_origin)
         with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
-            parse_select(sql)  # cache_origin defaults to AUTO
+            parse_select(sql)
             detector.assert_not_called()
