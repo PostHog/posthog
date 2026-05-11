@@ -879,7 +879,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_without_email(self):
         """Test that auth_extra_arguments returns base arguments when no email is provided."""
-        self.google_oauth.strategy = self._mock_strategy({})  # ty: ignore[invalid-assignment]
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -889,7 +889,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_with_email(self):
         """Test that auth_extra_arguments adds login_hint when email is provided."""
-        self.google_oauth.strategy = self._mock_strategy({"email": "test@posthog.com"})  # ty: ignore[invalid-assignment]
+        self.google_oauth.strategy = self._mock_strategy({"email": "test@posthog.com"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -898,7 +898,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_reauth_does_not_force_select_account(self):
         """Test that reauth flow does not force account picker prompt."""
-        self.google_oauth.strategy = self._mock_strategy({"reauth": "true"})  # ty: ignore[invalid-assignment]
+        self.google_oauth.strategy = self._mock_strategy({"reauth": "true"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -906,7 +906,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_preserves_existing_prompt(self):
         """Test that auth_extra_arguments appends select_account to existing prompt values."""
-        self.google_oauth.strategy = self._mock_strategy({})  # ty: ignore[invalid-assignment]
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
             extra_args = self.google_oauth.auth_extra_arguments()
