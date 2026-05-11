@@ -43,9 +43,19 @@ import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { HogFunctionRunsV2 } from './runs-v2/HogFunctionRunsV2'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'runs', 'backfills', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = [
+    'configuration',
+    'metrics',
+    'logs',
+    'testing',
+    'runs',
+    'runs-v2',
+    'backfills',
+    'history',
+] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
@@ -412,6 +422,18 @@ export function HogFunctionScene(): JSX.Element {
                   label: 'Logs',
                   key: 'logs',
                   content: <HogFunctionLogs />,
+              },
+        // New runs view backed by hog_invocation_results. Behind a flag while
+        // the underlying ClickHouse producer ramps; subsumes the legacy
+        // logs tab once it's GA.
+        type === 'site_app' ||
+        type === 'site_destination' ||
+        !featureFlags[FEATURE_FLAGS.HOG_INVOCATION_RESULTS_RUNS_TAB]
+            ? null
+            : {
+                  label: 'Runs (preview)',
+                  key: 'runs-v2',
+                  content: <HogFunctionRunsV2 id={id} functionKind="hog_function" />,
               },
         type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
             ? null

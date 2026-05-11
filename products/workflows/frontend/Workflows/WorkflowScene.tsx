@@ -25,6 +25,7 @@ import { Workflow } from './Workflow'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
+import { WorkflowRunsV2 } from './WorkflowRunsV2'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
@@ -56,6 +57,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { workflowLoading, originalWorkflow } = useValues(logic)
 
     const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
+    const runsV2Enabled = useFeatureFlag('HOG_INVOCATION_RESULTS_RUNS_TAB')
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -81,6 +83,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             key: 'logs',
             content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
+        // New runs view backed by hog_invocation_results. Behind a flag while
+        // the producer ramps; subsumes the legacy logs/invocations tab once GA.
+        runsV2Enabled
+            ? {
+                  label: 'Runs (preview)',
+                  key: 'runs-v2',
+                  content: <WorkflowRunsV2 id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Metrics',
             key: 'metrics',
