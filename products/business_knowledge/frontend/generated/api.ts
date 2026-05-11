@@ -100,7 +100,7 @@ export const getBusinessKnowledgeSourcesPartialUpdateUrl = (projectId: string, i
 export const businessKnowledgeSourcesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUpdateTextSourceApi: PatchedUpdateTextSourceApi,
+    patchedUpdateTextSourceApi?: PatchedUpdateTextSourceApi,
     options?: RequestInit
 ): Promise<KnowledgeSourceApi> => {
     return apiMutator<KnowledgeSourceApi>(getBusinessKnowledgeSourcesPartialUpdateUrl(projectId, id), {
@@ -133,7 +133,7 @@ export const getBusinessKnowledgeSourcesRefreshCreateUrl = (projectId: string, i
 export const businessKnowledgeSourcesRefreshCreate = async (
     projectId: string,
     id: string,
-    knowledgeSourceApi: NonReadonly<KnowledgeSourceApi>,
+    knowledgeSourceApi?: NonReadonly<KnowledgeSourceApi>,
     options?: RequestInit
 ): Promise<KnowledgeSourceApi> => {
     return apiMutator<KnowledgeSourceApi>(getBusinessKnowledgeSourcesRefreshCreateUrl(projectId, id), {

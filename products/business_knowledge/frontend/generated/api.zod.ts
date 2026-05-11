@@ -19,7 +19,7 @@ export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
     text: zod
         .string()
         .describe(
-            'Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3.'
+            'Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL\/file support in Stage 2\/3.'
         ),
 })
 
@@ -38,4 +38,4 @@ export const BusinessKnowledgeSourcesPartialUpdateBody = /* @__PURE__ */ zod
         'PATCH payload for text sources. Both fields optional, at least one\nrequired. `text` triggers a re-chunk; `name` alone does not.'
     )
 
-export const BusinessKnowledgeSourcesRefreshCreateBody = /* @__PURE__ */ zod.object({})
+export const BusinessKnowledgeSourcesRefreshCreateBody = /* @__PURE__ */ zod.looseObject({})

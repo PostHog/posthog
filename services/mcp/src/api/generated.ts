@@ -8194,9 +8194,9 @@ export namespace Schemas {
 
     export interface CreateTextSource {
       /**
-       * Short human label for the source. Shown in the settings list and in agent citations.
-       * @maxLength 255
-       */
+         * Short human label for the source. Shown in the settings list and in agent citations.
+         * @maxLength 255
+         */
       name: string;
       /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
       text: string;
@@ -29573,9 +29573,9 @@ export namespace Schemas {
      */
     export interface PatchedUpdateTextSource {
       /**
-       * New human label for the source.
-       * @maxLength 255
-       */
+         * New human label for the source.
+         * @maxLength 255
+         */
       name?: string;
       /** Replacement text. Omit to keep the existing content. */
       text?: string;
