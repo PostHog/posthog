@@ -3244,31 +3244,6 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.'
         ),
-    assignee: zod
-        .union([
-            zod.object({
-                type: zod
-                    .enum(['user', 'role'])
-                    .describe('* `user` - user\n* `role` - role')
-                    .describe(
-                        'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role'
-                    ),
-                id: zod
-                    .union([zod.number(), zod.string()])
-                    .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
-            }),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Optional user or role to assign to issues created by this grouping rule. Omit to preserve the existing assignee.'
-        ),
-    description: zod
-        .string()
-        .nullish()
-        .describe(
-            'Optional human-readable description of what this grouping rule is for. Omit to preserve the existing description.'
-        ),
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({

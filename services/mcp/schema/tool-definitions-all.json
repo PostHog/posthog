@@ -1325,7 +1325,7 @@
         }
     },
     "error-tracking-grouping-rules-update": {
-        "description": "Update an error tracking grouping rule by ID. Only the fields you include in the request body are applied; omitted fields keep their existing values. Supports updating `filters`, `assignee`, and `description`.",
+        "description": "Update an error tracking grouping rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking grouping rule",

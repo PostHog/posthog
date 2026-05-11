@@ -254,21 +254,15 @@ class TestGroupingRuleAPI(APIBaseTest):
         assert body["attr"] == "filters"
         assert body["detail"] == "Invalid filters payload."
 
-    def test_update_rejects_mismatched_assignee(self) -> None:
-        rule = self._create_rule()
+    def test_update_silently_drops_non_filters_fields(self) -> None:
+        """The update endpoint mirrors the UI's grouping-rule edit form, which only edits filters.
 
-        response = self.client.patch(
-            self._url(str(rule.id)),
-            data={"assignee": {"type": "role", "id": 42}},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        body = response.json()
-        assert body["type"] == "validation_error"
-        assert body["attr"] == "assignee__id"
-
-    def test_update_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
+        The frontend round-trips the whole rule object on save (including `assignee`,
+        `description`, `order_key`, `disabled_data`, timestamps), so the endpoint must accept
+        those keys without 400-ing, but it must never use them to overwrite stored values —
+        otherwise an MCP or curl caller could silently clear an assignee that was set out of
+        band by sending `{"assignee": null}` alongside an unrelated filter edit.
+        """
         rule = self._create_rule()
         new_filters = {
             "type": "OR",
@@ -286,6 +280,7 @@ class TestGroupingRuleAPI(APIBaseTest):
             self._url(str(rule.id)),
             data={
                 "filters": new_filters,
+                "assignee": None,
                 "description": "Updated description",
                 "order_key": 456,
                 "disabled_data": {"reason": "frontend-local-state"},
@@ -299,6 +294,9 @@ class TestGroupingRuleAPI(APIBaseTest):
 
         rule.refresh_from_db()
         assert rule.filters == new_filters
-        assert rule.description == "Updated description"
+        # Non-filter fields from the request body are silently ignored: the
+        # original assignee and description survive the round-trip.
+        assert rule.user_id == self.user.id
+        assert rule.description == "Original description"
         assert rule.order_key == 0
         assert rule.disabled_data is None

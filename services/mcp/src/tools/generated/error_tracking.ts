@@ -136,12 +136,6 @@ const errorTrackingGroupingRulesUpdate = (): ToolBase<typeof ErrorTrackingGroupi
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
-        if (params.assignee !== undefined) {
-            body['assignee'] = params.assignee
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
         const result = await context.api.request<unknown>({
             method: 'PUT',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/${encodeURIComponent(String(params.id))}/`,

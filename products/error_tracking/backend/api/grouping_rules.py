@@ -95,17 +95,6 @@ class ErrorTrackingGroupingRuleUpdateRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.",
     )
-    assignee = ErrorTrackingGroupingRuleAssigneeRequestSerializer(
-        required=False,
-        allow_null=True,
-        help_text="Optional user or role to assign to issues created by this grouping rule. Omit to preserve the existing assignee.",
-    )
-    description = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-        help_text="Optional human-readable description of what this grouping rule is for. Omit to preserve the existing description.",
-    )
 
 
 class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
@@ -196,20 +185,11 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         grouping_rule = self.get_object()
         json_filters = request.validated_data.get("filters")
-        assignee = request.validated_data.get("assignee")
-        description = request.validated_data.get("description")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
             grouping_rule.filters = json_filters
             grouping_rule.bytecode = generate_byte_code(self.team, parsed_filters)
-
-        if assignee:
-            grouping_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
-            grouping_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
-
-        if description:
-            grouping_rule.description = description
 
         grouping_rule.disabled_data = None
         grouping_rule.save()

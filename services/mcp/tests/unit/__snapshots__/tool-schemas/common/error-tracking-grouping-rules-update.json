@@ -1,47 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "assignee": {
-            "anyOf": [
-                {
-                    "properties": {
-                        "id": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "string"
-                                }
-                            ],
-                            "description": "User ID when `type` is `user`, or role UUID when `type` is `role`."
-                        },
-                        "type": {
-                            "description": "Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role",
-                            "enum": ["user", "role"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type", "id"],
-                    "type": "object"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional user or role to assign to issues created by this grouping rule. Omit to preserve the existing assignee."
-        },
-        "description": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional human-readable description of what this grouping rule is for. Omit to preserve the existing description."
-        },
         "filters": {
             "anyOf": [
                 {
