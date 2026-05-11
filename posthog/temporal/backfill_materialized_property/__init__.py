@@ -1,72 +1,27 @@
-"""Temporal workflows for backfilling materialized property columns.
-
-Slot allocations go through the weekly batched workflows described in the dynamic property
-materialization RFC. Compaction lives in its own workflow so the two paths never share a
-transaction or a free-column budget.
-"""
+"""Temporal workflow for backfilling materialized property columns."""
 
 from posthog.temporal.backfill_materialized_property.activities import (
-    ActivateSlotsInputs,
-    AssignCompactionTargetsInputs,
-    AssignCompactionTargetsResult,
-    AssignPendingColumnsInputs,
-    AssignPendingColumnsResult,
-    ClearCompactionTargetsInputs,
-    FailSlotsInputs,
-    FinalizeCompactionInputs,
-    PopulateSlotAssignmentsInputs,
-    PopulateSlotAssignmentsResult,
-    RunBatchedMutationInputs,
-    activate_slots,
-    assign_compaction_targets,
-    assign_pending_columns,
-    clear_compaction_targets,
-    fail_slots,
-    finalize_compaction,
-    populate_slot_assignments,
-    run_batched_mutation,
+    BackfillMaterializedColumnInputs,
+    UpdateSlotStateInputs,
+    backfill_materialized_column,
+    update_slot_state,
 )
 from posthog.temporal.backfill_materialized_property.workflows import (
-    BackfillMaterializedPropertiesBatchInputs,
-    BackfillMaterializedPropertiesBatchWorkflow,
-    CompactMaterializedColumnsInputs,
-    CompactMaterializedColumnsWorkflow,
+    BackfillMaterializedPropertyInputs,
+    BackfillMaterializedPropertyWorkflow,
 )
 
 ACTIVITIES = [
-    assign_pending_columns,
-    assign_compaction_targets,
-    populate_slot_assignments,
-    run_batched_mutation,
-    activate_slots,
-    fail_slots,
-    finalize_compaction,
-    clear_compaction_targets,
+    backfill_materialized_column,
+    update_slot_state,
 ]
 
 __all__ = [
-    "BackfillMaterializedPropertiesBatchWorkflow",
-    "BackfillMaterializedPropertiesBatchInputs",
-    "CompactMaterializedColumnsWorkflow",
-    "CompactMaterializedColumnsInputs",
+    "BackfillMaterializedPropertyWorkflow",
+    "BackfillMaterializedPropertyInputs",
     "ACTIVITIES",
-    "assign_pending_columns",
-    "AssignPendingColumnsInputs",
-    "AssignPendingColumnsResult",
-    "assign_compaction_targets",
-    "AssignCompactionTargetsInputs",
-    "AssignCompactionTargetsResult",
-    "populate_slot_assignments",
-    "PopulateSlotAssignmentsInputs",
-    "PopulateSlotAssignmentsResult",
-    "run_batched_mutation",
-    "RunBatchedMutationInputs",
-    "activate_slots",
-    "ActivateSlotsInputs",
-    "fail_slots",
-    "FailSlotsInputs",
-    "finalize_compaction",
-    "FinalizeCompactionInputs",
-    "clear_compaction_targets",
-    "ClearCompactionTargetsInputs",
+    "backfill_materialized_column",
+    "BackfillMaterializedColumnInputs",
+    "update_slot_state",
+    "UpdateSlotStateInputs",
 ]
