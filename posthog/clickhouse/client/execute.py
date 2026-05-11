@@ -168,12 +168,36 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     try:
         full_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS") or [])
     except Exception:
+        # During an incident, silently falling back to "no override" would hide why the
+        # per-team kill switch isn't taking effect. Log so operators can see the failure.
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_FULL_TEAMS; per-team kill switch disabled for full")
         full_teams = frozenset()
     try:
         light_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS") or [])
     except Exception:
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
         light_teams = frozenset()
     return full_teams, light_teams
+
+
+def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
+    """
+    Effective kill switch level: the more severe of the global level and any
+    per-team override. If `team_id` is None, returns the global level unchanged.
+
+    Examples:
+        - global=light, team=full -> full
+        - global=full,  team=light -> full
+        - global=off,   team=light -> light
+        - global=light, team=off   -> light
+    """
+    level = get_kill_switch_level()
+    if team_id is None:
+        return level
+    team_level = get_team_kill_switch_level(team_id)
+    if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
+        return team_level
+    return level
 
 
 @lru_cache(maxsize=1)
@@ -320,18 +344,7 @@ def sync_execute(
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
 
-    if TEST:
-        kill_switch_level = KillSwitchLevel.OFF
-    elif team_id is not None:
-        # Start from the team-specific override (the more specific signal),
-        # then upgrade to the global level only if global is more severe.
-        # Examples: global=light, team=full -> full. global=full, team=light -> full.
-        kill_switch_level = get_team_kill_switch_level(team_id)
-        global_level = get_kill_switch_level()
-        if _KILL_SWITCH_SEVERITY[global_level] > _KILL_SWITCH_SEVERITY[kill_switch_level]:
-            kill_switch_level = global_level
-    else:
-        kill_switch_level = get_kill_switch_level()
+    kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})

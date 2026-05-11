@@ -4,13 +4,13 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import (
     _KILL_SWITCH_SETTINGS,
-    _KILL_SWITCH_SEVERITY,
     KillSwitchLevel,
     _get_kill_switch_level,
     _get_kill_switch_team_sets,
     default_settings,
     get_kill_switch_level,
     get_team_kill_switch_level,
+    resolve_kill_switch_level,
 )
 
 
@@ -94,19 +94,11 @@ class TestGetTeamKillSwitchLevel:
         _get_kill_switch_team_sets.cache_clear()
 
 
-class TestKillSwitchPrecedence:
+class TestResolveKillSwitchLevel:
     """
-    Mirrors the precedence logic in `sync_execute`: start from the team-specific
-    override, then upgrade to the global level if global is more severe. The
-    effective level is `max(global, team)` by severity.
+    Exercises the real precedence resolver used by `sync_execute`. The effective level
+    must be the more severe of the global level and any per-team override.
     """
-
-    @staticmethod
-    def _resolve(global_level: KillSwitchLevel, team_level: KillSwitchLevel) -> KillSwitchLevel:
-        level = team_level
-        if _KILL_SWITCH_SEVERITY[global_level] > _KILL_SWITCH_SEVERITY[level]:
-            level = global_level
-        return level
 
     @parameterized.expand(
         [
@@ -127,7 +119,20 @@ class TestKillSwitchPrecedence:
         team_level: KillSwitchLevel,
         expected: KillSwitchLevel,
     ):
-        assert self._resolve(global_level, team_level) == expected
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=global_level),
+            patch("posthog.clickhouse.client.execute.get_team_kill_switch_level", return_value=team_level),
+        ):
+            assert resolve_kill_switch_level(team_id=42) == expected
+
+    def test_none_team_id_returns_global_only(self):
+        team_mock = MagicMock(return_value=KillSwitchLevel.FULL)
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.LIGHT),
+            patch("posthog.clickhouse.client.execute.get_team_kill_switch_level", team_mock),
+        ):
+            assert resolve_kill_switch_level(team_id=None) == KillSwitchLevel.LIGHT
+            team_mock.assert_not_called()
 
 
 class TestKillSwitchResourceLimits:
