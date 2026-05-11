@@ -103,7 +103,6 @@ from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -120,6 +119,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
+from posthog.storage.insight_variable_cache import get_insight_variables_for_team
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -1379,7 +1379,7 @@ class InsightViewSet(
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         )
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        context["insight_variables"] = get_insight_variables_for_team(self.team_id)
 
         return context
 

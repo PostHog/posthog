@@ -27,6 +27,7 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+        import posthog.storage.insight_variable_cache_signal_handlers  # noqa: F401
 
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
