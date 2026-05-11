@@ -2,8 +2,8 @@ import type { ReactElement } from 'react'
 
 export type EmptyStateIllustrationType = 'table' | 'chart' | 'funnel' | 'number' | 'generic'
 
-const COLOR = 'var(--color-text-secondary, #6b7280)'
-const FAINT = 'var(--color-border-primary, #e5e7eb)'
+const COLOR = 'var(--muted-foreground)'
+const FAINT = 'var(--border)'
 
 export function emptyStateIllustration(type: EmptyStateIllustrationType): ReactElement {
     switch (type) {

@@ -4,7 +4,6 @@ packages:
     - common/hogvm/typescript
     - common/plugin_transpiler
     - common/storybook
-    - common/mosaic
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
