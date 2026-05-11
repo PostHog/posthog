@@ -15,7 +15,7 @@ class TestPushUnreadCountChanged(BaseTest):
         self.user2 = User.objects.create_and_join(self.organization, "push2@test.com", "password")
 
     @patch("products.conversations.backend.push.publish_silent_push")
-    def test_publishes_for_all_org_members(self, mock_publish):
+    def test_publishes_for_users_with_team_access(self, mock_publish):
         push_unread_count_changed(self.team)
 
         mock_publish.assert_called_once()
@@ -26,7 +26,7 @@ class TestPushUnreadCountChanged(BaseTest):
         assert set(call_kwargs["user_ids"]) == {self.user1.id, self.user2.id}
 
     @patch("products.conversations.backend.push.publish_silent_push")
-    def test_skips_when_no_org_members(self, mock_publish):
+    def test_skips_when_no_users_have_access(self, mock_publish):
         OrganizationMembership.objects.filter(organization=self.organization).delete()
         push_unread_count_changed(self.team)
         mock_publish.assert_not_called()
