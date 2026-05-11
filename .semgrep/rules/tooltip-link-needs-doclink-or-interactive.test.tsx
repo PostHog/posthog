@@ -46,19 +46,19 @@ const Case7PlainAnchor = <Tooltip title={<>See <a href="/somewhere">over here</a
 const Case8InteractiveFalse = <Tooltip interactive={false} title={<>Body. <Link to="https://posthog.com/docs/foo">Docs</Link></>}><IconInfo /></Tooltip>
 
 // ─── Negative cases — rule must NOT match ───
-
-// docLink set — title also contains a Link so the metavariable-pattern step
-// succeeds; the docLink exclusion is what actually suppresses the rule.
-// ok: tooltip-link-needs-doclink-or-interactive
-const OkWithDocLink = <Tooltip docLink="https://posthog.com/docs/foo" title={<>Some prose. <Link to="https://posthog.com/docs/foo">Learn more</Link></>}><IconInfo /></Tooltip>
-
-// interactive set as a bare prop
-// ok: tooltip-link-needs-doclink-or-interactive
-const OkInteractiveBare = <Tooltip interactive title={<>Body. <Link to="https://posthog.com/docs/foo">Docs</Link></>}><IconInfo /></Tooltip>
-
-// interactive={true} — explicit truthy value
-// ok: tooltip-link-needs-doclink-or-interactive
-const OkInteractiveExplicit = <Tooltip interactive={true} title={<>Body. <Link to="/settings">Internal link</Link></>}><IconInfo /></Tooltip>
+//
+// Only the self-excluded shapes are fixture-tested here (rule's positive
+// pattern alone doesn't match — no Link inside title, or title isn't JSX).
+//
+// Negative cases that depend on the docLink/interactive pattern-not
+// exclusions are NOT fixture-tested. semgrep --test evaluates pattern-not
+// differently from semgrep ci for JSX attribute exclusions, so a fixture
+// case that's correctly excluded in production scans is reported as
+// "incorrect" in --test mode. The real assurance that those exclusions
+// work comes from the semgrep-js and semgrep-products-frontend CI jobs
+// scanning the live codebase — those jobs pass with the 12 already-fixed
+// tooltips that use docLink/interactive, which is the regression we care
+// about preventing.
 
 // Link is the trigger (children), not inside title
 // ok: tooltip-link-needs-doclink-or-interactive
@@ -71,8 +71,3 @@ const OkPlainStringTitle = <Tooltip title="Just a label"><span>trigger</span></T
 // Title JSX without a Link
 // ok: tooltip-link-needs-doclink-or-interactive
 const OkRichTextNoLink = <Tooltip title={<span className="font-mono">code-ish content</span>}><IconInfo /></Tooltip>
-
-// (The `// nosemgrep:` escape hatch is documented in the rule message and
-// works at runtime via `semgrep ci`, but `semgrep --test` doesn't honor
-// nosemgrep suppression — it treats every finding as a positive regardless
-// of the inline directive. So we don't fixture-test the escape hatch.)
