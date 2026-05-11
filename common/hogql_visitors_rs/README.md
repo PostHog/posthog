@@ -12,13 +12,11 @@ performance trade-offs concrete before we commit to a direction.
 `HogQLFeatureExtractor` is the simplest non-trivial visitor we have, so it
 makes a clean A/B subject. Three implementations:
 
-| Variant                                                                      | What it does                                                                                                                                                                                                                                                 |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Python (current)                                                             | `posthog/hogql/feature_extractor.py` — `TraversingVisitor` subclass                                                                                                                                                                                          |
-| `extract_features_py`                                                        | Rust strategy A: walks Python AST objects in place via PyO3 with interned attribute names + cached AST class type pointers (`is_exact_instance`).                                                                                                            |
-| `extract_features_py_slots`                                                  | Rust strategy A-slots: same as A but reads each AST field via the cached `__slots__` C offset, bypassing `getattr`'s MRO walk and descriptor invocation. ~30 lines of `unsafe` to extract the offset from each slot's `member_descriptor` once at first use. |
-| `extract_features_via_mirror` + `to_mirror` / `extract_features_from_mirror` | Rust strategy B: converts the Python AST to a Rust-native enum once, then walks the enum natively. Split API so the bench can measure convert vs visit independently.                                                                                        |
-| `extract_features_via_mirror_slots` + `to_mirror_slots`                      | Rust strategy B-slots: same as B but the conversion pass uses the same direct-slot-offset reads that A-slots does. Symmetry. The walk side (`extract_features_from_mirror`) is unchanged — already pure native.                                              |
+| Variant                                                                      | What it does                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Python (current)                                                             | `posthog/hogql/feature_extractor.py` — `TraversingVisitor` subclass                                                                                                                                                                  |
+| `extract_features_py`                                                        | Rust strategy A: walks the Python AST in place. Caches each class's type pointer for `is_exact_instance` dispatch and each `__slots__` field's C offset for raw-pointer reads, bypassing PyO3's `getattr` machinery on the hot path. |
+| `extract_features_via_mirror` + `to_mirror` / `extract_features_from_mirror` | Rust strategy B: converts the Python AST to a Rust-native enum (using the same slot-offset reads), then walks the enum natively. Split API so the bench can measure convert vs visit independently.                                  |
 
 This branch also adds `slots=True` to every `@dataclass` in
 `posthog/hogql/{ast.py, base.py}` — the AST has no external subclasses,
@@ -70,17 +68,18 @@ Numbers from `bench/compare.py` on Apple Silicon, release build. The
 with `slots=True` reverted, so the slots-only win is isolable.
 
 ```text
-query                    py(orig)  py(now)      A   A-slots   B: full   B-slots: full   B: convert   B-slots: convert   B: visit
-tiny                        17.64     6.33   0.61      0.45      0.63            0.45         0.22               0.04       0.41
-events_simple               34.66    12.94   2.53      1.77      3.58            2.96         2.45               1.83       1.12
-events_in_clause            46.27    16.77   3.28      2.40      5.03            4.11         3.45               2.53       1.58
-join_persons                57.26    19.17   3.11      2.16      4.91            4.02         3.53               2.64       1.38
-subquery_with_filters      123.74    30.29   3.41      2.09      6.94            5.57         6.03               4.67       0.90
-trends_like_breakdown      189.15    46.19   3.56      2.10      6.44            4.84         5.55               3.95       0.89
-pathological_deep         1215.99   281.87   3.03      2.29      8.86            7.57         8.01               6.72       0.85
+query                    py(orig)  py(now)      A   B: full   B: convert   B: visit
+tiny                        17.64    10.49   0.64      0.69         0.03       0.66
+events_simple               34.66    16.57   2.16      3.39         2.05       1.34
+events_in_clause            46.27    17.55   2.39      4.04         2.55       1.50
+join_persons                57.26    18.47   2.10      3.95         2.55       1.39
+subquery_with_filters      123.74    30.15   2.08      5.11         4.30       0.81
+trends_like_breakdown      189.15    43.01   1.95      4.42         3.59       0.83
+pathological_deep         1215.99   282.45   2.40      8.00         7.17       0.83
 ```
 
-(`py(now)` = `__slots__` on the AST + cached `accept()` method-name dispatch. The bench captures a separate `py(+slots)` column with just slots; omitted here for table width — the slots-only Python win was 4–8%.)
+(`py(orig)` = master, no slots, no cached accept dispatch.
+`py(now)` = both Python optimisations applied: `__slots__` on the AST + cached `accept()` method-name dispatch.)
 
 (All numbers in ms total for 5000 invocations.)
 
@@ -93,50 +92,31 @@ without leaving Python), and Rust-A finishes the same work in ~0.6 µs
 
 What the columns tell us:
 
-- **`py(orig)` → `py(+slots)`** is the free win from declaring
-  `__slots__` on the AST. Smaller than I'd hoped — roughly 4–8% across
-  the board. Most of the visitor's cost wasn't in field access.
-- **`py(+slots)` → `py(+slots, +cached)`** is the much bigger Python
-  win: caching `accept()`'s method-name computation on the class via
-  `__init_subclass__`. The original `AST.accept` ran a regex sub, four
-  `str.replace` calls, and an f-string on every single node visit —
-  pure dispatch overhead that doesn't depend on what the visitor
-  actually does. Computing the method name once at class creation and
-  reading it back as a plain class attribute gets us **3–4× over the
-  slots-only number**. On `pathological_deep` that's 1170 ms → 286 ms.
-- **Strategy A** is the right choice for one-off visitors. Walks Python
-  in place via PyO3 with interned attribute names and cached AST class
-  type pointers; dispatch is `is_exact_instance(&cached_type)` not
-  string compare. ~5–10× faster than the optimised Python on
-  small/medium queries, and stretches to **~93×** on
-  `pathological_deep` because the targeted visitor doesn't recurse
-  where it doesn't need to.
-- **Strategy A-slots** is A plus direct slot-offset reads. PyO3's
-  `getattr` still walks the MRO + invokes the slot descriptor; once we
-  cache each slot's C offset (via ~30 lines of `unsafe` reading the
-  `member_descriptor`'s `PyMemberDef`), reads become raw pointer
-  arithmetic + load + incref. **1.3–1.6× faster than plain A** across
-  the board, taking pathological from ~93× to ~135× vs Python.
-  Downside: tied to CPython's `PyMemberDescrObject` layout, stable for
-  3.12+ but technically internal. A trapdoor we'd want behind a
-  feature flag rather than a default.
-- **Strategy B-slots** applies the same slot-offset trick to B's
-  conversion pass (`convert_slots`) — `convert` is doing the same
-  shape of work A is, plus enum allocation. Get **1.2–1.4× off the
-  convert step**. Smaller multiplier than A → A-slots because the
-  allocation cost isn't going anywhere, but it's free symmetry: if
-  A-slots ships, B-slots ships with it.
-- **Strategy B's `convert` step dominates B's total**, ~85–90% of the
-  cost. Each conversion does the same Python `getattr` work A does,
-  plus allocates Rust enum nodes.
+- **`py(orig)` → `py(now)`** is the combined effect of the two
+  Python-side changes in [#58255](https://github.com/PostHog/posthog/pull/58255):
+  `__slots__` on every AST dataclass (~4–8% on its own) plus caching
+  `AST.accept()`'s method-name dispatch on the class via
+  `__init_subclass__` (the dominant win — the original `accept` ran a
+  regex sub + four `str.replace` + f-string on every node visit, all
+  cacheable). Combined: 1.7–4.3×.
+- **Strategy A** is the right choice for one-off visitors. Walks the
+  Python AST in place with cached type pointers and raw slot-offset
+  reads (~30 lines of `unsafe` to extract offsets from
+  `member_descriptor` objects, whose layout is stable since Python
+  3.12). 7–18× faster than `py(now)` on small/medium queries, and
+  **~118×** on `pathological_deep` because the targeted visitor only
+  recurses where it needs to while Python's `TraversingVisitor` base
+  walks every child of every node.
+- **Strategy B's `convert` step** dominates B's total (~85–90% of the
+  cost). Same per-attribute work A does, plus Rust enum allocation.
 - **Strategy B's `visit only` is essentially free** — under 1 ms for
-  5000 walks of the trends-like or pathological queries. Pure native
-  walk, no PyO3 in the inner loop.
+  5000 walks past the smallest query. Pure native walk, no PyO3 in
+  the inner loop.
 
 For one visitor over a query, A wins. For multiple visitors over the
 same query, B's "convert once, run N cheap walks" wins fast — break-even
-vs A is ~2 visitors on the trends-like query; at 5 visitors B is ~2×
-faster than A.
+vs A is ~4 visitors on the trends-like query; at 5+ visitors B pulls
+ahead and the gap widens with every additional visitor stacked on.
 
 The "minimal interop cost" hypothesis worked out better than I expected:
 yes, every Python attribute access from Rust still goes through CPython's

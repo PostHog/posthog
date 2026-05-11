@@ -2,19 +2,22 @@
 //!
 //! Two strategies exposed for comparison:
 //!
-//! * `extract_features_py(query)` — walks Python AST objects in place via
-//!   PyO3, using `intern!`'d attribute names and cached AST class type
-//!   pointers (dispatch is `is_exact_instance(&type)`, not class-name
-//!   string compare).
+//! * `extract_features_py(query)` — walks Python AST objects in place. Caches
+//!   each AST class's type pointer (for `is_exact_instance` dispatch) and
+//!   each `__slots__` field's C struct offset (for raw-pointer reads),
+//!   bypassing PyO3's `getattr` machinery entirely on the hot path.
 //!
 //! * `extract_features_via_mirror(query)` — converts the Python AST to a
-//!   Rust-native enum mirror once, then walks the mirror natively. For
-//!   single-visitor use the conversion dominates; the win is amortising
-//!   the conversion across multiple visitors over the same query (via
-//!   `to_mirror` + `extract_features_from_mirror`).
+//!   Rust-native enum once (using the same slot-offset reads), then walks
+//!   the enum natively. Single-visitor break-even vs strategy A is around
+//!   ~4 visitors; amortises strongly when many visitors share the same
+//!   converted query (via `to_mirror` + `extract_features_from_mirror`).
+//!
+//! Both strategies require the AST classes to be `@dataclass(slots=True)`;
+//! the slot-offset reads depend on `member_descriptor` objects, which only
+//! exist on slotted classes.
 
 use pyo3::ffi::{PyMemberDef, PyObject, PyTypeObject, Py_INCREF, Py_ssize_t};
-use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyList, PyTuple, PyType};
@@ -41,10 +44,9 @@ fn is_interesting_event(name: &str) -> bool {
 // Cached AST class type pointers, populated on first use.
 // -----------------------------------------------------------------------------
 //
-// Both strategies use `is_exact_instance(&cached_type)` for dispatch instead
+// Dispatch uses `is_exact_instance(&cached_type)` (pointer compare) instead
 // of pulling the class name out of `node.get_type().name()` and comparing
-// strings. Pointer compare wins, especially since the AST class set is small
-// and known at module load time.
+// strings.
 
 struct AstTypes {
     select_query: Py<PyType>,
@@ -87,196 +89,32 @@ fn ast_types(py: Python<'_>) -> PyResult<&AstTypes> {
 }
 
 // -----------------------------------------------------------------------------
-// Strategy A — walk Python objects directly via PyO3
-// -----------------------------------------------------------------------------
-
-struct PyVisitor<'a> {
-    tables: BTreeSet<String>,
-    events: BTreeSet<String>,
-    types: &'a AstTypes,
-}
-
-impl<'a> PyVisitor<'a> {
-    fn new(types: &'a AstTypes) -> Self {
-        Self {
-            tables: BTreeSet::new(),
-            events: BTreeSet::new(),
-            types,
-        }
-    }
-
-    fn visit(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<()> {
-        let t = self.types;
-        if node.is_exact_instance(t.select_query.bind(py)) {
-            for attr in ["select_from", "where", "prewhere", "having"] {
-                self.visit_attr(py, node, attr)?;
-            }
-        } else if node.is_exact_instance(t.select_set_query.bind(py)) {
-            self.visit_attr(py, node, "initial_select_query")?;
-            for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
-                self.visit_attr(py, &item?, "select_query")?;
-            }
-        } else if node.is_exact_instance(t.join_expr.bind(py)) {
-            let table = node.getattr(intern!(py, "table"))?;
-            if !table.is_none() {
-                if table.is_exact_instance(t.field.bind(py)) {
-                    let chain = table.getattr(intern!(py, "chain"))?;
-                    if let Ok(first) = chain.get_item(0) {
-                        if let Ok(s) = first.extract::<String>() {
-                            self.tables.insert(s);
-                        }
-                    }
-                } else {
-                    self.visit(py, &table)?;
-                }
-            }
-            self.visit_attr(py, node, "next_join")?;
-        } else if node.is_exact_instance(t.compare_operation.bind(py)) {
-            let op: String = node.getattr(intern!(py, "op"))?.extract()?;
-            if op == "==" || op == "in" {
-                let left = strip_aliases(py, &node.getattr(intern!(py, "left"))?, t)?;
-                let right = strip_aliases(py, &node.getattr(intern!(py, "right"))?, t)?;
-                for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
-                    if looks_like_event_field(py, field_side, t)? {
-                        collect_string_constants(py, value_side, t, &mut self.events)?;
-                    }
-                }
-            }
-        } else if node.is_exact_instance(t.and_.bind(py)) || node.is_exact_instance(t.or_.bind(py)) {
-            for item in node.getattr(intern!(py, "exprs"))?.iter()? {
-                self.visit(py, &item?)?;
-            }
-        } else if node.is_exact_instance(t.not_.bind(py)) || node.is_exact_instance(t.alias.bind(py)) {
-            self.visit_attr(py, node, "expr")?;
-        }
-        Ok(())
-    }
-
-    fn visit_attr(&mut self, py: Python<'_>, node: &Bound<'_, PyAny>, attr: &str) -> PyResult<()> {
-        // Match on the attr name to use intern!. The macro requires a literal
-        // string at call site, so each branch hands intern! its specific
-        // string and benefits from PyO3's per-string caching.
-        let inner = match attr {
-            "select_from" => node.getattr(intern!(py, "select_from"))?,
-            "where" => node.getattr(intern!(py, "where"))?,
-            "prewhere" => node.getattr(intern!(py, "prewhere"))?,
-            "having" => node.getattr(intern!(py, "having"))?,
-            "initial_select_query" => node.getattr(intern!(py, "initial_select_query"))?,
-            "select_query" => node.getattr(intern!(py, "select_query"))?,
-            "next_join" => node.getattr(intern!(py, "next_join"))?,
-            "expr" => node.getattr(intern!(py, "expr"))?,
-            other => node.getattr(other)?,
-        };
-        if !inner.is_none() {
-            self.visit(py, &inner)?;
-        }
-        Ok(())
-    }
-}
-
-fn strip_aliases<'py>(
-    py: Python<'py>,
-    expr: &Bound<'py, PyAny>,
-    types: &AstTypes,
-) -> PyResult<Bound<'py, PyAny>> {
-    let mut current = expr.clone();
-    while current.is_exact_instance(types.alias.bind(py)) {
-        current = current.getattr(intern!(py, "expr"))?;
-    }
-    Ok(current)
-}
-
-fn looks_like_event_field(py: Python<'_>, expr: &Bound<'_, PyAny>, types: &AstTypes) -> PyResult<bool> {
-    if !expr.is_exact_instance(types.field.bind(py)) {
-        return Ok(false);
-    }
-    let chain = expr.getattr(intern!(py, "chain"))?;
-    let len = chain.len()?;
-    if len == 0 {
-        return Ok(false);
-    }
-    let last = chain.get_item(len - 1)?;
-    Ok(last.extract::<String>().ok().as_deref() == Some("event"))
-}
-
-fn collect_string_constants(
-    py: Python<'_>,
-    expr: &Bound<'_, PyAny>,
-    types: &AstTypes,
-    out: &mut BTreeSet<String>,
-) -> PyResult<()> {
-    if expr.is_exact_instance(types.constant.bind(py)) {
-        if let Ok(s) = expr.getattr(intern!(py, "value"))?.extract::<String>() {
-            if is_interesting_event(&s) {
-                out.insert(s);
-            }
-        }
-    } else if expr.is_exact_instance(types.tuple_.bind(py)) || expr.is_exact_instance(types.array.bind(py)) {
-        for item in expr.getattr(intern!(py, "exprs"))?.iter()? {
-            collect_string_constants(py, &item?, types, out)?;
-        }
-    } else if expr.is_exact_instance(types.alias.bind(py)) {
-        collect_string_constants(py, &expr.getattr(intern!(py, "expr"))?, types, out)?;
-    }
-    Ok(())
-}
-
-#[pyfunction]
-#[pyo3(signature = (query=None))]
-fn extract_features_py<'py>(py: Python<'py>, query: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyTuple>> {
-    let (tables, events) = match query {
-        None => (Vec::new(), Vec::new()),
-        Some(q) => {
-            let types = ast_types(py)?;
-            let mut v = PyVisitor::new(types);
-            v.visit(py, &q)?;
-            (
-                v.tables.into_iter().collect::<Vec<_>>(),
-                v.events.into_iter().collect::<Vec<_>>(),
-            )
-        }
-    };
-    Ok(PyTuple::new_bound(
-        py,
-        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
-    ))
-}
-
-// -----------------------------------------------------------------------------
-// Strategy A-slots — direct slot-offset reads instead of getattr
+// Cached __slots__ field offsets, populated on first use.
 // -----------------------------------------------------------------------------
 //
-// `@dataclass(slots=True)` lays each instance out as a C struct with a
-// known-at-class-creation offset per field. PyO3's `getattr(intern!())` still
-// walks the type's MRO to find the slot descriptor on every call. We can
-// skip that by extracting each slot's offset once from its
-// `member_descriptor` and reading the PyObject pointer directly.
+// `@dataclass(slots=True)` lays each instance out as a C struct with a known
+// offset per field. PyO3's `getattr` still walks the type's MRO to find the
+// slot descriptor on every call; once we cache each slot's offset, reads
+// become raw pointer arithmetic + load + incref.
 //
-// One small piece of `unsafe` glue: PyO3 exposes `PyMemberDef` (which has
-// `.offset`), but doesn't expose the `PyMemberDescrObject` layout that
-// holds the `PyMemberDef *` pointer. So we mirror that struct here. The
-// layout has been stable since Python 3.12.
+// Small bit of `unsafe` glue: PyO3 exposes `PyMemberDef` (which has `.offset`)
+// but not the `PyMemberDescrObject` layout that holds the `PyMemberDef *`. So
+// we mirror that struct here. Layout has been stable since Python 3.12.
 
 #[repr(C)]
 struct CMemberDescrObject {
     ob_refcnt: Py_ssize_t,
     ob_type: *mut PyTypeObject,
-    // PyDescrObject head:
     d_type: *mut PyTypeObject,
     d_name: *mut PyObject,
     d_qualname: *mut PyObject,
-    // PyMemberDescrObject's payload — the thing we want:
     d_member: *mut PyMemberDef,
 }
 
 /// Pull the slot offset out of a `member_descriptor` for the named attribute.
-/// Returns `None` if the class doesn't expose a member descriptor by that
-/// name (e.g. inherited from a non-slots base, or `cached_property`, etc.).
 fn slot_offset(cls: &Bound<'_, PyType>, attr: &str) -> Option<isize> {
     let descr = cls.getattr(attr).ok()?;
-    // Confirm it really is a member_descriptor before reinterpreting.
-    let descr_type = descr.get_type();
-    let descr_type_name = descr_type.name().ok()?;
+    let descr_type_name = descr.get_type().name().ok()?;
     if descr_type_name.to_str().ok()? != "member_descriptor" {
         return None;
     }
@@ -290,28 +128,21 @@ fn slot_offset(cls: &Bound<'_, PyType>, attr: &str) -> Option<isize> {
     }
 }
 
-/// Read a slot at a known offset from a Python object. Returns `None` if the
-/// slot is unset (NULL) or if it holds `Py_None`. Callers expecting `None`
-/// values as a real signal should use `read_slot_raw` instead.
+/// Read a slot at a known offset. Returns `None` if the slot is unset (NULL)
+/// or holds `Py_None`. Use `read_slot_raw` if `None` is a meaningful value.
 unsafe fn read_slot<'py>(node: &Bound<'py, PyAny>, offset: isize) -> Option<Bound<'py, PyAny>> {
     let node_ptr = node.as_ptr() as *const c_char;
     let field_ptr = node_ptr.byte_offset(offset) as *const *mut PyObject;
     let raw = *field_ptr;
-    if raw.is_null() {
-        return None;
-    }
-    // Treat `None` as missing — matches how Strategy A's `visit_attr` already
-    // checks `inner.is_none()` before recursing.
-    if raw == pyo3::ffi::Py_None() {
+    if raw.is_null() || raw == pyo3::ffi::Py_None() {
         return None;
     }
     Py_INCREF(raw);
     Some(Bound::from_owned_ptr(node.py(), raw))
 }
 
-/// Same as `read_slot` but returns `Py_None` as a real value instead of
-/// short-circuiting it. Used for `op` and `value` fields where None is a
-/// valid distinct case.
+/// Read a slot, returning `Py_None` as a real value (vs `read_slot` which
+/// treats it as missing). Used for `op` / `value` and required fields.
 unsafe fn read_slot_raw<'py>(node: &Bound<'py, PyAny>, offset: isize) -> Option<Bound<'py, PyAny>> {
     let node_ptr = node.as_ptr() as *const c_char;
     let field_ptr = node_ptr.byte_offset(offset) as *const *mut PyObject;
@@ -323,8 +154,8 @@ unsafe fn read_slot_raw<'py>(node: &Bound<'py, PyAny>, offset: isize) -> Option<
     Some(Bound::from_owned_ptr(node.py(), raw))
 }
 
-// Per-class slot offset caches. Each variant only fills in the fields its
-// branch of the visitor reads.
+// Per-class slot offset caches. Each variant only fills in the fields the
+// feature extractor actually reads.
 
 #[derive(Default)]
 struct SelectQueryOffsets {
@@ -365,13 +196,11 @@ struct FieldOffsets {
 
 #[derive(Default)]
 struct ExprsContainerOffsets {
-    // for And / Or / Tuple / Array
     exprs: isize,
 }
 
 #[derive(Default)]
 struct ExprWrapperOffsets {
-    // for Not / Alias
     expr: isize,
 }
 
@@ -460,14 +289,18 @@ fn ast_offsets<'py>(py: Python<'py>) -> PyResult<&'py AstOffsets> {
     })
 }
 
-struct SlotsVisitor<'a> {
+// -----------------------------------------------------------------------------
+// Strategy A — walk Python objects in place via slot-offset reads
+// -----------------------------------------------------------------------------
+
+struct PyVisitor<'a> {
     tables: BTreeSet<String>,
     events: BTreeSet<String>,
     types: &'a AstTypes,
     offsets: &'a AstOffsets,
 }
 
-impl<'a> SlotsVisitor<'a> {
+impl<'a> PyVisitor<'a> {
     fn new(types: &'a AstTypes, offsets: &'a AstOffsets) -> Self {
         Self {
             tables: BTreeSet::new(),
@@ -525,16 +358,14 @@ impl<'a> SlotsVisitor<'a> {
                 if let Some(op_obj) = read_slot_raw(node, o.compare_operation.op) {
                     let op: String = op_obj.extract()?;
                     if op == "==" || op == "in" {
-                        // left/right are required fields; treat None as a typing
-                        // edge case but normal extraction handles that.
                         let left_raw = read_slot_raw(node, o.compare_operation.left);
                         let right_raw = read_slot_raw(node, o.compare_operation.right);
                         if let (Some(l), Some(r)) = (left_raw, right_raw) {
-                            let left = strip_aliases_slots(py, &l, o, t)?;
-                            let right = strip_aliases_slots(py, &r, o, t)?;
+                            let left = strip_aliases(py, &l, o, t)?;
+                            let right = strip_aliases(py, &r, o, t)?;
                             for (field_side, value_side) in &[(&left, &right), (&right, &left)] {
-                                if looks_like_event_field_slots(py, field_side, o, t)? {
-                                    collect_string_constants_slots(py, value_side, o, t, &mut self.events)?;
+                                if looks_like_event_field(py, field_side, o, t)? {
+                                    collect_string_constants(py, value_side, o, t, &mut self.events)?;
                                 }
                             }
                         }
@@ -566,7 +397,7 @@ impl<'a> SlotsVisitor<'a> {
     }
 }
 
-fn strip_aliases_slots<'py>(
+fn strip_aliases<'py>(
     py: Python<'py>,
     expr: &Bound<'py, PyAny>,
     offsets: &AstOffsets,
@@ -574,8 +405,7 @@ fn strip_aliases_slots<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     let mut current = expr.clone();
     while current.is_exact_instance(types.alias.bind(py)) {
-        let next = unsafe { read_slot_raw(&current, offsets.alias.expr) };
-        match next {
+        match unsafe { read_slot_raw(&current, offsets.alias.expr) } {
             Some(n) => current = n,
             None => break,
         }
@@ -583,7 +413,7 @@ fn strip_aliases_slots<'py>(
     Ok(current)
 }
 
-fn looks_like_event_field_slots(
+fn looks_like_event_field(
     py: Python<'_>,
     expr: &Bound<'_, PyAny>,
     offsets: &AstOffsets,
@@ -604,7 +434,7 @@ fn looks_like_event_field_slots(
     Ok(last.extract::<String>().ok().as_deref() == Some("event"))
 }
 
-fn collect_string_constants_slots(
+fn collect_string_constants(
     py: Python<'_>,
     expr: &Bound<'_, PyAny>,
     offsets: &AstOffsets,
@@ -623,18 +453,18 @@ fn collect_string_constants_slots(
         } else if expr.is_exact_instance(types.tuple_.bind(py)) {
             if let Some(exprs) = read_slot(expr, offsets.tuple_.exprs) {
                 for item in exprs.iter()? {
-                    collect_string_constants_slots(py, &item?, offsets, types, out)?;
+                    collect_string_constants(py, &item?, offsets, types, out)?;
                 }
             }
         } else if expr.is_exact_instance(types.array.bind(py)) {
             if let Some(exprs) = read_slot(expr, offsets.array.exprs) {
                 for item in exprs.iter()? {
-                    collect_string_constants_slots(py, &item?, offsets, types, out)?;
+                    collect_string_constants(py, &item?, offsets, types, out)?;
                 }
             }
         } else if expr.is_exact_instance(types.alias.bind(py)) {
             if let Some(inner) = read_slot(expr, offsets.alias.expr) {
-                collect_string_constants_slots(py, &inner, offsets, types, out)?;
+                collect_string_constants(py, &inner, offsets, types, out)?;
             }
         }
     }
@@ -643,16 +473,13 @@ fn collect_string_constants_slots(
 
 #[pyfunction]
 #[pyo3(signature = (query=None))]
-fn extract_features_py_slots<'py>(
-    py: Python<'py>,
-    query: Option<Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyTuple>> {
+fn extract_features_py<'py>(py: Python<'py>, query: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyTuple>> {
     let (tables, events) = match query {
         None => (Vec::new(), Vec::new()),
         Some(q) => {
             let types = ast_types(py)?;
             let offsets = ast_offsets(py)?;
-            let mut v = SlotsVisitor::new(types, offsets);
+            let mut v = PyVisitor::new(types, offsets);
             v.visit(py, &q)?;
             (
                 v.tables.into_iter().collect::<Vec<_>>(),
@@ -670,10 +497,10 @@ fn extract_features_py_slots<'py>(
 // Strategy B — convert to a Rust-native mirror, then walk natively
 // -----------------------------------------------------------------------------
 //
-// The "amortise across N visitors" architecture: pay one Python→Rust
-// conversion pass, then run any number of cheap native walks. `convert` does
-// the same shape of work the Strategy A visitor does — recursive `getattr` +
-// pointer-compare dispatch — just with enum allocation tacked on.
+// Pay one Python→Rust conversion pass (using the same slot-offset reads
+// strategy A uses, plus Rust enum allocation), then run any number of cheap
+// native walks. Break-even vs strategy A is ~4 visitors over the same query;
+// amortises strongly for multi-visitor pipelines.
 
 #[derive(Debug)]
 enum AstNode {
@@ -722,145 +549,35 @@ enum AstNode {
     Other,
 }
 
-fn convert(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes) -> PyResult<AstNode> {
-    if node.is_exact_instance(t.select_query.bind(py)) {
-        Ok(AstNode::SelectQuery {
-            select_from: convert_opt_attr(py, node, intern!(py, "select_from"), t)?,
-            where_clause: convert_opt_attr(py, node, intern!(py, "where"), t)?,
-            prewhere: convert_opt_attr(py, node, intern!(py, "prewhere"), t)?,
-            having: convert_opt_attr(py, node, intern!(py, "having"), t)?,
-        })
-    } else if node.is_exact_instance(t.select_set_query.bind(py)) {
-        let mut children = Vec::new();
-        let initial = node.getattr(intern!(py, "initial_select_query"))?;
-        if !initial.is_none() {
-            children.push(convert(py, &initial, t)?);
-        }
-        for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
-            let sub = item?;
-            let q = sub.getattr(intern!(py, "select_query"))?;
-            if !q.is_none() {
-                children.push(convert(py, &q, t)?);
-            }
-        }
-        Ok(AstNode::SelectSet { children })
-    } else if node.is_exact_instance(t.join_expr.bind(py)) {
-        Ok(AstNode::JoinExpr {
-            table: convert_opt_attr(py, node, intern!(py, "table"), t)?,
-            next_join: convert_opt_attr(py, node, intern!(py, "next_join"), t)?,
-        })
-    } else if node.is_exact_instance(t.compare_operation.bind(py)) {
-        Ok(AstNode::CompareOperation {
-            op: node.getattr(intern!(py, "op"))?.extract()?,
-            left: Box::new(convert(py, &node.getattr(intern!(py, "left"))?, t)?),
-            right: Box::new(convert(py, &node.getattr(intern!(py, "right"))?, t)?),
-        })
-    } else if node.is_exact_instance(t.field.bind(py)) {
-        let mut chain = Vec::new();
-        for item in node.getattr(intern!(py, "chain"))?.iter()? {
-            if let Ok(s) = item?.extract::<String>() {
-                chain.push(s);
-            }
-        }
-        Ok(AstNode::Field { chain })
-    } else if node.is_exact_instance(t.constant.bind(py)) {
-        Ok(AstNode::Constant {
-            value: node.getattr(intern!(py, "value"))?.extract::<String>().ok(),
-        })
-    } else if node.is_exact_instance(t.tuple_.bind(py)) {
-        Ok(AstNode::Tuple {
-            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
-        })
-    } else if node.is_exact_instance(t.array.bind(py)) {
-        Ok(AstNode::Array {
-            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
-        })
-    } else if node.is_exact_instance(t.alias.bind(py)) {
-        Ok(AstNode::Alias {
-            expr: Box::new(convert(py, &node.getattr(intern!(py, "expr"))?, t)?),
-        })
-    } else if node.is_exact_instance(t.and_.bind(py)) {
-        Ok(AstNode::And {
-            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
-        })
-    } else if node.is_exact_instance(t.or_.bind(py)) {
-        Ok(AstNode::Or {
-            exprs: convert_exprs_list(py, node, intern!(py, "exprs"), t)?,
-        })
-    } else if node.is_exact_instance(t.not_.bind(py)) {
-        Ok(AstNode::Not {
-            expr: Box::new(convert(py, &node.getattr(intern!(py, "expr"))?, t)?),
-        })
-    } else {
-        Ok(AstNode::Other)
-    }
-}
-
-fn convert_opt_attr(
-    py: Python<'_>,
-    node: &Bound<'_, PyAny>,
-    attr: &Bound<'_, pyo3::types::PyString>,
-    types: &AstTypes,
-) -> PyResult<Option<Box<AstNode>>> {
-    let val = node.getattr(attr)?;
-    if val.is_none() {
-        Ok(None)
-    } else {
-        Ok(Some(Box::new(convert(py, &val, types)?)))
-    }
-}
-
-fn convert_exprs_list(
-    py: Python<'_>,
-    node: &Bound<'_, PyAny>,
-    attr: &Bound<'_, pyo3::types::PyString>,
-    types: &AstTypes,
-) -> PyResult<Vec<AstNode>> {
-    let mut out = Vec::new();
-    for item in node.getattr(attr)?.iter()? {
-        out.push(convert(py, &item?, types)?);
-    }
-    Ok(out)
-}
-
-// ---- B-slots: same conversion shape, using direct slot-offset reads ----
-//
-// Mirror of `convert`/`convert_opt_attr`/`convert_exprs_list` that uses the
-// cached `AstOffsets` to read each field via raw pointer arithmetic instead
-// of PyO3 `getattr`. Same trick A-slots uses, applied symmetrically to the
-// Python → Rust mirror conversion pass.
-
-fn convert_slots(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes, o: &AstOffsets) -> PyResult<AstNode> {
+fn convert(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes, o: &AstOffsets) -> PyResult<AstNode> {
     unsafe {
         if node.is_exact_instance(t.select_query.bind(py)) {
             Ok(AstNode::SelectQuery {
-                select_from: convert_opt_offset(py, node, o.select_query.select_from, t, o)?,
-                where_clause: convert_opt_offset(py, node, o.select_query.where_, t, o)?,
-                prewhere: convert_opt_offset(py, node, o.select_query.prewhere, t, o)?,
-                having: convert_opt_offset(py, node, o.select_query.having, t, o)?,
+                select_from: convert_opt(py, node, o.select_query.select_from, t, o)?,
+                where_clause: convert_opt(py, node, o.select_query.where_, t, o)?,
+                prewhere: convert_opt(py, node, o.select_query.prewhere, t, o)?,
+                having: convert_opt(py, node, o.select_query.having, t, o)?,
             })
         } else if node.is_exact_instance(t.select_set_query.bind(py)) {
             let mut children = Vec::new();
             if let Some(initial) = read_slot(node, o.select_set_query.initial_select_query) {
-                children.push(convert_slots(py, &initial, t, o)?);
+                children.push(convert(py, &initial, t, o)?);
             }
             if let Some(subs) = read_slot(node, o.select_set_query.subsequent_select_queries) {
                 for item in subs.iter()? {
                     let sub = item?;
                     if let Some(q) = read_slot(&sub, o.select_set_node.select_query) {
-                        children.push(convert_slots(py, &q, t, o)?);
+                        children.push(convert(py, &q, t, o)?);
                     }
                 }
             }
             Ok(AstNode::SelectSet { children })
         } else if node.is_exact_instance(t.join_expr.bind(py)) {
             Ok(AstNode::JoinExpr {
-                table: convert_opt_offset(py, node, o.join_expr.table, t, o)?,
-                next_join: convert_opt_offset(py, node, o.join_expr.next_join, t, o)?,
+                table: convert_opt(py, node, o.join_expr.table, t, o)?,
+                next_join: convert_opt(py, node, o.join_expr.next_join, t, o)?,
             })
         } else if node.is_exact_instance(t.compare_operation.bind(py)) {
-            // `op` is read raw because the value can semantically be anything
-            // (None included). Left/right are required Expr fields.
             let op_obj = read_slot_raw(node, o.compare_operation.op)
                 .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing op"))?;
             let left = read_slot_raw(node, o.compare_operation.left)
@@ -869,8 +586,8 @@ fn convert_slots(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes, o: &AstO
                 .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing right"))?;
             Ok(AstNode::CompareOperation {
                 op: op_obj.extract()?,
-                left: Box::new(convert_slots(py, &left, t, o)?),
-                right: Box::new(convert_slots(py, &right, t, o)?),
+                left: Box::new(convert(py, &left, t, o)?),
+                right: Box::new(convert(py, &right, t, o)?),
             })
         } else if node.is_exact_instance(t.field.bind(py)) {
             let mut chain = Vec::new();
@@ -887,31 +604,31 @@ fn convert_slots(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes, o: &AstO
             Ok(AstNode::Constant { value })
         } else if node.is_exact_instance(t.tuple_.bind(py)) {
             Ok(AstNode::Tuple {
-                exprs: convert_exprs_offset(py, node, o.tuple_.exprs, t, o)?,
+                exprs: convert_exprs(py, node, o.tuple_.exprs, t, o)?,
             })
         } else if node.is_exact_instance(t.array.bind(py)) {
             Ok(AstNode::Array {
-                exprs: convert_exprs_offset(py, node, o.array.exprs, t, o)?,
+                exprs: convert_exprs(py, node, o.array.exprs, t, o)?,
             })
         } else if node.is_exact_instance(t.alias.bind(py)) {
             let inner = read_slot_raw(node, o.alias.expr)
                 .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing alias.expr"))?;
             Ok(AstNode::Alias {
-                expr: Box::new(convert_slots(py, &inner, t, o)?),
+                expr: Box::new(convert(py, &inner, t, o)?),
             })
         } else if node.is_exact_instance(t.and_.bind(py)) {
             Ok(AstNode::And {
-                exprs: convert_exprs_offset(py, node, o.and_.exprs, t, o)?,
+                exprs: convert_exprs(py, node, o.and_.exprs, t, o)?,
             })
         } else if node.is_exact_instance(t.or_.bind(py)) {
             Ok(AstNode::Or {
-                exprs: convert_exprs_offset(py, node, o.or_.exprs, t, o)?,
+                exprs: convert_exprs(py, node, o.or_.exprs, t, o)?,
             })
         } else if node.is_exact_instance(t.not_.bind(py)) {
             let inner = read_slot_raw(node, o.not_.expr)
                 .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("missing not.expr"))?;
             Ok(AstNode::Not {
-                expr: Box::new(convert_slots(py, &inner, t, o)?),
+                expr: Box::new(convert(py, &inner, t, o)?),
             })
         } else {
             Ok(AstNode::Other)
@@ -919,7 +636,7 @@ fn convert_slots(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes, o: &AstO
     }
 }
 
-fn convert_opt_offset(
+fn convert_opt(
     py: Python<'_>,
     node: &Bound<'_, PyAny>,
     offset: isize,
@@ -930,10 +647,10 @@ fn convert_opt_offset(
         Some(v) => v,
         None => return Ok(None),
     };
-    Ok(Some(Box::new(convert_slots(py, &val, types, offsets)?)))
+    Ok(Some(Box::new(convert(py, &val, types, offsets)?)))
 }
 
-fn convert_exprs_offset(
+fn convert_exprs(
     py: Python<'_>,
     node: &Bound<'_, PyAny>,
     offset: isize,
@@ -943,7 +660,7 @@ fn convert_exprs_offset(
     let mut out = Vec::new();
     if let Some(exprs) = unsafe { read_slot(node, offset) } {
         for item in exprs.iter()? {
-            out.push(convert_slots(py, &item?, types, offsets)?);
+            out.push(convert(py, &item?, types, offsets)?);
         }
     }
     Ok(out)
@@ -1054,7 +771,8 @@ fn extract_features_via_mirror<'py>(
         None => (Vec::new(), Vec::new()),
         Some(q) => {
             let types = ast_types(py)?;
-            let mirror = convert(py, &q, types)?;
+            let offsets = ast_offsets(py)?;
+            let mirror = convert(py, &q, types, offsets)?;
             let mut v = NativeVisitor::new();
             v.visit(&mirror);
             (
@@ -1079,44 +797,10 @@ struct AstMirror {
 #[pyfunction]
 fn to_mirror(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
     let types = ast_types(py)?;
-    Ok(AstMirror {
-        inner: convert(py, &query, types)?,
-    })
-}
-
-#[pyfunction]
-fn to_mirror_slots(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
-    let types = ast_types(py)?;
     let offsets = ast_offsets(py)?;
     Ok(AstMirror {
-        inner: convert_slots(py, &query, types, offsets)?,
+        inner: convert(py, &query, types, offsets)?,
     })
-}
-
-#[pyfunction]
-#[pyo3(signature = (query=None))]
-fn extract_features_via_mirror_slots<'py>(
-    py: Python<'py>,
-    query: Option<Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyTuple>> {
-    let (tables, events) = match query {
-        None => (Vec::new(), Vec::new()),
-        Some(q) => {
-            let types = ast_types(py)?;
-            let offsets = ast_offsets(py)?;
-            let mirror = convert_slots(py, &q, types, offsets)?;
-            let mut v = NativeVisitor::new();
-            v.visit(&mirror);
-            (
-                v.tables.into_iter().collect::<Vec<_>>(),
-                v.events.into_iter().collect::<Vec<_>>(),
-            )
-        }
-    };
-    Ok(PyTuple::new_bound(
-        py,
-        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
-    ))
 }
 
 #[pyfunction]
@@ -1134,11 +818,8 @@ fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyR
 #[pymodule]
 fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
-    m.add_function(wrap_pyfunction!(extract_features_py_slots, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
-    m.add_function(wrap_pyfunction!(extract_features_via_mirror_slots, m)?)?;
     m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
-    m.add_function(wrap_pyfunction!(to_mirror_slots, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
     m.add_class::<AstMirror>()?;
     Ok(())
