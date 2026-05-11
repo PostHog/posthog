@@ -40,8 +40,26 @@ rules:
                     - pattern-either:
                           - pattern: <Link ...>...</Link>
                           - pattern: <a ...>...</a>
+          # Exclude when `interactive` is set (bare prop, sugar for {true}).
+          # Three variants cover the prop appearing as the only attribute,
+          # the first, the last, or anywhere in the middle — the leading
+          # `...` ellipsis doesn't reliably expand to zero attributes in
+          # Semgrep's JSX matcher, so first/last positions need their own
+          # pattern.
+          - pattern-not: <Tooltip interactive>$...</Tooltip>
+          - pattern-not: <Tooltip interactive ...>$...</Tooltip>
+          - pattern-not: <Tooltip ... interactive>$...</Tooltip>
           - pattern-not: <Tooltip ... interactive ...>$...</Tooltip>
-          - pattern-not: <Tooltip ... interactive={...} ...>$...</Tooltip>
+          # Same set for `interactive={<expr>}`.
+          - pattern-not: <Tooltip interactive={$X}>$...</Tooltip>
+          - pattern-not: <Tooltip interactive={$X} ...>$...</Tooltip>
+          - pattern-not: <Tooltip ... interactive={$X}>$...</Tooltip>
+          - pattern-not: <Tooltip ... interactive={$X} ...>$...</Tooltip>
+          # Same set for `docLink=...`. The `=$D` form matches both
+          # docLink="string" and docLink={expr}.
+          - pattern-not: <Tooltip docLink=$D>$...</Tooltip>
+          - pattern-not: <Tooltip docLink=$D ...>$...</Tooltip>
+          - pattern-not: <Tooltip ... docLink=$D>$...</Tooltip>
           - pattern-not: <Tooltip ... docLink=$D ...>$...</Tooltip>
       paths:
           include:
