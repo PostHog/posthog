@@ -147,6 +147,24 @@ describe('workflowLogic auto-save', () => {
             expect(updateCalls).toBe(0)
         })
 
+        it('clears isAutoSavePending when the listener skips a save (validation errors)', async () => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', '')
+            expect(logic.values.isAutoSavePending).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+            // Without the early-return reset, the "Saving…" spinner would stay visible forever.
+            expect(logic.values.isAutoSavePending).toBe(false)
+        })
+
         it('does not auto-save when nothing has changed', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
@@ -209,6 +227,34 @@ describe('workflowLogic auto-save', () => {
             await jest.advanceTimersByTimeAsync(3500)
 
             expect(updateCalls).toBe(0)
+        })
+
+        it('does not auto-save when the loaded workflow is already active', async () => {
+            const activeWorkflow = makeWorkflow({ status: 'active' })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': activeWorkflow,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return [200, activeWorkflow]
+                    },
+                },
+            })
+
+            initKeaTests()
+            const activeLogic = workflowLogic({ id: WORKFLOW_ID, tabId: 'active' })
+            activeLogic.mount()
+            await expectLogic(activeLogic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            activeLogic.actions.setWorkflowValue('name', 'Edited already-active')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+            activeLogic.unmount()
         })
     })
 

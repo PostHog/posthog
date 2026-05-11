@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -9,8 +8,9 @@ import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -32,25 +32,12 @@ import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-    const [debounced, setDebounced] = useState(value)
-    useEffect(() => {
-        if (value) {
-            const timer = setTimeout(() => setDebounced(value), delayMs)
-            return () => clearTimeout(timer)
-        }
-        setDebounced(value)
-    }, [value, delayMs])
-    return debounced
-}
-
-function RelativeTime({ timestamp }: { timestamp: string }): JSX.Element {
-    const [, setTick] = useState(0)
-    useEffect(() => {
-        const interval = setInterval(() => setTick((t) => t + 1), 30000)
-        return () => clearInterval(interval)
-    }, [])
-    return <>{dayjs(timestamp).fromNow()}</>
+function LastSavedIndicator({ timestamp }: { timestamp: string }): JSX.Element {
+    return (
+        <span className="text-xs text-tertiary">
+            Last saved <TZLabel time={timestamp} timestampStyle="relative" noStyles />
+        </span>
+    )
 }
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
@@ -160,9 +147,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                             <Spinner textColored /> Saving…
                                         </span>
                                     ) : lastSavedAt ? (
-                                        <span className="text-xs text-tertiary">
-                                            Last saved <RelativeTime timestamp={lastSavedAt} />
-                                        </span>
+                                        <LastSavedIndicator timestamp={lastSavedAt} />
                                     ) : null}
                                     <span className="flex items-center gap-1">
                                         <LemonSwitch
@@ -180,9 +165,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                     </span>
                                 </span>
                             ) : lastSavedAt ? (
-                                <span className="text-xs text-tertiary">
-                                    Last saved <RelativeTime timestamp={lastSavedAt} />
-                                </span>
+                                <LastSavedIndicator timestamp={lastSavedAt} />
                             ) : null
                         }
                         className={clsx({

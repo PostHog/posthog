@@ -354,6 +354,9 @@ export const workflowLogic = kea<workflowLogicType>([
             false as boolean,
             {
                 autoSaveWorkflow: () => true,
+                // markAutoSave(false) clears pending — used when the listener skips a save
+                // (e.g. no changes, validation errors) so the "Saving…" spinner doesn't get stuck.
+                markAutoSave: (state, { isAutoSave }) => (isAutoSave ? state : false),
                 saveWorkflowSuccess: () => false,
                 saveWorkflowFailure: () => false,
                 resetWorkflow: () => false,
@@ -778,22 +781,18 @@ export const workflowLogic = kea<workflowLogicType>([
         autoSaveWorkflow: async (_, breakpoint) => {
             await breakpoint(3000)
 
-            if (!values.autoSaveEnabled) {
-                return
-            }
-            if (!props.id || props.id === 'new') {
-                return
-            }
-            if (props.editTemplateId) {
-                return
-            }
-            if (values.workflow.status === 'active') {
-                return
-            }
-            if (!values.workflowChanged) {
-                return
-            }
-            if (values.workflowHasErrors) {
+            const shouldSkip =
+                !values.autoSaveEnabled ||
+                !props.id ||
+                props.id === 'new' ||
+                !!props.editTemplateId ||
+                values.workflow.status === 'active' ||
+                !values.workflowChanged ||
+                values.workflowHasErrors
+
+            if (shouldSkip) {
+                // Clear the pending flag so the "Saving…" spinner doesn't get stuck visible.
+                actions.markAutoSave(false)
                 return
             }
 
