@@ -19,11 +19,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.api.tags import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType, ReplayLens
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.temporal.types import ApplyLensInputs
 
 
@@ -204,7 +203,16 @@ class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             },
         ),
-        responses={201: ReplayObservationSerializer},
+        responses={
+            202: inline_serializer(
+                "ObserveLensAccepted",
+                {
+                    "workflow_id": serializers.CharField(),
+                    "lens_id": serializers.UUIDField(),
+                    "session_id": serializers.CharField(),
+                },
+            )
+        },
     )
     @action(detail=True, methods=["post"], url_path="observe")
     def observe(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -214,34 +222,25 @@ class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise serializers.ValidationError({"session_id": "session_id is required and must be a non-empty string."})
         session_id = session_id.strip()
 
-        observation = ReplayObservation.objects.create(
-            lens=lens,
-            session_id=session_id,
-            lens_version=lens.lens_version,
-            lens_config_snapshot=lens.lens_config,
-            triggered_by=ObservationTrigger.ON_DEMAND,
-            triggered_by_user=cast(User, request.user),
-        )
-
         async def _start() -> str:
             client = await async_connect()
             handle = await client.start_workflow(
                 "apply-lens",
                 ApplyLensInputs(
-                    observation_id=observation.id,
                     lens_id=lens.id,
                     session_id=session_id,
                     team_id=lens.team_id,
                     user_id=request.user.id,  # type: ignore[union-attr]
+                    triggered_by=ObservationTrigger.ON_DEMAND.value,
                 ),
-                id=f"apply-lens_{observation.id}",
+                id=f"apply-lens_{lens.id}_{session_id}",
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             )
             return handle.id
 
         workflow_id = async_to_sync(_start)()
-        observation.workflow_id = workflow_id
-        observation.save(update_fields=["workflow_id"])
-
-        return Response(ReplayObservationSerializer(observation).data, status=status.HTTP_201_CREATED)
+        return Response(
+            {"workflow_id": workflow_id, "lens_id": str(lens.id), "session_id": session_id},
+            status=status.HTTP_202_ACCEPTED,
+        )

@@ -3,6 +3,7 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.replay_vision.backend.models.replay_lens import LensModel, LensType, ReplayLens
@@ -18,8 +19,8 @@ from products.replay_vision.backend.temporal.activities.emit_lens_event import (
     emit_lens_event_and_mark_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.observation_state import (
+    create_observation_activity,
     mark_observation_failed_activity,
-    mark_observation_running_activity,
 )
 from products.replay_vision.backend.temporal.types import FinalLensOutput, SegmentLensOutput
 from products.replay_vision.backend.temporal.workflow import _calculate_segment_specs
@@ -59,28 +60,48 @@ class TestObservationStateActivities(BaseTest):
             lens_config={"prompt": "p"},
             model=LensModel.GEMINI_3_FLASH,
         )
-        self.observation = ReplayObservation.objects.create(
+    async def test_create_observation_creates_row_in_running(self) -> None:
+        env = ActivityEnvironment()
+        observation_id = await env.run(
+            create_observation_activity,
+            self.lens.id,
+            "sess-1",
+            ObservationTrigger.ON_DEMAND.value,
+            None,
+            "wf-abc",
+        )
+        observation = await ReplayObservation.objects.aget(id=observation_id)
+        self.assertEqual(observation.status, ObservationStatus.RUNNING)
+        self.assertEqual(observation.workflow_id, "wf-abc")
+        self.assertEqual(observation.lens_version, self.lens.lens_version)
+        self.assertEqual(observation.lens_config_snapshot, self.lens.lens_config)
+        self.assertIsNotNone(observation.started_at)
+
+    async def test_create_observation_raises_non_retryable_on_duplicate(self) -> None:
+        env = ActivityEnvironment()
+        await env.run(
+            create_observation_activity, self.lens.id, "sess-dup", ObservationTrigger.SCHEDULE.value, None, "wf-1"
+        )
+        with self.assertRaises(ApplicationError) as ctx:
+            await env.run(
+                create_observation_activity, self.lens.id, "sess-dup", ObservationTrigger.SCHEDULE.value, None, "wf-2"
+            )
+        self.assertTrue(ctx.exception.non_retryable)
+
+    async def test_mark_failed_sets_status_and_error_reason(self) -> None:
+        observation = await ReplayObservation.objects.acreate(
             lens=self.lens,
-            session_id="sess-1",
+            session_id="sess-fail",
             lens_version=self.lens.lens_version,
             lens_config_snapshot=self.lens.lens_config,
             triggered_by=ObservationTrigger.ON_DEMAND,
         )
-
-    async def test_mark_running_sets_status_and_workflow_id(self) -> None:
         env = ActivityEnvironment()
-        await env.run(mark_observation_running_activity, self.observation.id, "wf-abc")
-        await self.observation.arefresh_from_db()
-        self.assertEqual(self.observation.status, ObservationStatus.RUNNING)
-        self.assertEqual(self.observation.workflow_id, "wf-abc")
-
-    async def test_mark_failed_sets_status_and_error_reason(self) -> None:
-        env = ActivityEnvironment()
-        await env.run(mark_observation_failed_activity, self.observation.id, "boom")
-        await self.observation.arefresh_from_db()
-        self.assertEqual(self.observation.status, ObservationStatus.FAILED)
-        self.assertEqual(self.observation.error_reason, "boom")
-        self.assertIsNotNone(self.observation.completed_at)
+        await env.run(mark_observation_failed_activity, observation.id, "boom")
+        await observation.arefresh_from_db()
+        self.assertEqual(observation.status, ObservationStatus.FAILED)
+        self.assertEqual(observation.error_reason, "boom")
+        self.assertIsNotNone(observation.completed_at)
 
 
 class TestConsolidateActivity(BaseTest):

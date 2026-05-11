@@ -7,8 +7,8 @@ from products.replay_vision.backend.temporal.activities.emit_lens_event import (
     emit_lens_event_and_mark_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.observation_state import (
+    create_observation_activity,
     mark_observation_failed_activity,
-    mark_observation_running_activity,
 )
 from products.replay_vision.backend.temporal.activities.prep_session_video_asset import (
     prep_session_video_asset_activity,
@@ -19,7 +19,7 @@ from products.replay_vision.backend.temporal.workflow import ApplyLensWorkflow
 REPLAY_VISION_WORKFLOWS = [ApplyLensWorkflow]
 
 REPLAY_VISION_ACTIVITIES = [
-    mark_observation_running_activity,
+    create_observation_activity,
     mark_observation_failed_activity,
     prep_session_video_asset_activity,
     upload_video_to_gemini_activity,

@@ -5,15 +5,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ApplyLensInputs(BaseModel):
-    """Input to ApplyLensWorkflow — one observation, one lens, one session."""
+    """Input to ApplyLensWorkflow — one lens applied to one session. The workflow creates its own observation row."""
 
     model_config = ConfigDict(frozen=True)
 
-    observation_id: UUID
     lens_id: UUID
     session_id: str
     team_id: int
     user_id: int | None = Field(default=None, description="User who triggered on-demand; None for scheduled.")
+    triggered_by: str = Field(description="`schedule` or `on_demand` — recorded on the observation row.")
 
 
 class PrepSessionVideoAssetResult(BaseModel):

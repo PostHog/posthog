@@ -1,12 +1,8 @@
 from posthog.test.base import APIBaseTest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.replay_vision.backend.models.replay_lens import LensModel, LensType, ReplayLens
-from products.replay_vision.backend.models.replay_observation import (
-    ObservationStatus,
-    ObservationTrigger,
-    ReplayObservation,
-)
 
 
 class TestObserveAction(APIBaseTest):
@@ -41,22 +37,15 @@ class TestObserveAction(APIBaseTest):
         patcher = patch("products.replay_vision.backend.api.lenses.async_connect", connect_mock)
         return patcher, connect_mock
 
-    def test_observe_creates_observation_and_starts_workflow(self) -> None:
+    def test_observe_returns_202_with_workflow_id(self) -> None:
         patcher, connect_mock = self._patch_temporal("wf-123")
         with patcher:
             resp = self.client.post(self.observe_url, data={"session_id": "sess-1"}, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.status_code, 202, resp.json())
         body = resp.json()
         self.assertEqual(body["session_id"], "sess-1")
-        self.assertEqual(body["status"], ObservationStatus.PENDING)
-        self.assertEqual(body["triggered_by"], ObservationTrigger.ON_DEMAND)
+        self.assertEqual(body["lens_id"], str(self.lens.id))
         self.assertEqual(body["workflow_id"], "wf-123")
-
-        observation = ReplayObservation.objects.get(id=body["id"])
-        self.assertEqual(observation.lens_version, self.lens.lens_version)
-        self.assertEqual(observation.lens_config_snapshot, self.lens.lens_config)
-        self.assertEqual(observation.triggered_by_user_id, self.user.id)
-
         connect_mock.assert_awaited_once()
 
     def test_observe_rejects_missing_session_id(self) -> None:

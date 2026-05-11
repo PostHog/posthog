@@ -22,8 +22,8 @@ from products.replay_vision.backend.temporal.activities.emit_lens_event import (
     emit_lens_event_and_mark_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.observation_state import (
+    create_observation_activity,
     mark_observation_failed_activity,
-    mark_observation_running_activity,
 )
 from products.replay_vision.backend.temporal.activities.prep_session_video_asset import (
     prep_session_video_asset_activity,
@@ -94,14 +94,14 @@ class ApplyLensWorkflow(PostHogWorkflow):
         retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
         workflow_id = temporalio.workflow.info().workflow_id
 
-        try:
-            await temporalio.workflow.execute_activity(
-                mark_observation_running_activity,
-                args=(inputs.observation_id, workflow_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=retry_policy,
-            )
+        observation_id = await temporalio.workflow.execute_activity(
+            create_observation_activity,
+            args=(inputs.lens_id, inputs.session_id, inputs.triggered_by, inputs.user_id, workflow_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
 
+        try:
             export_result = await temporalio.workflow.execute_activity(
                 prep_session_video_asset_activity,
                 inputs,
@@ -110,9 +110,7 @@ class ApplyLensWorkflow(PostHogWorkflow):
             )
             asset_id = export_result.asset_id
 
-            rasterize_workflow_id = (
-                f"replay-vision-rasterize_{inputs.team_id}_{inputs.session_id}_{inputs.observation_id}"
-            )
+            rasterize_workflow_id = f"replay-vision-rasterize_{inputs.team_id}_{inputs.session_id}_{observation_id}"
             await temporalio.workflow.execute_child_workflow(
                 "rasterize-recording",
                 RasterizeRecordingInputs(exported_asset_id=asset_id),
@@ -146,7 +144,7 @@ class ApplyLensWorkflow(PostHogWorkflow):
             if not segment_specs:
                 raise ApplicationError("No analyzable segments produced for session", non_retryable=True)
 
-            trace_id = str(inputs.observation_id)
+            trace_id = str(observation_id)
 
             try:
                 semaphore = asyncio.Semaphore(20)
@@ -178,14 +176,14 @@ class ApplyLensWorkflow(PostHogWorkflow):
 
             await temporalio.workflow.execute_activity(
                 emit_lens_event_and_mark_succeeded_activity,
-                args=(inputs.observation_id, inputs.lens_id, inputs.session_id, final),
+                args=(observation_id, inputs.lens_id, inputs.session_id, final),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=retry_policy,
             )
         except Exception as e:
             await temporalio.workflow.execute_activity(
                 mark_observation_failed_activity,
-                args=(inputs.observation_id, str(e)[:1000]),
+                args=(observation_id, str(e)[:1000]),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
