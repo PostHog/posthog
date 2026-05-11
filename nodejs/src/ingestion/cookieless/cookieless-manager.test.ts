@@ -7,7 +7,7 @@ import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import { Hub, PipelineEvent, Team } from '../../types'
+import { EventHeaders, Hub, PipelineEvent, Team } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
@@ -323,13 +323,7 @@ describe('CookielessManager', () => {
 
         async function processEvent(
             event: PipelineEvent,
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            } = createTestEventHeaders()
+            headers: EventHeaders = createTestEventHeaders()
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -339,22 +333,10 @@ describe('CookielessManager', () => {
 
         async function processEventWithHeaders(
             event: PipelineEvent,
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            }
+            headers: EventHeaders
         ): Promise<{
             event: PipelineEvent | undefined
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            }
+            headers: EventHeaders
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
