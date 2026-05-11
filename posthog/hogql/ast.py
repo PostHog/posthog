@@ -523,11 +523,13 @@ class StringType(ConstantType):
         return "String"
 
 
+@dataclass(kw_only=True, slots=True)
 class StringJSONType(StringType):
     def print_type(self) -> str:
         return "JSON"
 
 
+@dataclass(kw_only=True, slots=True)
 class StringArrayType(StringType):
     def print_type(self) -> str:
         return "Array"
