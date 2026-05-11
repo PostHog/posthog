@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getReadOnlyFromRequest } from '@/index'
+import { getReadOnlyFromRequest } from '@/lib/readonly'
 
 describe('getReadOnlyFromRequest', () => {
     it.each([

@@ -8,6 +8,7 @@ import {
 } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { getReadOnlyFromRequest } from '@/lib/readonly'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -141,14 +142,6 @@ const generateErrorResponseFromMessage = (message: string): Response | null => {
     }
 
     return null
-}
-
-export const getReadOnlyFromRequest = (request: Request, url: URL): boolean | undefined => {
-    const readOnlyRaw =
-        request.headers.get('x-posthog-readonly') ||
-        request.headers.get('x-posthog-read-only') ||
-        url.searchParams.get('readonly')
-    return readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 }
 
 const handleRequest = async (
