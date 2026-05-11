@@ -52,9 +52,10 @@ class TestParserCache(BaseTest):
         self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_auto_detects_function_local_literal(self):
-        # "SELECT 3" is a literal in this test function's compiled code — should
-        # land in the built-in cache via the frame-walk detector.
-        parse_select("SELECT 3")
+        # Literal must be long enough to bypass the auto-interning guard
+        # (`_LITERAL_DETECTION_MIN_LEN`). Real production HogQL queries are
+        # well past 32 chars.
+        parse_select("SELECT count() FROM events WHERE event = '$exception'")
         self.assertEqual(_builtin_parse_cache.currsize, 1)
         self.assertEqual(_user_parse_cache.currsize, 0)
 
@@ -62,8 +63,16 @@ class TestParserCache(BaseTest):
         # `.join` produces a fresh string object that isn't in any frame's
         # co_consts (constant string concat like `"a " + "b"` would be folded
         # at compile time into a single literal and incorrectly look built-in).
-        sql = " ".join(["SELECT", "count()", "FROM", "events"])
+        sql = " ".join(["SELECT", "count()", "FROM", "events", "WHERE", "event", "=", "'$pageview'"])
         parse_select(sql)
+        self.assertEqual(_user_parse_cache.currsize, 1)
+        self.assertEqual(_builtin_parse_cache.currsize, 0)
+
+    def test_auto_short_strings_route_to_user_cache(self):
+        # Short identifier-shaped strings can be auto-interned by CPython and
+        # spuriously identity-match `co_consts` elsewhere. The min-length
+        # guard sends them to the user cache regardless.
+        parse_expr("count()")
         self.assertEqual(_user_parse_cache.currsize, 1)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
@@ -105,19 +114,45 @@ class TestParserCache(BaseTest):
 
     def test_parse_expr_cached_separately_by_start_arg(self):
         # Two different start values must produce two different cache entries.
-        parse_expr("1 + 1", start=0)
-        parse_expr("1 + 1", start=1)
+        # `parse_expr` short identifier-only inputs go to user cache (interning
+        # guard); use explicit BUILTIN to test the start-arg keying.
+        parse_expr("1 + 1", start=0, cache_origin=CacheOrigin.BUILTIN)
+        parse_expr("1 + 1", start=1, cache_origin=CacheOrigin.BUILTIN)
         self.assertEqual(_builtin_parse_cache.currsize, 2)
 
     def test_looks_like_code_literal_finds_function_literal(self):
-        s = "this is a literal in this function"
+        s = "this is a literal in this function — definitely past the min length"
         self.assertTrue(_looks_like_code_literal(s))
 
     def test_looks_like_code_literal_rejects_constructed_strings(self):
         # `.join` produces a fresh runtime string (concat of two literals would
-        # be folded at compile time and incorrectly look like a literal).
-        s = " ".join(["constructed", "string"])
+        # be folded at compile time and incorrectly look like a literal). Use
+        # enough parts to clear the min-length guard.
+        s = " ".join(["constructed", "string", "definitely", "long", "enough", "now"])
         self.assertFalse(_looks_like_code_literal(s))
+
+    def test_looks_like_code_literal_rejects_short_strings(self):
+        # Short literals are rejected up-front because Python auto-interns
+        # short identifier-shaped strings — user input may share identity
+        # with `co_consts` entries elsewhere.
+        s = "event"  # literal in this function, but too short
+        self.assertFalse(_looks_like_code_literal(s))
+
+    def test_cache_origin_typo_raises(self):
+        # A misspelled origin must raise rather than silently routing to the
+        # user cache via `==` else-branch.
+        with self.assertRaises(ValueError):
+            parse_select("SELECT 1", cache_origin="buultin")  # type: ignore[arg-type]
+
+    def test_parse_string_template_literal_routes_to_builtin(self):
+        # Template strings used to always land in the user cache because the
+        # key is `"F'" + string` (runtime concat). Auto-detect now classifies
+        # against the raw `string` first.
+        from posthog.hogql.parser import parse_string_template
+
+        parse_string_template("hello {x} world, this is a long enough template now")
+        self.assertEqual(_builtin_parse_cache.currsize, 1)
+        self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_syntax_errors_are_not_cached(self):
         from posthog.hogql.errors import BaseHogQLError

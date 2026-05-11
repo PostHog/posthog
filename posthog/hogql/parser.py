@@ -131,7 +131,14 @@ DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
 
 _BUILTIN_CACHE_SIZE = 256
 _USER_CACHE_SIZE = 512
-_LITERAL_DETECTION_FRAME_DEPTH = 20
+# 40 is generous: PostHog stacks routinely exceed 20 (DRF + middleware + Celery
+# + opentelemetry + structlog), and the walk terminates early on identity match.
+_LITERAL_DETECTION_FRAME_DEPTH = 40
+# Below this length, CPython's automatic string interning makes identity-match
+# unreliable — short identifier-shaped strings like "id" or "event" can share
+# identity with `co_consts` entries elsewhere and falsely classify user input
+# as a code literal.
+_LITERAL_DETECTION_MIN_LEN = 32
 
 _PARSE_CACHE_EVENTS = Counter(
     "hogql_parse_cache_events_total",
@@ -142,11 +149,13 @@ _PARSE_CACHE_SIZE = Gauge(
     "hogql_parse_cache_size",
     "Current entries in the HogQL parse cache (compare against the configured maxsize to spot saturation)",
     labelnames=["cache"],
+    multiprocess_mode="livemax",
 )
 _PARSE_CACHE_MAXSIZE = Gauge(
     "hogql_parse_cache_maxsize",
     "Configured maxsize of the HogQL parse cache",
     labelnames=["cache"],
+    multiprocess_mode="livemax",
 )
 
 
@@ -159,8 +168,15 @@ def _looks_like_code_literal(s: str) -> bool:
     runtime-constructed strings (user input, dynamic composition, file
     content). Misses module/class-level constants referenced via
     ``LOAD_GLOBAL`` — those frames aren't on the active stack at call time;
-    callers pass ``cache_origin="builtin"`` explicitly in that case.
+    callers pass ``cache_origin=CacheOrigin.BUILTIN`` explicitly in that case.
+
+    Short strings are rejected up-front: CPython auto-interns short
+    identifier-shaped strings, which can spuriously identity-match
+    ``co_consts`` entries elsewhere and misroute user input to the built-in
+    cache.
     """
+    if len(s) < _LITERAL_DETECTION_MIN_LEN:
+        return False
     frame: FrameType | None = sys._getframe(1)
     for _ in range(_LITERAL_DETECTION_FRAME_DEPTH):
         if frame is None:
@@ -188,7 +204,15 @@ _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
     fn = RULE_TO_PARSE_FUNCTION[backend][rule]
     # Only `expr` takes a `start` arg; the others have a single positional.
-    return fn(statement, start) if rule == "expr" else fn(statement)
+    # The histogram measures *parse* cost specifically — cache lookups bypass
+    # it, so the `parse_*_seconds` distribution stays meaningful as a parser
+    # perf signal once caches are warm. `program` has no histogram (matching
+    # the original code's behavior).
+    histogram = RULE_TO_HISTOGRAM.get(rule)  # type: ignore[arg-type]
+    if histogram is None:
+        return fn(statement, start) if rule == "expr" else fn(statement)
+    with histogram.labels(backend=backend).time():
+        return fn(statement, start) if rule == "expr" else fn(statement)
 
 
 def _parse_cached(
@@ -215,6 +239,10 @@ def _parse_cached(
     Misses parse fresh and store a deepcopy in the cache; the fresh parse
     (single owner) is returned directly without an extra copy.
     """
+    # Coerce so a stringly-typed call (`"builtin"`, `"user"`, `"auto"`) is
+    # validated and a typo raises rather than silently routing to the user
+    # cache via the `==` else-branch.
+    cache_origin = CacheOrigin(cache_origin)
     key = (statement, backend, rule, start)
 
     if cache_origin == CacheOrigin.AUTO:
@@ -265,9 +293,13 @@ def parse_string_template(
     """Parse a full template string without start/end quotes"""
     if timings is None:
         timings = HogQLTimings()
+    # Classify on the raw `string` (which may be a code literal) before the
+    # `"F'" +` runtime concat — otherwise auto-detect always sees the fresh
+    # concatenated string and routes built-in templates to the user cache.
+    if cache_origin == CacheOrigin.AUTO:
+        cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(string) else CacheOrigin.USER
     with timings.measure(f"parse_full_template_string_{backend}"):
-        with RULE_TO_HISTOGRAM["full_template_string"].labels(backend=backend).time():
-            node = _parse_cached("full_template_string", "F'" + string, backend, cache_origin)
+        node = _parse_cached("full_template_string", "F'" + string, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -288,8 +320,7 @@ def parse_expr(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
-            node = _parse_cached("expr", expr, backend, cache_origin, start=start)
+        node = _parse_cached("expr", expr, backend, cache_origin, start=start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -307,8 +338,7 @@ def parse_order_expr(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
-        with RULE_TO_HISTOGRAM["order_expr"].labels(backend=backend).time():
-            node = _parse_cached("order_expr", order_expr, backend, cache_origin)
+        node = _parse_cached("order_expr", order_expr, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -326,10 +356,7 @@ def parse_select(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
-        with (
-            RULE_TO_HISTOGRAM["select"].labels(backend=backend).time(),
-            tracer.start_as_current_span("parse_statement_to_node"),
-        ):
+        with tracer.start_as_current_span("parse_statement_to_node"):
             node = _parse_cached("select", statement, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
@@ -347,8 +374,7 @@ def parse_program(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
-            node = _parse_cached("program", source, backend, cache_origin)
+        node = _parse_cached("program", source, backend, cache_origin)
     return cast("ast.Program", node)
 
 
