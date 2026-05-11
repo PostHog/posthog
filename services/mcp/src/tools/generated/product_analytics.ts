@@ -15,6 +15,7 @@ import {
     InsightsRetrieveQueryParams,
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -363,7 +364,10 @@ const insightsAllActivityRetrieve = (): ToolBase<
     },
 })
 
-const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true })
+const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
+    limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
+})
 
 const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Schemas.PaginatedInsightList>> => ({
     name: 'insights-list',

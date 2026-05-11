@@ -5862,6 +5862,89 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Should succeed since it's an update, not creation
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            # name, bucketing_identifier, ensure_experience_continuity, expected_status
+            ("device_with_persist_blocked", "device_id", True, status.HTTP_400_BAD_REQUEST),
+            ("device_without_persist_allowed", "device_id", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_validation_device_bucketing_create(
+        self, _name: str, bucketing_identifier: str, ensure_experience_continuity: bool, expected_status: int
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": f"Device bucketing {_name}",
+                "key": f"device-{_name.replace('_', '-')}-flag",
+                "bucketing_identifier": bucketing_identifier,
+                "ensure_experience_continuity": ensure_experience_continuity,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            # name, initial_persist, patch_payload, expected_status
+            (
+                "grandfathered_combination_can_save",
+                True,
+                {"name": "Updated grandfathered flag"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "enabling_persist_on_device_flag_blocked",
+                False,
+                {"ensure_experience_continuity": True},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_validation_device_bucketing_update(
+        self, _name: str, initial_persist: bool, patch_payload: dict, expected_status: int
+    ):
+        flag = FeatureFlag.objects.create(
+            name=f"Existing flag {_name}",
+            key=f"existing-{_name.replace('_', '-')}",
+            team=self.team,
+            created_by=self.user,
+            bucketing_identifier="device_id",
+            ensure_experience_continuity=initial_persist,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            patch_payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
+    def test_validation_device_bucketing_blocked_for_surveys_creation_context(self):
+        # Locks in the validation reorder: device_id + persist must be rejected even for the
+        # surveys creation_context, which has its own early return in validate(). Without the
+        # hoist, this combination would slip through for survey-created flags.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Survey-created device persist flag",
+                "key": "survey-device-persist-flag",
+                "creation_context": "surveys",
+                "bucketing_identifier": "device_id",
+                "ensure_experience_continuity": True,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
     def _create_flag_with_properties(
         self,
         name: str,

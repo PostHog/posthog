@@ -36,13 +36,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * List all groups of a specific group type. You must pass ?group_type_index= in the URL.
-To get a list of valid group types, call /api/:project_id/groups_types/.
-
-Uses forward-only keyset pagination via the `cursor` parameter.
-The `previous` field in the response envelope is always null.
- */
 export const getGroupsListUrl = (projectId: string, params: GroupsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -59,6 +52,13 @@ export const getGroupsListUrl = (projectId: string, params: GroupsListParams) =>
         : `/api/projects/${projectId}/groups/`
 }
 
+/**
+ * List all groups of a specific group type. You must pass ?group_type_index= in the URL.
+To get a list of valid group types, call /api/:project_id/groups_types/.
+
+Uses forward-only keyset pagination via the `cursor` parameter.
+The `previous` field in the response envelope is always null.
+ */
 export const groupsList = async (
     projectId: string,
     params: GroupsListParams,

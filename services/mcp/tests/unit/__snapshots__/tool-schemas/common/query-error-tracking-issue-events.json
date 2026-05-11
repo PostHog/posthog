@@ -60,7 +60,6 @@
                                 "type": "string"
                             },
                             {
-                                "const": null,
                                 "type": "null"
                             }
                         ],

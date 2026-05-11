@@ -10,8 +10,8 @@ export type {
     TimeSeriesLineChartConfig,
     TimeSeriesLineChartProps,
     TrendLineConfig,
-    ValueLabelsConfig,
 } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
+export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 
@@ -77,3 +77,6 @@ export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'
 export type { XAxisConfig, YAxisConfig } from './utils/use-axis-formatters'
 export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './utils/goal-lines'
 export type { GoalLineConfig } from './utils/goal-lines'
+
+// Statistics helpers (used by trend-line / moving-average / confidence-interval features)
+export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/statistics'

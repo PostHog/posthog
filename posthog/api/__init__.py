@@ -109,6 +109,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
@@ -720,6 +721,12 @@ organizations_router.register(
     r"welcome",
     welcome.WelcomeViewSet,
     "organization_welcome",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.OrganizationAdvancedActivityLogsViewSet,
+    "organization_advanced_activity_logs",
     ["organization_id"],
 )
 
@@ -1531,6 +1538,19 @@ environments_router.register(
     EvaluationReportViewSet,
     "environment_llm_analytics_evaluation_reports",
     ["team_id"],
+)
+
+environment_vision_lenses_router = environments_router.register(
+    r"vision/lenses",
+    ReplayLensViewSet,
+    "environment_vision_lenses",
+    ["team_id"],
+)
+environment_vision_lenses_router.register(
+    r"observations",
+    ReplayObservationViewSet,
+    "environment_vision_lens_observations",
+    ["team_id", "lens_id"],
 )
 
 environments_router.register(

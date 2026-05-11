@@ -16,6 +16,8 @@ from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
+from pydantic import TypeAdapter
+from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -73,6 +75,7 @@ from posthog.session_recordings.data_retention import (
     retention_violates_entitlement,
     validate_retention_period,
 )
+from posthog.types import AnyPropertyFilter
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -384,6 +387,21 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
+test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
+
+
+def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    if not getattr(settings, "TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED", False):
+        return cast(list[dict[str, object]], value)
+
+    try:
+        test_account_filters_adapter.validate_python(value)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
+
+    return cast(list[dict[str, object]], value)
+
+
 _default_theme_id_cache: int | None = None
 
 
@@ -579,6 +597,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     )
     def get_available_setup_task_ids(self, obj) -> list[str]:
         return [e.value for e in SetupTaskId]
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):

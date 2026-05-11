@@ -13,7 +13,7 @@
 export type ErrorTrackingAssignmentRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
@@ -25,7 +25,7 @@ export interface ErrorTrackingAssignmentRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -85,41 +85,21 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
-/**
- * Event properties
- */
-export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
-
-export const EventPropertyFilterApiType = {
-    Event: 'event',
-} as const
-
 export interface EventPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator?: PropertyOperatorApi | null
     /** Event properties */
-    type?: EventPropertyFilterApiType
+    type?: 'event'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-/**
- * Person properties
- */
-export type PersonPropertyFilterApiType = (typeof PersonPropertyFilterApiType)[keyof typeof PersonPropertyFilterApiType]
-
-export const PersonPropertyFilterApiType = {
-    Person: 'person',
-} as const
-
 export interface PersonPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     /** Person properties */
-    type?: PersonPropertyFilterApiType
+    type?: 'person'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -132,74 +112,36 @@ export const Key10Api = {
     Selector: 'selector',
 } as const
 
-export type ElementPropertyFilterApiType =
-    (typeof ElementPropertyFilterApiType)[keyof typeof ElementPropertyFilterApiType]
-
-export const ElementPropertyFilterApiType = {
-    Element: 'element',
-} as const
-
 export interface ElementPropertyFilterApi {
     key: Key10Api
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: ElementPropertyFilterApiType
+    type?: 'element'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type EventMetadataPropertyFilterApiType =
-    (typeof EventMetadataPropertyFilterApiType)[keyof typeof EventMetadataPropertyFilterApiType]
-
-export const EventMetadataPropertyFilterApiType = {
-    EventMetadata: 'event_metadata',
-} as const
 
 export interface EventMetadataPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: EventMetadataPropertyFilterApiType
+    type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type SessionPropertyFilterApiType =
-    (typeof SessionPropertyFilterApiType)[keyof typeof SessionPropertyFilterApiType]
-
-export const SessionPropertyFilterApiType = {
-    Session: 'session',
-} as const
 
 export interface SessionPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: SessionPropertyFilterApiType
+    type?: 'session'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type CohortPropertyFilterApiKey = (typeof CohortPropertyFilterApiKey)[keyof typeof CohortPropertyFilterApiKey]
-
-export const CohortPropertyFilterApiKey = {
-    Id: 'id',
-} as const
-
-export type CohortPropertyFilterApiType = (typeof CohortPropertyFilterApiType)[keyof typeof CohortPropertyFilterApiType]
-
-export const CohortPropertyFilterApiType = {
-    Cohort: 'cohort',
-} as const
-
 export interface CohortPropertyFilterApi {
-    /** @nullable */
     cohort_name?: string | null
-    key?: CohortPropertyFilterApiKey
-    /** @nullable */
+    key?: 'id'
     label?: string | null
     operator?: PropertyOperatorApi | null
-    type?: CohortPropertyFilterApiType
+    type?: 'cohort'
     value: number
 }
 
@@ -211,183 +153,88 @@ export const DurationTypeApi = {
     InactiveSeconds: 'inactive_seconds',
 } as const
 
-export type RecordingPropertyFilterApiType =
-    (typeof RecordingPropertyFilterApiType)[keyof typeof RecordingPropertyFilterApiType]
-
-export const RecordingPropertyFilterApiType = {
-    Recording: 'recording',
-} as const
-
 export interface RecordingPropertyFilterApi {
     key: DurationTypeApi | string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: RecordingPropertyFilterApiType
+    type?: 'recording'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type LogEntryPropertyFilterApiType =
-    (typeof LogEntryPropertyFilterApiType)[keyof typeof LogEntryPropertyFilterApiType]
-
-export const LogEntryPropertyFilterApiType = {
-    LogEntry: 'log_entry',
-} as const
 
 export interface LogEntryPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: LogEntryPropertyFilterApiType
+    type?: 'log_entry'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type GroupPropertyFilterApiType = (typeof GroupPropertyFilterApiType)[keyof typeof GroupPropertyFilterApiType]
-
-export const GroupPropertyFilterApiType = {
-    Group: 'group',
-} as const
-
-/**
- * @nullable
- */
-export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
 
 export interface GroupPropertyFilterApi {
-    /** @nullable */
     group_key_names?: GroupPropertyFilterApiGroupKeyNames
-    /** @nullable */
     group_type_index?: number | null
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: GroupPropertyFilterApiType
+    type?: 'group'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-/**
- * Event property with "$feature/" prepended
- */
-export type FeaturePropertyFilterApiType =
-    (typeof FeaturePropertyFilterApiType)[keyof typeof FeaturePropertyFilterApiType]
-
-export const FeaturePropertyFilterApiType = {
-    Feature: 'feature',
-} as const
 
 export interface FeaturePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     /** Event property with "$feature/" prepended */
-    type?: FeaturePropertyFilterApiType
+    type?: 'feature'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-/**
- * Only flag_evaluates_to operator is allowed for flag dependencies
- */
-export type FlagPropertyFilterApiOperator =
-    (typeof FlagPropertyFilterApiOperator)[keyof typeof FlagPropertyFilterApiOperator]
-
-export const FlagPropertyFilterApiOperator = {
-    FlagEvaluatesTo: 'flag_evaluates_to',
-} as const
-
-/**
- * Feature flag dependency
- */
-export type FlagPropertyFilterApiType = (typeof FlagPropertyFilterApiType)[keyof typeof FlagPropertyFilterApiType]
-
-export const FlagPropertyFilterApiType = {
-    Flag: 'flag',
-} as const
 
 export interface FlagPropertyFilterApi {
     /** The key should be the flag ID */
     key: string
-    /** @nullable */
     label?: string | null
     /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: FlagPropertyFilterApiOperator
+    operator?: 'flag_evaluates_to'
     /** Feature flag dependency */
-    type?: FlagPropertyFilterApiType
+    type?: 'flag'
     /** The value can be true, false, or a variant name */
     value: boolean | string
 }
 
-export type HogQLPropertyFilterApiType = (typeof HogQLPropertyFilterApiType)[keyof typeof HogQLPropertyFilterApiType]
-
-export const HogQLPropertyFilterApiType = {
-    Hogql: 'hogql',
-} as const
-
 export interface HogQLPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
-    type?: HogQLPropertyFilterApiType
+    type?: 'hogql'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type EmptyPropertyFilterApiType = (typeof EmptyPropertyFilterApiType)[keyof typeof EmptyPropertyFilterApiType]
-
-export const EmptyPropertyFilterApiType = {
-    Empty: 'empty',
+export const EmptyPropertyFilterApiValue = {
+    type: 'empty',
 } as const
-
-export interface EmptyPropertyFilterApi {
-    type?: EmptyPropertyFilterApiType
-}
-
-export type DataWarehousePropertyFilterApiType =
-    (typeof DataWarehousePropertyFilterApiType)[keyof typeof DataWarehousePropertyFilterApiType]
-
-export const DataWarehousePropertyFilterApiType = {
-    DataWarehouse: 'data_warehouse',
-} as const
+export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
 
 export interface DataWarehousePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: DataWarehousePropertyFilterApiType
+    type?: 'data_warehouse'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type DataWarehousePersonPropertyFilterApiType =
-    (typeof DataWarehousePersonPropertyFilterApiType)[keyof typeof DataWarehousePersonPropertyFilterApiType]
-
-export const DataWarehousePersonPropertyFilterApiType = {
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
 
 export interface DataWarehousePersonPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: DataWarehousePersonPropertyFilterApiType
+    type?: 'data_warehouse_person_property'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type ErrorTrackingIssueFilterApiType =
-    (typeof ErrorTrackingIssueFilterApiType)[keyof typeof ErrorTrackingIssueFilterApiType]
-
-export const ErrorTrackingIssueFilterApiType = {
-    ErrorTrackingIssue: 'error_tracking_issue',
-} as const
-
 export interface ErrorTrackingIssueFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: ErrorTrackingIssueFilterApiType
+    type?: 'error_tracking_issue'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -401,7 +248,6 @@ export const LogPropertyFilterTypeApi = {
 
 export interface LogPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     type: LogPropertyFilterTypeApi
@@ -418,42 +264,25 @@ export const SpanPropertyFilterTypeApi = {
 
 export interface SpanPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     type: SpanPropertyFilterTypeApi
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type RevenueAnalyticsPropertyFilterApiType =
-    (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
-
-export const RevenueAnalyticsPropertyFilterApiType = {
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
 export interface RevenueAnalyticsPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: RevenueAnalyticsPropertyFilterApiType
+    type?: 'revenue_analytics'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type WorkflowVariablePropertyFilterApiType =
-    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
-
-export const WorkflowVariablePropertyFilterApiType = {
-    WorkflowVariable: 'workflow_variable',
-} as const
-
 export interface WorkflowVariablePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: WorkflowVariablePropertyFilterApiType
+    type?: 'workflow_variable'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -498,8 +327,8 @@ export const AssigneeTypeEnumApi = {
 export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
 
-* `user` - user
-* `role` - role */
+  * `user` - user
+  * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -532,7 +361,7 @@ export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
 export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
@@ -544,7 +373,7 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -604,13 +433,13 @@ export interface GitProviderFileLinkResolveResponseApi {
 export type ErrorTrackingGroupingRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 /**
  * Issue linked to this rule
  * @nullable
  */
-export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
 
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
@@ -629,7 +458,7 @@ export interface ErrorTrackingGroupingRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -641,8 +470,8 @@ export interface ErrorTrackingGroupingRuleListResponseApi {
 export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
 
-* `user` - user
-* `role` - role */
+  * `user` - user
+  * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -666,13 +495,13 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
 export type PatchedErrorTrackingGroupingRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 /**
  * Issue linked to this rule
  * @nullable
  */
-export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
 
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
@@ -691,7 +520,7 @@ export interface PatchedErrorTrackingGroupingRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -725,7 +554,7 @@ export interface ErrorTrackingIssueAssignmentApi {
 export type ErrorTrackingIssueFullApiCohort = {
     readonly id?: number
     readonly name?: string
-} | null | null
+} | null
 
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
@@ -756,7 +585,7 @@ export interface PaginatedErrorTrackingIssueFullListApi {
 export type PatchedErrorTrackingIssueFullApiCohort = {
     readonly id?: number
     readonly name?: string
-} | null | null
+} | null
 
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
@@ -1001,10 +830,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `event` - event
  * `event_metadata` - event_metadata
@@ -1066,13 +891,14 @@ export const PropertyFilterTypeEnumApi = {
     WorkflowVariable: 'workflow_variable',
 } as const
 
+export const PropertyItemApiType = { ...PropertyFilterTypeEnumApi, ...BlankEnumApi } as const
 export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
-    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: PropertyFilterTypeEnumApi | BlankEnumApi
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | null
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 /**
@@ -1115,8 +941,8 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
     searchQuery?: string
     /** Timestamp sort direction. Defaults to DESC.
 
-* `ASC` - ASC
-* `DESC` - DESC */
+  * `ASC` - ASC
+  * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -1131,9 +957,9 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
     offset?: number
     /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
 
-* `summary` - summary
-* `stack` - stack
-* `raw` - raw */
+  * `summary` - summary
+  * `stack` - stack
+  * `raw` - raw */
     verbosity?: VerbosityEnumApi
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
@@ -1190,11 +1016,11 @@ export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
 
 export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
-    id: string | number
+    id: string | number | null
     /** Assignee target type: user or role.
 
-* `user` - user
-* `role` - role */
+  * `user` - user
+  * `role` - role */
     type: AssigneeTypeEnumApi
 }
 
@@ -1221,12 +1047,12 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
 
-* `archived` - archived
-* `active` - active
-* `resolved` - resolved
-* `pending_release` - pending_release
-* `suppressed` - suppressed
-* `all` - all */
+  * `archived` - archived
+  * `active` - active
+  * `resolved` - resolved
+  * `pending_release` - pending_release
+  * `suppressed` - suppressed
+  * `all` - all */
     status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
@@ -1241,16 +1067,16 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     filterGroup?: PropertyItemApi[]
     /** Field used to sort issues. Defaults to occurrences.
 
-* `last_seen` - last_seen
-* `first_seen` - first_seen
-* `occurrences` - occurrences
-* `users` - users
-* `sessions` - sessions */
+  * `last_seen` - last_seen
+  * `first_seen` - first_seen
+  * `occurrences` - occurrences
+  * `users` - users
+  * `sessions` - sessions */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
 
-* `ASC` - ASC
-* `DESC` - DESC */
+  * `ASC` - ASC
+  * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -1351,18 +1177,50 @@ export interface ErrorTrackingIssuesListResponseApi {
     nextOffset?: number
 }
 
+/**
+ * * `ready` - Ready
+ * `computing` - Computing
+ */
+export type ErrorTrackingRecommendationStatusEnumApi =
+    (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
+
+export const ErrorTrackingRecommendationStatusEnumApi = {
+    Ready: 'ready',
+    Computing: 'computing',
+} as const
+
+/**
+ * Recommendation payload, shape depends on type.
+ */
 export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
 
 export interface ErrorTrackingRecommendationApi {
+    /** Recommendation UUID. */
     readonly id: string
+    /** Recommendation type identifier (e.g. 'alerts'). */
     readonly type: string
+    /** Recommendation payload, shape depends on type. */
     readonly meta: ErrorTrackingRecommendationApiMeta
+    /** Whether the recommendation's recommended action has been satisfied. */
     readonly completed: boolean
-    /** @nullable */
+    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
+
+  * `ready` - Ready
+  * `computing` - Computing */
+    readonly status: ErrorTrackingRecommendationStatusEnumApi
+    /**
+     * Timestamp meta was last successfully computed.
+     * @nullable
+     */
     readonly computed_at: string | null
-    /** @nullable */
+    /**
+     * Timestamp the user dismissed this recommendation, if any.
+     * @nullable
+     */
     readonly dismissed_at: string | null
+    /** Timestamp the recommendation row was first created. */
     readonly created_at: string
+    /** Timestamp the recommendation row was last updated. */
     readonly updated_at: string
 }
 
@@ -1495,7 +1353,7 @@ export interface ErrorTrackingReleaseApi {
     hash_id: string
     readonly team_id: number
     readonly created_at: string
-    metadata?: unknown | null
+    metadata?: unknown
     version: string
     project: string
 }
@@ -1507,7 +1365,7 @@ export interface ErrorTrackingStackFrameApi {
     readonly created_at: string
     contents: unknown
     resolved: boolean
-    context?: unknown | null
+    context?: unknown
     symbol_set_ref?: string
     readonly release: ErrorTrackingReleaseApi
 }
@@ -1529,7 +1387,7 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     sampling_rate?: number
     readonly created_at: string
     readonly updated_at: string
@@ -1563,7 +1421,7 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
@@ -1583,7 +1441,7 @@ export interface PatchedErrorTrackingReleaseApi {
     hash_id?: string
     readonly team_id?: number
     readonly created_at?: string
-    metadata?: unknown | null
+    metadata?: unknown
     version?: string
     project?: string
 }
@@ -1592,7 +1450,7 @@ export interface PatchedErrorTrackingReleaseApi {
  * Release associated with this symbol set, if any.
  * @nullable
  */
-export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
+export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
 
 export interface ErrorTrackingSymbolSetApi {
     /** Unique symbol set ID. */
@@ -1629,40 +1487,6 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingSymbolSetApi[]
-}
-
-/**
- * Release associated with this symbol set, if any.
- * @nullable
- */
-export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
-
-export interface PatchedErrorTrackingSymbolSetApi {
-    /** Unique symbol set ID. */
-    readonly id?: string
-    /** Reference used to match stack frames to this symbol set. */
-    readonly ref?: string
-    /** Project/team ID that owns this symbol set. */
-    readonly team_id?: number
-    /** When this symbol set row was created. */
-    readonly created_at?: string
-    /**
-     * When this symbol set was last used to resolve a stack frame.
-     * @nullable
-     */
-    readonly last_used?: string | null
-    /**
-     * Reason symbol lookup failed, if the source map is missing or invalid.
-     * @nullable
-     */
-    readonly failure_reason?: string | null
-    /** Whether this symbol set has an uploaded source map file available to download. */
-    readonly has_uploaded_file?: boolean
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    readonly release?: PatchedErrorTrackingSymbolSetApiRelease
 }
 
 export interface _SymbolSetDownloadResponseApi {

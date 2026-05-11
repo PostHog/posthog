@@ -39,6 +39,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
@@ -48,6 +49,8 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
@@ -522,6 +525,39 @@ class TestQueryRunner(BaseTest):
             == failure_delta
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
+
+    @parameterized.expand(
+        [
+            (
+                "user_access_control_error",
+                lambda: UserAccessControlError("query", "viewer", None),
+                SloOutcome.SUCCESS,
+                "user_error",
+            ),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+        ]
+    )
+    def test_run_classifies_slo_error_at_except_boundary(
+        self, _name, exception_factory, expected_outcome, expected_error_category
+    ):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = exception_factory()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+            with pytest.raises(type(raised_exc)):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        mock_emit_slo_completed.assert_called_once()
+        completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+        assert completed_kwargs["properties"].outcome == expected_outcome
+        assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL

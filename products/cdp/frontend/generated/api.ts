@@ -118,7 +118,7 @@ export const getHogFunctionsCreateUrl = (projectId: string) => {
 
 export const hogFunctionsCreate = async (
     projectId: string,
-    hogFunctionApi: NonReadonly<HogFunctionApi>,
+    hogFunctionApi?: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<HogFunctionApi> => {
     return apiMutator<HogFunctionApi>(getHogFunctionsCreateUrl(projectId), {
@@ -151,7 +151,7 @@ export const getHogFunctionsUpdateUrl = (projectId: string, id: string) => {
 export const hogFunctionsUpdate = async (
     projectId: string,
     id: string,
-    hogFunctionApi: NonReadonly<HogFunctionApi>,
+    hogFunctionApi?: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<HogFunctionApi> => {
     return apiMutator<HogFunctionApi>(getHogFunctionsUpdateUrl(projectId, id), {
@@ -169,7 +169,7 @@ export const getHogFunctionsPartialUpdateUrl = (projectId: string, id: string) =
 export const hogFunctionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFunctionApi: NonReadonly<PatchedHogFunctionApi>,
+    patchedHogFunctionApi?: NonReadonly<PatchedHogFunctionApi>,
     options?: RequestInit
 ): Promise<HogFunctionApi> => {
     return apiMutator<HogFunctionApi>(getHogFunctionsPartialUpdateUrl(projectId, id), {
@@ -180,13 +180,13 @@ export const hogFunctionsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getHogFunctionsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const hogFunctionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getHogFunctionsDestroyUrl(projectId, id), {
         ...options,
@@ -201,7 +201,7 @@ export const getHogFunctionsEnableBackfillsCreateUrl = (projectId: string, id: s
 export const hogFunctionsEnableBackfillsCreate = async (
     projectId: string,
     id: string,
-    hogFunctionApi: NonReadonly<HogFunctionApi>,
+    hogFunctionApi?: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getHogFunctionsEnableBackfillsCreateUrl(projectId, id), {
@@ -348,16 +348,16 @@ export const hogFunctionsIconsRetrieve = async (projectId: string, options?: Req
     })
 }
 
-/**
- * Update the execution order of multiple HogFunctions.
- */
 export const getHogFunctionsRearrangePartialUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_functions/rearrange/`
 }
 
+/**
+ * Update the execution order of multiple HogFunctions.
+ */
 export const hogFunctionsRearrangePartialUpdate = async (
     projectId: string,
-    patchedHogFunctionRearrangeApi: PatchedHogFunctionRearrangeApi,
+    patchedHogFunctionRearrangeApi?: PatchedHogFunctionRearrangeApi,
     options?: RequestInit
 ): Promise<HogFunctionApi[]> => {
     return apiMutator<HogFunctionApi[]>(getHogFunctionsRearrangePartialUpdateUrl(projectId), {

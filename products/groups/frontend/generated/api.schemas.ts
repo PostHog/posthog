@@ -27,7 +27,7 @@ export interface CreateGroupApi {
     group_type_index: number
     /** @maxLength 400 */
     group_key: string
-    group_properties?: unknown | null
+    group_properties?: unknown
 }
 
 export type GroupsListParams = {
