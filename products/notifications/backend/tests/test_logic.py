@@ -18,7 +18,7 @@ from products.notifications.backend.facade.enums import (
     SourceType,
     TargetType,
 )
-from products.notifications.backend.logic import create_notification
+from products.notifications.backend.logic import create_notification, publish_silent_push
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -282,3 +282,51 @@ class TestAccessControlFiltering(BaseTest):
         user_ids = [self.user.id, self.user2.id]
         result = self.resolver.filter_by_access_control(user_ids, "dashboard", self.team)
         assert result == [self.user.id]
+
+
+class TestPublishSilentPush(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="Silent Push Org")
+        self.team = Team.objects.create(organization=self.organization, name="Silent Push Team")
+        self.user = User.objects.create_and_join(self.organization, "silent@test.com", "password")
+
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_publishes_to_kafka(self, mock_get_producer):
+        mock_producer = mock_get_producer.return_value
+        publish_silent_push(
+            organization_id=str(self.organization.id),
+            team_id=self.team.id,
+            event_type="conversations_unread_changed",
+            user_ids=[self.user.id],
+        )
+
+        mock_producer.produce.assert_called_once()
+        call_kwargs = mock_producer.produce.call_args[1]
+        data = call_kwargs["data"]
+        assert data["organization_id"] == str(self.organization.id)
+        assert data["team_id"] == self.team.id
+        assert data["notification_type"] == "conversations_unread_changed"
+        assert data["resolved_user_ids"] == [self.user.id]
+        assert data["silent"] is True
+        assert call_kwargs["key"] == str(self.organization.id)
+
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_skips_when_no_user_ids(self, mock_get_producer):
+        publish_silent_push(
+            organization_id=str(self.organization.id),
+            team_id=self.team.id,
+            event_type="conversations_unread_changed",
+            user_ids=[],
+        )
+        mock_get_producer.assert_not_called()
+
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_does_not_create_db_row(self, mock_get_producer):
+        publish_silent_push(
+            organization_id=str(self.organization.id),
+            team_id=self.team.id,
+            event_type="conversations_unread_changed",
+            user_ids=[self.user.id],
+        )
+        assert NotificationEvent.objects.count() == 0

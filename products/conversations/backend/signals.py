@@ -17,6 +17,7 @@ from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import Ticket
 from .models.constants import Channel
+from .push import push_unread_count_changed
 from .tasks import post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
 
 logger = structlog.get_logger(__name__)
@@ -136,6 +137,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                     report_user_action(user, "support message sent", props, team=ticket.team)
             else:
                 report_team_action(ticket.team, "support message received", props)
+
+            if author_type == "customer":
+                push_unread_count_changed(ticket.team)
         except Ticket.DoesNotExist:
             pass
         except Exception as e:

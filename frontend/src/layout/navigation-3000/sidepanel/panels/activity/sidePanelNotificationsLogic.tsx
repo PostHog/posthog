@@ -101,6 +101,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
+        silentPushReceived: (payload: Record<string, unknown>) => ({ payload }),
     }),
     reducers({
         isInitialLoadComplete: [
@@ -293,6 +294,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         abortController.signal,
                         (notification) => {
                             if (!values.isInitialLoadComplete) {
+                                return
+                            }
+                            if ((notification as Record<string, unknown>).silent) {
+                                actions.silentPushReceived(notification as unknown as Record<string, unknown>)
                                 return
                             }
                             actions.notificationReceived(notification)

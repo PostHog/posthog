@@ -1,3 +1,6 @@
+import uuid
+from datetime import UTC, datetime
+
 from django.db import transaction
 
 import structlog
@@ -130,3 +133,42 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     transaction.on_commit(_on_commit)
 
     return event
+
+
+def publish_silent_push(
+    *,
+    organization_id: str,
+    team_id: int,
+    event_type: str,
+    user_ids: list[int],
+) -> None:
+    """Publish a silent push event to the notification SSE pipeline.
+
+    Unlike create_notification this skips DB persistence — useful for
+    lightweight badge-count updates that should not appear in the
+    notification panel.
+    """
+    if not user_ids:
+        return
+    try:
+        producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
+        producer.produce(
+            topic=KAFKA_NOTIFICATION_EVENTS,
+            data={
+                "id": str(uuid.uuid4()),
+                "organization_id": organization_id,
+                "team_id": team_id,
+                "notification_type": event_type,
+                "resolved_user_ids": user_ids,
+                "silent": True,
+                "created_at": datetime.now(UTC).isoformat(),
+            },
+            key=organization_id,
+        )
+    except Exception:
+        logger.exception(
+            "notifications.silent_push_failed",
+            organization_id=organization_id,
+            team_id=team_id,
+            event_type=event_type,
+        )
