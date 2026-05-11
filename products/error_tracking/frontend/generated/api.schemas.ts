@@ -1413,6 +1413,28 @@ export interface ErrorTrackingSuppressionRuleCreateRequestApi {
     sampling_rate?: number
 }
 
+export interface ErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown

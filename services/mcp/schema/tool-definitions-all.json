@@ -1399,6 +1399,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-suppression-rules-update": {
+        "description": "Update an error tracking suppression rule by ID. Only the fields you include in the request body are applied; omitted fields keep their existing values. Supports updating `filters` and `sampling_rate`. WARNING: broadening `filters` will start dropping additional events at ingestion silently. Keep filters tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over widening the match. Confirm with the user before changing a rule's filters in a way that could match more than one distinct error.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking suppression rule",
+        "title": "Update error tracking suppression rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-symbol-sets-download-retrieve": {
         "description": "Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
         "category": "Error tracking",

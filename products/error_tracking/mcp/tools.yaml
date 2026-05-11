@@ -345,7 +345,21 @@ tools:
         enabled: false
     error-tracking-suppression-rules-update:
         operation: error_tracking_suppression_rules_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update error tracking suppression rule
+        description: >
+            Update an error tracking suppression rule by ID. Only the fields you include in the request body are
+            applied; omitted fields keep their existing values. Supports updating `filters` and `sampling_rate`.
+            WARNING: broadening `filters` will start dropping additional events at ingestion silently. Keep filters
+            tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over
+            widening the match. Confirm with the user before changing a rule's filters in a way that could match more
+            than one distinct error.
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false

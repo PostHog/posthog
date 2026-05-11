@@ -779,32 +779,13 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMax = 2147483647
+export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    order_key: zod
-        .number()
-        .min(errorTrackingSuppressionRulesUpdateBodyOrderKeyMin)
-        .max(errorTrackingSuppressionRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().optional(),
-    sampling_rate: zod.number().optional(),
-})
-
-export const errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod
-        .number()
-        .min(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMax)
-        .optional(),
-    disabled_data: zod.unknown().optional(),
-    sampling_rate: zod.number().optional(),
-})
+export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647

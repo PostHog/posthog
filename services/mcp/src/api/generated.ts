@@ -13876,6 +13876,17 @@ export namespace Schemas {
       sampling_rate?: number;
     }
 
+    export interface ErrorTrackingSuppressionRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+      /**
+         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
     /**
      * Release associated with this symbol set, if any.
      * @nullable
@@ -25409,6 +25420,17 @@ export namespace Schemas {
       sampling_rate?: number;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+      /**
+         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
     }
 
     /**
