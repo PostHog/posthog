@@ -31,7 +31,6 @@ CONSUMER_GROUP_PROPERTY_VALUES = "clickhouse_property_values"
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
 CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
-CONSUMER_GROUP_HOG_INVOCATION_RESULTS_WS = "clickhouse_hog_invocation_results_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
 CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS = "clickhouse_precalculated_person_properties_ws"

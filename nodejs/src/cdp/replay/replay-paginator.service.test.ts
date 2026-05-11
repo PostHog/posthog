@@ -128,12 +128,12 @@ describe('ReplayPaginatorService integration', () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
         await resetKafka()
         await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS])
-        await clickhouse.truncate('sharded_hog_invocation_results')
+        await clickhouse.truncate('hog_invocation_results_data')
     })
 
     beforeEach(async () => {
         await resetTestDatabase()
-        await clickhouse.truncate('sharded_hog_invocation_results')
+        await clickhouse.truncate('hog_invocation_results_data')
         seededCount = 0
 
         hub = await createHub()

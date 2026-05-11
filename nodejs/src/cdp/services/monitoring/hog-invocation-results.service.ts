@@ -34,7 +34,7 @@ export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | Cdp
 
 /**
  * Lifecycle row produced to ClickHouse via Kafka. Mirrors the columns on the
- * sharded_hog_invocation_results table. Two such rows are produced per
+ * hog_invocation_results_data table. Two such rows are produced per
  * invocation: one when execution starts (`status='running'`) and one when it
  * finishes (`status='succeeded' | 'failed'`). On a replay, the cycle repeats
  * with the same `invocation_id`, `is_retry=1`, and `attempts` bumped — the

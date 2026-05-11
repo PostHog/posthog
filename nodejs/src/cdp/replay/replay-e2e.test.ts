@@ -145,10 +145,10 @@ describe('CDP hog invocation replay e2e', () => {
         // resetKafka does not include KAFKA_HOG_INVOCATION_RESULTS — add it so the
         // ClickHouse Kafka engine consumer can attach.
         await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS])
-        await clickhouse.truncate('sharded_hog_invocation_results')
+        await clickhouse.truncate('hog_invocation_results_data')
         await waitForHogInvocationResultsMvReady(clickhouse)
         await resetTestDatabase()
-        await clickhouse.truncate('sharded_hog_invocation_results')
+        await clickhouse.truncate('hog_invocation_results_data')
 
         hub = await createHub()
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)

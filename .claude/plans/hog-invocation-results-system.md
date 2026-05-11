@@ -40,7 +40,7 @@ These were nailed down during scoping; they are not open questions.
 ## Schema
 
 ```sql
-CREATE TABLE sharded_hog_invocation_results (
+CREATE TABLE hog_invocation_results_data (
     -- Identity
     team_id Int64,
     function_kind LowCardinality(String),   -- 'hog_function' | 'hog_flow'
@@ -102,14 +102,14 @@ INDEX event_uuid_idx  event_uuid    TYPE bloom_filter(0.01) GRANULARITY 4
 INDEX is_retry_idx    is_retry      TYPE set(2)             GRANULARITY 4
 ```
 
-### Standard table layout (mirrors `log_entries` / `app_metrics2`)
+### Cluster + table layout (mirrors `property_values`)
 
-- `sharded_hog_invocation_results` — replicated, partitioned, the actual data.
-- `writable_hog_invocation_results` — distributed alias used as the MV target.
-- `hog_invocation_results` — distributed alias used by readers (and by HogQL).
-- `kafka_hog_invocation_results` — Kafka engine table consuming `KAFKA_HOG_INVOCATION_RESULTS`.
-- `hog_invocation_results_mv` — materialized view from kafka to writable.
-- WarpStream variants of the kafka + MV pair alongside the MSK ones (same coexistence pattern as `log_entries` / `app_metrics2`).
+The data table lives on the **AUX** ClickHouse cluster — 1 shard, 2 replicas. Off the main events pipeline so a bad day on this consumer can't back-pressure the events ingest path; co-located with other low-volume per-team metadata.
+
+- `hog_invocation_results_data` — `ReplicatedReplacingMergeTree` on AUX. The actual rows. Single shard, so no `sharded_` prefix and no writable-distributed fan-out wrapper.
+- `kafka_hog_invocation_results` — single Kafka engine table on AUX, backed by the **warpstream-shared** named collection. One topic, one consumer group (`clickhouse_hog_invocation_results`). No MSK pair — the shared cluster is the only consumer.
+- `hog_invocation_results_mv` — MV on AUX, reads from `kafka_hog_invocation_results`, writes straight to `hog_invocation_results_data`.
+- `hog_invocation_results` — `Distributed` read alias on AUX **and** DATA so HogQL queries from the main cluster and replay queries from the worker both resolve. `cluster=settings.CLICKHOUSE_AUX_CLUSTER` routes the lookups to the AUX replicas.
 
 ## Write path
 
