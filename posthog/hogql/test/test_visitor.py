@@ -3,8 +3,12 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.ast import HogQLXAttribute, HogQLXTag, UUIDType
-from posthog.hogql.errors import InternalHogQLError
+from posthog.hogql.ast import AST_CLASSES, HogQLXAttribute, HogQLXTag, UUIDType
+from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
+from posthog.hogql.errors import (
+    InternalHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
 
@@ -167,15 +171,6 @@ class TestVisitor(BaseTest):
         TraversingVisitor().visit(ast.IntervalType())
 
     def test_cached_visit_method_name_matches_legacy_algorithm(self):
-        """``AST.__init_subclass__`` caches each class's ``visit_<snake_case>``
-        method name on the class. This test re-derives the name from the legacy
-        regex+replacements algorithm for *every* AST subclass and asserts the
-        cached value matches — so any class added without going through the
-        normal class statement (e.g. via ``type()``) would still flag a
-        mismatch here rather than silently dispatching to ``visit_unknown``."""
-
-        from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
-
         def legacy(cls_name: str) -> str:
             name = camel_case_pattern.sub("_", cls_name).lower()
             for old, new in _VISIT_NAME_REPLACEMENTS.items():
@@ -193,9 +188,6 @@ class TestVisitor(BaseTest):
                         stack.append(sub)
             return seen
 
-        # Force import of the full AST module so all subclasses are registered.
-        from posthog.hogql.ast import AST_CLASSES
-
         subclasses = all_subclasses(AST)
         # `__subclasses__()` also returns pre-`@dataclass(slots=True)` ghost
         # classes, so `subclasses` is always a superset of `AST_CLASSES`.
@@ -210,10 +202,6 @@ class TestVisitor(BaseTest):
         assert not mismatches, f"_visit_method_name mismatches: {mismatches}"
 
     def test_accept_falls_back_to_visit_unknown(self):
-        """If a visitor doesn't define the specific ``visit_<X>`` method, the
-        accept dispatch should fall back to ``visit_unknown``. Regression cover
-        for the cached-name accept() rewrite."""
-
         class FallbackVisitor(Visitor):
             def visit_unknown(self, node):
                 return f"unknown:{node.__class__.__name__}"
@@ -221,10 +209,6 @@ class TestVisitor(BaseTest):
         assert FallbackVisitor().visit(ast.Field(chain=["x"])) == "unknown:Field"
 
     def test_accept_raises_when_no_visit_method_and_no_unknown(self):
-        """Accept should raise NotImplementedError mentioning the expected
-        method name when neither the specific visit nor visit_unknown exists."""
-        from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
-
         class EmptyVisitor(Visitor):
             pass
 
