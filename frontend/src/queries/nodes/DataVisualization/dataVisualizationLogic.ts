@@ -123,6 +123,9 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
 const cloneSettings = (settings: AxisSeriesSettings): AxisSeriesSettings =>
     mergeObject({}, settings) as AxisSeriesSettings
 
+const cloneOrDefaultSettings = (settings?: AxisSeriesSettings): AxisSeriesSettings =>
+    settings ? cloneSettings(settings) : DefaultAxisSettings()
+
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
 
@@ -475,7 +478,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     if (node.tableSettings?.columns) {
                         return node.tableSettings.columns.map((column) => ({
                             name: column.column,
-                            settings: column.settings ? cloneSettings(column.settings) : DefaultAxisSettings(),
+                            settings: cloneOrDefaultSettings(column.settings),
                         }))
                     }
                     return state
@@ -551,14 +554,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         selectedYAxis: [
             (props.query.chartSettings?.yAxis?.map((axis) => ({
                 name: axis.column,
-                settings: axis.settings ? cloneSettings(axis.settings) : DefaultAxisSettings(),
+                settings: cloneOrDefaultSettings(axis.settings),
             })) ?? null) as (SelectedYAxis | null)[] | null,
             {
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
                         return node.chartSettings.yAxis.map((axis) => ({
                             name: axis.column,
-                            settings: axis.settings ? cloneSettings(axis.settings) : DefaultAxisSettings(),
+                            settings: cloneOrDefaultSettings(axis.settings),
                         }))
                     }
                     return state
