@@ -50,6 +50,12 @@ class AST:
         # the same class-identity quirk that affects AST.__str__ below — the
         # method's __class__ closure cell points at the pre-
         # @dataclass(slots=True) AST, which isn't in the new MRO.
+        #
+        # This body runs twice per slotted subclass (once before the
+        # @dataclass(slots=True) rebuild, once after) — keep it idempotent.
+        # Extension point for overriding the cached name is
+        # `_VISIT_NAME_REPLACEMENTS` above, not a class-level assignment
+        # of `_visit_method_name` (which would be clobbered here).
         cls._visit_method_name = _compute_visit_method_name(cls.__name__)
 
     # This is part of the visitor pattern from visitor.py.

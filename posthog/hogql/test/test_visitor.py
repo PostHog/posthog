@@ -194,10 +194,14 @@ class TestVisitor(BaseTest):
             return seen
 
         # Force import of the full AST module so all subclasses are registered.
-        import posthog.hogql.ast  # noqa: F401
+        from posthog.hogql.ast import AST_CLASSES
 
         subclasses = all_subclasses(AST)
-        assert len(subclasses) > 50, "expected to find many AST subclasses"
+        # `__subclasses__()` also returns pre-`@dataclass(slots=True)` ghost
+        # classes, so `subclasses` is always a superset of `AST_CLASSES`.
+        assert len(subclasses) >= len(AST_CLASSES), (
+            f"expected at least {len(AST_CLASSES)} AST subclasses, found {len(subclasses)}"
+        )
         mismatches = [
             (cls.__name__, cls._visit_method_name, legacy(cls.__name__))
             for cls in subclasses
