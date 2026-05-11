@@ -118,44 +118,20 @@ RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
 DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
 
 
-# --- Parse-result cache ----------------------------------------------------
-#
-# Most production HogQL parsing is repeat work — the same templated insight
-# or dashboard query is parsed many times per minute. We cache the parsed AST
-# keyed on (statement, backend, rule[, start]) and `deepcopy` on hit so the
-# returned AST can still be freely mutated by downstream resolve/print.
-#
-# Two separate caches: one for queries that originate from in-process code
-# literals (small, bounded by what we ship) and one for everything else
-# (user input, dynamically composed SQL, file content). The split exists so
-# a flood of unique user-generated queries can't displace the hot built-in
-# entries.
-#
-# Origin is autodetected by walking the call stack and identity-checking the
-# input string against each frame's `co_consts`. Callers can override via
-# `cache_origin="builtin"` or `cache_origin="user"`.
+# Two caches so a flood of unique user-generated queries can't displace the
+# hot in-code-literal entries. Origin is auto-detected via the call-stack
+# `co_consts` walk; callers can override via `cache_origin`.
 
 _BUILTIN_CACHE_SIZE = 256
 _USER_CACHE_SIZE = 512
-# 40 is generous: PostHog stacks routinely exceed 20 (DRF + middleware + Celery
-# + opentelemetry + structlog), and the walk terminates early on identity match.
 _LITERAL_DETECTION_FRAME_DEPTH = 40
-# Below this length, CPython's automatic string interning makes identity-match
-# unreliable — short identifier-shaped strings like "id" or "event" can share
-# identity with `co_consts` entries elsewhere and falsely classify user input
-# as a code literal.
+# Short identifier-shaped strings are auto-interned by CPython and can
+# spuriously identity-match `co_consts` elsewhere, misrouting user input.
 _LITERAL_DETECTION_MIN_LEN = 32
 
-# Skip caching queries longer than this — bounds worst-case memory growth from
-# user-controlled inputs. Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` allows 20 MB
-# request bodies; without this cap, an attacker could submit 512 distinct
-# megabyte-scale queries and pin gigabytes per worker. 64 KiB is well above
-# any production HogQL query observed in practice (the deepest synthetic
-# pathological in our benchmark is <5 KiB). Applied to the USER cache and
-# to AUTO classifications (we don't have 100% confidence in auto-routing,
-# and a misclassification that puts a huge user query in BUILTIN would defeat
-# the bucket-split protection). Explicit `cache_origin=BUILTIN` is trusted —
-# it's an opt-in by code that knows what it's storing.
+# Cap worst-case memory growth from user-controlled inputs. Skipped queries
+# parse fresh, no cache write. Explicit `cache_origin=BUILTIN` bypasses
+# the cap (trusted opt-in).
 _MAX_CACHEABLE_STATEMENT_LEN = 64 * 1024
 
 _PARSE_CACHE_EVENTS = Counter(
@@ -178,20 +154,12 @@ _PARSE_CACHE_MAXSIZE = Gauge(
 
 
 def _looks_like_code_literal(s: str) -> bool:
-    """Best-effort: is ``s`` a string literal in the active call stack?
+    """True if ``s`` is a string literal somewhere in the active call stack.
 
-    Python's compiler stores literal strings in each function's ``co_consts``
-    tuple as a stable object. Walking up active frames and identity-checking
-    ``s`` against each frame's ``co_consts`` distinguishes code literals from
-    runtime-constructed strings (user input, dynamic composition, file
-    content). Misses module/class-level constants referenced via
-    ``LOAD_GLOBAL`` — those frames aren't on the active stack at call time;
-    callers pass ``cache_origin=CacheOrigin.BUILTIN`` explicitly in that case.
-
-    Short strings are rejected up-front: CPython auto-interns short
-    identifier-shaped strings, which can spuriously identity-match
-    ``co_consts`` entries elsewhere and misroute user input to the built-in
-    cache.
+    Python literals share identity with their frame's ``co_consts``;
+    runtime-constructed strings don't. Module/class-level constants
+    referenced via ``LOAD_GLOBAL`` are missed — callers pass
+    ``cache_origin=CacheOrigin.BUILTIN`` explicitly for those.
     """
     if len(s) < _LITERAL_DETECTION_MIN_LEN:
         return False
@@ -206,20 +174,13 @@ def _looks_like_code_literal(s: str) -> bool:
     return False
 
 
-# Sentinel for distinguishing "key not present" from "key maps to None".
-# Necessary because nothing currently makes the parsers return None, but the
-# `cache.get(key, _MISS) is _MISS` idiom is robust to a future tolerant-parsing
-# path that might.
+# Sentinel distinguishes "key absent" from a cached ``None``.
 _MISS: Any = object()
 
 _builtin_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_BUILTIN_CACHE_SIZE)
 _user_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_USER_CACHE_SIZE)
-# Single lock for both caches. `cachetools.LRUCache` is explicitly NOT
-# thread-safe — its `__setitem__` is a compound check-evict-insert and its
-# `__getitem__` moves the entry to the front, both of which can transiently
-# violate the bounded-size invariant under concurrent access from threaded
-# WSGI/Celery workers. The cache hit cost is dominated by `deepcopy`
-# (~14-200 µs), so the lock acquire/release overhead (~50 ns) is negligible.
+# `cachetools.LRUCache` is not thread-safe; the lock guards against
+# threaded WSGI/Celery workers.
 _PARSE_CACHE_LOCK = threading.Lock()
 
 _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.BUILTIN).set(_BUILTIN_CACHE_SIZE)
@@ -228,11 +189,8 @@ _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
 
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
     fn = RULE_TO_PARSE_FUNCTION[backend][rule]
-    # Only `expr` takes a `start` arg; the others have a single positional.
-    # The histogram measures parse cost specifically — cache lookups bypass
-    # it, so `parse_*_seconds` is a parser-perf signal independent of cache
-    # hit rate. `program` is not in `RULE_TO_HISTOGRAM`, so no timing is
-    # recorded for it.
+    # Histogram wraps only the parse so `parse_*_seconds` stays a parser-perf
+    # signal regardless of cache hit rate. Only `expr` takes a `start` arg.
     histogram = RULE_TO_HISTOGRAM.get(rule)
     if histogram is None:
         return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
@@ -250,28 +208,16 @@ def _parse_cached(
 ) -> Any:
     """Look up a parsed AST, parsing on miss.
 
-    Fast path for ``cache_origin == CacheOrigin.AUTO``: check the built-in
-    cache, then the user cache, returning on the first hit. Only on a full
-    miss do we walk the call stack to classify the query and parse it.
-    This skips the frame walk on every cache hit, which dominates traffic
-    once the cache is warm.
+    ``AUTO`` consults both caches before classifying via frame walk, so the
+    walk is on the cold path only. Explicit ``BUILTIN``/``USER`` only
+    consult their own cache.
 
-    Explicit ``BUILTIN`` / ``USER`` origins only consult their own cache —
-    callers opting into one explicitly should not get hits from the other.
-
-    Hits return a ``copy.deepcopy`` so callers can mutate the AST without
-    affecting future cache hits (the resolver and printer both mutate).
-    Misses parse fresh and store a deepcopy in the cache; the fresh parse
-    (single owner) is returned directly without an extra copy.
+    Returns a deepcopy on hit so the resolver/printer can mutate freely.
+    The miss path returns the fresh parse directly and stores the deepcopy.
     """
-    # Coerce so a stringly-typed call (`"builtin"`, `"user"`, `"auto"`) is
-    # validated and a typo raises rather than silently routing to the user
-    # cache via the `==` else-branch.
+    # Coerce so a stringly-typed call validates and a typo raises.
     cache_origin = CacheOrigin(cache_origin)
 
-    # Skip caching for oversized statements unless the caller explicitly
-    # opts into the built-in cache. This caps worst-case memory growth
-    # from user-controlled inputs without affecting the typical fast path.
     if cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN:
         _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="skip", rule=rule).inc()
         return _invoke_parser(backend, rule, statement, start)
@@ -279,8 +225,6 @@ def _parse_cached(
     key = (statement, backend, rule, start)
 
     if cache_origin == CacheOrigin.AUTO:
-        # Built-in is checked first because it holds the hot, in-process
-        # literal queries — the case we expect to dominate production traffic.
         with _PARSE_CACHE_LOCK:
             cached = _builtin_parse_cache.get(key, _MISS)
             if cached is _MISS:
@@ -291,7 +235,6 @@ def _parse_cached(
         if hit_origin is not None:
             _PARSE_CACHE_EVENTS.labels(origin=hit_origin, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
-        # Full miss — classify so we know which cache to fill.
         cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(statement) else CacheOrigin.USER
     else:
         cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
@@ -301,10 +244,8 @@ def _parse_cached(
             _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
 
-    # Miss path: parse without holding the lock (parsing is the expensive part
-    # and is pure — concurrent parses of the same key race idempotently), then
-    # take the lock to store. The fresh parse (single owner) is returned
-    # directly without an extra deepcopy.
+    # Parse outside the lock — it's the expensive part, and concurrent parses
+    # of the same key race idempotently.
     cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
     parsed = _invoke_parser(backend, rule, statement, start)
     cached_copy = copy.deepcopy(parsed)
@@ -336,9 +277,8 @@ def parse_string_template(
     """Parse a full template string without start/end quotes"""
     if timings is None:
         timings = HogQLTimings()
-    # Classify on the raw `string` (which may be a code literal) before the
-    # `"F'" +` runtime concat — otherwise auto-detect always sees the fresh
-    # concatenated string and routes built-in templates to the user cache.
+    # Classify on the raw `string`; the `"F'" +` concat below is a fresh
+    # runtime string and would never match a frame literal.
     if cache_origin == CacheOrigin.AUTO:
         cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(string) else CacheOrigin.USER
     with timings.measure(f"parse_full_template_string_{backend}"):
