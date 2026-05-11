@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValueWithShareOfTotal } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -97,11 +97,8 @@ export function ActionsHorizontalBar({
             tooltip={{
                 showHeader: false,
                 groupTypeLabel: context?.groupTypeLabel,
-                renderCount: (value: number): string => {
-                    const formatted = formatAggregationAxisValue(trendsFilter, value, baseCurrency)
-                    const percentage = ((value / total) * 100).toFixed(1)
-                    return `${formatted} (${percentage}%)`
-                },
+                renderCount: (value: number): string =>
+                    formatAggregationAxisValueWithShareOfTotal(trendsFilter, value, total, baseCurrency),
             }}
             labelGroupType={labelGroupType}
             datasets={data}
