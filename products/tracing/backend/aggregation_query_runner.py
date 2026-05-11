@@ -370,7 +370,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                     if(
                         empty(s.parent_span_id) OR isNull(p.timestamp),
                         toFloat(0),
-                        toFloat(toUnixTimestamp(s.timestamp) - toUnixTimestamp(p.timestamp))
+                        toFloat(s.timestamp) - toFloat(p.timestamp)
                     )
                 ) AS avg_start_offset_nano
             FROM spans AS s
