@@ -471,9 +471,39 @@ fn extract_features_via_mirror<'py>(
     ))
 }
 
+// Mirror handle returned to Python — opaque, the only thing callers do with it
+// is hand it back to `extract_features_from_mirror`. Lets bench code time the
+// conversion and the native walk separately.
+#[pyclass]
+struct AstMirror {
+    inner: AstNode,
+}
+
+#[pyfunction]
+fn to_mirror(query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
+    Ok(AstMirror {
+        inner: convert(&query)?,
+    })
+}
+
+#[pyfunction]
+fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyResult<Bound<'py, PyTuple>> {
+    let mut v = NativeVisitor::new();
+    v.visit(&mirror.inner);
+    let tables = v.tables.into_iter().collect::<Vec<_>>();
+    let events = v.events.into_iter().collect::<Vec<_>>();
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
+}
+
 #[pymodule]
 fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
+    m.add_class::<AstMirror>()?;
     Ok(())
 }

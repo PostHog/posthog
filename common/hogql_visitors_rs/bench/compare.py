@@ -2,6 +2,9 @@
 
 Run from repo root after `maturin develop --release` in this dir:
     python common/hogql_visitors_rs/bench/compare.py
+
+Reports total ms for 5000 invocations across four variants so the
+conversion overhead of strategy B is visible alongside the visitor cost.
 """
 
 # ruff: noqa: T201, E402, B023, I001
@@ -44,34 +47,34 @@ QUERIES = {
     ),
 }
 
-ITERATIONS = 5000
+N = 5000
 
 
 def run() -> None:
-    print(f"{'query':<28} {'py µs':>10} {'rs-py µs':>10} {'rs-mirror µs':>14} {'rs-mirror×N=5':>15}")
-    print("-" * 80)
+    header = (
+        f"{'query':<24} "
+        f"{'python (ms)':>12} "
+        f"{'A: PyO3 (ms)':>14} "
+        f"{'B: full (ms)':>14} "
+        f"{'B: visit only (ms)':>20} "
+        f"{'B: convert (ms)':>16}"
+    )
+    print(header)
+    print("-" * len(header))
+    print(f"{'(total for ' + str(N) + ' calls)':<24}")
+    print()
+
     for name, sql in QUERIES.items():
         parsed = parse_select(sql)
+        mirror = hogql_visitors_rs.to_mirror(parsed)  # pre-converted, reused across iters
 
-        t_py = timeit.timeit(lambda: extract_python(parsed), number=ITERATIONS) / ITERATIONS * 1e6
-        t_rs_py = (
-            timeit.timeit(lambda: hogql_visitors_rs.extract_features_py(parsed), number=ITERATIONS) / ITERATIONS * 1e6
-        )
-        t_rs_mirror = (
-            timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror(parsed), number=ITERATIONS)
-            / ITERATIONS
-            * 1e6
-        )
+        t_py = timeit.timeit(lambda: extract_python(parsed), number=N) * 1000
+        t_a = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py(parsed), number=N) * 1000
+        t_b_full = timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror(parsed), number=N) * 1000
+        t_b_visit = timeit.timeit(lambda: hogql_visitors_rs.extract_features_from_mirror(mirror), number=N) * 1000
+        t_b_convert = t_b_full - t_b_visit  # implied — the leftover after subtracting the visit-only cost
 
-        # Stand-in for "5 different visitors over the same converted AST" —
-        # see README for the architecture this points toward.
-        def five() -> None:
-            for _ in range(5):
-                hogql_visitors_rs.extract_features_via_mirror(parsed)
-
-        t_rs_mirror5 = timeit.timeit(five, number=ITERATIONS // 5) / (ITERATIONS // 5) * 1e6
-
-        print(f"{name:<28} {t_py:>10.2f} {t_rs_py:>10.2f} {t_rs_mirror:>14.2f} {t_rs_mirror5:>15.2f}")
+        print(f"{name:<24} {t_py:>12.2f} {t_a:>14.2f} {t_b_full:>14.2f} {t_b_visit:>20.2f} {t_b_convert:>16.2f}")
 
 
 if __name__ == "__main__":

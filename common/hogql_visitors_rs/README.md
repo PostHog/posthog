@@ -62,36 +62,44 @@ publishing flow consumes it. For local dev `maturin develop` keeps it cheap.
 
 ## Measured speedup
 
-Numbers from `bench/compare.py` on Apple Silicon, release build, 5000 iters
-per query, single Python process:
+Numbers from `bench/compare.py` on Apple Silicon, release build, **total ms
+for 5000 invocations** of each variant. B is split into `convert`
+(Python → Rust mirror) and `visit only` (walking the converted mirror) so
+the conversion overhead is visible separately from the visitor cost.
 
 ```text
-query                             py µs   rs-py µs   rs-mirror µs   rs-mirror×5
-tiny                               2.42       0.20           0.21          1.05
-events_simple                      6.31       0.84           1.05          4.78
-events_in_clause                   8.24       1.09           1.38          6.54
-join_persons                      10.49       0.98           1.34          6.61
-subquery_with_filters             22.89       1.24           2.05         10.44
-trends_like_breakdown             34.49       1.57           2.07          9.54
+query                     python    A: PyO3   B: full   B: visit only   B: convert
+tiny                       19.40       1.46      1.54            0.57         0.97
+events_simple              36.19       4.28      5.09            1.31         3.78
+events_in_clause           44.50       5.57      7.16            1.55         5.61
+join_persons               56.80       5.38      6.98            1.27         5.71
+subquery_with_filters     121.53       6.35     10.71            0.86         9.85
+trends_like_breakdown     178.95       7.12      9.93            0.87         9.06
 ```
 
-- **Strategy A** (read Python in place): **7–22× faster than Python**, growing
-  with query size. The wins come from skipping the `node.accept(self) →
-self.visit_X(node)` dispatch and inlining `cls.name` checks instead of
-  isinstance/MRO walks.
-- **Strategy B** (convert + walk native, single visitor): ~5–17× faster, and
-  slightly _slower_ than A because the benchmark fully converts every
-  iteration. The amortisation case ("convert once, run N visitors over the
-  mirror") needs a different API than this PoC exposes — the `×5` column
-  above runs 5 full conversions, so it shows linear cost, not the
-  share-the-conversion win.
+What the split makes obvious:
 
-The "minimal interop cost" hypothesis worked out better than I expected: yes,
-every Python attribute access from Rust still goes through CPython's C API,
-but Python's interpreter overhead per method call (frame setup, dict lookup
-for visitor dispatch, isinstance MRO walk) is roughly an order of magnitude
-heavier than the single C call PyO3 makes. Net: even a single-visitor Rust
-port is very much worth it; the multi-visitor batch API is icing.
+- **A (read Python in place)** is a great single-visitor port — 8–25×
+  faster than Python on its own.
+- **B's `convert` step dominates B's total**, ~85–90% of the cost. Each
+  conversion does the same Python `getattr` work A does, plus allocates
+  Rust enum nodes.
+- **B's `visit only` step is essentially free** — <1.5 ms for 5000 walks
+  of the trends-like query, vs ~7 ms for A on the same workload. This is
+  the pure native-tree-walk cost.
+
+That last row is the punchline. For one visitor over a query, A wins. For
+multiple visitors over the same query, B's "pay convert once, run N cheap
+walks" wins fast — break-even is ~1.5 visitors on the trends-like query,
+and at 5 visitors B is ~2.7× faster than A and ~67× faster than Python.
+
+The "minimal interop cost" hypothesis worked out better than I expected:
+yes, every Python attribute access from Rust still goes through CPython's
+C API, but Python's interpreter overhead per method call (frame setup,
+dict lookup for visitor dispatch, isinstance MRO walk) is roughly an
+order of magnitude heavier than the single C call PyO3 makes. Net: even
+a single-visitor Rust port is very much worth it; the multi-visitor batch
+API is icing on top.
 
 ## What this points toward (if we like the numbers)
 
