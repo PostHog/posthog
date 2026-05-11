@@ -489,6 +489,30 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
     description?: string | null
 }
 
+export interface ErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+    /** Optional user or role to assign to issues created by this grouping rule. Omit to preserve the existing assignee. */
+    assignee?: ErrorTrackingGroupingRuleAssigneeRequestApi | null
+    /**
+     * Optional human-readable description of what this grouping rule is for. Omit to preserve the existing description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+    /** Optional user or role to assign to issues created by this grouping rule. Omit to preserve the existing assignee. */
+    assignee?: ErrorTrackingGroupingRuleAssigneeRequestApi | null
+    /**
+     * Optional human-readable description of what this grouping rule is for. Omit to preserve the existing description.
+     * @nullable
+     */
+    description?: string | null
+}
+
 /**
  * @nullable
  */

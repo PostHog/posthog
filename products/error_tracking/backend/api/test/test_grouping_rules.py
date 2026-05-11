@@ -198,3 +198,107 @@ class TestGroupingRuleAPI(APIBaseTest):
         assert body["type"] == "validation_error"
         assert body["attr"] == f"assignee__{sub_attr}"
         assert body["detail"] == expected_detail
+
+    def _create_rule(self) -> ErrorTrackingGroupingRule:
+        response = self.client.post(
+            self._url(),
+            data={
+                "filters": VALID_FILTERS,
+                "assignee": {"type": "user", "id": self.user.id},
+                "description": "Original description",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return ErrorTrackingGroupingRule.objects.get(id=response.json()["id"])
+
+    def test_update_allows_partial_filters_payload(self) -> None:
+        rule = self._create_rule()
+        new_filters = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "$exception_type", "type": "event", "value": ["RangeError"], "operator": "exact"}
+                    ],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            self._url(str(rule.id)),
+            data={"filters": new_filters},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        rule.refresh_from_db()
+        assert rule.filters == new_filters
+        assert rule.user_id == self.user.id
+        assert rule.description == "Original description"
+
+    def test_update_rejects_invalid_filters_payload(self) -> None:
+        rule = self._create_rule()
+
+        response = self.client.patch(
+            self._url(str(rule.id)),
+            data={"filters": {"not": "a valid property group"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
+        assert body["detail"] == "Invalid filters payload."
+
+    def test_update_rejects_mismatched_assignee(self) -> None:
+        rule = self._create_rule()
+
+        response = self.client.patch(
+            self._url(str(rule.id)),
+            data={"assignee": {"type": "role", "id": 42}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "assignee__id"
+
+    def test_update_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
+        rule = self._create_rule()
+        new_filters = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "$exception_type", "type": "event", "value": ["RangeError"], "operator": "exact"}
+                    ],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            self._url(str(rule.id)),
+            data={
+                "filters": new_filters,
+                "description": "Updated description",
+                "order_key": 456,
+                "disabled_data": {"reason": "frontend-local-state"},
+                "created_at": rule.created_at.isoformat(),
+                "updated_at": rule.updated_at.isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        rule.refresh_from_db()
+        assert rule.filters == new_filters
+        assert rule.description == "Updated description"
+        assert rule.order_key == 0
+        assert rule.disabled_data is None

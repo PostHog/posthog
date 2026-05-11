@@ -127,10 +127,7 @@ const ErrorTrackingGroupingRulesUpdateSchema = ErrorTrackingGroupingRulesUpdateP
     ErrorTrackingGroupingRulesUpdateBody.shape
 )
 
-const errorTrackingGroupingRulesUpdate = (): ToolBase<
-    typeof ErrorTrackingGroupingRulesUpdateSchema,
-    Schemas.ErrorTrackingGroupingRule
-> => ({
+const errorTrackingGroupingRulesUpdate = (): ToolBase<typeof ErrorTrackingGroupingRulesUpdateSchema, unknown> => ({
     name: 'error-tracking-grouping-rules-update',
     schema: ErrorTrackingGroupingRulesUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingGroupingRulesUpdateSchema>) => {
@@ -139,16 +136,13 @@ const errorTrackingGroupingRulesUpdate = (): ToolBase<
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
+        if (params.assignee !== undefined) {
+            body['assignee'] = params.assignee
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.order_key !== undefined) {
-            body['order_key'] = params.order_key
-        }
-        if (params.disabled_data !== undefined) {
-            body['disabled_data'] = params.disabled_data
-        }
-        const result = await context.api.request<Schemas.ErrorTrackingGroupingRule>({
+        const result = await context.api.request<unknown>({
             method: 'PUT',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/${encodeURIComponent(String(params.id))}/`,
             body,

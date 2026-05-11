@@ -1325,7 +1325,7 @@
         }
     },
     "error-tracking-grouping-rules-update": {
-        "description": "Update an error tracking grouping rule by ID. Replaces the rule with the provided `filters`, `order_key`, and optional `description`. Use `error-tracking-grouping-rules-partial-update` if you only want to change a subset of fields.",
+        "description": "Update an error tracking grouping rule by ID. Only the fields you include in the request body are applied; omitted fields keep their existing values. Supports updating `filters`, `assignee`, and `description`.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking grouping rule",

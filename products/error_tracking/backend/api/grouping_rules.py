@@ -89,6 +89,25 @@ class ErrorTrackingGroupingRuleCreateRequestSerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingGroupingRuleUpdateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingGroupingRuleFiltersField(
+        required=False,
+        allow_null=True,
+        help_text="Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.",
+    )
+    assignee = ErrorTrackingGroupingRuleAssigneeRequestSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional user or role to assign to issues created by this grouping rule. Omit to preserve the existing assignee.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional human-readable description of what this grouping rule is for. Omit to preserve the existing description.",
+    )
+
+
 class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
     issue = serializers.SerializerMethodField()
@@ -174,11 +193,11 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         serializer = self.get_serializer(queryset, many=True, context=context)
         return Response({"results": serializer.data})
 
-    def update(self, request, *args, **kwargs) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         grouping_rule = self.get_object()
-        assignee = request.data.get("assignee")
-        json_filters = request.data.get("filters")
-        description = request.data.get("description")
+        json_filters = request.validated_data.get("filters")
+        assignee = request.validated_data.get("assignee")
+        description = request.validated_data.get("description")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
@@ -202,8 +221,19 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-    def partial_update(self, request, *args, **kwargs) -> Response:
-        return self.update(request, *args, **kwargs)
+    @validated_request(
+        request_serializer=ErrorTrackingGroupingRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
+
+    @validated_request(
+        request_serializer=ErrorTrackingGroupingRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
 
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
