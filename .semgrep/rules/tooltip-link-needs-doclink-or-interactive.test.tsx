@@ -1,16 +1,16 @@
 // @ts-nocheck
 // Test fixture for tooltip-link-needs-doclink-or-interactive rule.
 //
-// Semgrep test convention: `// ruleid:` / `// ok:` annotates the line
-// IMMEDIATELY AFTER the comment, and the rule's match start line must be
-// that next line. For JSX patterns, the match starts on the `<Tooltip` line,
-// so each annotation sits directly above `<Tooltip` — never above an outer
-// wrapper like `function` or `return (`.
+// Semgrep annotation comments must sit on the line IMMEDIATELY BEFORE the
+// matching line — the rule must report a match starting on that next line.
+// For JSX patterns the match starts at the Tooltip opening tag, so each
+// annotation sits directly above its Tooltip and never above an outer
+// wrapper such as a function declaration or a parenthesized return.
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-// ─── ruleid cases: <Tooltip> with <Link>/<a> inside `title`, missing both
-//     `interactive` and `docLink`. Rule must match each one. ───
+// ─── Positive cases: Tooltip with Link/anchor inside title, missing both
+//     `interactive` and `docLink`. The rule must match each one. ───
 
 // Shape 1: Link inside a Fragment <>...</>
 const Case1Fragment = (
@@ -111,7 +111,7 @@ const Case7PlainAnchor = (
     </Tooltip>
 )
 
-// ─── ok cases: rule must NOT match (false-positive guards) ───
+// ─── Negative cases: rule must NOT match (false-positive guards) ───
 
 // `docLink` set
 const OkWithDocLink = (
