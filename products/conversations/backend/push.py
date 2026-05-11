@@ -16,6 +16,8 @@ def push_unread_count_changed(team: Team) -> None:
         return
 
     user_ids = list(OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True))
+    if not user_ids:
+        return
 
     publish_silent_push(
         organization_id=str(org_id),

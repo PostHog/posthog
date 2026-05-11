@@ -21,7 +21,12 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     path(['products', 'conversations', 'frontend', 'supportTicketCounterLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam'], browserNotificationLogic, ['canShowNotifications']],
-        actions: [browserNotificationLogic, ['showNotification'], sidePanelNotificationsLogic, ['silentPushReceived']],
+        actions: [
+            browserNotificationLogic,
+            ['showNotification'],
+            sidePanelNotificationsLogic,
+            ['silentPushReceived', 'startSSE'],
+        ],
     })),
     actions({
         resetCount: true,
@@ -67,6 +72,9 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             ) {
                 actions.incrementUnreadCount()
             }
+        },
+        startSSE: () => {
+            actions.loadUnreadCount()
         },
         refreshCount: () => {
             actions.loadUnreadCount()
