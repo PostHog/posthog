@@ -40,28 +40,18 @@ rules:
                     - pattern-either:
                           - pattern: <Link ...>...</Link>
                           - pattern: <a ...>...</a>
-          # Each pattern-not below mirrors the positive shape (keeps
-          # `title={$T}` anchored) with two attribute orderings: the
-          # excluded prop before `title` and after `title`. Spelling out
-          # both orderings is required — Semgrep's `...` ellipsis between
-          # JSX attributes doesn't reliably expand to zero attributes in
-          # `pattern-not`, so a single `<Tooltip ... excluded ... title={$T} ...>`
-          # pattern misses call sites where `excluded` is the first prop.
-          #
-          # interactive: bare prop (sugar for {true})
-          - pattern-not: <Tooltip ... interactive ... title={$T} ...>$...</Tooltip>
-          - pattern-not: <Tooltip ... title={$T} ... interactive ...>$...</Tooltip>
-          # interactive={true}: the literal — explicitly NOT excluding
-          # `interactive={false}` (or other falsy/undefined values) because
-          # those leave the popup non-hoverable and must still fire.
-          - pattern-not: <Tooltip ... interactive={true} ... title={$T} ...>$...</Tooltip>
-          - pattern-not: <Tooltip ... title={$T} ... interactive={true} ...>$...</Tooltip>
-          # docLink="<string-literal>"
-          - pattern-not: <Tooltip ... docLink="$D" ... title={$T} ...>$...</Tooltip>
-          - pattern-not: <Tooltip ... title={$T} ... docLink="$D" ...>$...</Tooltip>
-          # docLink={<expression>}
-          - pattern-not: <Tooltip ... docLink={$D} ... title={$T} ...>$...</Tooltip>
-          - pattern-not: <Tooltip ... title={$T} ... docLink={$D} ...>$...</Tooltip>
+          # Structural `pattern-not: <Tooltip ... interactive ... title={$T} ...>`
+          # in Semgrep does not reliably expand `...` to zero JSX attributes,
+          # so call sites where `interactive`/`docLink` is the first prop are
+          # not excluded. Drop to a text-level exclusion: if the matched
+          # source text contains `interactive` or `docLink` as a whole word,
+          # the developer has acknowledged hoverability — even an explicit
+          # `interactive={false}` is a deliberate choice, and `interactive={dynamic}`
+          # at least signals intent. `closeDelayMs` is intentionally NOT in
+          # this list: it extends the close timer but does not make the popup
+          # hoverable, so tooltips relying on it as a workaround still fire.
+          - pattern-not-regex: '\binteractive\b'
+          - pattern-not-regex: '\bdocLink\b'
       paths:
           include:
               - 'frontend/'

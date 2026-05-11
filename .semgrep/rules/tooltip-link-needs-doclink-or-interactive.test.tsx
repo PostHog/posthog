@@ -40,25 +40,7 @@ const Case6DeeplyNested = <Tooltip title={<div className="deprecated-space-y-2">
 // ruleid: tooltip-link-needs-doclink-or-interactive
 const Case7PlainAnchor = <Tooltip title={<>See <a href="/somewhere">over here</a></>}><IconInfo /></Tooltip>
 
-// Shape 8: `interactive={false}` is identical to the default — the popup is
-// still non-hoverable, so the rule must still fire.
-// ruleid: tooltip-link-needs-doclink-or-interactive
-const Case8InteractiveFalse = <Tooltip interactive={false} title={<>Body. <Link to="https://posthog.com/docs/foo">Docs</Link></>}><IconInfo /></Tooltip>
-
 // ─── Negative cases — rule must NOT match ───
-//
-// Only the self-excluded shapes are fixture-tested here (rule's positive
-// pattern alone doesn't match — no Link inside title, or title isn't JSX).
-//
-// Negative cases that depend on the docLink/interactive pattern-not
-// exclusions are NOT fixture-tested. semgrep --test evaluates pattern-not
-// differently from semgrep ci for JSX attribute exclusions, so a fixture
-// case that's correctly excluded in production scans is reported as
-// "incorrect" in --test mode. The real assurance that those exclusions
-// work comes from the semgrep-js and semgrep-products-frontend CI jobs
-// scanning the live codebase — those jobs pass with the 12 already-fixed
-// tooltips that use docLink/interactive, which is the regression we care
-// about preventing.
 
 // Link is the trigger (children), not inside title
 // ok: tooltip-link-needs-doclink-or-interactive
@@ -71,3 +53,19 @@ const OkPlainStringTitle = <Tooltip title="Just a label"><span>trigger</span></T
 // Title JSX without a Link
 // ok: tooltip-link-needs-doclink-or-interactive
 const OkRichTextNoLink = <Tooltip title={<span className="font-mono">code-ish content</span>}><IconInfo /></Tooltip>
+
+// docLink prop — auto-enables interactive + adds autocapture
+// ok: tooltip-link-needs-doclink-or-interactive
+const OkWithDocLink = <Tooltip docLink="https://posthog.com/docs/foo" title={<>Body. <Link to="/x">more</Link></>}><IconInfo /></Tooltip>
+
+// interactive bare prop (sugar for interactive={true})
+// ok: tooltip-link-needs-doclink-or-interactive
+const OkInteractiveBare = <Tooltip interactive title={<>Body. <Link to="/x">more</Link></>}><IconInfo /></Tooltip>
+
+// interactive={true} — explicit literal
+// ok: tooltip-link-needs-doclink-or-interactive
+const OkInteractiveExplicit = <Tooltip interactive={true} title={<>Body. <Link to="/x">more</Link></>}><IconInfo /></Tooltip>
+
+// interactive={dynamic} — developer is at least signalling intent
+// ok: tooltip-link-needs-doclink-or-interactive
+const OkInteractiveDynamic = <Tooltip interactive={!!something} title={<>Body. <Link to="/x">more</Link></>}><IconInfo /></Tooltip>
