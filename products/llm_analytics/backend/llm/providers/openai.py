@@ -12,7 +12,10 @@ import openai
 import posthoganalytics
 from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.openai import (
+    AzureOpenAI as WrappedAzureOpenAI,
+    OpenAI,
+)
 from pydantic import BaseModel
 
 from products.llm_analytics.backend.llm.errors import (
@@ -94,6 +97,30 @@ class OpenAIAdapter:
 
     name = "openai"
 
+    def _create_client(
+        self,
+        api_key: str,
+        base_url: str | None,
+        analytics: AnalyticsContext,
+    ) -> Any:
+        """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
+        default_headers = self._get_default_headers()
+        posthog_client = posthoganalytics.default_client
+        if analytics.capture and posthog_client:
+            return OpenAI(
+                api_key=api_key,
+                posthog_client=posthog_client,
+                base_url=base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
+            )
+        return openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=OpenAIConfig.TIMEOUT,
+            default_headers=default_headers or None,
+        )
+
     def complete(
         self,
         request: CompletionRequest,
@@ -105,25 +132,7 @@ class OpenAIAdapter:
         effective_api_key = api_key or self._get_default_api_key()
         effective_base_url = base_url or settings.OPENAI_BASE_URL
 
-        default_headers = self._get_default_headers()
-
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        if analytics.capture and posthog_client:
-            client = OpenAI(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
-        else:
-            client = openai.OpenAI(
-                api_key=effective_api_key,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
 
         messages: Any = self._build_messages(request)
 
@@ -178,6 +187,13 @@ class OpenAIAdapter:
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
+        except openai.APIStatusError as e:
+            # OpenRouter returns 402 when the key can't afford the requested
+            # max_tokens (or is out of credits). Retrying never helps — mirror
+            # the quota path so the workflow marks the key errored and stops.
+            if getattr(e, "status_code", None) == 402:
+                raise QuotaExceededError(str(e))
+            raise
 
     def _complete_with_json_fallback(
         self,
@@ -241,25 +257,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         effective_base_url = base_url or settings.OPENAI_BASE_URL
         model_id = request.model
 
-        default_headers = self._get_default_headers()
-
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        if analytics.capture and posthog_client:
-            client = OpenAI(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
-        else:
-            client = openai.OpenAI(
-                api_key=effective_api_key,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
 
         supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
         reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
@@ -342,7 +340,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             yield StreamChunk(type="error", data={"error": str(e)})
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an OpenAI API key."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -367,7 +365,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         return set(OpenAIConfig.SUPPORTED_MODELS)
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available OpenAI models.
 
         Without a key, returns the curated SUPPORTED_MODELS list.
@@ -415,7 +413,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
-        if analytics.capture and isinstance(client, OpenAI):
+        if analytics.capture and isinstance(client, OpenAI | WrappedAzureOpenAI):
             return {
                 "posthog_distinct_id": analytics.distinct_id,
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),

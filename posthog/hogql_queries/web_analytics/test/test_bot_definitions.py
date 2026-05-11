@@ -61,6 +61,11 @@ class TestBotDefinitionsDataStructure:
             ("Meta-ExternalFetcher", "Meta Fetcher", "ai_assistant", "AI Agent"),
             ("DuckAssistBot", "DuckDuckGo AI", "ai_assistant", "AI Agent"),
             ("MistralAI-User", "Mistral AI", "ai_assistant", "AI Agent"),
+            # PostHog Code clients
+            (r"desktop\.hog\.dev", "PostHog Code Desktop", "ai_assistant", "AI Agent"),
+            (r"mobile\.hog\.dev", "PostHog Code Mobile", "ai_assistant", "AI Agent"),
+            (r"agent\.hog\.dev", "PostHog Code Agent", "ai_assistant", "AI Agent"),
+            (r"cloud\.hog\.dev", "PostHog Code Cloud", "ai_assistant", "AI Agent"),
             # Search Crawlers
             ("Googlebot", "Googlebot", "search_crawler", "Bot"),
             ("bingbot", "Bingbot", "search_crawler", "Bot"),

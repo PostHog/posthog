@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -23,6 +24,7 @@ from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
+from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_gauges_loop
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
@@ -135,14 +137,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         logger.info("Redis connected")
 
+    product_throttle = ProductCostThrottle(redis=app.state.redis)
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
-            ProductCostThrottle(redis=app.state.redis),
+            product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
         ]
     )
     logger.info("Throttle runner initialized")
+
+    app.state.cost_gauge_task = asyncio.create_task(publish_product_cost_gauges_loop(product_throttle))
 
     app.state.http_client = httpx.AsyncClient()
     app.state.plan_resolver = PlanResolver(
@@ -176,6 +181,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    cost_gauge_task = getattr(app.state, "cost_gauge_task", None)
+    if cost_gauge_task is not None:
+        cost_gauge_task.cancel()
+        try:
+            await cost_gauge_task
+        except asyncio.CancelledError:
+            pass
     if app.state.http_client:
         await app.state.http_client.aclose()
         logger.info("HTTP client closed")

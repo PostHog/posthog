@@ -89,6 +89,31 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_invite_delegation_uses_dedicated_template_and_subject(self, MockEmailMessage: MagicMock) -> None:
+        """Delegation invites route to the delegation_invite template with a custom subject."""
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        user.first_name = "Admin"
+        user.save()
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="delegate@posthog.com",
+            is_setup_delegation=True,
+        )
+
+        send_invite(invite.id)
+
+        assert len(mocked_email_messages) == 1
+        # Subject is asked-to-set-up phrasing, not the generic invite subject
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert "setting up PostHog" in subject
+        assert "Admin" in subject
+        assert "invited you to join" not in subject
+        # Routed to the delegation template
+        assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
+
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1479,3 +1504,41 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Paused views render the check glyph; non-paused render an em-dash.
         assert "&#10003;" in html
         assert "&#8212;" in html
+
+    @parameterized.expand(
+        [
+            ("over_limit", "A" * 500, "A" * 252 + "..."),
+            ("at_limit", "A" * 255, "A" * 255),
+            ("under_limit", "A" * 100, "A" * 100),
+        ]
+    )
+    def test_send_matview_failure_digest_truncates_long_errors(
+        self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
+    ) -> None:
+        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="long_error_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error=error,
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
+        assert rendered_error == expected_error
+        assert len(rendered_error) <= 255

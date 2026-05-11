@@ -14,20 +14,22 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import BingAdsSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
+from .utils import BingAdsResumeConfig
 
 
 @SourceRegistry.register
-class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
+class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BINGADS
@@ -38,7 +40,7 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.BING_ADS,
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/bing-ads.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-ads",
             fields=cast(
@@ -50,6 +52,7 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="bing_ads_integration_id",
@@ -115,7 +118,15 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: BingAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BingAdsResumeConfig]:
+        return ResumableSourceManager[BingAdsResumeConfig](inputs, BingAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: BingAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[BingAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.bing_ads_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -128,6 +139,7 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             resource_name=inputs.schema_name,
             access_token=integration.access_token,
             refresh_token=integration.refresh_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,

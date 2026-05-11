@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCollapse, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { GoalLinesList } from 'lib/components/GoalLinesList'
 
@@ -19,8 +27,21 @@ export const DisplayTab = (): JSX.Element => {
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
+        const labelPlaceholder = name === 'leftYAxisSettings' ? 'Left Y-axis label' : 'Right Y-axis label'
+
         return (
             <>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Axis label</LemonLabel>
+                    <LemonInput
+                        data-attr={`data-visualization-${name === 'leftYAxisSettings' ? 'left' : 'right'}-y-axis-label-input`}
+                        value={chartSettings[name]?.label ?? ''}
+                        placeholder={labelPlaceholder}
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { label: value } })
+                        }}
+                    />
+                </div>
                 <div className="flex gap-2 items-center justify-between">
                     <span className="font-medium">Scale</span>
                     <LemonSelect
@@ -37,7 +58,7 @@ export const DisplayTab = (): JSX.Element => {
                 </div>
                 <LemonSwitch
                     className="flex-1 w-full"
-                    label="Show labels"
+                    label="Show tick labels"
                     checked={chartSettings[name]?.showTicks ?? true}
                     onChange={(value) => {
                         updateChartSettings({ [name]: { showTicks: value } })
@@ -122,9 +143,20 @@ export const DisplayTab = (): JSX.Element => {
                                                 updateChartSettings({ showNullsAsZero: value })
                                             }}
                                         />
+                                        <div className="flex flex-col gap-1">
+                                            <LemonLabel>X-axis label</LemonLabel>
+                                            <LemonInput
+                                                data-attr="data-visualization-x-axis-label-input"
+                                                value={chartSettings.xAxisLabel ?? ''}
+                                                placeholder="X-axis label"
+                                                onChange={(value) => {
+                                                    updateChartSettings({ xAxisLabel: value })
+                                                }}
+                                            />
+                                        </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
-                                            label="Show X-axis labels"
+                                            label="Show X-axis tick labels"
                                             checked={chartSettings.showXAxisTicks ?? true}
                                             onChange={(value) => {
                                                 updateChartSettings({ showXAxisTicks: value })

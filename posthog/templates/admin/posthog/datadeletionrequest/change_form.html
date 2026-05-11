@@ -1,6 +1,40 @@
 {% extends "admin/change_form.html" %}
 {% load i18n %}
 
+{% block extrahead %}
+    {{ block.super }}
+    <script>
+        (function () {
+            // Toggle event/property fields and the "Person targets" fieldset based on request_type.
+            // Event fields are scoped via the form-row CSS classes Django renders (.field-<name>);
+            // the person fieldset has the explicit class "data-deletion-person-fields".
+            var EVENT_FIELDS = ["events", "delete_all_events", "properties", "hogql_predicate"];
+
+            function applyToggle() {
+                var select = document.getElementById("id_request_type");
+                if (!select) return;
+                var isPerson = select.value === "person_removal";
+
+                EVENT_FIELDS.forEach(function (name) {
+                    var row = document.querySelector(".form-row.field-" + name);
+                    if (row) row.style.display = isPerson ? "none" : "";
+                });
+
+                document.querySelectorAll("fieldset.data-deletion-person-fields").forEach(function (fs) {
+                    fs.style.display = isPerson ? "" : "none";
+                });
+            }
+
+            document.addEventListener("DOMContentLoaded", function () {
+                var select = document.getElementById("id_request_type");
+                if (!select) return;
+                applyToggle();
+                select.addEventListener("change", applyToggle);
+            });
+        })();
+    </script>
+{% endblock %}
+
 {% block after_field_sets %}
     {{ block.super }}
 
@@ -47,6 +81,16 @@
     <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f0ad4e; display: flex; align-items: center; gap: 10px;">
         <div class="info">This request is <strong>{{ original.get_status_display|lower }}</strong>. Moving it back to draft will clear the approval.</div>
         <button type="submit" formaction="{{ revert_to_draft_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px;">Move to draft</button>
+    </div>
+    {% endif %}
+
+    {% if can_retry %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #d9534f; display: flex; align-items: center; gap: 10px;">
+        <div class="info">
+            This request <strong>failed</strong> after {{ original.attempt_count }} attempt{{ original.attempt_count|pluralize }}.
+            Retry to re-queue it for execution — the original approval is preserved.
+        </div>
+        <button type="submit" formaction="{{ retry_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #d9534f; color: white;" onclick="return confirm('Retry this failed request? It will be re-queued for execution.');">Retry execution</button>
     </div>
     {% endif %}
 {% endblock %}

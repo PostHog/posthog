@@ -10,6 +10,8 @@ from posthog.schema import WebAnalyticsAssistantFilters
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
 from posthog.queries.property_values import get_person_property_values_for_key, get_property_values_for_key
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
@@ -56,7 +58,7 @@ logger.setLevel(logging.DEBUG)
 
 
 class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User) -> None:
         super().__init__(team, user)
 
     async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
@@ -104,7 +106,12 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
 
 
 class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]):
-    def __init__(self, team: Team, user: User, toolkit_class: type[WebAnalyticsFilterOptionsToolkit]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        toolkit_class: type[WebAnalyticsFilterOptionsToolkit],
+    ) -> None:
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     @property
@@ -143,7 +150,12 @@ class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgent
 class WebAnalyticsFilterOptionsToolsNode(
     TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]
 ):
-    def __init__(self, team: Team, user: User, toolkit_class: type[WebAnalyticsFilterOptionsToolkit]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        toolkit_class: type[WebAnalyticsFilterOptionsToolkit],
+    ) -> None:
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     @property
@@ -154,7 +166,7 @@ class WebAnalyticsFilterOptionsToolsNode(
 class WebAnalyticsFilterOptionsGraph(
     TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]
 ):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User) -> None:
         super().__init__(
             team,
             user,
@@ -188,7 +200,9 @@ class FilterWebAnalyticsTool(MaxTool):
     context_prompt_template: str = "Current web analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterWebAnalyticsArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("web_analytics", "viewer")]
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:

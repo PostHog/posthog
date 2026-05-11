@@ -3,7 +3,6 @@ import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
 import { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -147,7 +146,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-01-15',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_SUPPORT],
     },
     decorators: [
         mswDecorator({

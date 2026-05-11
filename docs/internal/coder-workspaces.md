@@ -25,6 +25,17 @@ cat prompt.txt | hogli devbox:task       # or pipe the prompt via stdin
 
 See the upstream [Coder Tasks docs](https://coder.com/docs/ai-coder/tasks) for the execution model.
 
+**Running the dev stack in detached mode** —
+Start the PostHog dev stack in the background without an interactive terminal:
+
+```bash
+hogli up -d          # start in detached mode
+hogli wait           # block until all services are ready
+hogli down           # gracefully stop the stack
+```
+
+`hogli start -d` and `hogli stop` are also available as equivalents. This is useful when you want to run the dev stack as a background process while using your terminal for other work, or when launching from scripts and automation.
+
 **Sharing a workspace** —
 Grant a teammate access for pair debugging or to pick up where you left off:
 

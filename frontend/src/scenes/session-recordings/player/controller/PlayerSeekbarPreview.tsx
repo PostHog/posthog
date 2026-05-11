@@ -114,17 +114,13 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
 
             const relativeX = e.clientX - rect.x
             const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
-
-            if (newPercentage !== percentage) {
-                setPercentage(newPercentage)
-            }
+            setPercentage(newPercentage)
         }
 
-        seekBarRef.current.addEventListener('mousemove', handleMouseMove)
-        // fixes react-hooks/exhaustive-deps warning about stale ref elements
-        const { current } = ref
-        return () => current?.removeEventListener('mousemove', handleMouseMove)
-    }, [seekBarRef, percentage])
+        const seekBar = seekBarRef.current
+        seekBar.addEventListener('mousemove', handleMouseMove)
+        return () => seekBar.removeEventListener('mousemove', handleMouseMove)
+    }, [seekBarRef])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>

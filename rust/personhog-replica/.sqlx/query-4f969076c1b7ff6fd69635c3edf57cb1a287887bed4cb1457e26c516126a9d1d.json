@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_grouptypemapping\n            WHERE id IN (\n                SELECT id FROM posthog_grouptypemapping\n                WHERE team_id = $1\n                LIMIT $2\n                FOR UPDATE SKIP LOCKED\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f969076c1b7ff6fd69635c3edf57cb1a287887bed4cb1457e26c516126a9d1d"
+}

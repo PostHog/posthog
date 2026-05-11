@@ -1,17 +1,11 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { TeamForReplay } from '../../session-recording/teams/types'
-import { EventHeaders } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { TeamFilterStepInput, TeamTokenResolver, createTeamFilterStep } from './team-filter-step'
 
 describe('createTeamFilterStep', () => {
-    const createHeaders = (token?: string): EventHeaders => ({
-        token,
-        force_disable_person_processing: false,
-        historical_migration: false,
-    })
-
     const createInput = (token?: string): TeamFilterStepInput => ({
-        headers: createHeaders(token),
+        headers: createTestEventHeaders({ token }),
     })
 
     const defaultTeam: TeamForReplay = {

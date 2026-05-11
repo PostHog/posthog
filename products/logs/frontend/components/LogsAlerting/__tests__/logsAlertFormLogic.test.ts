@@ -54,7 +54,8 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     consecutive_failures: 0,
     last_error_message: null,
     destination_types: [],
-    sparkline: [],
+    state_timeline: [],
+    first_enabled_at: null,
     created_at: '2024-01-01T00:00:00Z',
     created_by: {
         id: 1,
@@ -360,7 +361,7 @@ describe('logsAlertFormLogic', () => {
                 logic.actions.submitAlertForm()
             }).toFinishAllListeners()
 
-            const calledWith = mockLogsAlertsCreate.mock.calls[0][1]
+            const calledWith = mockLogsAlertsCreate.mock.calls[0][1]!
             expect((calledWith.filters as Record<string, unknown>).serviceNames).toBeUndefined()
             expect((calledWith.filters as Record<string, unknown>).filterGroup).toBeUndefined()
         })

@@ -3,12 +3,86 @@ import { useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import {
+    ExperimentTrendsQuery,
+    ExperimentFunnelsQuery,
+    CachedExperimentTrendsQueryResponse,
+    CachedExperimentFunnelsQueryResponse,
+    CachedLegacyExperimentQueryResponse,
+} from '~/queries/schema/schema-general'
+import { DEFAULT_MDE } from '~/scenes/experiments/experimentLogic'
+import { legacyExperimentLogic, getInsightType } from '~/scenes/experiments/legacy'
 import { formatUnitByQuantity } from '~/scenes/experiments/utils'
 import { Experiment, InsightType } from '~/types'
+
+const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {
+    if (experiment.metrics.length) {
+        return experiment.metrics[0] as ExperimentTrendsQuery | ExperimentFunnelsQuery
+    }
+    const primaryMetric = experiment.saved_metrics.find((metric) => metric.metadata.type === 'primary')
+    if (primaryMetric) {
+        return primaryMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery
+    }
+    return null
+}
+
+const getActualRunningTime = (experiment: Experiment): number => {
+    if (!experiment.start_date) {
+        return 0
+    }
+
+    if (experiment.end_date) {
+        return dayjs(experiment.end_date).diff(experiment.start_date, 'day')
+    }
+
+    return dayjs().diff(experiment.start_date, 'day')
+}
+
+const getFunnelResultsPersonsTotal =
+    (
+        experiment: Experiment,
+        legacyPrimaryMetricsResults: (
+            | CachedLegacyExperimentQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+            | CachedExperimentTrendsQueryResponse
+            | null
+        )[],
+        getInsightType: (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
+    ) =>
+    (metricIdentifier: number | string = 0): number => {
+        let index: number
+        if (typeof metricIdentifier === 'string') {
+            // Find index by UUID
+            index = experiment.metrics.findIndex((m) => m.uuid === metricIdentifier)
+            if (index === -1) {
+                return 0
+            }
+        } else {
+            index = metricIdentifier
+        }
+
+        const result = legacyPrimaryMetricsResults?.[index]
+
+        if (
+            getInsightType(experiment.metrics[index] as ExperimentTrendsQuery | ExperimentFunnelsQuery) !==
+                InsightType.FUNNELS ||
+            !result
+        ) {
+            return 0
+        }
+
+        let sum = 0
+        result.insight.forEach((variantResult) => {
+            if (variantResult[0]?.count) {
+                sum += variantResult[0].count
+            }
+        })
+        return sum
+    }
 
 /**
  * @deprecated
@@ -52,16 +126,21 @@ function LegacyGoalTooltip({
  * Frozen copy for legacy experiments - do not modify.
  */
 export function LegacyDataCollection(): JSX.Element {
-    const {
-        experiment,
-        getInsightType,
-        funnelResultsPersonsTotal,
-        actualRunningTime,
-        minimumDetectableEffect,
-        firstPrimaryMetric,
-    } = useValues(experimentLogic)
+    const { experiment, legacyPrimaryMetricsResults } = useValues(legacyExperimentLogic)
 
-    const insightType = getInsightType(firstPrimaryMetric)
+    /**
+     * these variables were computed in the experimentLogic.
+     * the legacy experiment logic does not have these computed values.
+     */
+    const firstPrimaryMetric = getFirstPrimaryMetric(experiment)
+    const insightType = firstPrimaryMetric ? getInsightType(firstPrimaryMetric) : InsightType.FUNNELS
+    const actualRunningTime = getActualRunningTime(experiment)
+    const minimumDetectableEffect = experiment?.parameters?.minimum_detectable_effect || DEFAULT_MDE
+    const funnelResultsPersonsTotal = getFunnelResultsPersonsTotal(
+        experiment,
+        legacyPrimaryMetricsResults,
+        getInsightType
+    )
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100

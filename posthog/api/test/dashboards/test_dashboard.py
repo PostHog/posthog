@@ -148,6 +148,163 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_names = {dashboard["name"] for dashboard in response["results"]}
         assert dashboard_names == {"tagged", "also tagged"}
 
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Salesforce sync", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Dashboard overview", "Unrelated"],
+                "dahsboard",
+                "Dashboard overview",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing funnel", "Engineering metrics"],
+                "Marke",
+                "Marketing funnel",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["VMS Feature - History Browser - Nova", "Engineering metrics"],
+                "nova",
+                "VMS Feature - History Browser - Nova",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["VMS Feature - History Browser - Nova", "Engineering metrics"],
+                "NOVA",
+                "VMS Feature - History Browser - Nova",
+                ["Engineering metrics"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, dashboard_names, search, expected_first, excluded):
+        for name in dashboard_names:
+            self.dashboard_api.create_dashboard({"name": name})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        result_names = [d["name"] for d in response["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        # Description matches are kept but rank below name matches.
+        name_match_id, _ = self.dashboard_api.create_dashboard({"name": "revenue"})
+        description_match_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Q4 review", "description": "Quarterly revenue dashboard"}
+        )
+        self.dashboard_api.create_dashboard({"name": "Unrelated", "description": "nothing here"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "revenue"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids[:2] == [name_match_id, description_match_id]
+        assert all(d["name"] != "Unrelated" for d in response["results"])
+
+    def test_list_filter_by_search_handles_null_name_with_description_match(self):
+        # Dashboard.name is nullable. Without coalescing the trigram annotations to 0.0
+        # the unnamed row's `_search_score` would be NULL, and Postgres orders NULLS FIRST
+        # in DESC — so an unnamed row matched on description alone would wrongly outrank
+        # a row matched on name.
+        named_match_id, _ = self.dashboard_api.create_dashboard({"name": "Marketing funnel"})
+        unnamed_match = Dashboard.objects.create(team=self.team, name=None, description="A marketing-focused overview")
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "marketing"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert named_match_id in result_ids
+        assert unnamed_match.id in result_ids
+        assert result_ids.index(named_match_id) < result_ids.index(unnamed_match.id), (
+            f"named match should rank above unnamed description match, got {result_ids}"
+        )
+
+    def test_list_filter_by_search_is_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization)
+        Dashboard.objects.create(team=other_team, name="Sales Funnel")
+        own_id, _ = self.dashboard_api.create_dashboard({"name": "Sales Funnel"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids == [own_id]
+
+    def test_list_filter_by_search_combines_with_tag_filter(self):
+        target_id, _ = self.dashboard_api.create_dashboard({"name": "Sales", "tags": ["finance"]})
+        self.dashboard_api.create_dashboard({"name": "Sales Funnel", "tags": ["marketing"]})
+        self.dashboard_api.create_dashboard({"name": "Other", "tags": ["finance"]})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales", "tags": ["finance"]})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids == [target_id]
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a_id, _ = self.dashboard_api.create_dashboard({"name": "Alpha"})
+        b_id, _ = self.dashboard_api.create_dashboard({"name": "Beta"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        result_ids = {d["id"] for d in response["results"]}
+
+        assert {a_id, b_id}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        # No `to_tsquery` to trip on unsafe characters; trigram tolerates anything
+        # the URL layer admits. We pin the contract that pathological inputs return
+        # an empty result set rather than raising.
+        self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+
+        response = self.dashboard_api.list_dashboards(
+            query_params={"search": search},
+            expected_status=status.HTTP_200_OK,
+        )
+
+        assert response["results"] == []
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+
+        response = self.dashboard_api.list_dashboards(
+            query_params={"search": "a" * length},
+            expected_status=expected_status,
+        )
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response["attr"] == "search", f"expected error scoped to 'search', got {response}"
+            assert "200 characters" in response["detail"], (
+                f"expected error detail to mention the cap, got {response['detail']}"
+            )
+
     def test_list_includes_last_viewed_at_from_filesystem_logs(self):
         dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
         dashboard_unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed"})
@@ -356,16 +513,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
+            # was baseline + 11 + 12, -1 after dropping duplicate session lookup
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 13):
+        with self.assertNumQueries(baseline + 11 + 11):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -745,6 +903,216 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ).data
         assert len(dashboard_data["tiles"]) == 1
 
+    def test_removing_already_soft_deleted_tile_is_idempotent(self):
+        """
+        Regression test: removing a tile whose underlying insight was already soft-deleted
+        (so the tile row itself has deleted=True via cascade) used to 500 with
+        IntegrityError on dash_tile_exactly_one_related_object, because update_or_create
+        looked up through the default manager that hides soft-deleted rows and then fell
+        through to CREATE with only {id, dashboard, deleted} fields set.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "d"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "i"}
+        )
+        tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+
+        self.dashboard_api.soft_delete(insight_id, "insights")
+        tile.refresh_from_db()
+        assert tile.deleted is True, "cascade should mark the tile as soft-deleted when its insight is deleted"
+
+        _, body = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"tiles": [{"id": tile.id, "deleted": True}]},
+        )
+        assert body["id"] == dashboard_id
+        assert DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted is True
+
+    def test_layout_patch_succeeds_on_dashboard_with_mixed_tile_state(self):
+        """
+        Coverage for layout edits on a dashboard with a realistic mix of tile states:
+        alive insight tiles with proper sm layouts, alive insight tiles whose layouts
+        are still ``{}``, tiles whose underlying insight has been soft-deleted (cascade
+        soft-deletes the tile row), tiles soft-deleted directly, plus a text and button
+        tile with empty layouts.
+
+        The frontend's saveEditModeChanges sends ``{id, layouts: {sm: ...}}`` for every
+        VISIBLE tile (i.e. tiles returned by GET, which excludes soft-deleted rows and
+        rows pointing at soft-deleted insights). The PATCH must succeed AND the new
+        layouts must actually be persisted.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "mixed-tile-state"})
+
+        # 5 alive insight tiles that we will give proper sm layouts.
+        with_layout_insight_ids: list[int] = []
+        for i in range(5):
+            insight_id, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": f"test-{i}"}, "dashboards": [dashboard_id], "name": f"with-layout-{i}"}
+            )
+            with_layout_insight_ids.append(insight_id)
+
+        # 3 alive insight tiles whose layouts stay {} (creation default).
+        for i in range(3):
+            self.dashboard_api.create_insight(
+                {"filters": {"hello": f"empty-{i}"}, "dashboards": [dashboard_id], "name": f"empty-layout-{i}"}
+            )
+
+        # 2 tiles whose insight gets soft-deleted -> tile cascades to deleted=True
+        for i in range(2):
+            insight_id, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": f"cascade-{i}"}, "dashboards": [dashboard_id], "name": f"cascade-{i}"}
+            )
+            self.dashboard_api.soft_delete(insight_id, "insights")
+
+        # 2 tiles soft-deleted directly via PATCH (insight stays alive)
+        for i in range(2):
+            insight_id, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": f"direct-{i}"}, "dashboards": [dashboard_id], "name": f"direct-{i}"}
+            )
+            tile_to_remove = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+            self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_to_remove.id, "deleted": True}]})
+
+        # 1 text tile and 1 button tile, both with empty layouts
+        self.dashboard_api.create_text_tile(dashboard_id, text="hello")
+        self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="click")
+
+        # Sanity: persist {} layouts on the empty-layout insight tiles (creation default is {})
+        for tile in DashboardTile.objects.filter(dashboard_id=dashboard_id):
+            assert isinstance(tile.layouts, dict)
+
+        # Set realistic sm layouts on the first 5 insight tiles
+        for y, insight_id in enumerate(with_layout_insight_ids):
+            tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+            tile.layouts = {
+                "sm": {
+                    "h": 5,
+                    "i": str(tile.id),
+                    "w": 6,
+                    "x": 0,
+                    "y": y * 5,
+                    "minH": 2,
+                    "minW": 2,
+                    "moved": False,
+                    "static": False,
+                }
+            }
+            tile.save()
+
+        # Fetch the dashboard like the frontend does, then send the same shape PATCH
+        dashboard_response = self.dashboard_api.get_dashboard(dashboard_id)
+        visible_tiles = dashboard_response["tiles"]
+        assert len(visible_tiles) == 5 + 3 + 1 + 1, "GET should hide soft-deleted and cascade-deleted tiles"
+
+        # Mirror frontend saveEditModeChanges: layouts: tile.layouts?.sm ? {sm: tile.layouts.sm} : {}
+        layouts_payload = []
+        expected_layouts_by_tile_id: dict[int, dict] = {}
+        for idx, tile in enumerate(visible_tiles):
+            sm = (tile.get("layouts") or {}).get("sm")
+            if sm:
+                # Move it slightly to simulate a real edit
+                new_sm = {**sm, "y": sm["y"] + 1}
+            else:
+                # Frontend just resized this previously-empty tile
+                new_sm = {
+                    "h": 5,
+                    "i": str(tile["id"]),
+                    "w": 6,
+                    "x": 0,
+                    "y": 100 + idx,
+                    "minH": 2,
+                    "minW": 2,
+                    "moved": False,
+                    "static": False,
+                }
+            new_layouts = {"sm": new_sm}
+            layouts_payload.append({"id": tile["id"], "layouts": new_layouts})
+            expected_layouts_by_tile_id[tile["id"]] = new_layouts
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": layouts_payload},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, (
+            f"expected 200, got {response.status_code} body={response.content[:500]}"
+        )
+
+        # Crucial: assert the helper actually wrote the new layouts. Without this, the test
+        # would still pass if `_update_existing_tile_display_fields` silently no-op'd everything.
+        for tile_id, expected_layouts in expected_layouts_by_tile_id.items():
+            persisted = DashboardTile.objects.get(id=tile_id)
+            assert persisted.layouts == expected_layouts, (
+                f"tile {tile_id} layouts not persisted — expected {expected_layouts}, got {persisted.layouts}"
+            )
+
+    @parameterized.expand(
+        [
+            ("tile_belongs_to_another_dashboard",),
+            ("tile_id_does_not_exist_anywhere",),
+        ]
+    )
+    def test_layout_patch_silently_skips_unknown_tile_id(self, scenario: str) -> None:
+        """
+        Regression: the layout-only branch of ``_update_tiles`` was using ``update_or_create``,
+        which silently fell through to INSERT when the (id, dashboard) pair didn't match an
+        existing row. The INSERT carried no insight/text/button_tile FK and tripped the partial
+        CHECK constraint ``dash_tile_exactly_one_related_object``, returning a generic 500.
+
+        Two real-world ways this triggers in production:
+          - ``tile_belongs_to_another_dashboard``: cross-dashboard kea state contamination —
+            the frontend posts a tile id that exists, but on a different dashboard.
+          - ``tile_id_does_not_exist_anywhere``: the tile was hard-deleted or never existed.
+
+        In both cases the bad id must be silently skipped while the rest of the payload saves.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "target"})
+        valid_insight, _ = self.dashboard_api.create_insight(
+            {"filters": {"hello": "valid"}, "dashboards": [dashboard_id], "name": "valid"}
+        )
+        valid_tile = DashboardTile.objects.get(insight_id=valid_insight, dashboard_id=dashboard_id)
+
+        stranger_tile: DashboardTile | None = None
+        stranger_layouts_before: dict | None = None
+        stranger_dashboard_before: int | None = None
+        if scenario == "tile_belongs_to_another_dashboard":
+            other_dashboard, _ = self.dashboard_api.create_dashboard({"name": "other"})
+            stranger_insight, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": "stranger"}, "dashboards": [other_dashboard], "name": "stranger"}
+            )
+            stranger_tile = DashboardTile.objects.get(insight_id=stranger_insight, dashboard_id=other_dashboard)
+            unknown_tile_id = stranger_tile.id
+            stranger_layouts_before = dict(stranger_tile.layouts)
+            stranger_dashboard_before = stranger_tile.dashboard_id
+        else:
+            unknown_tile_id = 99_999_999
+
+        new_layouts = {"sm": {"h": 7, "i": str(valid_tile.id), "w": 8, "x": 1, "y": 2, "minH": 2, "minW": 2}}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {
+                "tiles": [
+                    {"id": valid_tile.id, "layouts": new_layouts},
+                    {"id": unknown_tile_id, "layouts": {"sm": {"x": 99, "y": 99, "w": 1, "h": 1}}},
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content[:500]
+
+        valid_tile.refresh_from_db()
+        assert valid_tile.layouts == new_layouts, "valid tile layouts should have been saved"
+
+        if stranger_tile is not None:
+            stranger_tile.refresh_from_db()
+            assert stranger_tile.layouts == stranger_layouts_before, "stranger tile must NOT be touched"
+            assert stranger_tile.dashboard_id == stranger_dashboard_before, (
+                "stranger tile must NOT be moved to the target dashboard"
+            )
+        else:
+            assert not DashboardTile.objects_including_soft_deleted.filter(id=unknown_tile_id).exists(), (
+                "unknown id must not have created a new row"
+            )
+
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self.dashboard_api.create_insight(
@@ -931,6 +1299,53 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "use_template")
+
+    @parameterized.expand(
+        [
+            ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
+            ("global", "none", "global", status.HTTP_201_CREATED),
+            ("other_team_only_team", "other", "team", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        if owner == "self":
+            template_team: Team | None = self.team
+        elif owner == "other":
+            other_org = Organization.objects.create(name="other org")
+            template_team = Team.objects.create(organization=other_org, name="other team")
+        else:
+            template_team = None
+
+        template_name = f"probe-{owner}"
+        DashboardTemplate.objects.create(
+            team=template_team,
+            template_name=template_name,
+            scope=scope,
+            dashboard_description="probe-description",
+            dashboard_filters={},
+            tiles=[{"type": "TEXT", "body": "probe-tile-body", "layouts": {}, "color": None}],
+            tags=["probe-tag"],
+        )
+
+        dashboard_id, response = self.dashboard_api.create_dashboard(
+            {"name": "probe", "use_template": template_name},
+            expected_status=expected_status,
+        )
+
+        if expected_status == status.HTTP_201_CREATED:
+            self.assertEqual(response["creation_mode"], "template")
+            dashboard = Dashboard.objects.get(id=dashboard_id, team=self.team)
+            self.assertEqual(dashboard.description, "probe-description")
+            tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+            self.assertIn("probe-tag", tag_names)
+        else:
+            self.assertEqual(response["attr"], "use_template")
+            for dashboard in Dashboard.objects.filter(team=self.team, name="probe"):
+                self.assertNotIn("probe-description", dashboard.description or "")
+                tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+                self.assertNotIn("probe-tag", tag_names)
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)

@@ -6,9 +6,9 @@ Four modes, dispatched at the bottom of this file:
 
   1. Root phase (UID 0): create sandbox user, seed SSH/git config, re-exec
      as the sandbox user. Workspace is already populated by bin/sandbox.
-  2. User phase (default): launch tmux with claude immediately in window 0
-     and a setup window in window 1; PID 1 poll-blocks on the tmux session.
-  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 1. Installs deps
+  2. User phase (default): launch tmux with claude immediately in window 1
+     and a setup window in window 2; PID 1 poll-blocks on the tmux session.
+  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 2. Installs deps
      (Python/Node/Rust in parallel), migrates, seeds demo data, spawns the
      phrocs window, then exec's into bash -l so the window stays usable.
   4. Cache-init phase (SANDBOX_MODE=cache-init): one-shot cache warming for
@@ -536,8 +536,8 @@ def user_phase() -> None:
 
     _write_status("booting")
 
-    # Window 0: claude (launched immediately, may lack hogli until uv sync finishes)
-    # Window 1: setup (deps, migrations, then spawns phrocs in window 2)
+    # Window 1: claude (launched immediately, may lack hogli until uv sync finishes)
+    # Window 2: setup (deps, migrations, then spawns phrocs in window 3)
     tmux = ["tmux", "-L", "sandbox"]
     run(
         [
@@ -555,10 +555,6 @@ def user_phase() -> None:
             "claude",
         ]
     )
-    # Auto-respawn on crash (pairs with pane-died hook in tmux.sandbox.conf).
-    # Scoped to claude window only so setup/phrocs close normally.
-    run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
-
     run(
         [
             *tmux,
@@ -588,10 +584,10 @@ def user_phase() -> None:
 
 
 def run_setup() -> None:
-    """Tmux window 1: install deps, migrate, seed data, spawn phrocs, exec bash.
+    """Tmux window 2: install deps, migrate, seed data, spawn phrocs, exec bash.
 
     On failure, writes "SETUP FAILED" to the status bar and drops into bash
-    so the user can diagnose. Claude keeps running in window 0 either way.
+    so the user can diagnose. Claude keeps running in window 1 either way.
     """
     _setup_user_env()
     _write_status("setup starting")
@@ -628,21 +624,21 @@ def run_setup() -> None:
         lock = WORKSPACE / "bin/start.lock"
         lock.unlink(missing_ok=True)
 
-        _write_status("sandbox ready")
+        _write_status("C-b 1 claude  C-b 2 setup  C-b 3 phrocs  C-b d detach  mouse enabled")
 
         # Spawn phrocs in its own tmux window.
         run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
 
         print(  # noqa: T201
-            "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
+            "\nSetup complete — see status bar for keybinding hints.\n",
             flush=True,
         )
     except Exception:
         traceback.print_exc()
-        _write_status("!! SETUP FAILED — see window 1")
+        _write_status("!! SETUP FAILED — see window 2")
         print(  # noqa: T201
             "\n\n!!! Setup failed — traceback above. This window is now a bash shell;"
-            "\n!!! claude is still running in window 0 against whatever managed to come up."
+            "\n!!! claude is still running in window 1 against whatever managed to come up."
             "\n!!! Re-run the failing step manually, then `tmux new-window bin/start --phrocs` when ready.\n",
             flush=True,
         )

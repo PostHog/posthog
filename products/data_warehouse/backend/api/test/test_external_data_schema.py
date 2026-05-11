@@ -198,7 +198,15 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert payload == {
             "incremental_fields": [
-                {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": True,
+                    # Table has no index on `id`, so the warning UI will fire for this field.
+                    "is_indexed": False,
+                }
             ],
             "incremental_available": True,
             "append_available": True,
@@ -210,6 +218,71 @@ class TestExternalDataSchema(APIBaseTest):
             ],
             "detected_primary_keys": ["id"],
         }
+
+    @parameterized.expand(
+        [
+            # (test name, source_cdc_enabled, team_ff_enabled, expected_cdc_available)
+            ("source_enabled_team_enabled", True, True, True),
+            ("source_enabled_team_disabled", True, False, None),
+            ("source_disabled_team_enabled", False, True, None),
+            ("source_disabled_team_disabled", False, False, None),
+        ]
+    )
+    def test_incremental_fields_cdc_available_gating(
+        self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
+    ):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        job_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "public",
+            "ssh_tunnel_enabled": False,
+        }
+        if source_cdc_enabled:
+            job_inputs["cdc_enabled"] = True
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Postgres",
+            job_inputs=job_inputs,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="some_table",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        fake_schema = SourceSchema(
+            name="some_table",
+            supports_incremental=False,
+            supports_append=False,
+            supports_cdc=True,
+            incremental_fields=[],
+            columns=[("id", "integer", False)],
+            detected_primary_keys=["id"],
+        )
+
+        with (
+            mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=team_ff_enabled,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["cdc_available"] is expected_cdc_available
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -1442,3 +1515,42 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {action}",
             )
+
+
+class TestExternalDataSchemaSerializerValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"stripe_secret_key": "123"},
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=self.source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+    def test_update_sync_type_null_clears_existing_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+            {"sync_type": None},
+            format="json",
+        )
+        assert response.status_code == 200
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type is None
+
+    def test_update_absent_sync_type_preserves_existing_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+            {"should_sync": True},
+            format="json",
+        )
+        assert response.status_code == 200
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL

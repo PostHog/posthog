@@ -31,6 +31,7 @@ from posthog.schema import (
     AssistantUpdateEvent,
     BaseAssistantMessage,
     ContextMessage,
+    DataVisualizationNode,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
@@ -99,6 +100,7 @@ AnyAssistantGeneratedQuery = (
     | AssistantLifecycleQuery
     | AssistantRetentionQuery
     | AssistantHogQLQuery
+    | DataVisualizationNode
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 
@@ -256,7 +258,9 @@ class InsightArtifact(TaskArtifact):
     An insight artifact created by a task.
     """
 
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    query: Union[
+        AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery, DataVisualizationNode
+    ]
 
 
 class TaskResult(BaseModel):

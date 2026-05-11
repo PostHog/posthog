@@ -32,6 +32,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueCohort,
     sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
 from .utils import ErrorTrackingIssueAssignmentSerializer
@@ -364,6 +365,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return Response({"success": True})
 
+    @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -418,6 +420,12 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         )
 
         send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
+
+        dispatch_issue_assigned_realtime(
+            assignment=assignment_after,
+            assignee=assignee,
+            assigner=user,
+        )
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None

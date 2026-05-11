@@ -19,11 +19,12 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
 import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
@@ -57,14 +58,14 @@ import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshSt
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
-import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
+import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyViewRedesign(): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
+    const { survey, surveyLoading, activeTab } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
-    const { editingSurvey, updateSurvey, archiveSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
@@ -77,11 +78,10 @@ export function SurveyViewRedesign(): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
-    const [tabKey, setTabKey] = useState(() => (searchParams.activity ? 'history' : 'summary'))
+    const isDraft = isSurveyDraft(survey)
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
-    const isDraft = isSurveyDraft(survey)
     const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const panelTabSearchParam = 'survey_panel_tab'
 
@@ -91,11 +91,6 @@ export function SurveyViewRedesign(): JSX.Element {
                 key: 'details',
                 label: 'Details',
                 content: <SurveyDetailsPanel />,
-            },
-            {
-                key: 'notifications',
-                label: 'Notifications',
-                content: <SurveyNotificationsPanel />,
             },
             ...(!isDraft
                 ? [
@@ -332,8 +327,8 @@ export function SurveyViewRedesign(): JSX.Element {
             {/* Main content */}
             <div className="-m-4 flex-1 min-h-0">
                 <LemonTabs
-                    activeKey={tabKey}
-                    onChange={(key) => setTabKey(key)}
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as SurveyTab)}
                     barClassName="pl-4 [&::before]:!bg-transparent border-b"
                     tabs={[
                         {
@@ -342,7 +337,7 @@ export function SurveyViewRedesign(): JSX.Element {
                             content: isDraft ? (
                                 <SurveyDraftContent onSeeSurveyDetails={openDraftDetails} />
                             ) : (
-                                <SurveySummaryContent onViewResponses={() => setTabKey('responses')} />
+                                <SurveySummaryContent onViewResponses={() => setActiveTab(SurveyTab.RESPONSES)} />
                             ),
                         },
                         ...(!isDraft
@@ -354,6 +349,11 @@ export function SurveyViewRedesign(): JSX.Element {
                                   },
                               ]
                             : []),
+                        {
+                            key: SurveyTab.NOTIFICATIONS,
+                            label: 'Notifications',
+                            content: <SurveyNotificationsContent />,
+                        },
                         {
                             key: 'history',
                             label: 'History',
@@ -370,6 +370,21 @@ export function SurveyViewRedesign(): JSX.Element {
             <DuplicateToProjectModal />
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </SceneContent>
+    )
+}
+
+function SurveyNotificationsContent(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+
+    return (
+        <div className="px-4 pb-4">
+            <div className="mx-auto w-full max-w-[1200px]">
+                <SurveyNotifications
+                    surveyId={survey.id}
+                    description="Get notified whenever a survey result is submitted."
+                />
+            </div>
+        </div>
     )
 }
 

@@ -36,7 +36,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.oauth.cimd import (
-    CIMD_THROTTLES,
+    CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
     get_application_by_client_id,
@@ -45,7 +45,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import get_scope_descriptions
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -449,7 +449,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
         if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
-            for throttle in CIMD_THROTTLES:
+            for throttle_cls in CIMD_THROTTLE_CLASSES:
+                throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
                     logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
                     return Response(
@@ -904,10 +905,7 @@ class OAuthAuthorizationServerMetadataView(APIView):
         # Build base URL from request
         base_url = request.build_absolute_uri("/").rstrip("/")
 
-        # Get all available scopes
-        oidc_scopes = ["openid", "profile", "email"]
-        resource_scopes = list(get_scope_descriptions().keys())
-        all_scopes = oidc_scopes + resource_scopes
+        all_scopes = get_oauth_scopes_supported()
 
         metadata = {
             # Required by RFC 8414

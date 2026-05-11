@@ -1,6 +1,12 @@
+import { BotCategory, CATEGORY_LABELS } from 'lib/utils/botDetection'
+
 import {
+    BotBreakdownItem,
     BrowserBreakdownItem,
+    buildCityKey,
+    CityBreakdownItem,
     CountryBreakdownItem,
+    parseCityKey,
     ReferrerItem,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
@@ -14,11 +20,16 @@ export class LiveMetricsSlidingWindow {
     private deviceBucketCounts = new Map<string, Map<string, number>>()
     private browserBucketCounts = new Map<string, Map<string, number>>()
     private countryBucketCounts = new Map<string, Map<string, number>>()
+    private cityBucketCounts = new Map<string, Map<string, number>>()
 
     // Incrementally-maintained aggregates
     private _totalPageviews = 0
+    private _totalBotEligibleEvents = 0
     private _globalPathCounts = new Map<string, number>()
     private _globalReferrerCounts = new Map<string, number>()
+    private _globalBotCounts = new Map<string, number>()
+    private _globalBotCategoryCounts = new Map<string, number>()
+    private _botNameToCategory = new Map<string, string>()
 
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
@@ -29,10 +40,12 @@ export class LiveMetricsSlidingWindow {
         distinctId: string,
         data: {
             pageviews?: number
+            botEligibleEvents?: number
             pathname?: string
             referringDomain?: string
             device?: { deviceId: string; deviceType: string }
             browser?: { deviceId: string; browserType: string }
+            bot?: { name: string; category: string }
         }
     ): void {
         const bucket = this.getOrCreateBucket(eventTs)
@@ -42,6 +55,11 @@ export class LiveMetricsSlidingWindow {
         if (data.pageviews) {
             bucket.pageviews += data.pageviews
             this._totalPageviews += data.pageviews
+        }
+
+        if (data.botEligibleEvents) {
+            bucket.botEligibleEvents += data.botEligibleEvents
+            this._totalBotEligibleEvents += data.botEligibleEvents
         }
 
         if (data.pathname) {
@@ -64,6 +82,10 @@ export class LiveMetricsSlidingWindow {
         if (data.browser) {
             this.addBrowserToBucket(bucket, data.browser.browserType, data.browser.deviceId)
         }
+
+        if (data.bot) {
+            this.addBotToBucket(bucket, data.bot.name, data.bot.category)
+        }
     }
 
     addGeoDataPoint(eventTs: number, countryCode: string, distinctId: string): void {
@@ -72,6 +94,14 @@ export class LiveMetricsSlidingWindow {
         }
         const bucket = this.getOrCreateBucket(eventTs)
         this.addCountryToBucket(bucket, countryCode, distinctId)
+    }
+
+    addCityDataPoint(eventTs: number, cityName: string, countryCode: string, distinctId: string): void {
+        if (!cityName || !distinctId) {
+            return
+        }
+        const bucket = this.getOrCreateBucket(eventTs)
+        this.addCityToBucket(bucket, cityName, countryCode, distinctId)
     }
 
     extendBucketData(eventTs: number, data: SlidingWindowBucket): void {
@@ -86,6 +116,11 @@ export class LiveMetricsSlidingWindow {
         if (data.pageviews) {
             bucket.pageviews += data.pageviews
             this._totalPageviews += data.pageviews
+        }
+
+        if (data.botEligibleEvents) {
+            bucket.botEligibleEvents += data.botEligibleEvents
+            this._totalBotEligibleEvents += data.botEligibleEvents
         }
 
         if (data.devices) {
@@ -123,6 +158,21 @@ export class LiveMetricsSlidingWindow {
                 for (const userId of userIds) {
                     this.addCountryToBucket(bucket, countryCode, userId)
                 }
+            }
+        }
+
+        if (data.cities) {
+            for (const [cityKey, userIds] of data.cities) {
+                const { cityName, countryCode } = parseCityKey(cityKey)
+                for (const userId of userIds) {
+                    this.addCityToBucket(bucket, cityName, countryCode, userId)
+                }
+            }
+        }
+
+        if (data.bots) {
+            for (const [botName, entry] of data.bots) {
+                this.addBotToBucketBulk(bucket, botName, entry.category, entry.count)
             }
         }
     }
@@ -169,6 +219,22 @@ export class LiveMetricsSlidingWindow {
         this.addItemToBucket(bucket.browsers, this.browserBucketCounts, browserType, deviceId)
     }
 
+    private addBotToBucket(bucket: SlidingWindowBucket, botName: string, category: string): void {
+        this.addBotToBucketBulk(bucket, botName, category, 1)
+    }
+
+    private addBotToBucketBulk(bucket: SlidingWindowBucket, botName: string, category: string, count: number): void {
+        if (!bucket.bots) {
+            bucket.bots = new Map<string, { count: number; category: string }>()
+        }
+        const existing = bucket.bots.get(botName)
+        bucket.bots.set(botName, { count: (existing?.count ?? 0) + count, category })
+
+        this._globalBotCounts.set(botName, (this._globalBotCounts.get(botName) || 0) + count)
+        this._globalBotCategoryCounts.set(category, (this._globalBotCategoryCounts.get(category) || 0) + count)
+        this._botNameToCategory.set(botName, category)
+    }
+
     private addCountryToBucket(bucket: SlidingWindowBucket, countryCode: string, distinctId: string): void {
         const bucketUserIds = bucket.countries.get(countryCode) ?? new Set<string>()
 
@@ -180,6 +246,28 @@ export class LiveMetricsSlidingWindow {
             const countryCounts = this.countryBucketCounts.get(countryCode) ?? new Map<string, number>()
             countryCounts.set(distinctId, (countryCounts.get(distinctId) || 0) + 1)
             this.countryBucketCounts.set(countryCode, countryCounts)
+        }
+    }
+
+    private addCityToBucket(
+        bucket: SlidingWindowBucket,
+        cityName: string,
+        countryCode: string,
+        distinctId: string
+    ): void {
+        if (!bucket.cities) {
+            bucket.cities = new Map<string, Set<string>>()
+        }
+        const cityKey = buildCityKey(cityName, countryCode)
+        const bucketUserIds = bucket.cities.get(cityKey) ?? new Set<string>()
+
+        if (!bucketUserIds.has(distinctId)) {
+            bucketUserIds.add(distinctId)
+            bucket.cities.set(cityKey, bucketUserIds)
+
+            const cityCounts = this.cityBucketCounts.get(cityKey) ?? new Map<string, number>()
+            cityCounts.set(distinctId, (cityCounts.get(distinctId) || 0) + 1)
+            this.cityBucketCounts.set(cityKey, cityCounts)
         }
     }
 
@@ -242,6 +330,31 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
+    private removeCitiesFromTracking(bucket: SlidingWindowBucket): void {
+        if (!bucket.cities) {
+            return
+        }
+        for (const [cityKey, userIds] of bucket.cities) {
+            const cityCounts = this.cityBucketCounts.get(cityKey)
+            if (!cityCounts) {
+                continue
+            }
+
+            for (const userId of userIds) {
+                const count = cityCounts.get(userId) || 0
+                if (count <= 1) {
+                    cityCounts.delete(userId)
+                } else {
+                    cityCounts.set(userId, count - 1)
+                }
+            }
+
+            if (cityCounts.size === 0) {
+                this.cityBucketCounts.delete(cityKey)
+            }
+        }
+    }
+
     private decrementGlobalCounts(bucketMap: Map<string, number>, globalMap: Map<string, number>): void {
         for (const [key, count] of bucketMap) {
             const globalCount = globalMap.get(key) || 0
@@ -262,10 +375,34 @@ export class LiveMetricsSlidingWindow {
                 this.removeItemsFromTracking(bucket.devices, this.deviceBucketCounts)
                 this.removeItemsFromTracking(bucket.browsers, this.browserBucketCounts)
                 this.removeCountriesFromTracking(bucket)
+                this.removeCitiesFromTracking(bucket)
                 this.decrementGlobalCounts(bucket.paths, this._globalPathCounts)
                 this.decrementGlobalCounts(bucket.referrers, this._globalReferrerCounts)
+                if (bucket.bots) {
+                    this.decrementBotCounts(bucket.bots)
+                }
                 this._totalPageviews -= bucket.pageviews
+                this._totalBotEligibleEvents -= bucket.botEligibleEvents
                 this.buckets.delete(ts)
+            }
+        }
+    }
+
+    private decrementBotCounts(botMap: Map<string, { count: number; category: string }>): void {
+        for (const [botName, { count, category }] of botMap) {
+            const currentCount = this._globalBotCounts.get(botName) || 0
+            if (currentCount <= count) {
+                this._globalBotCounts.delete(botName)
+                this._botNameToCategory.delete(botName)
+            } else {
+                this._globalBotCounts.set(botName, currentCount - count)
+            }
+
+            const currentCategoryCount = this._globalBotCategoryCounts.get(category) || 0
+            if (currentCategoryCount <= count) {
+                this._globalBotCategoryCounts.delete(category)
+            } else {
+                this._globalBotCategoryCounts.set(category, currentCategoryCount - count)
             }
         }
     }
@@ -276,6 +413,10 @@ export class LiveMetricsSlidingWindow {
 
     getTotalPageviews(): number {
         return this._totalPageviews
+    }
+
+    getTotalBotEligibleEvents(): number {
+        return this._totalBotEligibleEvents
     }
 
     getDeviceBreakdown(): { device: string; count: number; percentage: number }[] {
@@ -384,8 +525,86 @@ export class LiveMetricsSlidingWindow {
             .sort((a, b) => b.count - a.count)
     }
 
+    getCityBreakdown(): CityBreakdownItem[] {
+        let total = 0
+        const counts: { cityName: string; countryCode: string; count: number }[] = []
+
+        for (const [cityKey, userIdCounts] of this.cityBucketCounts) {
+            const count = userIdCounts.size
+            total += count
+            const { cityName, countryCode } = parseCityKey(cityKey)
+            counts.push({ cityName, countryCode, count })
+        }
+
+        if (total === 0) {
+            return []
+        }
+
+        return counts
+            .map(({ cityName, countryCode, count }) => ({
+                cityName,
+                countryCode,
+                count,
+                percentage: (count / total) * 100,
+            }))
+            .sort((a, b) => b.count - a.count)
+    }
+
     getTotalUniqueUsers(): number {
         return this.userBucketCounts.size
+    }
+
+    getBotBreakdown(limit?: number): BotBreakdownItem[] {
+        let total = 0
+        for (const count of this._globalBotCounts.values()) {
+            total += count
+        }
+
+        if (total === 0) {
+            return []
+        }
+
+        const sorted: BotBreakdownItem[] = [...this._globalBotCounts.entries()]
+            .map(([bot, count]) => {
+                const categoryKey = (this._botNameToCategory.get(bot) ?? 'regular') as BotCategory
+                return {
+                    bot,
+                    category: CATEGORY_LABELS[categoryKey] ?? categoryKey,
+                    count,
+                    percentage: (count / total) * 100,
+                }
+            })
+            .sort((a, b) => b.count - a.count)
+
+        if (!limit || sorted.length <= limit) {
+            return sorted
+        }
+
+        const top = sorted.slice(0, limit)
+        const othersCount = sorted.slice(limit).reduce((sum, item) => sum + item.count, 0)
+
+        if (othersCount > 0) {
+            top.push({
+                bot: 'Other',
+                category: '',
+                count: othersCount,
+                percentage: (othersCount / total) * 100,
+            })
+        }
+
+        return top
+    }
+
+    getTotalBotEvents(): number {
+        let total = 0
+        for (const count of this._globalBotCounts.values()) {
+            total += count
+        }
+        return total
+    }
+
+    getBotCategoryCounts(): Map<string, number> {
+        return new Map(this._globalBotCategoryCounts)
     }
 
     private getOrCreateBucket(eventTs: number): SlidingWindowBucket {
@@ -396,6 +615,7 @@ export class LiveMetricsSlidingWindow {
         if (!bucket) {
             bucket = {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map<string, Set<string>>(),
@@ -404,6 +624,8 @@ export class LiveMetricsSlidingWindow {
                 referrers: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
                 countries: new Map<string, Set<string>>(),
+                cities: new Map<string, Set<string>>(),
+                bots: new Map<string, { count: number; category: string }>(),
             }
             this.buckets.set(bucketTs, bucket)
         }

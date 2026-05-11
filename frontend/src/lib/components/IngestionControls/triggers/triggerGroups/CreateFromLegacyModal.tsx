@@ -130,7 +130,12 @@ export function CreateFromLegacyModal({
                     <LemonButton type="secondary" onClick={onClose} disabled={isCreating}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={onConfirm} loading={isCreating}>
+                    <LemonButton
+                        type="primary"
+                        onClick={onConfirm}
+                        loading={isCreating}
+                        data-attr="trigger-group-create-from-legacy-confirm"
+                    >
                         Create {pluralize(previewGroups.length, 'group')}
                     </LemonButton>
                 </div>

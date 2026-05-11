@@ -27,7 +27,7 @@ permissions:
     contents: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 env:
@@ -40,13 +40,8 @@ env:
 
 jobs:
     rust-flags-integration:
-        name: Rust /flags Integration Tests (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Rust /flags Integration Tests (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 30
 
         services:
@@ -97,7 +92,7 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-flags-integration-debug'
                   workspaces: rust

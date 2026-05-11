@@ -29,6 +29,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -222,6 +224,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -322,6 +326,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -331,7 +341,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features.9
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
@@ -367,6 +377,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -445,6 +457,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -454,7 +472,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.5
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
@@ -724,6 +742,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -802,6 +822,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -811,7 +837,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.6
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
@@ -887,6 +913,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -965,6 +993,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -974,7 +1008,7 @@
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.5
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")

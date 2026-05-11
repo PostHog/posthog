@@ -92,7 +92,7 @@ export const settingsLogic = kea<settingsLogicType>([
             teamLogic,
             ['currentTeam'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'isAdminOrOwner'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
@@ -255,6 +255,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.organizationIntegrations,
                 s.preflight,
                 s.canAccessBilling,
+                s.isAdminOrOwner,
             ],
             (
                 doesMatchFlags,
@@ -263,7 +264,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 currentOrganization,
                 organizationIntegrations,
                 preflight,
-                canAccessBilling
+                canAccessBilling,
+                isAdminOrOwner
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -288,7 +290,12 @@ export const settingsLogic = kea<settingsLogicType>([
                     ) {
                         return false
                     }
+
+                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
                     if (section.id === 'organization-billing' && !canAccessBilling) {
+                        return false
+                    }
+                    if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
                         return false
                     }
 
@@ -620,6 +627,19 @@ export const settingsLogic = kea<settingsLogicType>([
             if (!selectedSettingId) {
                 return
             }
+
+            if (values.selectedSettingId !== selectedSettingId) {
+                actions.selectSetting(selectedSettingId)
+            }
+        },
+        ['*/logs']: (_, searchParams, hashParams) => {
+            const fromHash = hashParams.selectedSetting as string | undefined
+            const fromQuery = typeof searchParams?.setting === 'string' ? searchParams.setting : undefined
+            const raw = fromHash ?? fromQuery
+            if (!raw) {
+                return
+            }
+            const selectedSettingId = (raw === 'logs-sampling' ? 'logs-drop-rules' : raw) as SettingId
 
             if (values.selectedSettingId !== selectedSettingId) {
                 actions.selectSetting(selectedSettingId)

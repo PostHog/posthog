@@ -10,20 +10,23 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
 export function ActivityLogSettings(): JSX.Element {
+    const { user } = useValues(userLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const effectiveRestriction = user?.is_impersonated ? null : restrictedReason
 
     return (
-        <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+        <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
             <div className="flex">
                 <p>
-                    <LemonButton to={urls.advancedActivityLogs()} type="primary" disabledReason={restrictedReason}>
+                    <LemonButton to={urls.advancedActivityLogs()} type="primary" disabledReason={effectiveRestriction}>
                         Browse all activity logs
                     </LemonButton>
                 </p>
@@ -33,6 +36,7 @@ export function ActivityLogSettings(): JSX.Element {
 }
 
 export function ActivityLogOrgLevelSettings(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportActivityLogSettingToggled } = useActions(eventUsageLogic)
@@ -45,7 +49,7 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+        <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
             <div>
                 <p className="flex items-center gap-1">
                     Include organization-level activity logs in this project.
@@ -76,6 +80,7 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
 }
 
 export function ActivityLogNotifications(): JSX.Element | null {
+    const { user } = useValues(userLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -86,7 +91,7 @@ export function ActivityLogNotifications(): JSX.Element | null {
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+        <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
             <div>
                 <p className="flex items-center gap-1">
                     Create notifications to get notified of activity logs.

@@ -434,6 +434,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
             },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
+            },
         ],
     },
     [BehavioralEventType.NotPerformedEvent]: {
@@ -460,6 +465,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
+            },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },
@@ -501,6 +511,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
+            },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },

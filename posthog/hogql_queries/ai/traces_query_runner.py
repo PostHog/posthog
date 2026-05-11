@@ -45,6 +45,22 @@ class TracesQueryDateRange(QueryDateRange):
     def date_to_for_filtering(self) -> datetime:
         return super().date_to()
 
+    def date_from_for_filtering_as_hogql(self) -> ast.Expr:
+        return ast.Call(
+            name="assumeNotNull",
+            args=[
+                ast.Call(name="toDateTime", args=[ast.Constant(value=self.format_date(self.date_from_for_filtering()))])
+            ],
+        )
+
+    def date_to_for_filtering_as_hogql(self) -> ast.Expr:
+        return ast.Call(
+            name="assumeNotNull",
+            args=[
+                ast.Call(name="toDateTime", args=[ast.Constant(value=self.format_date(self.date_to_for_filtering()))])
+            ],
+        )
+
     def date_from(self) -> datetime:
         return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
@@ -84,6 +100,12 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             # produces overlapping or missing traces across pages.
             order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
 
+            # The HAVING clause enforces the same overlap semantics as the post-filter
+            # in `_map_results` (a trace counts if any of its events overlap the user
+            # window). Without it, the LIMIT runs over the buffered window — so for a
+            # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
+            # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
+            # which the post-filter then drops, producing an empty page.
             trace_ids_query = parse_select(
                 f"""
                 SELECT
@@ -99,6 +121,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                       AND {{conditions}}
                     GROUP BY trace_id
+                    HAVING min(timestamp) <= {{unbuffered_date_to}}
+                       AND max(timestamp) >= {{unbuffered_date_from}}
                     ORDER BY {order_clause}
                     LIMIT {{limit}}
                 )
@@ -111,6 +135,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 placeholders={
                     "conditions": self._get_subquery_filter(),
                     "limit": ast.Constant(value=pagination_limit),
+                    "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
+                    "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
                 },
                 team=self.team,
                 timings=self.timings,

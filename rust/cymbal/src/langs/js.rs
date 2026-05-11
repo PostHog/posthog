@@ -6,7 +6,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::CommonFrameMetadata,
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
@@ -247,11 +247,23 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             _ => true,
         };
 
+        let resolved = !was_minified;
+
+        // Only record a frame-resolution-failure when the frame is actually unresolved —
+        // for `NoUrlOrChunkId` / `NoSourceUrl` (and short-line `NoSourcemap`) the heuristic
+        // above keeps the original function name and marks the frame `resolved: true`, so the
+        // dispatcher will already emit `FRAME_RESOLVED`. Firing here too would double-count.
+        if !resolved {
+            record_frame_resolution_failure("javascript", err.metric_reason(), &err);
+        }
+
         let resolved_name = if was_minified {
             None
         } else {
             Some(raw_frame.fn_name.clone())
         };
+
+        let resolve_failure = Some(err.to_string());
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -262,11 +274,11 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
-            resolved: !was_minified,
+            resolved,
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(FrameError::from(err)),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             context: None,

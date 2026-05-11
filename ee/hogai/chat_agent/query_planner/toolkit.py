@@ -14,13 +14,12 @@ from posthog.schema import (
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -96,9 +95,11 @@ class TaxonomyAgentToolkit:
     def __init__(self, team: Team):
         self._team = team
 
-    @property
-    def _groups(self):
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+    @cached_property
+    def _groups(self) -> list[dict]:
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        return get_group_types_for_project(self._team.project_id)
 
     @cached_property
     def _entity_names(self) -> list[str]:
@@ -111,7 +112,7 @@ class TaxonomyAgentToolkit:
         entities = [
             "person",
             "session",
-            *[group.group_type for group in self._groups],
+            *[g["group_type"] for g in self._groups],
         ]
         return entities
 
@@ -164,7 +165,7 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
 
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+        if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
@@ -184,9 +185,7 @@ class TaxonomyAgentToolkit:
             )
 
         else:
-            group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
-            )
+            group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
@@ -208,7 +207,12 @@ class TaxonomyAgentToolkit:
             query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
-        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                 analytics_props={"source": EventSource.POSTHOG_AI},
@@ -341,7 +345,7 @@ class TaxonomyAgentToolkit:
         elif entity == "event":
             query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
         else:
-            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
+            group_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
             query = ActorsPropertyTaxonomyQuery(
@@ -367,7 +371,12 @@ class TaxonomyAgentToolkit:
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
-        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
             response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                 analytics_props={"source": EventSource.POSTHOG_AI},

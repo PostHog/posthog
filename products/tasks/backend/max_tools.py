@@ -500,7 +500,7 @@ Use this tool when the user wants to:
                 try:
                     github = GitHubIntegration(integration)
                     org = github.organization()
-                    repos = github.list_all_repositories()
+                    repos = github.list_all_cached_repositories()
 
                     for repo in repos:
                         repo_name = repo["name"]

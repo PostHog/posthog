@@ -16,10 +16,23 @@ const LARGE_AI_PROPERTIES = new Set([
 
 export interface SplitAiEventsStepConfig {
     enabled: boolean
-    /** '*' for all teams, or a Set of enabled team IDs */
-    enabledTeams: Set<number> | '*'
-    /** When true, strip heavy AI properties from the events copy. When false, send unchanged to both outputs. */
-    stripHeavyProperties: boolean
+    /**
+     * '*' for all teams, or a small array of always-routed team IDs.
+     * Hot-path lookup uses Array.includes; expected size is ~3–10, which beats Set in V8.
+     */
+    enabledTeams: number[] | '*'
+    /**
+     * Sticky percentage rollout (0-100), unioned with enabledTeams. A team is routed if it's
+     * in the allowlist OR its bucket falls under the percentage. Bucketing is deterministic on
+     * team_id, so the rollout is monotonic — every team in at X% stays in at any Y% > X%.
+     */
+    enabledPercentage: number
+    /**
+     * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
+     * where heavy columns live only in the AI events table. '*' for all teams, or a small array of team IDs.
+     * Teams not listed here keep double-writing the full event to both outputs.
+     */
+    stripHeavyTeams: number[] | '*'
 }
 
 export interface SplitAiEventsStepInput {
@@ -42,7 +55,7 @@ function hasLargeAiProperties(properties: Record<string, unknown>): boolean {
 
 function maybeStripAiProperties(
     entry: EventToEmit<EventOutput>,
-    stripHeavyProperties: boolean
+    stripHeavyForTeam: boolean
 ): EventToEmit<EventOutput | AiEventOutput>[] {
     const properties = entry.event.properties ?? {}
     const isAiEvent = AI_EVENT_TYPES.has(entry.event.event)
@@ -51,12 +64,12 @@ function maybeStripAiProperties(
         return [entry]
     }
 
-    if (!stripHeavyProperties || !hasLargeAiProperties(properties)) {
+    if (!stripHeavyForTeam || !hasLargeAiProperties(properties)) {
         // Duplicate unchanged to both outputs
         return [entry, { event: entry.event, output: AI_EVENTS_OUTPUT }]
     }
 
-    // Strip heavy props from events copy (only when stripHeavyProperties is true)
+    // Strip heavy props from events copy (only when team is in stripHeavyTeams)
     const stripped: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(properties)) {
         if (!LARGE_AI_PROPERTIES.has(key)) {
@@ -72,37 +85,75 @@ function maybeStripAiProperties(
     ]
 }
 
+function parseTeamsList(teamsStr: string): number[] | '*' {
+    if (teamsStr === '*') {
+        return '*'
+    }
+    return teamsStr
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n))
+}
+
+function clampPercentage(pct: number): number {
+    if (Number.isNaN(pct) || pct <= 0) {
+        return 0
+    }
+    if (pct >= 100) {
+        return 100
+    }
+    return pct
+}
+
+/**
+ * Stable bucket [0, 99] for a team id. Knuth's multiplicative hash so consecutive
+ * team ids don't cluster into the same bucket.
+ */
+function teamRolloutBucket(teamId: number): number {
+    return (Math.imul(teamId, 2654435761) >>> 0) % 100
+}
+
+function isTeamRouted(teams: number[] | '*', percentage: number, teamId: number): boolean {
+    if (teams === '*' || percentage >= 100) {
+        return true
+    }
+    if (teams.includes(teamId)) {
+        return true
+    }
+    if (percentage <= 0) {
+        return false
+    }
+    return teamRolloutBucket(teamId) < percentage
+}
+
 export function parseSplitAiEventsConfig(
     enabled: boolean,
     teamsStr: string,
-    stripHeavy: boolean
+    stripHeavyTeamsStr: string,
+    percentage: number = 0
 ): SplitAiEventsStepConfig {
-    if (teamsStr === '*') {
-        return { enabled, enabledTeams: '*', stripHeavyProperties: stripHeavy }
+    return {
+        enabled,
+        enabledTeams: parseTeamsList(teamsStr),
+        enabledPercentage: clampPercentage(percentage),
+        stripHeavyTeams: parseTeamsList(stripHeavyTeamsStr),
     }
-    const enabledTeams = new Set(
-        teamsStr
-            .split(',')
-            .map((s) => parseInt(s.trim(), 10))
-            .filter((n) => !isNaN(n))
-    )
-    return { enabled, enabledTeams, stripHeavyProperties: stripHeavy }
 }
 
 export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
     config: SplitAiEventsStepConfig
 ): ProcessingStep<T, T & SplitAiEventsStepOutput> {
     return function splitAiEventsStep(input) {
-        if (!config.enabled || (config.enabledTeams !== '*' && !config.enabledTeams.has(input.teamId))) {
+        if (!config.enabled || !isTeamRouted(config.enabledTeams, config.enabledPercentage, input.teamId)) {
             return Promise.resolve(ok(input))
         }
+
+        const stripHeavyForTeam = config.stripHeavyTeams === '*' || config.stripHeavyTeams.includes(input.teamId)
 
         return Promise.resolve(
             ok({
                 ...input,
-                eventsToEmit: input.eventsToEmit.flatMap((entry) =>
-                    maybeStripAiProperties(entry, config.stripHeavyProperties)
-                ),
+                eventsToEmit: input.eventsToEmit.flatMap((entry) => maybeStripAiProperties(entry, stripHeavyForTeam)),
             })
         )
     }

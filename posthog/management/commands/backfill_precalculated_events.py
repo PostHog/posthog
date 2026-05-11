@@ -1,14 +1,23 @@
+import time
+import uuid
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.property.property import BehavioralPropertyType
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow import (
+    BackfillPrecalculatedEventsCoordinatorInputs,
+)
 from posthog.temporal.messaging.filter_storage import store_event_filters
 from posthog.temporal.messaging.types import BehavioralEventFilter
 
@@ -389,24 +398,39 @@ class Command(BaseCommand):
         force_reprocess: bool = False,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
-        import time
-
         filter_storage_key = store_event_filters(filters, team_id)
         self.stdout.write(
             self.style.SUCCESS(f"Stored {len(filters)} event filters in Redis with key: {filter_storage_key}")
         )
 
-        # TODO(Stage 3): Replace with BackfillPrecalculatedEventsCoordinatorInputs
-        # and the actual coordinator workflow once they exist.
-        # For now, just store filters and return a placeholder workflow ID.
-        workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}"
+        condition_hashes = sorted({f.condition_hash for f in filters})
+        workflow_id = f"backfill-precalculated-events-team-{team_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
-        self.stdout.write(
-            self.style.WARNING(
-                f"Coordinator workflow not yet implemented. "
-                f"Filters stored at: {filter_storage_key} "
-                f"(days={effective_days}, concurrent={concurrent_workflows})"
+        async def _run_workflow():
+            client = await async_connect()
+
+            inputs = BackfillPrecalculatedEventsCoordinatorInputs(
+                team_id=team_id,
+                filter_storage_key=filter_storage_key,
+                cohort_ids=cohort_ids,
+                condition_hashes=condition_hashes,
+                days_to_backfill=effective_days,
+                concurrent_workflows=concurrent_workflows,
+                force_reprocess=force_reprocess,
             )
-        )
 
-        return workflow_id
+            await client.start_workflow(
+                "backfill-precalculated-events-coordinator",
+                inputs,
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.MESSAGING_TASK_QUEUE,
+            )
+
+            return workflow_id
+
+        try:
+            return asyncio.run(_run_workflow())
+        except Exception:
+            logger.exception("Failed to execute Temporal workflow")
+            raise

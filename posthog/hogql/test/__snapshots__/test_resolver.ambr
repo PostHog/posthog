@@ -47,6 +47,9 @@
                           $virt_bot_name: {
                             hidden: False
                           },
+                          $virt_bot_operator: {
+                            hidden: False
+                          },
                           $virt_is_bot: {
                             hidden: False
                           },
@@ -2251,6 +2254,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {
@@ -4927,6 +4933,9 @@
                           $virt_bot_name: {
                             hidden: False
                           },
+                          $virt_bot_operator: {
+                            hidden: False
+                          },
                           $virt_is_bot: {
                             hidden: False
                           },
@@ -7088,6 +7097,9 @@
                             $virt_bot_name: {
                               hidden: False
                             },
+                            $virt_bot_operator: {
+                              hidden: False
+                            },
                             $virt_is_bot: {
                               hidden: False
                             },
@@ -8968,6 +8980,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -10564,6 +10579,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -12166,6 +12184,9 @@
                       $virt_bot_name: {
                         hidden: False
                       },
+                      $virt_bot_operator: {
+                        hidden: False
+                      },
                       $virt_is_bot: {
                         hidden: False
                       },
@@ -12402,6 +12423,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -12967,6 +12991,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -13239,6 +13266,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -13517,6 +13547,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -13835,6 +13868,9 @@
                                 hidden: False
                               },
                               $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_bot_operator: {
                                 hidden: False
                               },
                               $virt_is_bot: {
@@ -14161,6 +14197,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -14443,6 +14482,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -14730,6 +14772,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -14999,6 +15044,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -15377,6 +15425,9 @@
                     $virt_bot_name: {
                       hidden: False
                     },
+                    $virt_bot_operator: {
+                      hidden: False
+                    },
                     $virt_is_bot: {
                       hidden: False
                     },
@@ -15610,6 +15661,9 @@
                           hidden: False
                         },
                         $virt_bot_name: {
+                          hidden: False
+                        },
+                        $virt_bot_operator: {
                           hidden: False
                         },
                         $virt_is_bot: {
@@ -15857,6 +15911,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {
