@@ -113,8 +113,31 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
 }
 
 
-def get_kill_switch_level() -> KillSwitchLevel:
-    return _get_kill_switch_level(round(time.time() / 60))
+_KILL_SWITCH_SEVERITY: dict[KillSwitchLevel, int] = {
+    KillSwitchLevel.OFF: 0,
+    KillSwitchLevel.LIGHT: 1,
+    KillSwitchLevel.FULL: 2,
+}
+
+
+def get_kill_switch_level(team_id: Optional[int] = None) -> KillSwitchLevel:
+    """
+    Resolve the active kill switch level, optionally accounting for per-team restrictions.
+
+    The effective level is the most severe of:
+      1. the global `CLICKHOUSE_KILL_SWITCH` instance setting, and
+      2. any per-team override (FULL > LIGHT) configured via
+         `CLICKHOUSE_KILL_SWITCH_FULL_TEAMS` / `CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS`.
+
+    Per-team overrides let us throttle abusive teams without degrading the whole cluster.
+    """
+    ttl = round(time.time() / 60)
+    level = _get_kill_switch_level(ttl)
+    if team_id is not None:
+        team_level = _get_team_kill_switch_level(team_id, ttl)
+        if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
+            level = team_level
+    return level
 
 
 def get_hedged_app_queries_enabled() -> bool:
@@ -137,6 +160,30 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel(value)
     except ValueError:
         return KillSwitchLevel.OFF
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        full_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS") or [])
+    except Exception:
+        full_teams = frozenset()
+    try:
+        light_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS") or [])
+    except Exception:
+        light_teams = frozenset()
+    return full_teams, light_teams
+
+
+def _get_team_kill_switch_level(team_id: int, ttl: int) -> KillSwitchLevel:
+    full_teams, light_teams = _get_kill_switch_team_sets(ttl)
+    if team_id in full_teams:
+        return KillSwitchLevel.FULL
+    if team_id in light_teams:
+        return KillSwitchLevel.LIGHT
+    return KillSwitchLevel.OFF
 
 
 @lru_cache(maxsize=1)
@@ -283,7 +330,7 @@ def sync_execute(
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
 
-    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
+    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level(team_id=team_id)
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
