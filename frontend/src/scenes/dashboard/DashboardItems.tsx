@@ -432,10 +432,24 @@ export function DashboardItems(): JSX.Element {
                         onLayoutChange={handleLayoutChange}
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
-                        cols={Math.max(
-                            tiles?.length || 0,
-                            BREAKPOINT_COLUMN_COUNTS.lg,
-                        )}
+                        cols={{
+                            sm: Math.max(
+                                tiles?.length || 0,
+                                BREAKPOINT_COLUMN_COUNTS.sm,
+                            ),
+                            xs: Math.max(
+                                tiles?.length || 0,
+                                BREAKPOINT_COLUMN_COUNTS.xs,
+                            ),
+                            md: Math.max(
+                                tiles?.length || 0,
+                                BREAKPOINT_COLUMN_COUNTS.sm,
+                            ),
+                            lg: Math.max(
+                                tiles?.length || 0,
+                                BREAKPOINT_COLUMN_COUNTS.sm,
+                            ),
+                        }}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}

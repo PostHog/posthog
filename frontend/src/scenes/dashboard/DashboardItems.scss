@@ -12,7 +12,7 @@
   display: none;
 }
 
-.InsightCard__viz {
+.dashboard-items-wrapper .InsightCard__viz {
   z-index: 0;
 
   .InsightVizDisplay .LineGraph {
@@ -24,8 +24,6 @@
   position: relative;
   margin-bottom: 2rem;
   transition: height 100ms ease;
-  display: inline-flex;
-  flex-wrap: nowrap;
 
   &.dashboard-view-mode .react-grid-item {
     transition: border-color 100ms ease;
