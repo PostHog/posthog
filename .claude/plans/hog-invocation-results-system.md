@@ -26,7 +26,7 @@ These were nailed down during scoping; they are not open questions.
 1. **One row per invocation lifecycle event.** Write a row when the invocation starts running (`status='running'`) and another when it finishes (`status='succeeded' | 'failed'`). ReplacingMergeTree on `(team_id, function_kind, function_id, invocation_id)` keyed by `version` collapses to the latest.
 2. **No row for filtered-out events.** If a function's filters reject an event, nothing is written. Only invocations that actually get queued to run produce rows.
 3. **Status vocabulary is exactly three values:** `running`, `succeeded`, `failed`. No `skipped`, `cancelled`, `timed_out`.
-4. **The full invocation payload lives on the row** in a column named `invocation_globals`. Stored as `String CODEC(ZSTD(3))` for compactness. Not registered as JSON in HogQL — we don't need to query into it, we just need to rehydrate it on replay.
+4. **The full invocation payload lives on the row** in a column named `invocation_globals`. Stored as `String CODEC(ZSTD(3))` for compactness. **Deliberately not exposed in the HogQL schema** — for source-webhook-triggered functions it carries `request.headers` (authorization, x-api-key) that the replay path needs verbatim and we can't safely redact. The replay path reads it via the internal ClickHouse client; HogQL users cannot `SELECT invocation_globals` from `/api/projects/:id/query`.
 5. **Promote a few high-value fields** out of the payload into typed top-level columns: `event_uuid`, `distinct_id`, `person_id`. Empty strings when not applicable (batch/manual triggers).
 6. **Replay reuses the original `invocation_id`.** A new row is written for the replayed run with the same `invocation_id`, incremented `attempts`, and `is_retry = 1` so the UI can mark it. ReplacingMergeTree collapses to the latest attempt's state.
 7. **Hog functions and hog flows share the schema.** No special-casing for hog flows — one row per invocation regardless of source. Future per-step granularity stays in `log_entries`.
@@ -133,7 +133,7 @@ Behavior:
 
 Add the table to `posthog/hogql/database/schema/` so HogQL clients can query it. Treated as a team-scoped table (auto-filtered on `team_id` in the resolver, same as `events`).
 
-Promoted typed columns are exposed natively. `invocation_globals` is exposed as `String` only — there's no need to parse it for queries. The UI uses HogQL for the listing/filtering and only reads `invocation_globals` when the user explicitly inspects a row.
+Promoted typed columns are exposed natively. **`invocation_globals` is deliberately omitted from the HogQL schema** — for hog functions whose trigger is a source webhook the column carries `request.headers` (authorization, x-api-key, etc.) verbatim, which we can't redact because the replay path needs them. The replay path reads `invocation_globals` via the internal ClickHouse client (not HogQL), so leaving it off the HogQL schema costs nothing for replay. A future "view payload" affordance in the UI should land as a server-side endpoint that gates on the function's write permission, not as a HogQL query.
 
 ### Listing query (UI)
 

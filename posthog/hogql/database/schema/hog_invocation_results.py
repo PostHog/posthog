@@ -12,6 +12,17 @@ from posthog.hogql.database.models import (
 # (team_id, function_kind, function_id, invocation_id) with `version` as the
 # tie-breaker — when querying, group by invocation_id and use argMax(field, version)
 # to get the latest state, the same way persons are read.
+#
+# `invocation_globals` is intentionally NOT exposed here. The column carries the
+# full replay payload — for hog functions whose trigger is a source webhook, that
+# includes `request.headers` (authorization, x-api-key, etc.) which the function
+# templates into outbound calls. We can't redact those headers because the replay
+# path needs them verbatim to rehydrate the invocation, and we don't want a
+# tenant to be able to SELECT them via /api/projects/:id/query. The replay path
+# reads `invocation_globals` via the internal ClickHouse client (not HogQL), so
+# leaving it off the HogQL schema costs nothing for replay. If the runs UI ever
+# wants a "view payload" affordance, that should land as a server-side endpoint
+# that gates on the function's write permission, not as a HogQL query.
 HOG_INVOCATION_RESULTS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "function_kind": StringDatabaseField(name="function_kind", nullable=False),
@@ -30,7 +41,6 @@ HOG_INVOCATION_RESULTS_FIELDS: dict[str, FieldOrTable] = {
     "event_uuid": StringDatabaseField(name="event_uuid", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
     "person_id": StringDatabaseField(name="person_id", nullable=False),
-    "invocation_globals": StringDatabaseField(name="invocation_globals", nullable=False),
     "version": IntegerDatabaseField(name="version", nullable=False),
     "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
 }
