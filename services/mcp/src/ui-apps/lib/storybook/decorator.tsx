@@ -6,6 +6,11 @@ import type { ReactElement } from 'react'
 /**
  * MCP Apps host CSS variables — simulates what the host injects via useHostStyleVariables.
  * See: https://github.com/modelcontextprotocol/ext-apps/blob/main/src/spec.types.ts
+ *
+ * The MCP UI runtime bridges these onto Quill tokens (--background, --foreground, etc.)
+ * via services/mcp/src/ui-apps/styles/tailwind.css. In Storybook we don't run that
+ * bridge, so the theme.css beside this file maps the Quill class names that
+ * primitives use directly onto the ext-apps host vars.
  */
 const mcpAppsCssVariables: Record<string, string> = {
     // Background
@@ -48,13 +53,6 @@ const mcpAppsCssVariables: Record<string, string> = {
     '--font-weight-medium': '500',
     '--font-weight-semibold': '600',
     '--font-weight-bold': '700',
-    // Border radius
-    '--border-radius-xs': '0.125rem',
-    '--border-radius-sm': '0.25rem',
-    '--border-radius-md': '0.375rem',
-    '--border-radius-lg': '0.5rem',
-    '--border-radius-xl': '0.75rem',
-    '--border-radius-full': '9999px',
 }
 
 /** Decorator that injects MCP Apps host CSS variables onto the story root. */

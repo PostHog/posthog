@@ -411,7 +411,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     beforeUnmount(({ actions, props }) => {
         actions.resetWizard()
-        if (props.id === 'new') {
+        if (props.id === 'new' && !router.values.hashParams.preserveLocalChanges) {
             actions.resetSurvey()
         }
     }),

@@ -3,37 +3,38 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	PrevProc     key.Binding
-	NextProc     key.Binding
-	KeyUp        key.Binding
-	KeyDown      key.Binding
-	ScrollUp     key.Binding
-	ScrollDown   key.Binding
-	GotoTop      key.Binding
-	GotoBottom   key.Binding
-	NextPane     key.Binding
-	PrevPane     key.Binding
-	Start        key.Binding
-	Stop         key.Binding
-	Restart      key.Binding
-	ClearLogs    key.Binding
-	CopyMode     key.Binding
-	InfoMode     key.Binding
-	SearchMode   key.Binding
-	SearchNext   key.Binding
-	SearchPrev   key.Binding
-	CommitFilter key.Binding
-	ToggleFilter key.Binding
-	Quit         key.Binding
-	Help         key.Binding
-	Backspace    key.Binding
-	Hedgehog     key.Binding
-	Sort         key.Binding
-	Group        key.Binding
-	LazyDocker   key.Binding
-	ProcViewer   key.Binding
-	SetupMode    key.Binding
-	ShowAll      key.Binding
+	PrevProc         key.Binding
+	NextProc         key.Binding
+	KeyUp            key.Binding
+	KeyDown          key.Binding
+	ScrollUp         key.Binding
+	ScrollDown       key.Binding
+	GotoTop          key.Binding
+	GotoBottom       key.Binding
+	NextPane         key.Binding
+	PrevPane         key.Binding
+	Start            key.Binding
+	Stop             key.Binding
+	Restart          key.Binding
+	RestartAllFailed key.Binding
+	ClearLogs        key.Binding
+	CopyMode         key.Binding
+	InfoMode         key.Binding
+	SearchMode       key.Binding
+	SearchNext       key.Binding
+	SearchPrev       key.Binding
+	CommitFilter     key.Binding
+	ToggleFilter     key.Binding
+	Quit             key.Binding
+	Help             key.Binding
+	Backspace        key.Binding
+	Hedgehog         key.Binding
+	Sort             key.Binding
+	Group            key.Binding
+	LazyDocker       key.Binding
+	ProcViewer       key.Binding
+	SetupMode        key.Binding
+	ShowAll          key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -87,6 +88,17 @@ func defaultKeyMap() keyMap {
 		Restart: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
+		),
+		RestartAllFailed: key.NewBinding(
+			// Capital R mirrors the lowercase-vs-uppercase pattern used by
+			// many TUIs to distinguish "single" vs "bulk" actions.
+			// Restarts every proc currently in StatusCrashed (non-zero exit
+			// or killed by a signal). Manually-stopped, clean-exit, never-
+			// started, and standby procs are all naturally excluded — they
+			// sit in different status states.
+			key.WithKeys("R"),
+			key.WithHelp("R:", "restart all failed"),
+			key.WithDisabled(),
 		),
 		ClearLogs: key.NewBinding(
 			key.WithKeys("l"),

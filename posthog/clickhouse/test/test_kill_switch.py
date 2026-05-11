@@ -6,8 +6,11 @@ from posthog.clickhouse.client.execute import (
     _KILL_SWITCH_SETTINGS,
     KillSwitchLevel,
     _get_kill_switch_level,
+    _get_kill_switch_team_sets,
     default_settings,
     get_kill_switch_level,
+    get_team_kill_switch_level,
+    resolve_kill_switch_level,
 )
 
 
@@ -34,6 +37,102 @@ class TestGetKillSwitchLevel:
             _get_kill_switch_level(42)
             assert mock.call_count == 1
         _get_kill_switch_level.cache_clear()
+
+
+class TestGetTeamKillSwitchLevel:
+    @parameterized.expand(
+        [
+            ("team_in_full_list_gets_full", [42], [], 42, KillSwitchLevel.FULL),
+            ("team_in_light_list_gets_light", [], [42], 42, KillSwitchLevel.LIGHT),
+            ("team_not_in_any_list_is_off", [99], [99], 42, KillSwitchLevel.OFF),
+            ("team_in_both_lists_picks_full", [42], [42], 42, KillSwitchLevel.FULL),
+        ]
+    )
+    def test_per_team_lookup(
+        self,
+        _name: str,
+        full: list[int],
+        light: list[int],
+        team_id: int,
+        expected: KillSwitchLevel,
+    ):
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": full,
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": light,
+        }
+        with patch("posthog.models.instance_setting.get_instance_setting", side_effect=lambda name: settings[name]):
+            assert get_team_kill_switch_level(team_id) == expected
+        _get_kill_switch_team_sets.cache_clear()
+
+    def test_global_get_kill_switch_level_ignores_per_team_lists(self):
+        """The global resolver must remain unchanged — per-team overrides are opt-in."""
+        _get_kill_switch_level.cache_clear()
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH": "off",
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": [42],
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": [],
+        }
+        with patch("posthog.models.instance_setting.get_instance_setting", side_effect=lambda name: settings[name]):
+            assert get_kill_switch_level() == KillSwitchLevel.OFF
+        _get_kill_switch_level.cache_clear()
+        _get_kill_switch_team_sets.cache_clear()
+
+    def test_team_sets_are_cached(self):
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": [42],
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": [7],
+        }
+        mock = MagicMock(side_effect=lambda name: settings[name])
+        with patch("posthog.models.instance_setting.get_instance_setting", mock):
+            get_team_kill_switch_level(42)
+            get_team_kill_switch_level(42)
+            # 2 calls for the per-team sets (full + light) over the same minute, no additional calls on the second invocation
+            assert mock.call_count == 2
+        _get_kill_switch_team_sets.cache_clear()
+
+
+class TestResolveKillSwitchLevel:
+    """
+    Exercises the real precedence resolver used by `sync_execute`. The effective level
+    must be the more severe of the global level and any per-team override.
+    """
+
+    @parameterized.expand(
+        [
+            ("global_light_team_full_wins_full", KillSwitchLevel.LIGHT, KillSwitchLevel.FULL, KillSwitchLevel.FULL),
+            ("global_full_team_light_wins_full", KillSwitchLevel.FULL, KillSwitchLevel.LIGHT, KillSwitchLevel.FULL),
+            ("global_off_team_full_wins_full", KillSwitchLevel.OFF, KillSwitchLevel.FULL, KillSwitchLevel.FULL),
+            ("global_off_team_light_wins_light", KillSwitchLevel.OFF, KillSwitchLevel.LIGHT, KillSwitchLevel.LIGHT),
+            ("global_light_team_off_wins_light", KillSwitchLevel.LIGHT, KillSwitchLevel.OFF, KillSwitchLevel.LIGHT),
+            ("global_full_team_off_wins_full", KillSwitchLevel.FULL, KillSwitchLevel.OFF, KillSwitchLevel.FULL),
+            ("global_off_team_off_is_off", KillSwitchLevel.OFF, KillSwitchLevel.OFF, KillSwitchLevel.OFF),
+            ("global_full_team_full_is_full", KillSwitchLevel.FULL, KillSwitchLevel.FULL, KillSwitchLevel.FULL),
+        ]
+    )
+    def test_precedence(
+        self,
+        _name: str,
+        global_level: KillSwitchLevel,
+        team_level: KillSwitchLevel,
+        expected: KillSwitchLevel,
+    ):
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=global_level),
+            patch("posthog.clickhouse.client.execute.get_team_kill_switch_level", return_value=team_level),
+        ):
+            assert resolve_kill_switch_level(team_id=42) == expected
+
+    def test_none_team_id_returns_global_only(self):
+        team_mock = MagicMock(return_value=KillSwitchLevel.FULL)
+        with (
+            patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.LIGHT),
+            patch("posthog.clickhouse.client.execute.get_team_kill_switch_level", team_mock),
+        ):
+            assert resolve_kill_switch_level(team_id=None) == KillSwitchLevel.LIGHT
+            team_mock.assert_not_called()
 
 
 class TestKillSwitchResourceLimits:
