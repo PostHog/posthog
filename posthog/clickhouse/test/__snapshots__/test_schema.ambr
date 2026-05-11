@@ -1343,6 +1343,19 @@
       
   '''
 # ---
+# name: test_create_table_query[dmat_slot_assignments]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `dmat_slot_assignments`  (
+      team_id UInt64,
+      column_index UInt8,
+      property_name String,
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplacingMergeTree(version)
+  ORDER BY (team_id, column_index);
+  
+  '''
+# ---
 # name: test_create_table_query[error_tracking_fingerprint_issue_state]
   '''
   
@@ -7565,6 +7578,19 @@
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
   
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[dmat_slot_assignments]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `dmat_slot_assignments`  (
+      team_id UInt64,
+      column_index UInt8,
+      property_name String,
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplacingMergeTree(version)
+  ORDER BY (team_id, column_index);
   
   '''
 # ---
