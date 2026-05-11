@@ -11167,20 +11167,6 @@ export namespace Schemas {
       readonly slack_workspace_domain: string | null;
     }
 
-    /**
-     * * `0` - Disabled
-    * `1` - Stateless
-    * `2` - Stateful
-     */
-    export type CookielessServerHashModeEnum = typeof CookielessServerHashModeEnum[keyof typeof CookielessServerHashModeEnum];
-
-
-    export const CookielessServerHashModeEnum = {
-      Number0: 0,
-      Number1: 1,
-      Number2: 2,
-    } as const;
-
     export interface CopyDashboardTemplate {
       /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
       source_template_id: string;
@@ -32434,7 +32420,6 @@ export namespace Schemas {
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
       /** @nullable */
@@ -39013,7 +38998,6 @@ export namespace Schemas {
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
       /** @nullable */
