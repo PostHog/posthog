@@ -735,31 +735,51 @@ def create_url_source(
         return get_for_team(source.id, team_id) or source
 
     content_hash = sha256_of(text)
-    with transaction.atomic():
-        _replace_source_content(
-            source=source,
-            team_id=team_id,
-            title=title,
-            text=text,
-            url=result.final_url,
-            etag=result.etag or "",
-            content_hash=content_hash,
-        )
-        source.status = SourceStatus.READY
-        source.last_refresh_at = timezone.now()
-        source.last_refresh_status = RefreshStatus.SUCCESS
-        source.last_refresh_error = ""
-        source.last_etag = result.etag or ""
-        source.save(
-            update_fields=[
-                "status",
-                "last_refresh_at",
-                "last_refresh_status",
-                "last_refresh_error",
-                "last_etag",
-                "updated_at",
-            ]
-        )
+    try:
+        with transaction.atomic():
+            _replace_source_content(
+                source=source,
+                team_id=team_id,
+                title=title,
+                text=text,
+                url=result.final_url,
+                etag=result.etag or "",
+                content_hash=content_hash,
+            )
+            source.status = SourceStatus.READY
+            source.last_refresh_at = timezone.now()
+            source.last_refresh_status = RefreshStatus.SUCCESS
+            source.last_refresh_error = ""
+            source.last_etag = result.etag or ""
+            source.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "last_etag",
+                    "updated_at",
+                ]
+            )
+    except QuotaExceededError:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh.status = SourceStatus.ERROR
+            fresh.error_message = "Quota exceeded"
+            fresh.last_refresh_at = timezone.now()
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = "Quota exceeded"
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
+            )
+        raise
 
     return get_for_team(source.id, team_id) or source
 

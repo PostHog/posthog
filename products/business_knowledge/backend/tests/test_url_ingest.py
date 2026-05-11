@@ -20,6 +20,7 @@ from rest_framework import status
 from products.business_knowledge.backend import url_fetch
 from products.business_knowledge.backend.logic import (
     InvalidUrlError,
+    QuotaExceededError,
     SourceBusyError,
     create_url_source,
     refresh_source,
@@ -191,6 +192,31 @@ class TestCreateUrlSource(BaseTest):
         assert source.status == SourceStatus.ERROR
         assert source.last_refresh_status == RefreshStatus.ERROR
         assert source.error_message == "Remote responded with status 503."
+
+    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    def test_quota_exceeded_during_chunk_insert_marks_error(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
+        mock_fetch.return_value = url_fetch.FetchResult(
+            status=200,
+            body=_BASIC_HTML,
+            content_type="text/html",
+            etag='"v1"',
+            final_url="https://docs.example.com/billing",
+        )
+        with patch(
+            "products.business_knowledge.backend.logic._replace_source_content",
+            side_effect=QuotaExceededError("Team already near the 100000 chunk cap."),
+        ):
+            with self.assertRaises(QuotaExceededError):
+                create_url_source(
+                    team_id=self.team.id,
+                    created_by_id=self.user.id,
+                    name="Over quota",
+                    url="https://docs.example.com/billing",
+                )
+        source = KnowledgeSource.objects.unscoped().get(team_id=self.team.id, name="Over quota")
+        assert source.status == SourceStatus.ERROR
+        assert "Quota exceeded" in source.error_message
 
     @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
