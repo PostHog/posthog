@@ -37,12 +37,13 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
-from ..aggregation_query_runner import run_aggregation_query, run_tree_query
 from ..logic import (
     TraceSpansQueryRunner,
+    run_aggregation_query,
     run_attribute_names_query,
     run_attribute_values_query,
     run_service_names_query,
+    run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 

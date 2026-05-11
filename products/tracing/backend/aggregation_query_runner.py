@@ -18,17 +18,16 @@ windows in parallel when set.
 import datetime as dt
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from posthog.schema import (
     AggregatedSpanRow,
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansTreeQueryResponse,
-    CompareFilter,
     DateRange,
     HogQLFilters,
+    HogQLQueryModifiers,
     IntervalType,
-    PropertyGroupFilter,
     PropertyGroupsMode,
     SpanPropertyFilter,
     SpanPropertyFilterType,
@@ -40,12 +39,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -70,13 +70,15 @@ class _SpanAggregationMixin:
     subclasses implement the abstract hooks below.
     """
 
-    # Provided by AnalyticsQueryRunner / subclasses — declared for type checkers.
+    # Declared so the mixin's bodies type-check standalone. Subclasses redeclare `query`
+    # with the narrower concrete type; the runtime attribute values come from `QueryRunner`
+    # initialization on the concrete class, not from this mixin.
     if TYPE_CHECKING:
         query: TraceSpansAggregationQuery | TraceSpansTreeQuery
         team: "Team"
-        modifiers: object
-        timings: object
-        limit_context: object
+        modifiers: HogQLQueryModifiers
+        timings: HogQLTimings
+        limit_context: LimitContext
 
     def _extract_filters(self) -> None:
         # Replicates the filter extraction the per-trace runner mixin does. We can't reuse
@@ -101,9 +103,9 @@ class _SpanAggregationMixin:
             for prop in property_group.values:
                 prop_type = getattr(prop, "type", None)
                 if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
-                    self.resource_attribute_filters.append(prop)
+                    self.resource_attribute_filters.append(cast(SpanPropertyFilter, prop))
                 elif prop_type == SpanPropertyFilterType.SPAN:
-                    self.span_filters.append(prop)
+                    self.span_filters.append(cast(SpanPropertyFilter, prop))
                 elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                     if isinstance(prop, SpanPropertyFilter) and prop.value:
                         property_type = "str"
@@ -117,7 +119,7 @@ class _SpanAggregationMixin:
                         prop = prop.model_copy(deep=True)
                         prop.key = f"{prop.key}__{property_type}"
 
-                    self.span_attribute_filters.append(prop)
+                    self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:
         from posthog.rbac.user_access_control import UserAccessControlError
@@ -196,7 +198,7 @@ class _SpanAggregationMixin:
     def _run_period(self, query_date_range: QueryDateRange) -> list:
         query = self._build_query(query_date_range)
         response = execute_hogql_query(
-            query_type=self.query.kind.value,
+            query_type=self.query.kind,
             query=query,
             modifiers=self.modifiers,
             team=self.team,
@@ -409,47 +411,3 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse)
         return response
-
-
-def run_aggregation_query(
-    *,
-    team: "Team",
-    date_range: DateRange,
-    compare_filter: CompareFilter | None = None,
-    filter_group: PropertyGroupFilter | None = None,
-    service_names: list[str] | None = None,
-) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
-    """Facade-friendly entry point for running a flat span aggregation query."""
-    query = TraceSpansAggregationQuery(
-        dateRange=date_range,
-        compareFilter=compare_filter,
-        filterGroup=filter_group,
-        serviceNames=service_names,
-    )
-    runner = TraceSpansAggregationQueryRunner(query, team)
-    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-    assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
-    return response
-
-
-def run_tree_query(
-    *,
-    team: "Team",
-    date_range: DateRange,
-    span_name: str,
-    compare_filter: CompareFilter | None = None,
-    filter_group: PropertyGroupFilter | None = None,
-    service_names: list[str] | None = None,
-) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
-    """Facade-friendly entry point for running a span call-tree aggregation query."""
-    query = TraceSpansTreeQuery(
-        dateRange=date_range,
-        spanName=span_name,
-        compareFilter=compare_filter,
-        filterGroup=filter_group,
-        serviceNames=service_names,
-    )
-    runner = TraceSpansTreeQueryRunner(query, team)
-    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-    assert isinstance(response, TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse)
-    return response

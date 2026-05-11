@@ -13,15 +13,23 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
+    CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansQueryResponse,
+    CachedTraceSpansTreeQueryResponse,
+    CompareFilter,
     DateRange,
     HogQLFilters,
     IntervalType,
+    PropertyGroupFilter,
     PropertyGroupsMode,
     SpanPropertyFilter,
     SpanPropertyFilterType,
+    TraceSpansAggregationQuery,
+    TraceSpansAggregationQueryResponse,
     TraceSpansQuery,
     TraceSpansQueryResponse,
+    TraceSpansTreeQuery,
+    TraceSpansTreeQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -32,9 +40,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -623,3 +633,47 @@ def run_attribute_values_query(
             results.append({"id": value, "name": value})
 
     return results
+
+
+def run_aggregation_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    compare_filter: CompareFilter | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    service_names: list[str] | None = None,
+) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
+    """Facade-friendly entry point for running a flat span aggregation query."""
+    query = TraceSpansAggregationQuery(
+        dateRange=date_range,
+        compareFilter=compare_filter,
+        filterGroup=filter_group,
+        serviceNames=service_names,
+    )
+    runner = TraceSpansAggregationQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
+    return response
+
+
+def run_tree_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    span_name: str,
+    compare_filter: CompareFilter | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    service_names: list[str] | None = None,
+) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
+    """Facade-friendly entry point for running a span call-tree aggregation query."""
+    query = TraceSpansTreeQuery(
+        dateRange=date_range,
+        spanName=span_name,
+        compareFilter=compare_filter,
+        filterGroup=filter_group,
+        serviceNames=service_names,
+    )
+    runner = TraceSpansTreeQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse)
+    return response
