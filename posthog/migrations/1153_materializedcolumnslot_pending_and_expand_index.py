@@ -22,9 +22,15 @@ class Migration(migrations.Migration):
     # - 1155_*_concurrent_index: AddIndexConcurrently for `(team, slot_index)`. Split
     #   out because mixing CONCURRENTLY with regular DDL also violates POSTHOG_POLICIES.
     #
-    # Renames the legacy `backfill_temporal_workflow_id` column to `backfill_temporal_run_id`.
-    # The dmat feature has not shipped yet, so no running code references the old column name —
-    # the cross-deploy hazard that safe-django-migrations.md warns about doesn't apply here.
+    # Multi-phase rename of `backfill_temporal_workflow_id` → `backfill_temporal_run_id`:
+    #   Phase 1 (this migration): add the new column, drop the old column's index, and remove the
+    #   old field from Django state (column kept physically — Django no longer reads/writes it).
+    #   Phase 2 (1156_*_concurrent): add the index on the new column via AddIndexConcurrently.
+    #   Phase 3 (future migration): DROP COLUMN backfill_temporal_workflow_id once this PR has
+    #   propagated through a full deployment cycle.
+    # dmat hasn't shipped yet so there's no in-flight data to copy between the old and new
+    # columns. We avoid `RenameField` because the migration risk analyzer hard-blocks it
+    # (score 4 BLOCKED, no override), while AddField + state-only RemoveField is Safe (score 1).
 
     operations = [
         migrations.RemoveConstraint(
@@ -118,21 +124,28 @@ class Migration(migrations.Migration):
                 condition=models.Q(state="PENDING") | models.Q(state="ERROR") | models.Q(slot_index__isnull=False),
             ),
         ),
-        # Rename the physical column from `backfill_temporal_workflow_id` to `backfill_temporal_run_id`,
-        # then drop the legacy-named index and recreate it with a name that reflects the new
-        # column. The table is empty in production (dmat hasn't shipped), so the DROP/CREATE is
-        # instant — no reason to carry a misnamed index forever.
-        migrations.RenameField(
+        # Add the new column. Old column kept in DB until a follow-up migration drops it
+        # (multi-phase column drop — RemoveField score-5 needs its own migration after deploy).
+        migrations.AddField(
             model_name="materializedcolumnslot",
-            old_name="backfill_temporal_workflow_id",
-            new_name="backfill_temporal_run_id",
+            name="backfill_temporal_run_id",
+            field=models.CharField(max_length=400, null=True, blank=True),
         ),
+        # Drop the index that covered the old column. No code reads or writes the old column
+        # after this migration so there's no benefit to keeping its index around.
         migrations.RemoveIndex(
             model_name="materializedcolumnslot",
             name="posthog_mat_backfi_idx",
         ),
-        migrations.AddIndex(
-            model_name="materializedcolumnslot",
-            index=models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_run_id_idx"),
+        # Remove the old field from Django state only. The physical column stays in Postgres
+        # so a future migration can DROP it without a cross-deploy compat hazard.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="materializedcolumnslot",
+                    name="backfill_temporal_workflow_id",
+                ),
+            ],
+            database_operations=[],
         ),
     ]
