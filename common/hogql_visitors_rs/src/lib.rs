@@ -354,6 +354,111 @@ fn convert_exprs_list(node: &Bound<'_, PyAny>, attr: &str) -> PyResult<Vec<AstNo
     Ok(out)
 }
 
+// ---- B-fast: same conversion, with interned attribute names + cached type pointers ----
+
+fn convert_fast(py: Python<'_>, node: &Bound<'_, PyAny>, t: &AstTypes) -> PyResult<AstNode> {
+    // Cheap pointer compares against the cached AST class types — no Py_TYPE
+    // name extraction, no string compare, no MRO walk.
+    if node.is_exact_instance(t.select_query.bind(py)) {
+        Ok(AstNode::SelectQuery {
+            select_from: convert_opt_attr_fast(py, node, intern!(py, "select_from"), t)?,
+            where_clause: convert_opt_attr_fast(py, node, intern!(py, "where"), t)?,
+            prewhere: convert_opt_attr_fast(py, node, intern!(py, "prewhere"), t)?,
+            having: convert_opt_attr_fast(py, node, intern!(py, "having"), t)?,
+        })
+    } else if node.is_exact_instance(t.select_set_query.bind(py)) {
+        let mut children = Vec::new();
+        let initial = node.getattr(intern!(py, "initial_select_query"))?;
+        if !initial.is_none() {
+            children.push(convert_fast(py, &initial, t)?);
+        }
+        for item in node.getattr(intern!(py, "subsequent_select_queries"))?.iter()? {
+            let sub = item?;
+            let q = sub.getattr(intern!(py, "select_query"))?;
+            if !q.is_none() {
+                children.push(convert_fast(py, &q, t)?);
+            }
+        }
+        Ok(AstNode::SelectSet { children })
+    } else if node.is_exact_instance(t.join_expr.bind(py)) {
+        Ok(AstNode::JoinExpr {
+            table: convert_opt_attr_fast(py, node, intern!(py, "table"), t)?,
+            next_join: convert_opt_attr_fast(py, node, intern!(py, "next_join"), t)?,
+        })
+    } else if node.is_exact_instance(t.compare_operation.bind(py)) {
+        Ok(AstNode::CompareOperation {
+            op: node.getattr(intern!(py, "op"))?.extract()?,
+            left: Box::new(convert_fast(py, &node.getattr(intern!(py, "left"))?, t)?),
+            right: Box::new(convert_fast(py, &node.getattr(intern!(py, "right"))?, t)?),
+        })
+    } else if node.is_exact_instance(t.field.bind(py)) {
+        let mut chain = Vec::new();
+        for item in node.getattr(intern!(py, "chain"))?.iter()? {
+            if let Ok(s) = item?.extract::<String>() {
+                chain.push(s);
+            }
+        }
+        Ok(AstNode::Field { chain })
+    } else if node.is_exact_instance(t.constant.bind(py)) {
+        Ok(AstNode::Constant {
+            value: node.getattr(intern!(py, "value"))?.extract::<String>().ok(),
+        })
+    } else if node.is_exact_instance(t.tuple_.bind(py)) {
+        Ok(AstNode::Tuple {
+            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+        })
+    } else if node.is_exact_instance(t.array.bind(py)) {
+        Ok(AstNode::Array {
+            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+        })
+    } else if node.is_exact_instance(t.alias.bind(py)) {
+        Ok(AstNode::Alias {
+            expr: Box::new(convert_fast(py, &node.getattr(intern!(py, "expr"))?, t)?),
+        })
+    } else if node.is_exact_instance(t.and_.bind(py)) {
+        Ok(AstNode::And {
+            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+        })
+    } else if node.is_exact_instance(t.or_.bind(py)) {
+        Ok(AstNode::Or {
+            exprs: convert_exprs_list_fast(py, node, intern!(py, "exprs"), t)?,
+        })
+    } else if node.is_exact_instance(t.not_.bind(py)) {
+        Ok(AstNode::Not {
+            expr: Box::new(convert_fast(py, &node.getattr(intern!(py, "expr"))?, t)?),
+        })
+    } else {
+        Ok(AstNode::Other)
+    }
+}
+
+fn convert_opt_attr_fast(
+    py: Python<'_>,
+    node: &Bound<'_, PyAny>,
+    attr: &Bound<'_, pyo3::types::PyString>,
+    types: &AstTypes,
+) -> PyResult<Option<Box<AstNode>>> {
+    let val = node.getattr(attr)?;
+    if val.is_none() {
+        Ok(None)
+    } else {
+        Ok(Some(Box::new(convert_fast(py, &val, types)?)))
+    }
+}
+
+fn convert_exprs_list_fast(
+    py: Python<'_>,
+    node: &Bound<'_, PyAny>,
+    attr: &Bound<'_, pyo3::types::PyString>,
+    types: &AstTypes,
+) -> PyResult<Vec<AstNode>> {
+    let mut out = Vec::new();
+    for item in node.getattr(attr)?.iter()? {
+        out.push(convert_fast(py, &item?, types)?);
+    }
+    Ok(out)
+}
+
 struct NativeVisitor {
     tables: BTreeSet<String>,
     events: BTreeSet<String>,
@@ -700,6 +805,39 @@ fn to_mirror(query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
 }
 
 #[pyfunction]
+fn to_mirror_fast(py: Python<'_>, query: Bound<'_, PyAny>) -> PyResult<AstMirror> {
+    let types = ast_types(py)?;
+    Ok(AstMirror {
+        inner: convert_fast(py, &query, types)?,
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (query=None))]
+fn extract_features_via_mirror_fast<'py>(
+    py: Python<'py>,
+    query: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let (tables, events) = match query {
+        None => (Vec::new(), Vec::new()),
+        Some(q) => {
+            let types = ast_types(py)?;
+            let mirror = convert_fast(py, &q, types)?;
+            let mut v = NativeVisitor::new();
+            v.visit(&mirror);
+            (
+                v.tables.into_iter().collect::<Vec<_>>(),
+                v.events.into_iter().collect::<Vec<_>>(),
+            )
+        }
+    };
+    Ok(PyTuple::new_bound(
+        py,
+        &[PyList::new_bound(py, &tables), PyList::new_bound(py, &events)],
+    ))
+}
+
+#[pyfunction]
 fn extract_features_from_mirror<'py>(py: Python<'py>, mirror: &AstMirror) -> PyResult<Bound<'py, PyTuple>> {
     let mut v = NativeVisitor::new();
     v.visit(&mirror.inner);
@@ -716,7 +854,9 @@ fn hogql_visitors_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_features_py, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_py_fast, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_via_mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_features_via_mirror_fast, m)?)?;
     m.add_function(wrap_pyfunction!(to_mirror, m)?)?;
+    m.add_function(wrap_pyfunction!(to_mirror_fast, m)?)?;
     m.add_function(wrap_pyfunction!(extract_features_from_mirror, m)?)?;
     m.add_class::<AstMirror>()?;
     Ok(())

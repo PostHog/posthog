@@ -125,16 +125,18 @@ N = 5000
 def run() -> None:
     header = (
         f"{'query':<24} "
-        f"{'python (ms)':>12} "
-        f"{'A (ms)':>10} "
-        f"{'A-fast (ms)':>13} "
-        f"{'B: full (ms)':>14} "
-        f"{'B: visit only (ms)':>20} "
-        f"{'B: convert (ms)':>16}"
+        f"{'python':>9} "
+        f"{'A':>7} "
+        f"{'A-fast':>8} "
+        f"{'B: full':>9} "
+        f"{'B-fast: full':>14} "
+        f"{'B: visit':>10} "
+        f"{'B: convert':>12} "
+        f"{'B-fast: convert':>17}"
     )
     print(header)
     print("-" * len(header))
-    print(f"{'(total for ' + str(N) + ' calls)':<24}")
+    print(f"{'(total ms / ' + str(N) + ' calls)':<24}")
     print()
 
     for name, sql in QUERIES.items():
@@ -145,12 +147,17 @@ def run() -> None:
         t_a = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py(parsed), number=N) * 1000
         t_a_fast = timeit.timeit(lambda: hogql_visitors_rs.extract_features_py_fast(parsed), number=N) * 1000
         t_b_full = timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror(parsed), number=N) * 1000
+        t_b_full_fast = (
+            timeit.timeit(lambda: hogql_visitors_rs.extract_features_via_mirror_fast(parsed), number=N) * 1000
+        )
         t_b_visit = timeit.timeit(lambda: hogql_visitors_rs.extract_features_from_mirror(mirror), number=N) * 1000
         t_b_convert = t_b_full - t_b_visit
+        t_b_convert_fast = t_b_full_fast - t_b_visit
 
         print(
-            f"{name:<24} {t_py:>12.2f} {t_a:>10.2f} {t_a_fast:>13.2f} "
-            f"{t_b_full:>14.2f} {t_b_visit:>20.2f} {t_b_convert:>16.2f}"
+            f"{name:<24} {t_py:>9.2f} {t_a:>7.2f} {t_a_fast:>8.2f} "
+            f"{t_b_full:>9.2f} {t_b_full_fast:>14.2f} {t_b_visit:>10.2f} "
+            f"{t_b_convert:>12.2f} {t_b_convert_fast:>17.2f}"
         )
 
 

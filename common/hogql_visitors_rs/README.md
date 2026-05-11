@@ -18,6 +18,7 @@ makes a clean A/B subject. Three implementations:
 | `extract_features_py` (Rust, A)                        | Reads Python AST objects in place via PyO3. Same per-node Python C-API cost as Python, but skips interpreter dispatch overhead         |
 | `extract_features_py_fast` (Rust, A-fast)              | Same as A, but with PyO3 `intern!`'d attribute names and cached AST class type pointers. Dispatch becomes pointer compare, not strcmp. |
 | `extract_features_via_mirror` (Rust, B, full)          | Walks the Python AST once to build a Rust-native enum, then walks the enum natively. Both phases on every call.                        |
+| `extract_features_via_mirror_fast` (Rust, B-fast)      | Same as B but with the A-fast tricks (interned attribute names, cached type pointers) applied to the conversion pass.                  |
 | `to_mirror` + `extract_features_from_mirror` (B split) | Exposes the convert and visit phases separately so the bench can measure them independently                                            |
 
 Strategy A has a flat-ish per-call cost. Strategy B has a high one-time cost
@@ -70,15 +71,18 @@ for 5000 invocations** of each variant. B is split into `convert`
 the conversion overhead is visible separately from the visitor cost.
 
 ```text
-query                    python      A   A-fast   B: full   B: visit only   B: convert
-tiny                      12.37   1.14     0.60      1.11            0.42         0.70
-events_simple             32.85   4.61     2.51      5.43            1.18         4.25
-events_in_clause          44.27   5.76     3.21      7.13            1.59         5.54
-join_persons              55.64   5.24     2.84      6.72            1.35         5.37
-subquery_with_filters    119.68   6.15     3.05     10.41            0.79         9.62
-trends_like_breakdown    179.76   7.24     3.33      9.86            0.81         9.05
-pathological_deep       1207.06   5.19     3.10     13.48            0.75        12.73
+query                    python      A   A-fast   B-fast: full   B: visit   B-fast: convert
+tiny                      12.46   1.07     0.61           0.61       0.42              0.19
+events_simple             33.08   4.47     2.42           3.49       1.13              2.36
+events_in_clause          44.78   5.49     3.18           4.92       1.64              3.28
+join_persons              56.26   5.36     2.94           4.75       1.34              3.41
+subquery_with_filters    120.80   6.93     3.21           6.65       0.84              5.80
+trends_like_breakdown    180.81   7.36     3.50           6.02       0.84              5.18
+pathological_deep       1182.35   5.28     2.76           8.72       0.82              7.90
 ```
+
+(The full bench output includes "plain B" columns too — same shape, just
+~1.7–1.8× slower than B-fast in every cell that depends on conversion.)
 
 `pathological_deep` is a synthetic 361-AST-node query — multi-CTE, nested
 UNION ALL branches, multi-join — shaped after a complex insight. The row
@@ -88,32 +92,42 @@ actually _faster_ than its smaller-query numbers because the targeted
 visitor only recurses where it needs to, while Python's TraversingVisitor
 base walks every child of every node.
 
-**A-fast** is A plus two cheap tricks: PyO3's `intern!` caches the
-attribute-name strings so subsequent `getattr` calls skip the hash, and
-the AST class types are cached at first use so dispatch becomes a pointer
-comparison via `is_exact_instance` instead of pulling out a class-name
-string and comparing it. Net: another 1.7–2.2× over A across the board,
-or ~54× vs Python on the trends-like query, ~389× on pathological_deep.
-On small queries it's essentially as fast as B's pure-native walk; the
-gap reopens on big queries because A-fast still pays one (now-cheap)
+**A-fast** and **B-fast** are A and B plus two cheap tricks that exploit
+the fact that we know the AST shape ahead of time: PyO3's `intern!`
+caches the attribute-name PyStrings so subsequent `getattr` calls skip
+the hash, and the AST class type objects are cached at first use so
+dispatch becomes a pointer comparison via `is_exact_instance` instead
+of pulling out a class-name string and comparing it.
+
+The win:
+
+- **A-fast** is 1.7–2.2× over plain A. On the trends-like query that's
+  ~54× vs Python; on `pathological_deep` ~389×.
+- **B-fast's `convert`** is 1.7–1.8× over plain B's convert, dragging
+  B-fast's full cost down with it.
+- The native walk (`B: visit`) is unchanged — already pure Rust.
+
+On small queries A-fast is essentially as fast as B's pure-native walk;
+the gap reopens on big queries because A-fast still pays one (now-cheap)
 PyO3 attribute access per node it visits, while B's native walk is
-walking native enum variants.
+walking native enum variants with zero CPython crossings.
 
 What the split makes obvious:
 
-- **A (read Python in place)** is a great single-visitor port — 8–25×
-  faster than Python on its own.
-- **B's `convert` step dominates B's total**, ~85–90% of the cost. Each
-  conversion does the same Python `getattr` work A does, plus allocates
-  Rust enum nodes.
-- **B's `visit only` step is essentially free** — <1.5 ms for 5000 walks
-  of the trends-like query, vs ~7 ms for A on the same workload. This is
-  the pure native-tree-walk cost.
+- **A-fast (read Python in place)** is a great single-visitor port —
+  ~50× faster than Python on the trends-like query.
+- **B's `convert` step dominates B's total** — and the same intern +
+  cached-type-pointer tricks shave ~1.7–1.8× off it, dragging B-fast
+  full cost down too.
+- **B's `visit only` step is essentially free** — under 1 ms for 5000
+  walks of the trends-like query. Pure native-tree-walk cost; unaffected
+  by the fast tricks because there's no PyO3 work in it.
 
-That last row is the punchline. For one visitor over a query, A wins. For
-multiple visitors over the same query, B's "pay convert once, run N cheap
-walks" wins fast — break-even is ~1.5 visitors on the trends-like query,
-and at 5 visitors B is ~2.7× faster than A and ~67× faster than Python.
+For one visitor over a query, A-fast wins. For multiple visitors over
+the same query, B-fast's "pay one cheap convert, run N essentially-free
+walks" wins fast — break-even vs A-fast is ~2 visitors on the trends-like
+query, and at 5 visitors B-fast is ~1.9× faster than A-fast and ~96×
+faster than Python.
 
 The "minimal interop cost" hypothesis worked out better than I expected:
 yes, every Python attribute access from Rust still goes through CPython's
