@@ -23,6 +23,8 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsSchedulesCreateParams,
     HogFlowsSchedulesListParams,
+    HogInvocationReplayRequestApi,
+    HogInvocationReplayResponseApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowScheduleListApi,
     PaginatedHogFlowTemplateListApi,
@@ -452,6 +454,32 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsReplayCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/replay/`
+}
+
+/**
+ * Replay past invocations of this hog flow from their stored payloads.
+
+Same shape and semantics as the hog function replay endpoint —
+proxies through to the CDP worker, which reads matching rows from
+ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+onto cyclotron with `is_retry=1`.
+ */
+export const hogFlowsReplayCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationReplayRequestApi?: HogInvocationReplayRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationReplayResponseApi> => {
+    return apiMutator<HogInvocationReplayResponseApi>(getHogFlowsReplayCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationReplayRequestApi),
     })
 }
 

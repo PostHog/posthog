@@ -98,6 +98,9 @@ tools:
     hog-flows-replay-blocked-run-create:
         operation: hog_flows_replay_blocked_run_create
         enabled: false
+    hog-flows-replay-create:
+        operation: hog_flows_replay_create
+        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false

@@ -1392,6 +1392,71 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Replay past invocations of this hog function from their stored payloads.
+
+The CDP worker reads matching rows from the `hog_invocation_results`
+ClickHouse table, rehydrates the invocation from the stored
+`invocation_globals`, and re-enqueues onto cyclotron. Each replayed
+run reuses the original `invocation_id` with `is_retry=1` set on the
+new lifecycle row so the UI can surface that it was a replay.
+ */
+export const hogFunctionsReplayCreateBodyInvocationIdsMax = 1000
+
+export const hogFunctionsReplayCreateBodyFilterOneMaxAttemptsMax = 255
+
+export const hogFunctionsReplayCreateBodyFilterOneMaxCountMax = 1000
+
+export const HogFunctionsReplayCreateBody = /* @__PURE__ */ zod
+    .object({
+        invocation_ids: zod
+            .array(zod.string())
+            .max(hogFunctionsReplayCreateBodyInvocationIdsMax)
+            .optional()
+            .describe('Explicit list of invocation IDs to replay. Capped at 1000 per request.'),
+        filter: zod
+            .object({
+                window_start: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Inclusive lower bound on `scheduled_at` (UTC).'),
+                window_end: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Exclusive upper bound on `scheduled_at` (UTC).'),
+                status: zod
+                    .array(
+                        zod
+                            .enum(['running', 'succeeded', 'failed'])
+                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                    )
+                    .optional()
+                    .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),
+                error_kind: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                max_attempts: zod
+                    .number()
+                    .min(1)
+                    .max(hogFunctionsReplayCreateBodyFilterOneMaxAttemptsMax)
+                    .optional()
+                    .describe('Skip invocations that have already been attempted this many times or more.'),
+                max_count: zod
+                    .number()
+                    .min(1)
+                    .max(hogFunctionsReplayCreateBodyFilterOneMaxCountMax)
+                    .optional()
+                    .describe('Maximum number of invocations to replay in this request. Server-side cap is 1000.'),
+            })
+            .describe('Filter shape used by the by-filter mode of the replay endpoint.')
+            .optional()
+            .describe('Filter-based selection. Mutually exclusive with `invocation_ids`.'),
+    })
+    .describe(
+        'Replay invocations of a hog function or hog flow from their stored payloads.\nProvide EITHER `invocation_ids` (explicit list) OR `filter` (filter selection),\nnot both.'
+    )
+
+/**
  * Update the execution order of multiple HogFunctions.
  */
 export const HogFunctionsRearrangePartialUpdateBody = /* @__PURE__ */ zod.object({

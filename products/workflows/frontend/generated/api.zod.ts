@@ -803,6 +803,70 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Replay past invocations of this hog flow from their stored payloads.
+
+Same shape and semantics as the hog function replay endpoint —
+proxies through to the CDP worker, which reads matching rows from
+ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+onto cyclotron with `is_retry=1`.
+ */
+export const hogFlowsReplayCreateBodyInvocationIdsMax = 1000
+
+export const hogFlowsReplayCreateBodyFilterOneMaxAttemptsMax = 255
+
+export const hogFlowsReplayCreateBodyFilterOneMaxCountMax = 1000
+
+export const HogFlowsReplayCreateBody = /* @__PURE__ */ zod
+    .object({
+        invocation_ids: zod
+            .array(zod.string())
+            .max(hogFlowsReplayCreateBodyInvocationIdsMax)
+            .optional()
+            .describe('Explicit list of invocation IDs to replay. Capped at 1000 per request.'),
+        filter: zod
+            .object({
+                window_start: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Inclusive lower bound on `scheduled_at` (UTC).'),
+                window_end: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Exclusive upper bound on `scheduled_at` (UTC).'),
+                status: zod
+                    .array(
+                        zod
+                            .enum(['running', 'succeeded', 'failed'])
+                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                    )
+                    .optional()
+                    .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),
+                error_kind: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                max_attempts: zod
+                    .number()
+                    .min(1)
+                    .max(hogFlowsReplayCreateBodyFilterOneMaxAttemptsMax)
+                    .optional()
+                    .describe('Skip invocations that have already been attempted this many times or more.'),
+                max_count: zod
+                    .number()
+                    .min(1)
+                    .max(hogFlowsReplayCreateBodyFilterOneMaxCountMax)
+                    .optional()
+                    .describe('Maximum number of invocations to replay in this request. Server-side cap is 1000.'),
+            })
+            .describe('Filter shape used by the by-filter mode of the replay endpoint.')
+            .optional()
+            .describe('Filter-based selection. Mutually exclusive with `invocation_ids`.'),
+    })
+    .describe(
+        'Replay invocations of a hog function or hog flow from their stored payloads.\nProvide EITHER `invocation_ids` (explicit list) OR `filter` (filter selection),\nnot both.'
+    )
+
+/**
  * Replay all blocked runs in a single bulk call to Node.
  */
 export const hogFlowsReplayAllBlockedRunsCreateBodyNameMax = 400

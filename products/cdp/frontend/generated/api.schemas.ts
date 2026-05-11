@@ -551,6 +551,76 @@ export interface AppMetricsTotalsResponseApi {
 }
 
 /**
+ * * `running` - running
+ * `succeeded` - succeeded
+ * `failed` - failed
+ */
+export type HogInvocationReplayFilterStatusEnumApi =
+    (typeof HogInvocationReplayFilterStatusEnumApi)[keyof typeof HogInvocationReplayFilterStatusEnumApi]
+
+export const HogInvocationReplayFilterStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+} as const
+
+/**
+ * Filter shape used by the by-filter mode of the replay endpoint.
+ */
+export interface HogInvocationReplayFilterApi {
+    /** Inclusive lower bound on `scheduled_at` (UTC). */
+    window_start: string
+    /** Exclusive upper bound on `scheduled_at` (UTC). */
+    window_end: string
+    /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+    status?: HogInvocationReplayFilterStatusEnumApi[]
+    /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+    error_kind?: string[]
+    /**
+     * Skip invocations that have already been attempted this many times or more.
+     * @minimum 1
+     * @maximum 255
+     */
+    max_attempts?: number
+    /**
+     * Maximum number of invocations to replay in this request. Server-side cap is 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    max_count?: number
+}
+
+/**
+ * Replay invocations of a hog function or hog flow from their stored payloads.
+Provide EITHER `invocation_ids` (explicit list) OR `filter` (filter selection),
+not both.
+ */
+export interface HogInvocationReplayRequestApi {
+    /**
+     * Explicit list of invocation IDs to replay. Capped at 1000 per request.
+     * @maxItems 1000
+     */
+    invocation_ids?: string[]
+    /** Filter-based selection. Mutually exclusive with `invocation_ids`. */
+    filter?: HogInvocationReplayFilterApi
+}
+
+/**
+ * Response from the replay endpoint. The endpoint only enqueues a wrapper
+job onto the cyclotron `replay` queue — the actual ClickHouse paging and
+re-enqueue work happens asynchronously in the `cdp-replay-worker` service.
+Use `replay_job_id` to look up progress on the wrapper job later.
+ */
+export interface HogInvocationReplayResponseApi {
+    /** ID of the cyclotron wrapper job that will run the replay. Use this to poll status. */
+    replay_job_id: string
+    /** Always 0 — replay runs asynchronously. Kept for response shape stability. */
+    queued_count: number
+    /** Always 0 — replay runs asynchronously. Kept for response shape stability. */
+    skipped_count: number
+}
+
+/**
  * Map of hog function UUIDs to their new execution_order values.
  */
 export type PatchedHogFunctionRearrangeApiOrders = { [key: string]: number }
