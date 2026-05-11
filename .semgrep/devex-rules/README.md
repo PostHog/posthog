@@ -17,10 +17,6 @@ When the backlog for a rule hits zero, promote the rule from warning to error so
 
 The rule stays in `.semgrep/devex-rules/`; only the severity flips. That's intentional — the directory keeps tracking-or-recently-graduated rules together, and the severity field is the authoritative blocking signal.
 
-## Rules in this directory
-
-- `admin-product-import.yaml` — flags central admin entries (`from products.X.…` inside `posthog/admin/**`) for product-owned models. Migration playbook: see `/move-admins-to-product` skill at `.agents/skills/move-admins-to-product/SKILL.md`.
-
 ## Conventions for new rules
 
 - Start at `severity: WARNING`. Rules in this directory exist precisely because the codebase isn't at zero findings yet.
