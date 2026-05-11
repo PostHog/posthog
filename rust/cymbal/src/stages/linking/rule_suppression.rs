@@ -51,13 +51,13 @@ impl ValueOperator for RuleSuppression {
                 }
                 // See `try_assignment_rules` for the rationale: step-budget exhaustion
                 // is a per-event cost issue, not a logic bug in the rule. Skip this rule
-                // for this event rather than disabling it permanently.
-                Err(VmError::OutOfResource(resource)) => {
+                // for this event rather than disabling it permanently. Other
+                // `OutOfResource` variants still fall through to the disable path.
+                Err(VmError::OutOfResource(resource)) if resource == "steps" => {
                     tracing::warn!(
                         rule_id = %rule.id,
                         team_id = %rule.team_id,
-                        resource = %resource,
-                        "suppression rule exceeded HogVM resource budget for this event, skipping"
+                        "suppression rule exceeded HogVM step budget for this event, skipping"
                     );
                     continue;
                 }
