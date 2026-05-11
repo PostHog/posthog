@@ -283,4 +283,37 @@ describe('performance-event-utils', () => {
 
         expect(actual).toMatchSnapshot()
     })
+
+    it('does not crash when an rrweb network snapshot has no payload', () => {
+        const snapshotWithoutPayload = {
+            windowId: '018d5247-079c-7126-8e43-464605576a62',
+            type: 6,
+            data: {
+                plugin: 'rrweb/network@1',
+                // payload intentionally omitted — observed in the wild on at least one customer
+            },
+            timestamp: 1700000000000,
+        } as any
+
+        const snapshotWithNullPayload = {
+            windowId: '018d5247-079c-7126-8e43-464605576a62',
+            type: 6,
+            data: {
+                plugin: 'posthog/network@1',
+                payload: null,
+            },
+            timestamp: 1700000000001,
+        } as any
+
+        expect(() =>
+            getPerformanceEvents({
+                '018d5247-079c-7126-8e43-464605576a62': [snapshotWithoutPayload, snapshotWithNullPayload],
+            })
+        ).not.toThrow()
+        expect(
+            getPerformanceEvents({
+                '018d5247-079c-7126-8e43-464605576a62': [snapshotWithoutPayload, snapshotWithNullPayload],
+            })
+        ).toEqual([])
+    })
 })
