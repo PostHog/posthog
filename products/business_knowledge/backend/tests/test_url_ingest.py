@@ -192,6 +192,40 @@ class TestCreateUrlSource(BaseTest):
         assert source.last_refresh_status == RefreshStatus.ERROR
         assert source.error_message == "Remote responded with status 503."
 
+    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    def test_concurrent_create_blocked_by_processing_claim(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
+        mock_fetch.return_value = url_fetch.FetchResult(
+            status=200,
+            body=_BASIC_HTML,
+            content_type="text/html",
+            etag='"v1"',
+            final_url="https://docs.example.com/billing",
+        )
+        create_url_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="First",
+            url="https://docs.example.com/billing",
+        )
+        # Simulate a PROCESSING row left by a concurrent in-flight request.
+        KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="In-flight",
+            source_type=SourceType.URL,
+            status=SourceStatus.PROCESSING,
+            source_url="https://other.example.com/",
+        )
+        with self.assertRaises(SourceBusyError):
+            create_url_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Second",
+                url="https://other.example.com/",
+            )
+        # The fetch should never be called for the second create.
+        assert mock_fetch.call_count == 1
+
 
 class TestRefreshSource(BaseTest):
     def _seed(self, etag: str = '"old"') -> KnowledgeSource:

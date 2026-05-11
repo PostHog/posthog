@@ -135,6 +135,8 @@ def _check_zip_bomb(data: bytes) -> None:
                             )
     except zipfile.BadZipFile:
         raise FileParseError("File appears corrupt — cannot read as ZIP.")
+    except (RuntimeError, NotImplementedError):
+        raise FileParseError("File is encrypted or uses an unsupported compression method.")
 
 
 def sanitize_filename(filename: str) -> str:

@@ -198,15 +198,25 @@ def _check_source_quota_locked(team_id: int, *, reject_if_processing: bool = Fal
 
     When *reject_if_processing* is True, also enforces the per-team
     concurrency invariant (at most one PROCESSING source) under the
-    same lock — closing the TOCTOU window between the pre-fetch check
-    and the in-txn create.
+    same lock — closing the TOCTOU window between concurrent creates.
+
+    Stale PROCESSING rows (older than ``_PROCESSING_STALENESS_MINUTES``)
+    are auto-recovered to ERROR before the check so a crashed request
+    doesn't permanently block new creates.
     """
     _acquire_source_quota_lock(team_id)
-    if (
-        reject_if_processing
-        and KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.PROCESSING).exists()
-    ):
-        raise SourceBusyError("Another knowledge source is already being processed for this project.")
+    if reject_if_processing:
+        stale_cutoff = timezone.now() - datetime.timedelta(minutes=_PROCESSING_STALENESS_MINUTES)
+        KnowledgeSource.objects.filter(
+            team_id=team_id,
+            status=SourceStatus.PROCESSING,
+            updated_at__lt=stale_cutoff,
+        ).update(
+            status=SourceStatus.ERROR,
+            error_message="Processing timed out. You can retry via refresh.",
+        )
+        if KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.PROCESSING).exists():
+            raise SourceBusyError("Another knowledge source is already being processed for this project.")
     if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
         raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
 
@@ -552,47 +562,7 @@ def _validate_url(url: str) -> str:
     return normalized
 
 
-@with_team_scope(canonical=True)
-def check_url_source_quota(team_id: int) -> None:
-    """
-    Byte/chunk caps are enforced post-fetch (we don't know the body size until
-    we've fetched). Here we only short-circuit the per-team source count.
-
-    IMPORTANT: this is a non-atomic pre-check for fast rejection. The
-    authoritative check runs inside the ``transaction.atomic()`` block in the
-    create functions to close the TOCTOU window between concurrent requests.
-    """
-
-    if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
-        raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
-
-
 _PROCESSING_STALENESS_MINUTES = 10
-
-
-def _check_no_concurrent_crawl(team_id: int) -> None:
-    """
-    Reject if the team already has a source in PROCESSING state. Crawl
-    and URL-fetch operations run inline on the request thread, so allowing
-    concurrent crawls from the same team amplifies resource exhaustion.
-
-    Sources stuck in PROCESSING for longer than ``_PROCESSING_STALENESS_MINUTES``
-    are treated as stale (crashed mid-crawl) and auto-recovered to ERROR so
-    they don't permanently block new creates.
-    """
-    stale_cutoff = timezone.now() - datetime.timedelta(minutes=_PROCESSING_STALENESS_MINUTES)
-    stale_qs = KnowledgeSource.objects.filter(
-        team_id=team_id,
-        status=SourceStatus.PROCESSING,
-        updated_at__lt=stale_cutoff,
-    )
-    stale_qs.update(
-        status=SourceStatus.ERROR,
-        error_message="Processing timed out. You can retry via refresh.",
-    )
-
-    if KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.PROCESSING).exists():
-        raise SourceBusyError("Another knowledge source is already being processed for this project.")
 
 
 def _resolve_crawl_config(raw: dict | None) -> discover.CrawlConfig:
@@ -720,41 +690,16 @@ def create_url_source(
     url: str,
 ) -> KnowledgeSource:
     """
-    Stage 2a URL ingestion: validate → fetch → parse → chunk.
+    Stage 2a URL ingestion: claim → fetch → parse → chunk.
 
-    Fetch happens *before* the DB transaction so a 10s HTTP call doesn't hold
-    a row-level write lock. The source row is then created atomically with
-    its documents and chunks.
+    A PROCESSING claim row is created *before* the network fetch so
+    concurrent requests for the same team are serialized by the advisory
+    lock + PROCESSING-state check. The fetch runs outside any transaction
+    so a slow remote doesn't hold row-level locks.
     """
 
-    check_url_source_quota(team_id)
-    _check_no_concurrent_crawl(team_id)
     normalized = _validate_url(url)
 
-    try:
-        result, title, text = _fetch_and_parse(normalized, etag=None)
-    except (UrlFetchFailedError, EmptyContentError) as exc:
-        # Create the source in ERROR state so the user can see it, retry via
-        # refresh, or delete it. Returning 201 with an error-state source is
-        # better UX than a 400 that orphans a row the client has no ID for.
-        with transaction.atomic():
-            _check_source_quota_locked(team_id, reject_if_processing=True)
-            now = timezone.now()
-            source = KnowledgeSource.objects.create(
-                team_id=team_id,
-                created_by_id=created_by_id,
-                name=name,
-                source_type=SourceType.URL,
-                status=SourceStatus.ERROR,
-                error_message=str(exc),
-                source_url=normalized,
-                last_refresh_at=now,
-                last_refresh_status=RefreshStatus.ERROR,
-                last_refresh_error=str(exc),
-            )
-        return get_for_team(source.id, team_id) or source
-
-    content_hash = sha256_of(text)
     with transaction.atomic():
         _check_source_quota_locked(team_id, reject_if_processing=True)
         source = KnowledgeSource.objects.create(
@@ -765,6 +710,32 @@ def create_url_source(
             status=SourceStatus.PROCESSING,
             source_url=normalized,
         )
+
+    try:
+        result, title, text = _fetch_and_parse(normalized, etag=None)
+    except (UrlFetchFailedError, EmptyContentError) as exc:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            now = timezone.now()
+            fresh.status = SourceStatus.ERROR
+            fresh.error_message = str(exc)
+            fresh.last_refresh_at = now
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = str(exc)
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
+            )
+        return get_for_team(source.id, team_id) or source
+
+    content_hash = sha256_of(text)
+    with transaction.atomic():
         _replace_source_content(
             source=source,
             team_id=team_id,
@@ -1017,80 +988,22 @@ def create_crawl_source(
 
     Happy path:
       1. Validate + normalize the entry URL (same SSRF plumbing as Stage 2a).
-      2. Discover candidate URLs via sitemap / same-origin BFS.
-      3. Fetch all candidates in parallel with a per-host semaphore.
-      4. In a single transaction, create the source row and bulk-insert
-         one document + N chunks per successfully fetched URL.
+      2. Claim a PROCESSING row under advisory lock so concurrent creates
+         for the same team are serialized.
+      3. Discover candidate URLs via sitemap / same-origin BFS.
+      4. Fetch all candidates in parallel with a per-host semaphore.
+      5. In a transaction, bulk-insert documents + chunks and mark READY.
 
-    A crawl that discovers zero URLs lands a source in ERROR status so the
-    user can see the failure and either adjust globs or retry. A crawl
-    that discovers URLs but fetches none successfully also lands in ERROR.
+    Failures at any stage update the claim row to ERROR so the user can
+    see the failure, adjust globs, or retry.
     """
 
     if crawl_mode == CrawlMode.SINGLE:
-        # Shouldn't happen — the serializer dispatches `single` to
-        # create_url_source. Be defensive though.
         return create_url_source(team_id=team_id, created_by_id=created_by_id, name=name, url=url)
 
-    check_url_source_quota(team_id)
-    _check_no_concurrent_crawl(team_id)
     normalized = _validate_url(url)
     config = _resolve_crawl_config(crawl_config)
 
-    # Step 1: discover. Failures here abort the create — we never persist
-    # a source we couldn't even start on.
-    try:
-        candidate_urls = discover.discover(crawl_mode, normalized, config)
-    except discover.DiscoverError as exc:
-        raise UrlFetchFailedError(str(exc)) from exc
-
-    if not candidate_urls:
-        raise EmptyContentError("Crawl discovered no URLs. Check the entry URL and globs.")
-
-    # Step 2: parallel fetch. Re-validate every URL before the fetch — a
-    # malicious sitemap could point at `file://` or `127.0.0.1`.
-    safe_urls: list[str] = []
-    for u in candidate_urls:
-        try:
-            safe_urls.append(_validate_url(u))
-        except InvalidUrlError:
-            logger.info("business_knowledge.crawl.ssrf_skipped", source_url=normalized, skipped=u)
-            continue
-
-    if not safe_urls:
-        raise EmptyContentError("Crawl discovered no safe URLs to fetch.")
-
-    outcomes = crawl.fetch_many(safe_urls)
-    ok_outcomes = [o for o in outcomes if o.status == "ok"]
-
-    if not ok_outcomes:
-        now = timezone.now()
-        first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
-        with transaction.atomic():
-            _check_source_quota_locked(team_id, reject_if_processing=True)
-            source = KnowledgeSource.objects.create(
-                team_id=team_id,
-                created_by_id=created_by_id,
-                name=name,
-                source_type=SourceType.URL,
-                status=SourceStatus.ERROR,
-                error_message=first_error,
-                source_url=normalized,
-                crawl_mode=crawl_mode,
-                crawl_config=crawl_config or {},
-                last_refresh_at=now,
-                last_refresh_status=RefreshStatus.ERROR,
-                last_refresh_error=first_error,
-            )
-        return get_for_team(source.id, team_id) or source
-
-    # Pre-chunk budget estimate. We still do the post-insert exact check
-    # inside the transaction.
-    estimated_total = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
-    if _count_chunks(team_id) + estimated_total > MAX_CHUNKS_PER_TEAM:
-        raise QuotaExceededError(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
-
-    # Step 3: atomic create.
     with transaction.atomic():
         _check_source_quota_locked(team_id, reject_if_processing=True)
         source = KnowledgeSource.objects.create(
@@ -1103,38 +1016,93 @@ def create_crawl_source(
             crawl_mode=crawl_mode,
             crawl_config=crawl_config or {},
         )
-        total_chunks_written = 0
-        for outcome in ok_outcomes:
-            written = _insert_document_and_chunks(
-                source=source,
-                team_id=team_id,
-                title=outcome.title,
-                text=outcome.text,
-                url=outcome.url,
-                etag=outcome.etag,
-                content_hash=outcome.content_hash,
-                existing_doc=None,
+
+    def _mark_error(error_msg: str) -> KnowledgeSource:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            now = timezone.now()
+            fresh.status = SourceStatus.ERROR
+            fresh.error_message = error_msg
+            fresh.last_refresh_at = now
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = error_msg
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
             )
-            total_chunks_written += written
+        return get_for_team(source.id, team_id) or source
 
-        # Exact post-insert quota check. Rolls back the whole txn if we blew
-        # past the cap — no partial crawl persists.
-        if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
-            raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+    try:
+        candidate_urls = discover.discover(crawl_mode, normalized, config)
+    except discover.DiscoverError as exc:
+        return _mark_error(str(exc))
 
-        source.status = SourceStatus.READY
-        source.last_refresh_at = timezone.now()
-        source.last_refresh_status = RefreshStatus.SUCCESS
-        source.last_refresh_error = ""
-        source.save(
-            update_fields=[
-                "status",
-                "last_refresh_at",
-                "last_refresh_status",
-                "last_refresh_error",
-                "updated_at",
-            ]
-        )
+    if not candidate_urls:
+        return _mark_error("Crawl discovered no URLs. Check the entry URL and globs.")
+
+    safe_urls: list[str] = []
+    for u in candidate_urls:
+        try:
+            safe_urls.append(_validate_url(u))
+        except InvalidUrlError:
+            logger.info("business_knowledge.crawl.ssrf_skipped", source_url=normalized, skipped=u)
+            continue
+
+    if not safe_urls:
+        return _mark_error("Crawl discovered no safe URLs to fetch.")
+
+    outcomes = crawl.fetch_many(safe_urls)
+    ok_outcomes = [o for o in outcomes if o.status == "ok"]
+
+    if not ok_outcomes:
+        first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
+        return _mark_error(first_error)
+
+    estimated_total = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
+    if _count_chunks(team_id) + estimated_total > MAX_CHUNKS_PER_TEAM:
+        return _mark_error(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    try:
+        with transaction.atomic():
+            total_chunks_written = 0
+            for outcome in ok_outcomes:
+                written = _insert_document_and_chunks(
+                    source=source,
+                    team_id=team_id,
+                    title=outcome.title,
+                    text=outcome.text,
+                    url=outcome.url,
+                    etag=outcome.etag,
+                    content_hash=outcome.content_hash,
+                    existing_doc=None,
+                )
+                total_chunks_written += written
+
+            if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+                raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+            source.status = SourceStatus.READY
+            source.last_refresh_at = timezone.now()
+            source.last_refresh_status = RefreshStatus.SUCCESS
+            source.last_refresh_error = ""
+            source.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
+            )
+    except QuotaExceededError:
+        _mark_error(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+        raise
 
     return get_for_team(source.id, team_id) or source
 

@@ -213,7 +213,7 @@ def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> list[str]:
     out: list[str] = []
     queue: deque[tuple[str, int]] = deque([(entry_url, 0)])
     seen.add(entry_url)
-    while queue and len(out) < HARD_DISCOVER_CAP:
+    while queue and len(out) < min(config.max_pages, HARD_DISCOVER_CAP):
         url, depth = queue.popleft()
         # Use the short bot token (not the full UA string) — urllib.robotparser
         # prefix-matches this against `User-agent:` lines in robots.txt.

@@ -25,7 +25,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from products.business_knowledge.backend import crawl, discover, url_fetch
-from products.business_knowledge.backend.logic import EmptyContentError, create_crawl_source, refresh_source
+from products.business_knowledge.backend.logic import create_crawl_source, refresh_source
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus
 
 
@@ -212,22 +212,77 @@ class TestCreateCrawlSource(APIBaseTest):
         assert all(d.content_hash for d in docs)
         assert KnowledgeChunk.objects.unscoped().filter(source=source).count() >= 3
 
-    def test_zero_safe_urls_raises_empty_content(self) -> None:
+    def test_zero_safe_urls_returns_error_source(self) -> None:
         sitemap = _sitemap_xml(["http://127.0.0.1/secret"])
         with patch.object(discover, "_http_get_text", return_value=sitemap):
-            try:
-                create_crawl_source(
-                    team_id=self.team.id,
-                    created_by_id=self.user.id,
-                    name="Hack",
-                    url="https://example.com/sitemap.xml",
-                    crawl_mode="sitemap",
-                    crawl_config={"max_pages": 10},
-                )
-            except EmptyContentError:
-                pass
-            else:
-                raise AssertionError("expected EmptyContentError — 127.0.0.1 should be SSRF-blocked")
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Hack",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+        assert source.status == SourceStatus.ERROR
+        assert "no safe URLs" in source.error_message
+
+    def test_concurrent_crawl_create_blocked_by_processing_claim(self) -> None:
+        from products.business_knowledge.backend.logic import SourceBusyError
+        from products.business_knowledge.backend.models import SourceType
+
+        KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="In-flight",
+            source_type=SourceType.URL,
+            status=SourceStatus.PROCESSING,
+            source_url="https://other.example.com/",
+        )
+        with self.assertRaises(SourceBusyError):
+            create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Second",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+
+    def test_stale_processing_row_auto_recovered(self) -> None:
+        import datetime
+
+        from django.utils import timezone
+
+        from products.business_knowledge.backend.models import SourceType
+
+        stale = KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="Stale",
+            source_type=SourceType.URL,
+            status=SourceStatus.PROCESSING,
+            source_url="https://stale.example.com/",
+        )
+        KnowledgeSource.objects.unscoped().filter(id=stale.id).update(
+            updated_at=timezone.now() - datetime.timedelta(minutes=15),
+        )
+        sitemap = _sitemap_xml(["https://example.com/a"])
+        behaviours = {
+            "https://example.com/a": _ok("https://example.com/a", b"<html><body>Alpha.</body></html>"),
+        }
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            source = create_crawl_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Fresh",
+                url="https://example.com/sitemap.xml",
+                crawl_mode="sitemap",
+                crawl_config={"max_pages": 10},
+            )
+        assert source.status == SourceStatus.READY
+        stale.refresh_from_db()
+        assert stale.status == SourceStatus.ERROR
 
 
 class TestRefreshCrawlSource(APIBaseTest):
