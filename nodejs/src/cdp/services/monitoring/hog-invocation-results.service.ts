@@ -147,17 +147,49 @@ const extractTriggerFields = (
     return { event_uuid: '', distinct_id: '', person_id: '' }
 }
 
+// Strip every `inputs` blob we can find on a globals/state tree. `inputs`
+// holds resolved input values for the function — these can include user-
+// supplied secrets (API keys, OAuth tokens, etc.) that the function templated
+// in at execute time. Persisting them to ClickHouse for 30 days would expand
+// the blast radius of any leak. On replay we re-resolve inputs from the
+// current hog function config + integration store, so this is also a no-op
+// for replay correctness — we'll always pick up the latest secrets, not a
+// snapshot from when the original invocation ran.
+const stripInputs = <T>(value: T): T => {
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    if (Array.isArray(value)) {
+        // We don't expect inputs to live inside arrays today; this branch is a
+        // defensive cheap pass-through so a future schema change doesn't have
+        // to come back here.
+        return value.map((item) => stripInputs(item)) as unknown as T
+    }
+    const obj = value as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(obj)) {
+        if (k === 'inputs') {
+            continue
+        }
+        out[k] = stripInputs(v)
+    }
+    return out as T
+}
+
 // The full payload that the replay path needs to rehydrate the invocation.
-// For hog functions this is the globals + inputs blob the executor was called
-// with; for hog flows it's the workflow context (event, personId, variables,
-// actionStepCount). Worker-side ZSTD compression on the ClickHouse column
-// keeps the storage cost down — we serialize plain JSON here.
+// For hog functions this is the globals tree (event, person, groups, etc.) —
+// with `inputs` stripped, see `stripInputs`. For hog flows it's the workflow
+// context (event, personId, variables, actionStepCount). Worker-side ZSTD
+// compression on the ClickHouse column keeps the storage cost down; we
+// serialize plain JSON here.
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
     if (isHogFunctionInvocation(invocation)) {
-        return JSON.stringify(invocation.state.globals)
+        return JSON.stringify(stripInputs(invocation.state.globals))
     }
     if (isHogFlowInvocation(invocation)) {
-        return JSON.stringify(invocation.state ?? {})
+        // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
+        // — `stripInputs` walks the tree and removes those too.
+        return JSON.stringify(stripInputs(invocation.state ?? {}))
     }
     return '{}'
 }

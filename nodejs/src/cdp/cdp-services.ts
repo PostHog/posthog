@@ -80,6 +80,8 @@ export interface CdpCoreServices {
      */
     hogWatcherMirror: HogWatcherService | null
     hogExecutor: HogExecutorService
+    /** Rebuilds the templated/resolved input bundle for a hog function — used by the replay path to re-derive `inputs` after they're stripped from the persisted payload. */
+    hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
@@ -441,6 +443,7 @@ export function createCdpCoreServices(
         hogWatcher,
         hogWatcherMirror,
         hogExecutor,
+        hogInputsService,
         hogFunctionTemplateManager,
         hogFlowFunctionsService,
         recipientsManager,

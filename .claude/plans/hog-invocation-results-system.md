@@ -299,6 +299,24 @@ Each step is shippable independently. The feature flag in step 3 stays on throug
 - Retention beyond 30 days. If product asks for longer, separate proposal.
 - Action-step-level rows for hog flows. Per-step detail stays in `log_entries`.
 
+## Secrets handling
+
+`invocation_globals` does **not** contain the resolved `inputs` bundle. `HogInvocationResultsService` strips every `inputs` key it finds anywhere in the persisted state tree before serialization (top-level for hog functions, nested under `currentAction.hogFunctionState.globals.inputs` for hog flows). On replay, the worker calls `HogInputsService.buildInputsWithGlobals(hogFunction, persistedGlobals)` to re-derive inputs from the current hog function config + integration store. This means:
+
+- API keys, OAuth tokens, and other templated input values are never stored in ClickHouse, and never leave Kafka in plaintext.
+- A replay always uses the **current** input config and the **current** integration secrets, not a stale snapshot. If a token was rotated since the original invocation ran, the replay picks up the new token.
+- If a hog function was deleted or disabled since the original run, `getHogFunction` returns null and the replay skips that row (counted as `skipped_count`).
+
+## Tests
+
+Per-service unit tests + an end-to-end test that mirrors the shape of `cdp-e2e.test.ts`.
+
+- `nodejs/src/cdp/services/monitoring/hog-invocation-results.service.test.ts` — covers feature-flag gating, the running/succeeded/failed row shapes, `inputs` stripping (including the secret-not-anywhere-in-blob check), error-kind classification, version monotonicity, the invocation_id partition key, and that mid-flight results produce no row.
+- `nodejs/src/cdp/replay/replay-job.manager.test.ts` — exercises `ReplayJobManager.enqueue` against the local cyclotron postgres (`test_cyclotron_node`), asserts the row lands with `queue_name='replay'` and the right `state` payload.
+- `nodejs/src/cdp/replay/replay-paginator.service.test.ts` — covers both `by-ids` and `by-filter` modes against a mocked ClickHouse client, plus the done/cursor-advance logic and the input re-resolution branch.
+- `nodejs/src/cdp/consumers/cdp-replay-worker.consumer.test.ts` — covers the ack-on-done vs reschedule-on-partial branches, malformed state handling, and the heartbeat plumbing.
+- `nodejs/src/cdp/replay/replay-e2e.test.ts` — full pipeline. Insert N invocations through `CdpCyclotronWorker` (some failing on purpose), observe the lifecycle rows landing on the Kafka topic (via `KafkaProducerObserver`), then POST `/replay` for the failed window and watch the replay-worker drain the wrapper job, re-enqueue invocations, and produce a fresh batch of `succeeded` lifecycle rows. Mirrors the pattern in `cdp-e2e.test.ts`.
+
 ## Risks worth tracking
 
 1. **Row volume.** Two rows per invocation × every event that matches a function × every team × 30 days. We should pull a back-of-envelope estimate from current `app_metrics2` totals before turning the producer on globally. Mitigation: feature-flag the producer per team, ramp.

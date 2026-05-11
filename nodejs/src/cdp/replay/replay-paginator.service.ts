@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { HogInputsService } from '../services/hog-inputs.service'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -13,7 +14,7 @@ import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionFilterGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationGlobals,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import {
@@ -66,6 +67,7 @@ export class ReplayPaginatorService {
         private clickhouse: ClickHouseClient,
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
+        private hogInputsService: HogInputsService,
         private invocationResultsRowsService: HogInvocationResultsService,
         private cyclotronJobQueue: CyclotronJobQueue
     ) {}
@@ -318,13 +320,18 @@ export class ReplayPaginatorService {
             if (!hogFunction || hogFunction.team_id !== teamId) {
                 return null
             }
-            const globals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
+            // The persisted globals have `inputs` stripped — secrets stay out
+            // of ClickHouse. Re-resolve inputs here from the current hog function
+            // config + integration store, which also gives the replayed run any
+            // input changes the user made since the original invocation.
+            const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobals
+            const globalsWithInputs = await this.hogInputsService.buildInputsWithGlobals(hogFunction, persistedGlobals)
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
                 // ReplacingMergeTree on the same key.
                 id: row.invocation_id,
                 state: {
-                    globals,
+                    globals: globalsWithInputs,
                     timings: [],
                     attempts: row.attempts + 1,
                 },
