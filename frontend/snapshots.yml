@@ -3381,7 +3381,7 @@ snapshots:
     mcp-apps-error-tracking--chained-exceptions--light:
         hash: v1.k794b7964.2d8d072c53d90abafcfe6cd8b8e65c308c9db771db6a30413acb7d8104439ea7.cYdlD4O4FAq28cL2Tr2_C-VUq8HIgZCiVt7mHae8McU
     mcp-apps-error-tracking--error-details--light:
-        hash: v1.k794b7964.7097068b30246f4311885d3df80ee931147238c61996bff408c09b0fe8debd4d.j-wZ_HY9c0m-cIVrji2dG5C6dYMsmhXg1aBNTz1oFQ0
+        hash: v1.k794b7964.dce336af2844f1f3d4dafd4978b65b0c669a3802a260ce0e7b702506b9f21901.4AKvAX9KwpZJnwyVHUcG2SLWESoFGX9mbVyO4u0rTvI
     mcp-apps-error-tracking--list--light:
         hash: v1.k794b7964.ff6bdd15021c49457e8acce3c0faf262083ce1bcc85ff42db512217d879e9f11.JIBszf8Cqq-NaucWrgUThxdIbGGaRdHvR8J2TZ_gHUk
     mcp-apps-error-tracking--python-stack-trace--light:
@@ -3409,11 +3409,11 @@ snapshots:
     mcp-apps-feature-flags--inactive-flag--light:
         hash: v1.k794b7964.0ea041efd8df37c742028aa46ff65a4036840f462fe1f3cde4da318552f57e61.tD2LfrilewqSsRK4Gtu2nKFDPoyUaDERRF5vN6ht1oM
     mcp-apps-feature-flags--multivariate-flag--light:
-        hash: v1.k794b7964.05705ec2ca5795bbe1c50bc6b51fdca45b8d9d771972996fdf91ef13f7e0a937.EzIU430T0Q9c_HI7WNVQr3Qf7huzFzLnUrEo_odl9Ds
+        hash: v1.k794b7964.130f69940d170035603556e480392821d65b4af34b1ac070626858c432407d1c.uv75AyxQaGoAs6ewIGxD3Q7rUOqBx9TX12-x51AdG5c
     mcp-apps-feature-flags--testing-matched--light:
-        hash: v1.k794b7964.41595a5f077c3d37eb8dd5bd872475e0a1b2d19297722336227757ac3595c89a.SmsLXf8poLxGeLJ4MW3AlLqLwiJCeGW6mzgVyO60GjA
+        hash: v1.k794b7964.09249f0d06bf5ef94eaddfcd5a97b97943ed42cae7097741dd3989418ec11f50.ROO2zs_uTFgPB7eI8fwi2GIwSo_HHTlhAal5XWBmz7Y
     mcp-apps-feature-flags--testing-no-match--light:
-        hash: v1.k794b7964.c1cbdb7b5d939c3f65e2893d31c31ab41d5932bf51d4b1491958052495f4f305.cIii_UkqMPXtF9oXeY_I4YBt37qty07EKb-GyAwpYOc
+        hash: v1.k794b7964.b5eec4d4100dc834d4c7c891e4962c9effa643ff190f3b0957d816d82ebb7269.9Hg0pCpNp895WlYr8k2m97K0fvniLuzPcRSAIWUCtg8
     mcp-apps-llm-analytics--empty--light:
         hash: v1.k794b7964.d90782b3a8ef0c00bb55aa421d47e99727e1b193d323cf5facec65020c892b9e.kmN0YlGh_962Uw52Ike83OYyHsVBFII_qQNAObnY-YQ
     mcp-apps-llm-analytics--multi-model--light:
