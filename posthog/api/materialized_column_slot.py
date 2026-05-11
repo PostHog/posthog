@@ -218,9 +218,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 # Serialize concurrent assign_slot calls per team so the MAX_SLOTS_PER_TEAM
                 # check below can't be raced past by two requests both reading 4 existing slots.
                 Team.objects.select_for_update().get(id=self.team_id)
-                property_definition = PropertyDefinition.objects.select_for_update().get(
-                    id=property_definition_id, team_id=self.team_id
-                )
+                property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
                 existing_slots = list(MaterializedColumnSlot.objects.filter(team_id=self.team_id))
 
                 validation_error = self._validate_property_for_materialization(

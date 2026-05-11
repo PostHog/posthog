@@ -38,8 +38,6 @@ from posthog.test.base import _create_event, flush_persons_and_events
 from posthog.clickhouse.client import sync_execute
 from posthog.models.dmat_slot_assignments.sql import (
     DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME,
-    DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
-    DMAT_SLOT_ASSIGNMENTS_TABLE_SQL,
     INSERT_DMAT_SLOT_ASSIGNMENTS_SQL,
     RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
     TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL,
@@ -96,19 +94,6 @@ class TestCoercionParity:
             )
 
 
-@pytest.fixture
-def dmat_slot_assignments_table():
-    """Ensure the dmat_slot_assignments table and dictionary exist for tests that exercise
-    the dict-backed dispatch SQL. Migration 0244 creates these in production, but the test
-    DB may run a subset of migrations — recreate idempotently here so the tests are
-    self-contained.
-    """
-    sync_execute(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=False))
-    sync_execute(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False))
-    yield
-    # Don't drop on teardown — other tests may rely on the schema being there.
-
-
 def _populate_dict(team_id: int, column_index: int, property_name: str) -> None:
     """Replace the dict's contents with a single (team_id, column_index, property_name)
     row, then reload so the next dictGet/dictHas sees the new state. Using TRUNCATE+INSERT
@@ -139,7 +124,6 @@ def _dict_backed_dispatch_sql(column_index: int, fallback_value: str = "NULL") -
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("dmat_slot_assignments_table")
 class TestDictBackedDispatchCoercion:
     """The dict-based mutation reads property names out of `dmat_slot_assignments_dict`
     via `dictGetString` instead of a query parameter. Same wrapper, different way of

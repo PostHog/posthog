@@ -62,12 +62,8 @@ class MaterializedColumnSlot(UUIDTModel):
     # Temporal run_id of the workflow execution that owns this slot's current BACKFILL transition.
     # The weekly schedule reuses one workflow_id, so run_id (unique per execution, stable across
     # activity retries) is what the assign activity uses for idempotency and stranded-slot detection.
-    # `db_column` keeps the existing physical column name; renaming columns in prod is unsafe
-    # (see safe-django-migrations.md), so the Python attribute is renamed but the DB column
-    # remains `backfill_temporal_workflow_id`.
     backfill_temporal_run_id = models.CharField(
         max_length=400,
-        db_column="backfill_temporal_workflow_id",
         null=True,
         blank=True,
     )
@@ -122,10 +118,7 @@ class MaterializedColumnSlot(UUIDTModel):
             models.Index(fields=["team", "state"], name="posthog_mat_team_st_idx"),
             models.Index(fields=["team", "property_definition"], name="posthog_mat_team_pr_idx"),
             models.Index(fields=["team", "slot_index"], name="posthog_mat_team_sl_idx"),
-            # Index name mirrors the legacy DB column (`backfill_temporal_workflow_id`); the
-            # Python attribute was renamed via db_column on the field, the physical column
-            # and its index didn't move.
-            models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_backfi_idx"),
+            models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_run_id_idx"),
         ]
 
     def __str__(self) -> str:

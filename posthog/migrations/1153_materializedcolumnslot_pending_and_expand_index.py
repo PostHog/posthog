@@ -22,9 +22,9 @@ class Migration(migrations.Migration):
     # - 1155_*_concurrent_index: AddIndexConcurrently for `(team, slot_index)`. Split
     #   out because mixing CONCURRENTLY with regular DDL also violates POSTHOG_POLICIES.
     #
-    # Note: the legacy `backfill_temporal_workflow_id` column is renamed in Python to
-    # `backfill_temporal_run_id` via `db_column=` on the model — the physical column keeps
-    # its old name, no RenameField needed (renames break old code mid-deployment).
+    # Renames the legacy `backfill_temporal_workflow_id` column to `backfill_temporal_run_id`.
+    # The dmat feature has not shipped yet, so no running code references the old column name —
+    # the cross-deploy hazard that safe-django-migrations.md warns about doesn't apply here.
 
     operations = [
         migrations.RemoveConstraint(
@@ -118,35 +118,21 @@ class Migration(migrations.Migration):
                 condition=models.Q(state="PENDING") | models.Q(state="ERROR") | models.Q(slot_index__isnull=False),
             ),
         ),
-        # State-only updates for the `backfill_temporal_workflow_id` → `backfill_temporal_run_id`
-        # rename. The DB column and its index don't move — `db_column=` on the model attribute
-        # preserves the existing column name. Renaming columns in prod is unsafe per
-        # safe-django-migrations.md, so we limit the change to Django's view of the model.
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RenameField(
-                    model_name="materializedcolumnslot",
-                    old_name="backfill_temporal_workflow_id",
-                    new_name="backfill_temporal_run_id",
-                ),
-                # The model's `Index` keeps its existing name `posthog_mat_backfi_idx` and
-                # references the renamed Python field; this just refreshes Django's view.
-                migrations.RemoveIndex(
-                    model_name="materializedcolumnslot",
-                    name="posthog_mat_backfi_idx",
-                ),
-                migrations.AddIndex(
-                    model_name="materializedcolumnslot",
-                    index=models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_backfi_idx"),
-                ),
-                migrations.AlterField(
-                    model_name="materializedcolumnslot",
-                    name="backfill_temporal_run_id",
-                    field=models.CharField(
-                        blank=True, db_column="backfill_temporal_workflow_id", max_length=400, null=True
-                    ),
-                ),
-            ],
-            database_operations=[],
+        # Rename the physical column from `backfill_temporal_workflow_id` to `backfill_temporal_run_id`,
+        # then drop the legacy-named index and recreate it with a name that reflects the new
+        # column. The table is empty in production (dmat hasn't shipped), so the DROP/CREATE is
+        # instant — no reason to carry a misnamed index forever.
+        migrations.RenameField(
+            model_name="materializedcolumnslot",
+            old_name="backfill_temporal_workflow_id",
+            new_name="backfill_temporal_run_id",
+        ),
+        migrations.RemoveIndex(
+            model_name="materializedcolumnslot",
+            name="posthog_mat_backfi_idx",
+        ),
+        migrations.AddIndex(
+            model_name="materializedcolumnslot",
+            index=models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_run_id_idx"),
         ),
     ]

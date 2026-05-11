@@ -13,26 +13,13 @@ dict round-trip the mutation builder relies on.
 
 import uuid
 
-import pytest
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models.dmat_slot_assignments.sql import (
     DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME,
-    DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
-    DMAT_SLOT_ASSIGNMENTS_TABLE_SQL,
     INSERT_DMAT_SLOT_ASSIGNMENTS_SQL,
     RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
     TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL,
 )
-
-
-@pytest.fixture(autouse=True)
-def ensure_dmat_dictionary_exists():
-    # Migration 0244 creates these in production; recreate idempotently here so the
-    # tests are self-contained when running against a fresh test DB.
-    sync_execute(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=False))
-    sync_execute(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False))
-    yield
 
 
 def _populate(rows: list[tuple[int, int, str]]) -> None:
