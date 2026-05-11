@@ -1,3 +1,5 @@
+from typing import cast
+
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -36,8 +38,10 @@ def _make_runner(
     runner = MagicMock(spec=WebAnalyticsQueryRunner)
     runner.query = query
     runner.team = team
-    runner.query_strategy.return_value = query_strategy
-    runner.clickhouse_query_type.return_value = f"{query_strategy}_query" if query_strategy is not None else None
+    cast(MagicMock, runner.query_strategy).return_value = query_strategy
+    cast(MagicMock, runner.clickhouse_query_type).return_value = (
+        f"{query_strategy}_query" if query_strategy is not None else None
+    )
 
     date_range = MagicMock()
     date_range.date_from_str = "2024-01-01"
@@ -215,8 +219,8 @@ class TestWebAnalyticsMetrics(TestCase):
     @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
     def test_stats_table_log_line_includes_query_strategy(self, _mock_tag):
         runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.PAGE)
-        runner.query_strategy.return_value = "stats_table_path_bounce"
-        runner.clickhouse_query_type.return_value = "stats_table_path_bounce_query"
+        cast(MagicMock, runner.query_strategy).return_value = "stats_table_path_bounce"
+        cast(MagicMock, runner.clickhouse_query_type).return_value = "stats_table_path_bounce_query"
 
         fake_response = MagicMock()
         fake_response.usedPreAggregatedTables = False
@@ -279,8 +283,8 @@ class TestWebAnalyticsMetrics(TestCase):
     @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
     def test_strategy_resolution_failure_still_emits_error_metrics(self, _mock_tag):
         runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.PAGE)
-        runner.query_strategy.side_effect = RuntimeError("strategy boom")
-        runner.clickhouse_query_type.side_effect = RuntimeError("strategy boom")
+        cast(MagicMock, runner.query_strategy).side_effect = RuntimeError("strategy boom")
+        cast(MagicMock, runner.clickhouse_query_type).side_effect = RuntimeError("strategy boom")
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", side_effect=ValueError("boom")):
             with self.assertRaises(ValueError):
