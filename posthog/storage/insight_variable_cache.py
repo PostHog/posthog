@@ -4,10 +4,17 @@ Per-team cache of InsightVariable lists.
 The insight list/retrieve endpoints attach the full list of insight variables
 for the team to the serializer context on every request, where it feeds
 map_stale_to_latest and variables_override_requested_by_client. The list
-changes rarely, so we cache it per team in Redis and invalidate via signals
-on InsightVariable writes.
+changes rarely, so we cache it per team in Redis and invalidate via post_save
+and post_delete signals on InsightVariable (see
+posthog/storage/insight_variable_cache_signal_handlers.py).
 
-Signal handlers live in posthog/storage/insight_variable_cache_signal_handlers.py.
+Invalidation covers ORM save() / delete() writes only. Bulk operations
+(QuerySet.update, bulk_create, bulk_update) and raw SQL bypass these
+signals, so writers using those paths will leave other processes' caches
+stale for up to INSIGHT_VARIABLES_CACHE_TTL seconds. Product code today
+only writes through the DRF ModelViewSet, but anything added later that
+needs immediate consistency must call invalidate_insight_variables_for_team
+explicitly.
 """
 
 from __future__ import annotations

@@ -90,13 +90,14 @@ class TestInsightVariableCacheSignals(TestCase):
         get_insight_variables_for_team(self.team.id)
         assert cache.get(_cache_key(self.team.id)) is not None
 
-        if scenario == "after_create":
-            InsightVariable.objects.create(team=self.team, name="New", code_name="new", type="String")
-        else:
-            variable = InsightVariable.objects.create(team=self.team, name="Old", code_name="old", type="String")
-            cache.set(_cache_key(self.team.id), [variable], timeout=300)
-            variable.name = "Renamed"
-            variable.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            if scenario == "after_create":
+                InsightVariable.objects.create(team=self.team, name="New", code_name="new", type="String")
+            else:
+                variable = InsightVariable.objects.create(team=self.team, name="Old", code_name="old", type="String")
+                cache.set(_cache_key(self.team.id), [variable], timeout=300)
+                variable.name = "Renamed"
+                variable.save()
 
         assert cache.get(_cache_key(self.team.id)) is None
 
@@ -105,7 +106,8 @@ class TestInsightVariableCacheSignals(TestCase):
         get_insight_variables_for_team(self.team.id)
         assert cache.get(_cache_key(self.team.id)) is not None
 
-        variable.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            variable.delete()
 
         assert cache.get(_cache_key(self.team.id)) is None
 
@@ -116,7 +118,20 @@ class TestInsightVariableCacheSignals(TestCase):
         assert cache.get(_cache_key(self.team.id)) is not None
         assert cache.get(_cache_key(other_team.id)) is not None
 
-        InsightVariable.objects.create(team=other_team, name="Only Theirs", code_name="only_theirs", type="String")
+        with self.captureOnCommitCallbacks(execute=True):
+            InsightVariable.objects.create(team=other_team, name="Only Theirs", code_name="only_theirs", type="String")
 
         assert cache.get(_cache_key(self.team.id)) is not None
         assert cache.get(_cache_key(other_team.id)) is None
+
+    def test_invalidation_waits_for_commit(self):
+        get_insight_variables_for_team(self.team.id)
+        assert cache.get(_cache_key(self.team.id)) is not None
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            InsightVariable.objects.create(team=self.team, name="X", code_name="x", type="String")
+            assert cache.get(_cache_key(self.team.id)) is not None, (
+                "cache must not be invalidated before the surrounding transaction commits"
+            )
+
+        assert len(callbacks) == 1

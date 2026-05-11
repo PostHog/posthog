@@ -25,7 +25,6 @@ from posthog.schema import SharingConfigurationSettings
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
-from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -44,6 +43,7 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
+from posthog.storage.insight_variable_cache import get_insight_variables_for_team
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
@@ -331,7 +331,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             except Notebook.DoesNotExist:
                 raise NotFound("Notebook not found.")
 
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team)
+        context["insight_variables"] = get_insight_variables_for_team(self.team.id)
 
         return context
 
@@ -769,7 +769,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
             "get_team": lambda: resource.team,
-            "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
+            "insight_variables": get_insight_variables_for_team(resource.team.id),
             "export_cache_keys": export_cache_keys,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
