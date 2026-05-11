@@ -1,34 +1,56 @@
-import './DashboardItems.scss'
+import "./DashboardItems.scss";
 
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
-import { GridBackground } from 'react-grid-layout/extras'
+import clsx from "clsx";
+import { useActions, useValues } from "kea";
+import { router } from "kea-router";
+import {
+    RefObject,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+import {
+    Layout,
+    Responsive as ReactGridLayout,
+    useContainerWidth,
+} from "react-grid-layout";
+import { GridBackground } from "react-grid-layout/extras";
 
-import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
-import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
-import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
-import { urls } from 'scenes/urls'
+import { InsightCard } from "lib/components/Cards/InsightCard";
+import { LemonBanner } from "lib/lemon-ui/LemonBanner";
+import {
+    DashboardEventSource,
+    eventUsageLogic,
+} from "lib/utils/eventUsageLogic";
+import { dashboardLogic } from "scenes/dashboard/dashboardLogic";
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+} from "scenes/dashboard/dashboardUtils";
+import { useSurveyLinkedInsights } from "scenes/surveys/hooks/useSurveyLinkedInsights";
+import { getBestSurveyOpportunityFunnel } from "scenes/surveys/utils/opportunityDetection";
+import { urls } from "scenes/urls";
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { insightsModel } from '~/models/insightsModel'
-import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { getCurrentExporterData } from "~/exporter/exporterViewLogic";
+import { insightsModel } from "~/models/insightsModel";
+import {
+    DashboardLayoutSize,
+    DashboardMode,
+    DashboardPlacement,
+    DashboardType,
+} from "~/types";
 
-import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
-import { DashboardTextItem } from './items/DashboardTextItem'
+import { DashboardButtonTileItem } from "./items/DashboardButtonTileItem";
+import { DashboardTextItem } from "./items/DashboardTextItem";
 
-const DRAG_AUTO_SCROLL_THRESHOLD = 100
-const DRAG_AUTO_SCROLL_SPEED = 50
+const DRAG_AUTO_SCROLL_THRESHOLD = 100;
+const DRAG_AUTO_SCROLL_SPEED = 50;
 
-const BASE_ROW_HEIGHT = 80
-const BASE_MARGIN: [number, number] = [16, 16]
-const CONTAINER_PADDING: [number, number] = [0, 0]
+const BASE_ROW_HEIGHT = 80;
+const BASE_MARGIN: [number, number] = [16, 16];
+const CONTAINER_PADDING: [number, number] = [0, 0];
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -48,8 +70,8 @@ export function DashboardItems(): JSX.Element {
         temporaryBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
-    } = useValues(dashboardLogic)
-    const { layoutZoom = 1 } = useValues(dashboardLogic)
+    } = useValues(dashboardLogic);
+    const { layoutZoom = 1 } = useValues(dashboardLogic);
     const {
         updateLayouts,
         updateContainerWidth,
@@ -62,266 +84,321 @@ export function DashboardItems(): JSX.Element {
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
-    } = useActions(dashboardLogic)
-    const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
-    const { push } = useActions(router)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
+    } = useActions(dashboardLogic);
+    const { renameInsight } = useActions(insightsModel);
+    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic);
+    const { push } = useActions(router);
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } =
+        useSurveyLinkedInsights({});
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
-        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights);
 
-    const resizingItemRef = useRef<any>(null)
-    const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
+    const resizingItemRef = useRef<any>(null);
+    const [containerHeight, setContainerHeight] = useState<number | undefined>(
+        undefined,
+    );
 
     // cannot click links when dragging and 250ms after
-    const isDragging = useRef(false)
-    const dragEndTimeout = useRef<number | null>(null)
-    const scrollAnimationRef = useRef<number | null>(null)
-    const scrollContainerRef = useRef<HTMLElement | null>(null)
-    const scrollContainerRectRef = useRef<DOMRect | null>(null)
+    const isDragging = useRef(false);
+    const dragEndTimeout = useRef<number | null>(null);
+    const scrollAnimationRef = useRef<number | null>(null);
+    const scrollContainerRef = useRef<HTMLElement | null>(null);
+    const scrollContainerRectRef = useRef<DOMRect | null>(null);
 
     useEffect(() => {
         return () => {
             if (scrollAnimationRef.current) {
-                cancelAnimationFrame(scrollAnimationRef.current)
+                cancelAnimationFrame(scrollAnimationRef.current);
             }
             if (dragEndTimeout.current) {
-                window.clearTimeout(dragEndTimeout.current)
+                window.clearTimeout(dragEndTimeout.current);
             }
-            scrollContainerRef.current = null
-            scrollContainerRectRef.current = null
-        }
-    }, [])
+            scrollContainerRef.current = null;
+            scrollContainerRectRef.current = null;
+        };
+    }, []);
     const className = clsx({
-        'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
-        'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
-    })
+        "dashboard-view-mode": dashboardMode !== DashboardMode.Edit,
+        "dashboard-edit-mode": dashboardMode === DashboardMode.Edit,
+    });
 
-    const { width, containerRef, mounted } = useContainerWidth()
+    const { width, containerRef, mounted } = useContainerWidth();
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
-    const [gridWidth, setGridWidth] = useState(width)
+    const [gridWidth, setGridWidth] = useState(width);
     useEffect(() => {
-        const timer = setTimeout(() => setGridWidth(width), 100)
-        return () => clearTimeout(timer)
-    }, [width])
+        const timer = setTimeout(() => setGridWidth(width), 100);
+        return () => clearTimeout(timer);
+    }, [width]);
 
     useEffect(() => {
         if (!mounted || !containerRef.current) {
-            return
+            return;
         }
 
-        const element = containerRef.current
+        const element = containerRef.current;
         const observer = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 if (entry.target === element) {
-                    setContainerHeight(entry.contentRect.height)
+                    setContainerHeight(entry.contentRect.height);
                 }
             }
-        })
+        });
 
         // Set initial height
-        setContainerHeight(element.clientHeight)
-        observer.observe(element)
+        setContainerHeight(element.clientHeight);
+        observer.observe(element);
 
         return () => {
-            observer.disconnect()
-        }
-    }, [mounted, containerRef])
-    const isMobileView = !!width && width <= BREAKPOINTS['sm']
+            observer.disconnect();
+        };
+    }, [mounted, containerRef]);
+    const isMobileView = !!width && width <= BREAKPOINTS["sm"];
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
         DashboardPlacement.Builtin,
-    ].includes(placement)
+    ].includes(placement);
 
     const canEnterEditModeFromEdge =
-        !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
+        !!dashboard &&
+        canEditDashboard &&
+        dashboardMode !== DashboardMode.Edit &&
+        !isMobileView &&
+        isEditablePlacement;
 
-    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && layoutZoom !== 1
+    const isLayoutZoomToggled =
+        dashboardMode === DashboardMode.Edit && layoutZoom !== 1;
 
-    const effectiveZoom = dashboardMode === DashboardMode.Edit ? layoutZoom : 1
-    const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
-    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const effectiveZoom = dashboardMode === DashboardMode.Edit ? layoutZoom : 1;
+    const rowHeight = BASE_ROW_HEIGHT * effectiveZoom;
+    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1;
+    const margin = useMemo(
+        () => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number],
+        [spacingFactor],
+    );
 
     const showResizeHandles =
-        dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
-    const showEditingControls = isEditablePlacement || dashboardMode === DashboardMode.Edit
+        dashboardMode === DashboardMode.Edit &&
+        !isMobileView &&
+        isEditablePlacement &&
+        !isLayoutZoomToggled;
+    const showEditingControls =
+        isEditablePlacement || dashboardMode === DashboardMode.Edit;
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
         placement !== DashboardPlacement.Public &&
-        !getCurrentExporterData()?.hideExtraDetails
+        !getCurrentExporterData()?.hideExtraDetails;
 
     const dragConfig = useMemo(
         () => ({
             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
-            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body',
-            cancel: 'a,table,button,input,.Popover',
+            handle: ".CardMeta,.TextCard__body,.ButtonTileCard__body",
+            cancel: "a,table,button,input,.Popover",
             bounded: true,
         }),
-        [dashboardMode, isMobileView]
-    )
+        [dashboardMode, isMobileView],
+    );
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: dashboardMode === DashboardMode.Edit && !isMobileView && !isLayoutZoomToggled,
-            handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
+            enabled:
+                dashboardMode === DashboardMode.Edit &&
+                !isMobileView &&
+                !isLayoutZoomToggled,
+            handles: ["s", "e", "se", "n", "w", "nw", "ne", "sw"] as const,
         }),
-        [dashboardMode, isMobileView, isLayoutZoomToggled]
-    )
+        [dashboardMode, isMobileView, isLayoutZoomToggled],
+    );
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
             canEnterEditModeFromEdge
-                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                ? () =>
+                      setDashboardMode(
+                          DashboardMode.Edit,
+                          DashboardEventSource.CardEdgeHover,
+                      )
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
-    )
+        [canEnterEditModeFromEdge, setDashboardMode],
+    );
 
     const onDragHandleMouseDown = useMemo(
         () =>
             canEnterEditModeFromEdge
                 ? (e: React.MouseEvent) => {
-                      const target = e.target as Element | null
+                      const target = e.target as Element | null;
                       if (!target) {
-                          return
+                          return;
                       }
 
-                      const gridItem = target.closest('.react-grid-item')
+                      const gridItem = target.closest(".react-grid-item");
                       if (!gridItem) {
-                          return
+                          return;
                       }
 
                       // Don't trigger when clicking obvious interactive controls or readonly rich text (TipTap/LemonMarkdown).
                       if (
                           target.closest(
-                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
+                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown',
                           )
                       ) {
-                          return
+                          return;
                       }
-                      e.preventDefault()
-                      e.stopPropagation()
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDashboardMode(
+                          DashboardMode.Edit,
+                          DashboardEventSource.CardDragHandle,
+                      );
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
-    )
+        [canEnterEditModeFromEdge, setDashboardMode],
+    );
 
     const requireDashboardId = useCallback(
         (action: string): number => {
             if (!dashboard) {
-                throw new Error(`must be on a dashboard to ${action}`)
+                throw new Error(`must be on a dashboard to ${action}`);
             }
-            return dashboard.id
+            return dashboard.id;
         },
-        [dashboard]
-    )
+        [dashboard],
+    );
 
     const handleLayoutChange = useCallback(
-        (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
+        (
+            _: unknown,
+            newLayouts: Partial<Record<DashboardLayoutSize, Layout>>,
+        ) => {
             if (dashboardMode === DashboardMode.Edit) {
-                updateLayouts(newLayouts)
+                updateLayouts(newLayouts);
             }
         },
-        [dashboardMode, updateLayouts]
-    )
+        [dashboardMode, updateLayouts],
+    );
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
-            updateContainerWidth(containerWidth, newCols)
+            updateContainerWidth(containerWidth, newCols);
         },
-        [updateContainerWidth]
-    )
+        [updateContainerWidth],
+    );
 
-    const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        resizingItemRef.current = newItem
-    }, [])
+    const handleResize = useCallback(
+        (_layout: any, _oldItem: any, newItem: any) => {
+            resizingItemRef.current = newItem;
+        },
+        [],
+    );
 
     const handleResizeStop = useCallback(() => {
-        resizingItemRef.current = null
+        resizingItemRef.current = null;
         if (dashboard?.id) {
-            reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
+            reportDashboardTileRepositioned(
+                dashboard.id,
+                "resized",
+                effectiveZoom,
+            );
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom]);
 
     const handleDragStart = useCallback(() => {
-        scrollContainerRef.current = document.getElementById('main-content')
-        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
-    }, [])
+        scrollContainerRef.current = document.getElementById("main-content");
+        scrollContainerRectRef.current =
+            scrollContainerRef.current?.getBoundingClientRect() ?? null;
+    }, []);
 
     const handleDrag = useCallback(
-        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
-            isDragging.current = true
+        (
+            _layout: unknown,
+            _oldItem: unknown,
+            _newItem: unknown,
+            _placeholder: unknown,
+            e: unknown,
+        ) => {
+            isDragging.current = true;
             if (dragEndTimeout.current) {
-                window.clearTimeout(dragEndTimeout.current)
+                window.clearTimeout(dragEndTimeout.current);
             }
             if (scrollAnimationRef.current) {
-                cancelAnimationFrame(scrollAnimationRef.current)
-                scrollAnimationRef.current = null
+                cancelAnimationFrame(scrollAnimationRef.current);
+                scrollAnimationRef.current = null;
             }
 
-            const scrollContainer = scrollContainerRef.current
-            const containerRect = scrollContainerRectRef.current
+            const scrollContainer = scrollContainerRef.current;
+            const containerRect = scrollContainerRectRef.current;
             if (!scrollContainer || !containerRect) {
-                return
+                return;
             }
 
-            const mouseY = (e as MouseEvent).clientY
+            const mouseY = (e as MouseEvent).clientY;
 
-            let scrollSpeed = 0
+            let scrollSpeed = 0;
             if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
-                scrollSpeed = -DRAG_AUTO_SCROLL_SPEED
-            } else if (mouseY > containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD) {
-                scrollSpeed = DRAG_AUTO_SCROLL_SPEED
+                scrollSpeed = -DRAG_AUTO_SCROLL_SPEED;
+            } else if (
+                mouseY >
+                containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD
+            ) {
+                scrollSpeed = DRAG_AUTO_SCROLL_SPEED;
             }
 
             if (scrollSpeed !== 0) {
                 const scroll = (): void => {
-                    const atTop = scrollSpeed < 0 && scrollContainer.scrollTop === 0
+                    const atTop =
+                        scrollSpeed < 0 && scrollContainer.scrollTop === 0;
                     const atBottom =
                         scrollSpeed > 0 &&
-                        scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight
+                        scrollContainer.scrollTop +
+                            scrollContainer.clientHeight >=
+                            scrollContainer.scrollHeight;
                     if (atTop || atBottom) {
-                        return
+                        return;
                     }
-                    scrollContainer.scrollBy(0, scrollSpeed)
-                    scrollAnimationRef.current = requestAnimationFrame(scroll)
-                }
-                scrollAnimationRef.current = requestAnimationFrame(scroll)
+                    scrollContainer.scrollBy(0, scrollSpeed);
+                    scrollAnimationRef.current = requestAnimationFrame(scroll);
+                };
+                scrollAnimationRef.current = requestAnimationFrame(scroll);
             }
         },
-        []
-    )
+        [],
+    );
 
     const handleDragStop = useCallback(() => {
         if (scrollAnimationRef.current) {
-            cancelAnimationFrame(scrollAnimationRef.current)
-            scrollAnimationRef.current = null
+            cancelAnimationFrame(scrollAnimationRef.current);
+            scrollAnimationRef.current = null;
         }
-        scrollContainerRef.current = null
-        scrollContainerRectRef.current = null
+        scrollContainerRef.current = null;
+        scrollContainerRectRef.current = null;
         if (dragEndTimeout.current) {
-            window.clearTimeout(dragEndTimeout.current)
+            window.clearTimeout(dragEndTimeout.current);
         }
         dragEndTimeout.current = window.setTimeout(() => {
-            isDragging.current = false
-        }, 250)
+            isDragging.current = false;
+        }, 250);
         if (dashboard?.id) {
-            reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
+            reportDashboardTileRepositioned(
+                dashboard.id,
+                "moved",
+                effectiveZoom,
+            );
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom]);
 
     return (
-        <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
+        <div
+            className="dashboard-items-wrapper"
+            ref={containerRef as RefObject<HTMLDivElement>}
+        >
             {dashboardMode === DashboardMode.Edit && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
-                    Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
-                    resize tiles.
+                    Layout editing is disabled on smaller screens. Please zoom
+                    out or use a larger screen to move or resize tiles.
                 </LemonBanner>
             )}
             {mounted && (
@@ -344,14 +421,21 @@ export function DashboardItems(): JSX.Element {
                         className={className}
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
-                        layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        layouts={
+                            layouts as Partial<
+                                Record<DashboardLayoutSize, Layout>
+                            >
+                        }
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
                         onLayoutChange={handleLayoutChange}
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
-                        cols={BREAKPOINT_COLUMN_COUNTS}
+                        cols={Math.max(
+                            tiles?.length || 0,
+                            BREAKPOINT_COLUMN_COUNTS.lg,
+                        )}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}
@@ -359,10 +443,10 @@ export function DashboardItems(): JSX.Element {
                         onDragStop={handleDragStop}
                     >
                         {tiles?.map((tile) => {
-                            const { insight, text, button_tile } = tile
-                            const smLayout = layouts['sm']?.find((l) => {
-                                return l.i == tile.id.toString()
-                            })
+                            const { insight, text, button_tile } = tile;
+                            const smLayout = layouts["sm"]?.find((l) => {
+                                return l.i == tile.id.toString();
+                            });
 
                             const commonTileProps = {
                                 dashboardId: dashboard?.id,
@@ -371,24 +455,50 @@ export function DashboardItems(): JSX.Element {
                                 onEnterEditModeFromEdge,
                                 onDragHandleMouseDown,
                                 showEditingControls,
-                                moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                    moveToDashboard(tile, requireDashboardId('move this tile'), id, name)
+                                moveToDashboard: ({
+                                    id,
+                                    name,
+                                }: Pick<DashboardType, "id" | "name">) => {
+                                    moveToDashboard(
+                                        tile,
+                                        requireDashboardId("move this tile"),
+                                        id,
+                                        name,
+                                    );
                                 },
-                                copyToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                    copyToDashboard(tile, requireDashboardId('copy this tile'), id, name)
+                                copyToDashboard: ({
+                                    id,
+                                    name,
+                                }: Pick<DashboardType, "id" | "name">) => {
+                                    copyToDashboard(
+                                        tile,
+                                        requireDashboardId("copy this tile"),
+                                        id,
+                                        name,
+                                    );
                                 },
                                 removeFromDashboard: () => removeTile(tile),
-                            }
+                            };
 
                             if (insight) {
                                 // Check if this insight has an error from the server
-                                const isErrorTile = !!tile.error
-                                const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                                const isErrorTile = !!tile.error;
+                                const apiErrored =
+                                    isErrorTile ||
+                                    refreshStatus[insight.short_id]?.errored ||
+                                    false;
                                 const apiError = isErrorTile
-                                    ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
-                                    : refreshStatus[insight.short_id]?.error
-                                const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
-                                const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+                                    ? ({
+                                          status: 400,
+                                          detail: `${tile.error!.type}: ${tile.error!.message}`,
+                                      } as any)
+                                    : refreshStatus[insight.short_id]?.error;
+                                const loadingQueued = isErrorTile
+                                    ? false
+                                    : isRefreshingQueued(insight.short_id);
+                                const loading = isErrorTile
+                                    ? false
+                                    : isRefreshing(insight.short_id);
 
                                 return (
                                     <InsightCard
@@ -399,27 +509,54 @@ export function DashboardItems(): JSX.Element {
                                         loading={loading}
                                         apiErrored={apiErrored}
                                         apiError={apiError}
-                                        highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
-                                        updateColor={(color) => updateTileColor(tile.id, color)}
-                                        toggleShowDescription={() => toggleTileDescription(tile.id)}
+                                        highlighted={
+                                            highlightedInsightId &&
+                                            insight.short_id ===
+                                                highlightedInsightId
+                                        }
+                                        updateColor={(color) =>
+                                            updateTileColor(tile.id, color)
+                                        }
+                                        toggleShowDescription={() =>
+                                            toggleTileDescription(tile.id)
+                                        }
                                         ribbonColor={tile.color}
-                                        refresh={() => refreshDashboardItem({ tile })}
+                                        refresh={() =>
+                                            refreshDashboardItem({ tile })
+                                        }
                                         refreshEnabled={!itemsLoading}
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
-                                        setOverride={() => setTileOverride(tile)}
-                                        showDetailsControls={showDetailsControls}
+                                        setOverride={() =>
+                                            setTileOverride(tile)
+                                        }
+                                        showDetailsControls={
+                                            showDetailsControls
+                                        }
                                         placement={placement}
-                                        loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                        filtersOverride={effectiveEditBarFilters}
-                                        variablesOverride={effectiveDashboardVariableOverrides}
+                                        loadPriority={
+                                            smLayout
+                                                ? smLayout.y * 1000 + smLayout.x
+                                                : undefined
+                                        }
+                                        filtersOverride={
+                                            effectiveEditBarFilters
+                                        }
+                                        variablesOverride={
+                                            effectiveDashboardVariableOverrides
+                                        }
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        breakdownColorOverride={
+                                            temporaryBreakdownColors
+                                        }
                                         dataColorThemeId={dataColorThemeId}
-                                        surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        surveyOpportunity={
+                                            tile.id ===
+                                            bestSurveyOpportunityFunnel?.id
+                                        }
                                         {...commonTileProps}
                                     />
-                                )
+                                );
                             }
 
                             if (text) {
@@ -431,20 +568,41 @@ export function DashboardItems(): JSX.Element {
                                         dashboardId={dashboard?.id}
                                         onEdit={() => {
                                             if (dashboard?.id) {
-                                                push(urls.dashboardTextTile(dashboard.id, tile.id))
+                                                push(
+                                                    urls.dashboardTextTile(
+                                                        dashboard.id,
+                                                        tile.id,
+                                                    ),
+                                                );
                                             }
                                         }}
-                                        onMoveToDashboard={commonTileProps.moveToDashboard}
-                                        onCopyToDashboard={commonTileProps.copyToDashboard}
+                                        onMoveToDashboard={
+                                            commonTileProps.moveToDashboard
+                                        }
+                                        onCopyToDashboard={
+                                            commonTileProps.copyToDashboard
+                                        }
                                         onDuplicate={() => duplicateTile(tile)}
-                                        onRemove={commonTileProps.removeFromDashboard}
-                                        showResizeHandles={commonTileProps.showResizeHandles}
-                                        showEditingControls={commonTileProps.showEditingControls}
-                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        onRemove={
+                                            commonTileProps.removeFromDashboard
+                                        }
+                                        showResizeHandles={
+                                            commonTileProps.showResizeHandles
+                                        }
+                                        showEditingControls={
+                                            commonTileProps.showEditingControls
+                                        }
+                                        canEnterEditModeFromEdge={
+                                            commonTileProps.canEnterEditModeFromEdge
+                                        }
+                                        onEnterEditModeFromEdge={
+                                            commonTileProps.onEnterEditModeFromEdge
+                                        }
+                                        onDragHandleMouseDown={
+                                            commonTileProps.onDragHandleMouseDown
+                                        }
                                     />
-                                )
+                                );
                             }
 
                             if (button_tile) {
@@ -457,19 +615,38 @@ export function DashboardItems(): JSX.Element {
                                         isDraggingRef={isDragging}
                                         onEdit={() => {
                                             if (dashboard?.id) {
-                                                push(urls.dashboardButtonTile(dashboard.id, tile.id))
+                                                push(
+                                                    urls.dashboardButtonTile(
+                                                        dashboard.id,
+                                                        tile.id,
+                                                    ),
+                                                );
                                             }
                                         }}
-                                        onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onMoveToDashboard={
+                                            commonTileProps.moveToDashboard
+                                        }
                                         onDuplicate={() => duplicateTile(tile)}
-                                        onRemove={commonTileProps.removeFromDashboard}
-                                        showResizeHandles={commonTileProps.showResizeHandles}
-                                        showEditingControls={commonTileProps.showEditingControls}
-                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        onRemove={
+                                            commonTileProps.removeFromDashboard
+                                        }
+                                        showResizeHandles={
+                                            commonTileProps.showResizeHandles
+                                        }
+                                        showEditingControls={
+                                            commonTileProps.showEditingControls
+                                        }
+                                        canEnterEditModeFromEdge={
+                                            commonTileProps.canEnterEditModeFromEdge
+                                        }
+                                        onEnterEditModeFromEdge={
+                                            commonTileProps.onEnterEditModeFromEdge
+                                        }
+                                        onDragHandleMouseDown={
+                                            commonTileProps.onDragHandleMouseDown
+                                        }
                                     />
-                                )
+                                );
                             }
                         })}
                     </ReactGridLayout>
@@ -484,5 +661,5 @@ export function DashboardItems(): JSX.Element {
                 </div>
             )}
         </div>
-    )
+    );
 }

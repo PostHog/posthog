@@ -1,145 +1,145 @@
 .dashboard-items-wrapper {
-    width: 100%; // This provides the width for the dashboard items grid
-    padding-top: 0.5rem;
+  width: 100%;
+  padding-top: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
-    .InsightCard__viz {
-        z-index: 0; // Keep viz below CardMeta details overlay on dashboards
+.dashboard-items-wrapper::-webkit-scrollbar {
+  display: none;
+}
 
-        .InsightVizDisplay .LineGraph {
-            padding: 0.25rem;
-        }
-    }
+.InsightCard__viz {
+  z-index: 0;
+
+  .InsightVizDisplay .LineGraph {
+    padding: 0.25rem;
+  }
 }
 
 .react-grid-layout {
-    position: relative;
-    margin-bottom: 2rem;
-    transition: height 100ms ease;
+  position: relative;
+  margin-bottom: 2rem;
+  transition: height 100ms ease;
+  display: inline-flex;
+  flex-wrap: nowrap;
 
-    /* remove initial loading animation, animations are only needed in edit mode */
-    &.dashboard-view-mode .react-grid-item {
-        transition: border-color 100ms ease;
-
-        /* Skip rendering for off-screen tiles during resize/reflow */
-        content-visibility: auto;
-        contain-intrinsic-size: auto 30rem;
-    }
+  &.dashboard-view-mode .react-grid-item {
+    transition: border-color 100ms ease;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 30rem;
+  }
 }
 
 .react-grid-item.cssTransforms {
-    transition-property: transform;
+  transition-property: transform;
 }
 
 .react-grid-item.resizing {
-    z-index: 1;
-    will-change: width, height;
+  z-index: 1;
+  will-change: width, height;
 }
 
 .react-grid-item.react-draggable .CardMeta,
 .react-grid-item.react-draggable .TextCard__body,
 .react-grid-item.react-draggable .ButtonTileCard__body {
-    // .CardMeta is the draggable handle of insight cards. Text/button cards are draggable as a whole
-    cursor: grab;
-    user-select: none; // Prevent accidental text selection while dragging
+  cursor: grab;
+  user-select: none;
 }
 
 .react-grid-item.react-draggable-dragging {
-    z-index: 105;
-    cursor: grabbing;
-    transition: none;
-    will-change: transform;
+  z-index: 105;
+  cursor: grabbing;
+  transition: none;
+  will-change: transform;
 }
 
 .react-grid-item.dropping {
-    visibility: hidden;
+  visibility: hidden;
 }
 
 .react-grid-item.react-grid-placeholder {
-    position: relative;
-    z-index: 2;
-    max-width: 100%;
-    user-select: none;
-    border: 1px solid var(--color-accent);
-    border-radius: var(--radius);
-    outline: 1px solid var(--color-accent);
-    transition: 100ms ease;
+  position: relative;
+  z-index: 2;
+  max-width: 100%;
+  user-select: none;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  outline: 1px solid var(--color-accent);
+  transition: 100ms ease;
 }
 
 .react-resizable-hide > .react-resizable-handle {
-    display: none;
+  display: none;
 }
 
 .react-grid-item {
-    transition: all 100ms ease;
-    transition-property: left, top;
+  transition: all 100ms ease;
+  transition-property: left, top;
 
-    & > .react-resizable-handle {
-        position: absolute;
-        right: -0.5rem;
-        bottom: -0.5rem;
-        z-index: 10;
-        width: 2rem;
-        height: 2rem;
-        cursor: se-resize;
-    }
+  & > .react-resizable-handle {
+    position: absolute;
+    right: -0.5rem;
+    bottom: -0.5rem;
+    z-index: 10;
+    width: 2rem;
+    height: 2rem;
+    cursor: se-resize;
+  }
 
-    & > .react-resizable-handle.react-resizable-handle-se {
-        cursor: se-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-e {
-        top: 0;
-        bottom: 2rem;
-        height: auto;
-        cursor: ew-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-s {
-        right: 2rem;
-        left: 0;
-        width: auto;
-        cursor: ns-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-n {
-        top: -0.5rem;
-        right: 3rem;
-        left: 3rem;
-        width: auto;
-        height: 1rem;
-        cursor: ns-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-w {
-        top: 0;
-        bottom: 2rem;
-        left: -0.5rem;
-        width: 2rem;
-        height: auto;
-        cursor: ew-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-nw {
-        top: -0.5rem;
-        left: -0.5rem;
-        width: 2rem;
-        height: 2rem;
-        cursor: nw-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-ne {
-        top: -0.5rem;
-        right: -0.5rem;
-        width: 2rem;
-        height: 2rem;
-        cursor: ne-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-sw {
-        bottom: -0.5rem;
-        left: -0.5rem;
-        width: 2rem;
-        height: 2rem;
-        cursor: sw-resize;
-    }
+  & > .react-resizable-handle.react-resizable-handle-se {
+    cursor: se-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-e {
+    top: 0;
+    bottom: 2rem;
+    height: auto;
+    cursor: ew-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-s {
+    right: 2rem;
+    left: 0;
+    width: auto;
+    cursor: ns-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-n {
+    top: -0.5rem;
+    right: 3rem;
+    left: 3rem;
+    width: auto;
+    height: 1rem;
+    cursor: ns-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-w {
+    top: 0;
+    bottom: 2rem;
+    left: -0.5rem;
+    width: 2rem;
+    height: auto;
+    cursor: ew-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-nw {
+    top: -0.5rem;
+    left: -0.5rem;
+    width: 2rem;
+    height: 2rem;
+    cursor: nw-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-ne {
+    top: -0.5rem;
+    right: -0.5rem;
+    width: 2rem;
+    height: 2rem;
+    cursor: ne-resize;
+  }
+  & > .react-resizable-handle.react-resizable-handle-sw {
+    bottom: -0.5rem;
+    left: -0.5rem;
+    width: 2rem;
+    height: 2rem;
+    cursor: sw-resize;
+  }
 }
