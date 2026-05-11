@@ -1,4 +1,3 @@
-import re
 import uuid
 from typing import Any
 
@@ -15,6 +14,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
+from posthog.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
 
@@ -207,10 +207,6 @@ def _get_insight_query_kinds(insight_ids: list[int]) -> dict[int, str]:
     for insight in insights:
         result[insight.id] = _get_query_kind_from_insight(insight)
     return result
-
-
-def _sanitize_prompt_guide(prompt_guide: str) -> str:
-    return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
 
 
 def _prompt_guide_feature_enabled_for_subscription(subscription: Subscription) -> bool:
@@ -460,7 +456,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         if subscription.summary_prompt_guide and await database_sync_to_async(
             _prompt_guide_feature_enabled_for_subscription, thread_sensitive=False
         )(subscription):
-            prompt_guide = _sanitize_prompt_guide(subscription.summary_prompt_guide)
+            prompt_guide = sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
         else:
             prompt_guide = ""
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(

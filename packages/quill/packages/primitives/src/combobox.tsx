@@ -9,7 +9,6 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '
 import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
 import { MenuLabel } from './menu-label'
-import { Separator } from './separator'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -72,22 +71,24 @@ function ComboboxInput({
 }): React.ReactElement {
     const anchorRef = React.useContext(ComboboxAnchorContext)
     return (
-        <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
-            <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
-            <InputGroupAddon align="inline-end">
-                {showTrigger && (
-                    <InputGroupButton
-                        size="icon-xs"
-                        render={<ComboboxTrigger />}
-                        data-slot="input-group-button"
-                        className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
-                        disabled={disabled}
-                    />
-                )}
-                {showClear && <ComboboxClear disabled={disabled} />}
-            </InputGroupAddon>
-            {children}
-        </InputGroup>
+        <div data-slot="combobox-input-group-wrapper">
+            <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
+                <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
+                <InputGroupAddon align="inline-end">
+                    {showTrigger && (
+                        <InputGroupButton
+                            size="icon-xs"
+                            render={<ComboboxTrigger />}
+                            data-slot="input-group-button"
+                            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
+                            disabled={disabled}
+                        />
+                    )}
+                    {showClear && <ComboboxClear disabled={disabled} />}
+                </InputGroupAddon>
+                {children}
+            </InputGroup>
+        </div>
     )
 }
 
@@ -133,7 +134,23 @@ function ComboboxContent({
 }
 
 function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): React.ReactElement {
-    return <ComboboxPrimitive.List data-slot="combobox-list" className={cn('quill-combobox__list', className)} {...props} />
+    return (
+        <ComboboxPrimitive.List
+            data-slot="combobox-list"
+            // `scroll-mask-t-4` always (top fade for items scrolling out of view).
+            // Bottom fade is conditional: if a `ComboboxListFooter` is rendered,
+            // the footer's own `quill-scroll-fade-top` pseudo handles the bottom
+            // fade (and only when content is actually hidden below, via
+            // container scroll-state). Otherwise, fall back to plugin's
+            // `scroll-mask-b-4` for the same behavior on lists without a footer.
+            className={cn(
+                'quill-combobox__list scroll-mask-t-4 scroll-py-4',
+                'not-has-[[data-slot=combobox-list-footer]]:scroll-mask-b-4',
+                className,
+            )}
+            {...props}
+        />
+    )
 }
 
 function ComboboxItem({
@@ -244,8 +261,14 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
 
 function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
     return (
-        <div data-slot="combobox-list-footer" className={cn('quill-combobox__list-footer', className)}>
-            <Separator orientation="horizontal" className="w-[calc(100%+var(--spacing)*4)]" />
+        <div
+            data-slot="combobox-list-footer"
+            // `quill-scroll-fade-top` adds a `var(--card) → transparent` gradient
+            // pseudo-element above the footer, gated by container scroll-state on
+            // the parent list. Renders only when items are hidden below the visible
+            // area, mirroring `scroll-mask-b` without fading the footer itself.
+            className={cn('quill-combobox__list-footer quill-scroll-fade-top', className)}
+        >
             <div className="p-1" {...props} />
         </div>
     )

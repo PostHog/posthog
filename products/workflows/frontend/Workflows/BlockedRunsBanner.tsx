@@ -8,8 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { blockedRunsLogic } from './blockedRunsLogic'
 
-// Status page entry where the public postmortem will live.
-const INCIDENT_2026_04_22_URL = 'https://www.posthogstatus.com/eu?incident=01KPSY5YTTB1MEZ5KZVQ0W8NDZ'
+const POSTMORTEM_URL = 'https://posthog.com/handbook/company/post-mortems/2026-04-27-workflow-wait-until-condition'
 
 function BlockedRunsBannerInner({ id }: { id: string }): JSX.Element | null {
     const { allBlockedRuns, blockedRunsLoading, hasMoreRuns } = useValues(blockedRunsLogic({ id }))
@@ -36,8 +35,8 @@ function BlockedRunsBannerInner({ id }: { id: string }): JSX.Element | null {
                 {runsLabel} on this workflow {verbWord} silently blocked at a <strong>Wait until condition</strong> step
                 between March 30 and April 22, 2026, due to a bug that has since been fixed. You can review and replay
                 them.{' '}
-                <Link to={INCIDENT_2026_04_22_URL} target="_blank">
-                    Read more
+                <Link to={POSTMORTEM_URL} target="_blank">
+                    Read the post-mortem
                 </Link>
                 .
             </LemonBanner>

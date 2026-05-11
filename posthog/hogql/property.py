@@ -797,9 +797,17 @@ def property_to_expr(
         value = property.value
 
         if property.type == "person" and property.key == "distinct_id":
-            # distinct_id is not stored in person.properties — it lives in the
-            # person_distinct_id2 table and is exposed via the `pdi` lazy join on persons.
-            chain = ["person", "pdi"] if scope != "person" else ["pdi"]
+            # distinct_id is not stored in person.properties.
+            # - In event scope, events.distinct_id is a real column — no join needed.
+            # - In person scope, persons.pdi.distinct_id resolves via the lazy join on persons.
+            # Routing through `events.person.pdi` would break under person-on-events mode,
+            # where `events.person` is rebound to the `poe` virtual table which has no `pdi` field.
+            if scope == "event":
+                chain = []
+            elif scope == "person":
+                chain = ["pdi"]
+            else:
+                chain = ["person", "pdi"]
         elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":

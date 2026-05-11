@@ -8,6 +8,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
+from posthog.scoping_audit import skip_team_scope_audit
 
 from ee.api.sentry_stats import get_stats_for_timerange
 
@@ -22,6 +23,7 @@ def check_flags_to_rollback():
 
 
 @shared_task(ignore_result=True, max_retries=2)
+@skip_team_scope_audit
 def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
     flag: FeatureFlag = FeatureFlag.objects.get(pk=feature_flag_id)
 

@@ -30,7 +30,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
 
-import { BotTrafficFilter, ProductTab, faviconUrl } from './common'
+import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -44,29 +44,6 @@ import {
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-
-const BotTrafficToggle = (): JSX.Element | null => {
-    const { botTrafficFilter, productTab } = useValues(webAnalyticsLogic)
-    const { setBotTrafficFilter } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS] || productTab === ProductTab.BOT_ANALYTICS) {
-        return null
-    }
-
-    return (
-        <LemonSegmentedSelect
-            value={botTrafficFilter}
-            onChange={(value) => setBotTrafficFilter(value as BotTrafficFilter)}
-            options={[
-                { value: 'regular', label: 'Regular' },
-                { value: 'bot', label: 'Bot' },
-                { value: 'all', label: 'All' },
-            ]}
-            size="small"
-        />
-    )
-}
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
@@ -97,7 +74,6 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 }
                 right={
                     <>
-                        <BotTrafficToggle />
                         <ShareButton />
                         <WebVitalsPercentileToggle />
                         {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <FilterPresetsDropdown />}
@@ -153,7 +129,6 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     }
                     right={
                         <>
-                            <BotTrafficToggle />
                             <WebAnalyticsCompareFilter />
 
                             <WebConversionGoal />

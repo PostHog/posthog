@@ -29,6 +29,7 @@ import type {
     SlackChannelsResponseApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
+    UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
 } from './api.schemas'
@@ -50,6 +51,10 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
+}
+
 /**
  * ViewSet for organization-level integrations.
 
@@ -60,14 +65,10 @@ Creation is handled by the integration installation flows
 (e.g., Vercel marketplace installation). Users can disconnect integrations
 via the DELETE endpoint.
  */
-export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
-}
-
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationIntegrationApi: NonReadonly<PatchedOrganizationIntegrationApi>,
+    patchedOrganizationIntegrationApi?: NonReadonly<PatchedOrganizationIntegrationApi>,
     options?: RequestInit
 ): Promise<OrganizationIntegrationApi> => {
     return apiMutator<OrganizationIntegrationApi>(
@@ -240,6 +241,51 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     })
 }
 
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
+}
+
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
+}
+
+export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
+}
+
+export const integrationsAnthropicManagedAgentsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/channels/`
 }
@@ -307,7 +353,7 @@ export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: numb
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedIntegrationConfigApi: NonReadonly<PatchedIntegrationConfigApi>,
+    patchedIntegrationConfigApi?: NonReadonly<PatchedIntegrationConfigApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
@@ -531,6 +577,10 @@ export const integrationsAuthorizeRetrieve = async (projectId: string, options?:
     })
 }
 
+export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
+}
+
 /**
  * Unified endpoint for generating Domain Connect apply URLs.
 
@@ -538,10 +588,6 @@ Accepts a context ("email" or "proxy") and the relevant resource ID.
 The backend resolves the domain, template variables, and service ID
 based on context, then builds the signed apply URL.
  */
-export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
-}
-
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
@@ -569,18 +615,13 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
-/**
- * Clone a GitHub Integration row from another team in the same organization onto the current team.
-
-GitHub's installation flow has no usable callback when the App is already installed on the
-target org (the user lands on the Configure page and there is no automatic redirect back).
-This endpoint lets users opt in to reusing an existing GitHub installation that's already
-linked to a sibling team in the same PostHog organization, without going through GitHub.
- */
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/link_existing/`
 }
 
+/**
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
+ */
 export const integrationsGithubLinkExistingCreate = async (
     projectId: string,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
@@ -594,23 +635,13 @@ export const integrationsGithubLinkExistingCreate = async (
     })
 }
 
-/**
- * Mint a User OAuth round-trip URL for an existing GitHub App installation.
-
-Used when GitHub redirects the install flow back without an OAuth `code`
-(the App was already installed on the org and the user landed on the
-Configure page). Without `code` we can't run `verify_user_installation_access`,
-so the auto-link via link_existing only works when a sibling team in the
-org has already captured the installation. For the orphan case — installation
-exists on GitHub but no PostHog team has linked it yet — we send the user
-through GitHub's User OAuth flow to mint a fresh `code`. State is bound
-server-side to (user_id, team_id, installation_id) and is single-use.
-The ``/complete/github-link/`` callback handles the return.
- */
 export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
 }
 
+/**
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
+ */
 export const integrationsGithubOauthAuthorizeCreate = async (
     projectId: string,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
@@ -624,10 +655,6 @@ export const integrationsGithubOauthAuthorizeCreate = async (
     })
 }
 
-/**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
- * @summary List personal GitHub integrations
- */
 export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -644,6 +671,10 @@ export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrat
         : `/api/users/${uuid}/integrations/`
 }
 
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary List personal GitHub integrations
+ */
 export const usersIntegrationsList = async (
     uuid: string,
     params?: UsersIntegrationsListParams,
@@ -655,14 +686,14 @@ export const usersIntegrationsList = async (
     })
 }
 
-/**
- * Remove a specific GitHub installation by its installation_id.
- * @summary Disconnect a personal GitHub integration
- */
 export const getUsersIntegrationsGithubDestroyUrl = (uuid: string, installationId: string) => {
     return `/api/users/${uuid}/integrations/github/${installationId}/`
 }
 
+/**
+ * Remove a specific GitHub installation by its installation_id.
+ * @summary Disconnect a personal GitHub integration
+ */
 export const usersIntegrationsGithubDestroy = async (
     uuid: string,
     installationId: string,
@@ -674,10 +705,45 @@ export const usersIntegrationsGithubDestroy = async (
     })
 }
 
+export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/integrations/github/${installationId}/branches/?${stringifiedParams}`
+        : `/api/users/${uuid}/integrations/github/${installationId}/branches/`
+}
+
 /**
- * List repositories accessible to a specific GitHub installation (paginated, cached).
- * @summary List repositories for a personal GitHub installation
+ * List branches for a repository accessible to a personal GitHub installation.
+ * @summary List branches for a personal GitHub installation repository
  */
+export const usersIntegrationsGithubBranchesRetrieve = async (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(
+        getUsersIntegrationsGithubBranchesRetrieveUrl(uuid, installationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getUsersIntegrationsGithubReposRetrieveUrl = (
     uuid: string,
     installationId: string,
@@ -698,6 +764,10 @@ export const getUsersIntegrationsGithubReposRetrieveUrl = (
         : `/api/users/${uuid}/integrations/github/${installationId}/repos/`
 }
 
+/**
+ * List repositories accessible to a specific GitHub installation (paginated, cached).
+ * @summary List repositories for a personal GitHub installation
+ */
 export const usersIntegrationsGithubReposRetrieve = async (
     uuid: string,
     installationId: string,
@@ -711,6 +781,32 @@ export const usersIntegrationsGithubReposRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getUsersIntegrationsGithubReposRefreshCreateUrl = (uuid: string, installationId: string) => {
+    return `/api/users/${uuid}/integrations/github/${installationId}/repos/refresh/`
+}
+
+/**
+ * Refresh repositories accessible to a specific GitHub installation.
+ * @summary Refresh repositories for a personal GitHub installation
+ */
+export const usersIntegrationsGithubReposRefreshCreate = async (
+    uuid: string,
+    installationId: string,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(
+        getUsersIntegrationsGithubReposRefreshCreateUrl(uuid, installationId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/start/`
 }
 
 /**
@@ -734,13 +830,9 @@ only authorizes themselves and returns to PostHog Code immediately.
 In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking
  */
-export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
-    return `/api/users/${uuid}/integrations/github/start/`
-}
-
 export const usersIntegrationsGithubStartCreate = async (
     uuid: string,
-    userGitHubLinkStartRequestApi: UserGitHubLinkStartRequestApi,
+    userGitHubLinkStartRequestApi?: UserGitHubLinkStartRequestApi,
     options?: RequestInit
 ): Promise<UserGitHubLinkStartResponseApi> => {
     return apiMutator<UserGitHubLinkStartResponseApi>(getUsersIntegrationsGithubStartCreateUrl(uuid), {

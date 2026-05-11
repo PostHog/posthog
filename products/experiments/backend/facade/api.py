@@ -5,6 +5,8 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -18,57 +20,35 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     """
     Create a new experiment.
 
-    Supports both old format (parameters.feature_flag_variants)
-    and new format (feature_flag_filters).
-
     Transactional safety is provided by ExperimentService.create_experiment.
 
     Args:
         team: Team creating the experiment
         user: User creating the experiment
-        input_dto: Experiment creation input
+        input_dto: Experiment creation input with all configuration
 
     Returns:
         Experiment DTO
 
     Raises:
-        ValueError: If both old and new formats are provided
+        ValidationError: If validation fails in service layer
     """
-    # Validate that both formats are not provided
-    has_old_format = input_dto.parameters is not None and "feature_flag_variants" in input_dto.parameters
-    has_new_format = input_dto.feature_flag_filters is not None
 
-    if has_old_format and has_new_format:
-        raise ValueError("Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_filters'")
+    # Load holdout if ID provided
+    from products.experiments.backend.models.experiment import ExperimentHoldout
 
-    # Prepare parameters for service call
-    # Start with any provided parameters (e.g., minimum_detectable_effect)
-    parameters_dict = dict(input_dto.parameters) if input_dto.parameters else {}
+    holdout = None
+    if input_dto.holdout_id is not None:
+        try:
+            holdout = ExperimentHoldout.objects.get(id=input_dto.holdout_id, team_id=team.id)
+        except ExperimentHoldout.DoesNotExist:
+            raise ValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team")
 
-    if has_new_format:
-        # Convert CreateFeatureFlagInput to parameters dict format
-        flag_filters = input_dto.feature_flag_filters
-        assert flag_filters is not None  # Type guard: has_new_format guarantees this
-
-        parameters_dict["feature_flag_variants"] = [
-            {
-                "key": variant.key,
-                "name": variant.name,
-                "rollout_percentage": variant.split_percent,
-            }
-            for variant in flag_filters.variants
-        ]
-
-        # Add optional fields
-        if flag_filters.rollout_percentage is not None:
-            parameters_dict["rollout_percentage"] = flag_filters.rollout_percentage
-        if flag_filters.aggregation_group_type_index is not None:
-            parameters_dict["aggregation_group_type_index"] = flag_filters.aggregation_group_type_index
-        if flag_filters.ensure_experience_continuity is not None:
-            parameters_dict["ensure_experience_continuity"] = flag_filters.ensure_experience_continuity
-
-    # Pass None if dict is empty to maintain service contract
-    parameters = parameters_dict or None
+    # Convert tuple to list for ordering fields (DTO uses tuple for immutability)
+    primary_metrics_ordered_uuids = list(input_dto.metrics_ordering) if input_dto.metrics_ordering else None
+    secondary_metrics_ordered_uuids = (
+        list(input_dto.secondary_metrics_ordering) if input_dto.secondary_metrics_ordering else None
+    )
 
     # Call existing service (already @transaction.atomic)
     service = ExperimentService(team=team, user=user)
@@ -76,7 +56,29 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         name=input_dto.name,
         feature_flag_key=input_dto.feature_flag_key,
         description=input_dto.description,
-        parameters=parameters,
+        type=input_dto.type,
+        parameters=input_dto.parameters,
+        metrics=input_dto.metrics,
+        metrics_secondary=input_dto.metrics_secondary,
+        secondary_metrics=input_dto.secondary_metrics,
+        stats_config=input_dto.stats_config,
+        exposure_criteria=input_dto.exposure_criteria,
+        holdout=holdout,
+        saved_metrics_ids=input_dto.saved_metrics_ids,
+        start_date=input_dto.start_date,
+        end_date=input_dto.end_date,
+        primary_metrics_ordered_uuids=primary_metrics_ordered_uuids,
+        secondary_metrics_ordered_uuids=secondary_metrics_ordered_uuids,
+        create_in_folder=input_dto.create_in_folder,
+        filters=input_dto.filters,
+        scheduling_config=input_dto.scheduling_config,
+        only_count_matured_users=input_dto.only_count_matured_users,
+        archived=input_dto.archived,
+        deleted=input_dto.deleted,
+        conclusion=input_dto.conclusion,
+        conclusion_comment=input_dto.conclusion_comment,
+        serializer_context=input_dto.serializer_context,
+        allow_unknown_events=input_dto.allow_unknown_events,
     )
 
     # Convert model to DTO

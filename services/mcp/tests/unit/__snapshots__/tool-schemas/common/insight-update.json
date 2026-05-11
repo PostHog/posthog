@@ -88,6 +88,60 @@
                                     },
                                     "type": "array"
                                 },
+                                "leftYAxisSettings": {
+                                    "description": "Settings for the left Y axis.",
+                                    "properties": {
+                                        "label": {
+                                            "description": "Label rendered beside this Y axis.",
+                                            "type": "string"
+                                        },
+                                        "scale": {
+                                            "description": "Scale used for this Y axis.",
+                                            "enum": ["linear", "logarithmic"],
+                                            "type": "string"
+                                        },
+                                        "showGridLines": {
+                                            "description": "Show grid lines for this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "showTicks": {
+                                            "description": "Show tick labels on this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "startAtZero": {
+                                            "description": "Whether this Y axis should start at zero.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "rightYAxisSettings": {
+                                    "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`.",
+                                    "properties": {
+                                        "label": {
+                                            "description": "Label rendered beside this Y axis.",
+                                            "type": "string"
+                                        },
+                                        "scale": {
+                                            "description": "Scale used for this Y axis.",
+                                            "enum": ["linear", "logarithmic"],
+                                            "type": "string"
+                                        },
+                                        "showGridLines": {
+                                            "description": "Show grid lines for this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "showTicks": {
+                                            "description": "Show tick labels on this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "startAtZero": {
+                                            "description": "Whether this Y axis should start at zero.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
                                 "seriesBreakdownColumn": {
                                     "anyOf": [
                                         {
@@ -117,10 +171,31 @@
                                         "column": {
                                             "description": "Name of a column returned by the SQL query to map onto this axis.",
                                             "type": "string"
+                                        },
+                                        "settings": {
+                                            "description": "Optional series settings. Only applies to Y-axis series.",
+                                            "properties": {
+                                                "display": {
+                                                    "description": "Display settings for a plotted Y series.",
+                                                    "properties": {
+                                                        "yAxisPosition": {
+                                                            "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                                                            "enum": ["left", "right"],
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
                                         }
                                     },
                                     "required": ["column"],
                                     "type": "object"
+                                },
+                                "xAxisLabel": {
+                                    "description": "Label rendered under the X axis.",
+                                    "type": "string"
                                 },
                                 "yAxis": {
                                     "description": "One or more numeric columns plotted as Y series.",
@@ -129,6 +204,23 @@
                                             "column": {
                                                 "description": "Name of a column returned by the SQL query to map onto this axis.",
                                                 "type": "string"
+                                            },
+                                            "settings": {
+                                                "description": "Optional series settings. Only applies to Y-axis series.",
+                                                "properties": {
+                                                    "display": {
+                                                        "description": "Display settings for a plotted Y series.",
+                                                        "properties": {
+                                                            "yAxisPosition": {
+                                                                "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                                                                "enum": ["left", "right"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
                                             }
                                         },
                                         "required": ["column"],
@@ -175,6 +267,23 @@
                                             "column": {
                                                 "description": "Name of a column returned by the SQL query to map onto this axis.",
                                                 "type": "string"
+                                            },
+                                            "settings": {
+                                                "description": "Optional series settings. Only applies to Y-axis series.",
+                                                "properties": {
+                                                    "display": {
+                                                        "description": "Display settings for a plotted Y series.",
+                                                        "properties": {
+                                                            "yAxisPosition": {
+                                                                "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                                                                "enum": ["left", "right"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
                                             }
                                         },
                                         "required": ["column"],

@@ -489,7 +489,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMetadataFooter'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -514,7 +514,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             exportsLogic,
@@ -1135,13 +1135,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (logicProps): boolean => logicProps.mode === SessionRecordingPlayerMode.Kiosk,
         ],
         hoverModeIsEnabled: [
-            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
-            (logicProps, isCommenting, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams, s.playerControlsOverlay],
+            (logicProps, isCommenting, showingClipParams, playerControlsOverlay): boolean => {
                 return (
                     !!logicProps.mode &&
                     ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
-                    !showingClipParams
+                    !showingClipParams &&
+                    playerControlsOverlay
                 )
             },
         ],

@@ -8,6 +8,7 @@
         "channel_detail": {
             "description": "Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
             "enum": [
+                "github_issue",
                 "slack_bot_mention",
                 "slack_channel_message",
                 "slack_emoji_reaction",
@@ -20,7 +21,7 @@
         },
         "channel_source": {
             "description": "Filter by the channel the ticket originated from.",
-            "enum": ["email", "slack", "teams", "widget"],
+            "enum": ["email", "github", "slack", "teams", "widget"],
             "type": "string"
         },
         "date_from": {

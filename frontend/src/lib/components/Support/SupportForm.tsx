@@ -121,17 +121,36 @@ export function SupportForm(): JSX.Element | null {
             <LemonField name="kind" label="Message type">
                 <LemonSegmentedButton onChange={changeKind} fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
-            <LemonField name="target_area" label="Topic">
-                <LemonSelect
-                    disabledReason={
-                        !user
-                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
-                            : null
-                    }
-                    fullWidth
-                    options={TARGET_AREA_TO_NAME}
-                />
-            </LemonField>
+            <div className="flex gap-2 flex-col">
+                <div className="flex justify-between items-center">
+                    <label className="LemonLabel">
+                        Topic
+                        <Tooltip title="Route your request to the appropriate team.">
+                            <span>
+                                <IconInfo className="opacity-75" />
+                            </span>
+                        </Tooltip>
+                    </label>
+                    <Link
+                        target="_blank"
+                        disableDocsPanel
+                        to="https://posthog.com/handbook/engineering/feature-ownership"
+                    >
+                        Feature ownership
+                    </Link>
+                </div>
+                <LemonField name="target_area">
+                    <LemonSelect
+                        disabledReason={
+                            !user
+                                ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                                : null
+                        }
+                        fullWidth
+                        options={TARGET_AREA_TO_NAME}
+                    />
+                </LemonField>
+            </div>
             {sendSupportRequest.target_area === 'error_tracking' && (
                 <LemonBanner type="warning">
                     This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog please

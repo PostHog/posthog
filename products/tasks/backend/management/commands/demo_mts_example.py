@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.report_generation.research import ReportResearchOutput
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.services.mts_example import run_cursed_identifier_research
 
 REPOSITORY = "PostHog/posthog"

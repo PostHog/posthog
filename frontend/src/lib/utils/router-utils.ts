@@ -53,6 +53,13 @@ export function removeProjectIdIfPresent(path: string): string {
     return path
 }
 
+export function stripTrailingSlash(path: string): string {
+    if (path.length > 1 && path.endsWith('/')) {
+        return path.replace(/\/+$/, '')
+    }
+    return path
+}
+
 export function removeFlagIdIfPresent(path: string): string {
     if (path.match(/^\/feature_flags\/\d+/)) {
         return path.replace(/(feature_flags).*$/, '$1/')

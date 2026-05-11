@@ -249,6 +249,47 @@ describe('surveyWizardLogic', () => {
             expect(logic.values.currentStep).toBe('questions')
             expect(logic.values.survey.description).toBe('Edited in the full editor')
         })
+
+        it('preserves unsaved guided editor changes when switching to the full editor', async () => {
+            // surveyLogic is normally mounted by the destination Survey scene; mount it
+            // separately so the wizard logic's connect doesn't tear it down on unmount.
+            const surveyFormLogic = surveyLogic({ id: 'new' })
+            surveyFormLogic.mount()
+
+            const wizardLogic = surveyWizardLogic({ id: 'new' })
+            const unmountWizard = wizardLogic.mount()
+
+            await expectLogic(wizardLogic, () => {
+                wizardLogic.actions.setSurveyValue('description', 'Edited in the guided editor')
+            }).toMatchValues({
+                surveyChanged: true,
+            })
+
+            router.actions.push('/surveys/new#preserveLocalChanges=true')
+            unmountWizard()
+
+            expect(surveyFormLogic.values.survey.description).toBe('Edited in the guided editor')
+            expect(surveyFormLogic.values.surveyChanged).toBe(true)
+        })
+
+        it('resets new survey state when leaving the guided editor without preserveLocalChanges', async () => {
+            const surveyFormLogic = surveyLogic({ id: 'new' })
+            surveyFormLogic.mount()
+
+            const wizardLogic = surveyWizardLogic({ id: 'new' })
+            const unmountWizard = wizardLogic.mount()
+
+            await expectLogic(wizardLogic, () => {
+                wizardLogic.actions.setSurveyValue('description', 'Discarded edit')
+            }).toMatchValues({
+                surveyChanged: true,
+            })
+
+            router.actions.push('/surveys')
+            unmountWizard()
+
+            expect(surveyFormLogic.values.survey.description).toBe('')
+        })
     })
 
     describe('template selection', () => {

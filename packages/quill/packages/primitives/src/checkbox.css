@@ -85,7 +85,7 @@
        Checkbox indicator — standalone visual (inside Field/Item rows)
        ========================================================================= */
     .quill-checkbox-indicator {
-        border: 1px solid var(--accent);
+        border: 1px solid var(--border);
     }
 
     .quill-checkbox-indicator--checked {

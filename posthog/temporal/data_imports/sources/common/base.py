@@ -175,6 +175,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def webhook_inputs_updated(
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """Called when webhook inputs have been set on the underlying hog function.
+
+        Returns ``(success, error)``. Implementations that need to call out to the
+        external service (e.g. enabling a previously-disabled webhook) should return
+        ``(False, message)`` on failure so the API view can surface the error to the
+        user instead of silently dropping it.
+        """
+        return True, None
+
     @property
     @abstractmethod
     def webhook_resource_map(self) -> dict[str, str]:

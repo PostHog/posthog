@@ -93,6 +93,21 @@ export const userLogic = kea<userLogicType>([
             enabled,
         }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        updateRealtimeNotificationForTeam: (type: string, teamId: number, enabled: boolean) => ({
+            type,
+            teamId,
+            enabled,
+        }),
+        updateRealtimeNotificationForProject: (teamId: number, types: string[], enabled: boolean) => ({
+            teamId,
+            types,
+            enabled,
+        }),
+        updateAllRealtimeNotifications: (teamIds: number[], types: string[], enabled: boolean) => ({
+            teamIds,
+            types,
+            enabled,
+        }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -444,6 +459,52 @@ export const userLogic = kea<userLogicType>([
                     ...values.user.notification_settings,
                     organization_member_join_email_disabled: organizationMemberJoinEmailDisabled,
                 },
+            })
+        },
+        updateRealtimeNotificationForTeam: ({ type, teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const typeMap = { ...current[type], [String(teamId)]: !enabled }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: { ...current, [type]: typeMap },
+                } as NotificationSettings,
+            })
+        },
+        updateRealtimeNotificationForProject: ({ teamId, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                next[type] = { ...next[type], [String(teamId)]: !enabled }
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
+            })
+        },
+        updateAllRealtimeNotifications: ({ teamIds, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                const typeMap = { ...next[type] }
+                for (const teamId of teamIds) {
+                    typeMap[String(teamId)] = !enabled
+                }
+                next[type] = typeMap
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
             })
         },
         updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {

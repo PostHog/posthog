@@ -9,13 +9,21 @@ import stripe as stripe_lib
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
-from posthog.temporal.data_imports.sources.stripe.constants import ACCOUNT_RESOURCE_NAME
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    ACCOUNT_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
+    StripeNestedResource,
     StripePermissionError,
+    StripeResource,
     StripeResumeConfig,
     StripeValidationError,
+    _build_resources,
+    _clean_stripe_error_message,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -401,6 +409,100 @@ def test_validate_credentials_mixed_403_and_unknown_raises_validation_error_with
 
     assert list(e.value.errors.keys()) == ["Charge"]
     assert list(e.value.missing_permissions.keys()) == ["Subscription"]
+
+
+@pytest.mark.parametrize(
+    "nested_table_name",
+    [CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME],
+)
+def test_validate_credentials_nested_resource_validates_via_parent(nested_table_name):
+    """Nested resources can't be listed without a parent customer ID. Validating them
+    must proxy to the Customer endpoint instead of raising a fake "<resource> does not exist"
+    error — which used to surface as "Stripe credentials lack permissions for CustomerPaymentMethod"
+    every time the user toggled the sync method on a nested table."""
+    mock_client = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key", nested_table_name)
+
+    assert result is True
+    # The parent's list endpoint is the one we actually call.
+    mock_client.customers.list.assert_called_once_with(params={"limit": 1})
+
+
+@pytest.mark.parametrize(
+    "nested_table_name",
+    [CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME],
+)
+def test_validate_credentials_nested_resource_surfaces_parent_permission_error(nested_table_name):
+    """If the parent (Customer) scope is missing, the error must name both the nested table
+    the user toggled and the parent that actually gates the permission — `Nested (Parent)` —
+    so the message is unambiguous about which Stripe scope to grant."""
+    mock_client = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripePermissionError) as e,
+    ):
+        validate_credentials("api_key", nested_table_name)
+
+    assert list(e.value.missing_permissions.keys()) == [f"{nested_table_name} (Customer)"]
+
+
+def test_clean_stripe_error_message_collapses_redacted_key():
+    """Stripe's permission errors quote the restricted key with ~80 redacted middle chars
+    (`rk_live_***********...***********gbeftZ`). The unedited message is too long for a
+    toast — collapse the asterisk run while keeping the visible prefix/suffix that lets
+    users identify which key was used."""
+    raw = (
+        "Request req_DzMMiyPa4cynLi: The provided key 'rk_live_"
+        + ("*" * 80)
+        + "gbeftZ' does not have the required permissions for this endpoint on account "
+        + "'acct_1HIMDDEuIatRXSdz'. Having the 'rak_payment_method_read' permission would "
+        + "allow this request to continue."
+    )
+
+    cleaned = _clean_stripe_error_message(raw)
+
+    assert "*" * 80 not in cleaned
+    assert "***" in cleaned  # we keep a short marker
+    assert "rk_live_***gbeftZ" in cleaned
+    # Critically, the actionable detail must survive the cleanup.
+    assert "rak_payment_method_read" in cleaned
+
+
+def test_clean_stripe_error_message_passthrough_when_no_redaction():
+    """No redacted run in the message → return unchanged."""
+    msg = "Request req_xxx: Some non-permission error without redaction."
+    assert _clean_stripe_error_message(msg) == msg
+
+
+def test_validate_credentials_nested_resources_have_registered_parents():
+    """Invariant: every StripeNestedResource's `parent_name` must point at a key that is
+    also registered as a top-level StripeResource in _build_resources. validate_credentials
+    does a direct dict lookup on parent_name, so a miss would crash rather than render a
+    useful error. Catch the misconfiguration here in CI rather than at runtime.
+
+    Important: this test does NOT compare method identity. Stripe's SDK exposes endpoints
+    via property descriptors that return a fresh bound method on every attribute access
+    (`id(client.customers.list) == id(client.customers.list)` is False). MagicMock caches
+    attribute access and made identity checks falsely pass — so the linkage is carried
+    explicitly via the `parent_name` string instead.
+    """
+    mock_client = mock.MagicMock()
+    resources = _build_resources(mock_client, logger=None)
+
+    for name, resource in resources.items():
+        if isinstance(resource, StripeNestedResource):
+            assert resource.parent_name, f"Nested resource {name!r} must declare a parent_name."
+            parent_entry = resources.get(resource.parent_name)
+            assert isinstance(parent_entry, StripeResource), (
+                f"Nested resource {name!r} declares parent_name={resource.parent_name!r}, but no "
+                f"top-level StripeResource with that name is registered in _build_resources. "
+                f"validate_credentials would crash trying to resolve it."
+            )
 
 
 def test_validate_credentials_with_missing_table_name():

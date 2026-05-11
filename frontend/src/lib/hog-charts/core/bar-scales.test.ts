@@ -1,4 +1,4 @@
-import { dimensions, makeSeries } from '../test-helpers'
+import { dimensions, makeSeries } from '../testing'
 import { createBarScales } from './scales'
 
 describe('hog-charts bar scales', () => {

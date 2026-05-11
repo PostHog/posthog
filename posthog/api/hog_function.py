@@ -1,8 +1,10 @@
 import json
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, Q, QuerySet, Value
+from django.db.models.functions import Coalesce
 
 import structlog
 import posthoganalytics
@@ -10,7 +12,8 @@ from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, filters, serializers, viewsets
+from opentelemetry import trace
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,6 +37,13 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -53,6 +63,7 @@ MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
 MAX_TRANSFORMATIONS_PER_TEAM = 20
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class HogFunctionStatusSerializer(serializers.Serializer):
@@ -466,8 +477,7 @@ class HogFunctionViewSet(
     scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
     scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
     queryset = HogFunction.objects.all()
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    search_fields = ["name", "description"]
+    filter_backends = [DjangoFilterBackend]
     filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"
@@ -480,6 +490,49 @@ class HogFunctionViewSet(
             return HogFunctionMinimalSerializer
         return HogFunctionSerializer
 
+    @tracer.start_as_current_span("HogFunctionViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("hog_function.search.result_count", results_len)
+            span.set_attribute("hog_function.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("HogFunctionViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("hog_function.search.length", len(search))
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
+            .order_by("-_search_score", "name")
+        )
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
 
@@ -488,7 +541,15 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            queryset = queryset.order_by("execution_order", "-updated_at")
+            search = self.request.GET.get("search")
+            if search:
+                if len(search) > MAX_SEARCH_LENGTH:
+                    raise serializers.ValidationError(
+                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                    )
+                queryset = self._apply_search(queryset, search)
+            else:
+                queryset = queryset.order_by("execution_order", "-updated_at")
 
         final_filter_groups = []
 
@@ -512,8 +573,6 @@ class HogFunctionViewSet(
                 raise exceptions.ValidationError({"filters": "Invalid filters"})
 
         if final_filter_groups:
-            from django.db.models import Q
-
             combined_q = Q()
 
             for filter_group in final_filter_groups:

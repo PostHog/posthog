@@ -7,7 +7,7 @@ from braintrust import EvalCase, Score
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HumanMessage
+from posthog.schema import AssistantHogQLQuery, DataVisualizationNode, HumanMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -77,7 +77,11 @@ async def call_graph(entry: DatasetInput, *args):
         return EvalOutput(
             database_schema=database_schema,
             query_kind=content.query.kind,
-            sql_query=content.query.query if isinstance(content.query, AssistantHogQLQuery) else None,
+            sql_query=content.query.source.query
+            if isinstance(content.query, DataVisualizationNode)
+            else content.query.query
+            if isinstance(content.query, AssistantHogQLQuery)
+            else None,
         )
     return EvalOutput(database_schema=database_schema, query_kind=None, sql_query=None)
 

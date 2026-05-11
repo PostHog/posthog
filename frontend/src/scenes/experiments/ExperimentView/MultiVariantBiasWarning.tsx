@@ -33,19 +33,17 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
     }
 
     return (
-        <LemonBanner type="warning" className="mb-4">
+        <LemonBanner type="warning" className="mt-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1 min-w-[300px]">
-                    <div>
-                        <strong>Setup likely introduced bias</strong>
-                    </div>
-                    <div>
+                    <div className="font-semibold">Setup likely introduced bias</div>
+                    <p className="m-0">
                         <strong>{risk.multiple_variant_percentage.toFixed(1)}%</strong> of users were exposed to
                         multiple variants. With your uneven variant split and the current <strong>Exclude</strong>{' '}
                         handling, users were disproportionately dropped from the smaller variant. If their behavior
                         differs from other users, the smaller variant's metrics will be biased.
-                    </div>
-                    <div className="mt-1">
+                    </p>
+                    <p className="m-0 mt-1">
                         We recommend using an <strong>even split</strong> and controlling exposure with the overall
                         rollout (uneven splits have further disadvantages). Alternatively use{' '}
                         <Link
@@ -55,13 +53,22 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                             <strong>First seen</strong>
                         </Link>{' '}
                         handling.
-                    </div>
+                    </p>
                 </div>
                 <div className="flex gap-2 items-center flex-shrink-0">
-                    <LemonButton type="secondary" onClick={() => openDistributionModal()}>
+                    <LemonButton size="small" type="secondary" onClick={() => openDistributionModal()}>
                         Adjust distribution
                     </LemonButton>
-                    <LemonButton type="secondary" onClick={() => openExposureCriteriaModal(exposureCriteria)}>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() =>
+                            openExposureCriteriaModal({
+                                ...exposureCriteria,
+                                multiple_variant_handling: 'first_seen',
+                            })
+                        }
+                    >
                         Use first seen variant
                     </LemonButton>
                 </div>

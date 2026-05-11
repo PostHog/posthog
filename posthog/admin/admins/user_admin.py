@@ -70,6 +70,7 @@ class UserAdmin(DjangoUserAdmin):
             {
                 "fields": (
                     "id",
+                    "distinct_id",
                     "email",
                     "password",
                     "current_organization",
@@ -100,9 +101,10 @@ class UserAdmin(DjangoUserAdmin):
     list_display_links = ("id", "email")
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
-    search_fields = ("email", "first_name", "last_name")
+    search_fields = ("email", "first_name", "last_name", "distinct_id")
     readonly_fields = [
         "id",
+        "distinct_id",
         "email",
         "pending_email",
         "current_team",

@@ -13,6 +13,7 @@ from django.http import HttpResponseRedirect
 from django.test import Client as DjangoClient
 from django.urls import reverse
 
+from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
 from social_core.backends.base import BaseAuth
@@ -192,7 +193,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 52
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -1002,18 +1003,127 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         assert response.status_code == 403
         assert response.json()["code"] == "impersonation_read_only"
 
-    def test_admin_blocked_when_original_user_loses_staff(self):
-        """If the original (impersonator) user is no longer staff, admin access is denied."""
+    @parameterized.expand(
+        [
+            ("loses_staff", {"is_staff": False}),
+            ("deactivated", {"is_active": False}),
+        ]
+    )
+    def test_admin_blocked_when_original_user_cannot_swap(self, _name, user_attrs):
+        """The swap requires `original_user.is_active and original_user.is_staff`.
+        Falsifying either attribute on the original user must block admin access on
+        the next request — proves both halves of the gate are load-bearing."""
         self.login_as_other_user()
-
-        # Demote the original user mid-session.
-        self.user.is_staff = False
+        for attr, val in user_attrs.items():
+            setattr(self.user, attr, val)
         self.user.save()
 
         response = self.client.get("/admin/")
-        # No swap happens (original isn't staff anymore) → impersonated non-staff user blocked
         assert response.status_code == 302
         assert "/admin/login" in response.headers.get("Location", "")
+
+    @patch("posthog.views.get_client")
+    @patch("posthog.views.log_activity")
+    def test_admin_action_attributes_activity_to_staff_user_during_impersonation(
+        self, mock_log_activity: MagicMock, mock_get_client: MagicMock
+    ):
+        """Load-bearing security claim: admin actions performed during impersonation
+        must pass the original staff user (not the impersonated customer) to downstream
+        activity logging. The PR's middleware-ordering comment in `posthog/settings/web.py`
+        says the swap must run before activity-logging code — this asserts that.
+
+        A future middleware reorder that breaks attribution would silently leak
+        `customer-as-actor` into audit logs without breaking any existing test.
+
+        Mechanism: `redis_edit_ttl_view` calls `log_activity(user=request.user, ...)`.
+        Patch `log_activity` and assert the captured `user` kwarg is the staff user.
+        """
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
+        self.login_as_other_user()
+
+        response = self.client.post(
+            "/admin/redis/edit-ttl",
+            data={"key": "test:key", "ttl_seconds": "60"},
+        )
+
+        assert response.status_code in (200, 302), f"unexpected status: {response.status_code}"
+        assert mock_log_activity.called, "log_activity was not called — admin view did not reach attribution code"
+        for call in mock_log_activity.call_args_list:
+            logged_user = call.kwargs.get("user")
+            assert logged_user is not None, "log_activity called with user=None"
+            assert logged_user.id == self.user.id, (
+                f"log_activity called with user={logged_user.id} ({logged_user.email}), "
+                f"expected staff user {self.user.id} ({self.user.email}), "
+                f"NOT impersonated customer {self.other_user.id} ({self.other_user.email})"
+            )
+
+    def test_admin_index_banner_shows_both_staff_and_customer_email(self):
+        """The banner must surface both identities. The existing test only asserts the
+        customer email — a regression dropping the staff portion would pass it. This test
+        pins both halves; it also proves request.user is swapped at template render time."""
+        self.login_as_other_user()
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+        assert self.other_user.email.encode() in response.content, "impersonated customer email missing from banner"
+        assert self.user.email.encode() in response.content, (
+            "staff user email missing from banner — request.user not swapped at template render"
+        )
+
+    def test_swap_rejects_tampered_session_flag(self):
+        """`get_original_user_from_session` unsigns `la_settings.USER_SESSION_FLAG` via
+        `TimestampSigner`. A session value lacking a valid signature must not produce a
+        swap, even when `is_impersonated_session(request)` returns True. Pins the
+        cryptographic boundary."""
+        self.login_as_other_user()
+
+        # Inject the STAFF user's PK as an unsigned value. If signature verification
+        # were bypassed, `get_original_user_from_session` would return the staff user,
+        # both `is_active` and `is_staff` would be True, the swap would succeed, and
+        # `/admin/` would return 200 (not 302). The 302 assertion therefore directly
+        # pins the TimestampSigner gate — a bypass would change the response.
+        session = self.client.session
+        session[la_settings.USER_SESSION_FLAG] = str(self.user.pk)
+        session.save()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_swap_no_ops_when_original_user_deleted(self):
+        """If the original user has been deleted between session start and the current
+        request, `User.objects.get(pk=...)` raises DoesNotExist; the helper catches it
+        and returns None. Middleware must leave request.user untouched."""
+        self.login_as_other_user()
+        impersonated_pk = self.other_user.pk
+
+        self.user.delete()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+        assert User.objects.filter(pk=impersonated_pk).exists()
+
+    def test_read_only_bypass_does_not_fire_for_path_without_trailing_slash(self):
+        """`request.path.startswith('/admin/')` requires the trailing slash. A bare
+        `/admin` POST must NOT bypass the read-only middleware. Asserts the prefix
+        check correctly excludes the trailing-slash-less form — boundary test against
+        future tweaks to the prefix check."""
+        self.login_as_other_user_read_only()
+
+        response = self.client.post("/admin", data={})
+        # The read-only middleware must block this POST since `/admin` does NOT
+        # match the `/admin/` prefix. The bypass branch is gated on the same
+        # `startswith('/admin/')` check that the AdminImpersonationMiddleware uses,
+        # so blocking here proves both checks correctly exclude this path.
+        assert response.status_code == 403, (
+            f"expected 403 (read-only block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        assert response.json().get("code") == "impersonation_read_only", (
+            f"expected impersonation_read_only response, got: {response.content!r}"
+        )
 
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
@@ -1779,6 +1889,160 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     assert captured["feature"] is None
 
 
+@parameterized.expand(
+    [
+        ("api_path_emits", "/api/projects/@current/query/", True),
+        ("api_capture_excluded", "/api/projects/@current/capture/", False),
+        ("non_api_path_excluded", "/login", False),
+    ]
+)
+def test_chqueries_middleware_api_latency_histogram_scope(name, path, should_emit):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": "2xx",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    request = RequestFactory().get(path)
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(lambda r: HttpResponse("ok"))(request)
+
+    delta = sample_count() - before
+    expected = 1.0 if should_emit else 0.0
+    assert delta == expected, f"{name}: expected delta {expected}, got {delta}"
+
+
+@parameterized.expand(
+    [
+        ("source_mcp", "posthog/mcp-server v1", None, "mcp", ""),
+        ("source_web", "Mozilla/5.0", None, "web", ""),
+        ("access_method_personal_api_key", "Mozilla/5.0", "personal_api_key", "web", "personal_api_key"),
+        ("access_method_oauth", "Mozilla/5.0", "oauth", "web", "oauth"),
+    ]
+)
+def test_chqueries_middleware_api_latency_labels(name, user_agent, access_method, expected_source, expected_access):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.clickhouse.query_tagging import tag_queries
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": expected_source,
+        "access_method": expected_access,
+        "status_class": "2xx",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    def get_response(req):
+        if access_method is not None:
+            tag_queries(access_method=access_method)
+        return HttpResponse("ok")
+
+    request = RequestFactory().get("/api/projects/@current/query/", HTTP_USER_AGENT=user_agent)
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(get_response)(request)
+
+    assert sample_count() - before == 1.0, f"{name}: histogram not observed for labels {labels}"
+
+
+@parameterized.expand(
+    [
+        ("ok_2xx", 200, "2xx"),
+        ("redirect_3xx", 301, "3xx"),
+        ("client_error_4xx", 404, "4xx"),
+        ("server_error_5xx", 503, "5xx"),
+    ]
+)
+def test_chqueries_middleware_api_latency_status_class(name, status_code, expected_class):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": expected_class,
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(lambda r: HttpResponse("body", status=status_code))(request)
+
+    assert sample_count() - before == 1.0, f"{name}: expected 1 observation at status_class={expected_class}"
+
+
+def test_chqueries_middleware_api_latency_records_on_raise():
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": "error",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    def boom(req):
+        raise RuntimeError("view exploded")
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    with pytest.raises(RuntimeError, match="view exploded"):
+        CHQueries(boom)(request)
+
+    assert sample_count() - before == 1.0, "exception path must still record latency at status_class=error"
+
+
 def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:
     from posthog.middleware import QueryTimeCountingMiddleware
 
@@ -1793,3 +2057,26 @@ def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> Non
     assert "pg_max;dur=1200" in header
     assert 'pg_count;desc="17"' in header
     assert 'pg_slow;desc="2"' in header
+
+
+@parameterized.expand(
+    [
+        ("/api/projects/@current/insights/", True),
+        ("/api/projects/@current/dashboards/", True),
+        ("/api/projects/@current/property_definitions/", True),
+        ("/", True),
+        ("/insights/abc123", True),
+        ("/dashboard/42", True),
+        ("/project/2/insights", True),
+        ("/api/projects/@current/feature_flags/", False),
+    ]
+)
+def test_query_time_counting_middleware_should_instrument(path, expected) -> None:
+    from django.test import RequestFactory
+
+    from posthog.middleware import QueryTimeCountingMiddleware
+
+    middleware = QueryTimeCountingMiddleware(get_response=lambda r: None)
+    request = RequestFactory().get(path)
+
+    assert middleware._should_instrument(request) is expected

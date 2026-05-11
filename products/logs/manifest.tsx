@@ -18,13 +18,6 @@ export const manifest: ProductManifest = {
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
         },
-        LogsAlertNew: {
-            import: () => import('./frontend/scenes/LogsAlertNewScene/LogsAlertNewScene'),
-            projectBased: true,
-            name: 'New alert',
-            activityScope: ActivityScope.LOG,
-            layout: 'app-container',
-        },
         LogsAlertDetail: {
             import: () => import('./frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
             projectBased: true,
@@ -49,7 +42,6 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/logs': ['Logs', 'logs'],
-        '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
         '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
         '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
         '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
@@ -62,7 +54,6 @@ export const manifest: ProductManifest = {
     },
     urls: {
         logs: (): string => '/logs',
-        logsAlertNew: (): string => '/logs/alerts/new',
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
         logsSamplingNew: (): string => '/logs/drop-rules/new',

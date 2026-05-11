@@ -3080,7 +3080,7 @@
             ],
             "ignored_in_assistant": true,
             "label": "Feature flag called",
-            "promoted_property": "$feature_flag"
+            "primary_property": "$feature_flag"
         },
         "$feature_interaction": {
             "description": "When a user interacts with a feature.",
@@ -3116,12 +3116,12 @@
             "description": "When a user leaves a page.",
             "ignored_in_assistant": true,
             "label": "Pageleave",
-            "promoted_property": "$pathname"
+            "primary_property": "$pathname"
         },
         "$pageview": {
             "description": "When a user loads (or reloads) a page.",
             "label": "Pageview",
-            "promoted_property": "$pathname"
+            "primary_property": "$pathname"
         },
         "$rageclick": {
             "description": "A user has rapidly and repeatedly clicked in a single place.",
@@ -3130,7 +3130,7 @@
         "$screen": {
             "description": "When a user loads a screen in a mobile app.",
             "label": "Screen",
-            "promoted_property": "$screen_name"
+            "primary_property": "$screen_name"
         },
         "$set": {
             "description": "Setting person properties. Sent as `$set`.",
