@@ -1,6 +1,5 @@
 import sys
 import copy
-from collections import OrderedDict
 from collections.abc import Callable
 from enum import StrEnum
 from types import FrameType
@@ -8,6 +7,7 @@ from typing import Any, Literal, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
+from cachetools import LRUCache
 from hogql_parser import (
     parse_expr_json as _parse_expr_json_cpp,
     parse_full_template_string_json as _parse_full_template_string_json_cpp,
@@ -172,47 +172,14 @@ def _looks_like_code_literal(s: str) -> bool:
     return False
 
 
-class _BoundedLRU:
-    """Tiny LRU backed by OrderedDict.
+# Sentinel for distinguishing "key not present" from "key maps to None".
+# Necessary because nothing currently makes the parsers return None, but the
+# `cache.get(key, _MISS) is _MISS` idiom is robust to a future tolerant-parsing
+# path that might.
+_MISS: Any = object()
 
-    Picked over ``functools.lru_cache`` because we want a non-mutating
-    ``peek``-style lookup: on the fast path we check both caches before
-    deciding which one to fill, and ``functools.lru_cache`` only exposes a
-    decorator that fills on miss. CPython's GIL makes individual
-    OrderedDict operations atomic; compound get-then-set races only cause
-    duplicate parsing (idempotent), never corrupted state.
-    """
-
-    def __init__(self, maxsize: int) -> None:
-        self.maxsize = maxsize
-        self._data: OrderedDict[Any, Any] = OrderedDict()
-
-    def get(self, key: Any) -> Any:
-        """Return the value (and mark it recently-used) on hit, else None."""
-        try:
-            value = self._data[key]
-        except KeyError:
-            return None
-        self._data.move_to_end(key)
-        return value
-
-    def set(self, key: Any, value: Any) -> None:
-        """Insert; evict the least-recently-used entry on overflow."""
-        self._data[key] = value
-        self._data.move_to_end(key)
-        if len(self._data) > self.maxsize:
-            self._data.popitem(last=False)
-
-    def clear(self) -> None:
-        self._data.clear()
-
-    @property
-    def currsize(self) -> int:
-        return len(self._data)
-
-
-_builtin_parse_cache = _BoundedLRU(_BUILTIN_CACHE_SIZE)
-_user_parse_cache = _BoundedLRU(_USER_CACHE_SIZE)
+_builtin_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_BUILTIN_CACHE_SIZE)
+_user_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_USER_CACHE_SIZE)
 
 _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.BUILTIN).set(_BUILTIN_CACHE_SIZE)
 _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
@@ -243,38 +210,40 @@ def _parse_cached(
     Explicit ``BUILTIN`` / ``USER`` origins only consult their own cache —
     callers opting into one explicitly should not get hits from the other.
 
-    Returns a ``copy.deepcopy`` so callers can mutate the AST without
+    Hits return a ``copy.deepcopy`` so callers can mutate the AST without
     affecting future cache hits (the resolver and printer both mutate).
+    Misses parse fresh and store a deepcopy in the cache; the fresh parse
+    (single owner) is returned directly without an extra copy.
     """
     key = (statement, backend, rule, start)
 
     if cache_origin == CacheOrigin.AUTO:
         # Built-in is checked first because it holds the hot, in-process
         # literal queries — the case we expect to dominate production traffic.
-        cached = _builtin_parse_cache.get(key)
-        if cached is not None:
+        cached = _builtin_parse_cache.get(key, _MISS)
+        if cached is not _MISS:
             _PARSE_CACHE_EVENTS.labels(origin=CacheOrigin.BUILTIN, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
-        cached = _user_parse_cache.get(key)
-        if cached is not None:
+        cached = _user_parse_cache.get(key, _MISS)
+        if cached is not _MISS:
             _PARSE_CACHE_EVENTS.labels(origin=CacheOrigin.USER, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
         # Full miss — classify so we know which cache to fill.
         cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(statement) else CacheOrigin.USER
     else:
         cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
-        cached = cache.get(key)
-        if cached is not None:
+        cached = cache.get(key, _MISS)
+        if cached is not _MISS:
             _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
 
-    # Miss path: parse and store in the chosen cache.
+    # Miss path: parse, store a deepcopy in the cache, return the fresh parse.
     cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
     parsed = _invoke_parser(backend, rule, statement, start)
-    cache.set(key, parsed)
+    cache[key] = copy.deepcopy(parsed)
     _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="miss", rule=rule).inc()
     _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(cache.currsize)
-    return copy.deepcopy(parsed)
+    return parsed
 
 
 def clear_parse_caches() -> None:

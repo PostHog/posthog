@@ -70,7 +70,7 @@ class TestParserCache(BaseTest):
     def test_user_pollution_does_not_displace_builtin(self):
         # Fill the built-in cache with one entry, then flood the user cache.
         parse_select("SELECT 'builtin entry'", cache_origin=CacheOrigin.BUILTIN)
-        user_maxsize = _user_parse_cache.maxsize
+        user_maxsize = int(_user_parse_cache.maxsize)
         for i in range(user_maxsize + 50):
             parse_select(f"SELECT {i}", cache_origin=CacheOrigin.USER)
         # Built-in cache still has its entry; user cache is at maxsize.
