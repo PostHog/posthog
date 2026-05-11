@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
@@ -21,9 +21,11 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -263,6 +265,105 @@ export const WebAnalyticsDomainSelector = (): JSX.Element => {
     )
 }
 
+const DEVICE_TYPE_SELECT_OPTIONS = [
+    {
+        value: 'Desktop' as const,
+        label: (
+            <div>
+                <IconMonitor className="mx-1" /> Desktop
+            </div>
+        ),
+        tooltip: 'Desktop devices include laptops and desktops.',
+    },
+    {
+        value: 'Mobile' as const,
+        label: (
+            <div>
+                <IconPhone className="mx-1" /> Mobile
+            </div>
+        ),
+        tooltip: 'Mobile devices include smartphones and tablets.',
+    },
+]
+
+export const WebAnalyticsLiveDeviceToggle = (): JSX.Element => {
+    const { deviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
+
+    return (
+        <LemonSelect
+            size="small"
+            value={deviceTypeFilter ?? undefined}
+            allowClear={true}
+            placeholder="All devices"
+            onChange={(value) => setDeviceTypeFilter(value ?? null)}
+            options={DEVICE_TYPE_SELECT_OPTIONS}
+        />
+    )
+}
+
+export const WebAnalyticsLiveCountrySelector = (): JSX.Element => {
+    const { countryFilter } = useValues(webAnalyticsLogic)
+    const { setCountryFilter } = useActions(webAnalyticsLogic)
+
+    const options = useMemo<LemonInputSelectOption<string>[]>(
+        () =>
+            Object.entries(COUNTRY_CODE_TO_LONG_NAME)
+                .map(([code, name]) => ({
+                    key: code,
+                    label: `${countryCodeToFlag(code)}  ${name}`,
+                    labelComponent: (
+                        <span>
+                            <span aria-hidden className="mr-2">
+                                {countryCodeToFlag(code)}
+                            </span>
+                            {name}
+                        </span>
+                    ),
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label)),
+        []
+    )
+
+    return (
+        <LemonInputSelect<string>
+            mode="single"
+            size="small"
+            value={countryFilter ? [countryFilter] : []}
+            options={options}
+            placeholder="All countries"
+            onChange={(values) => setCountryFilter(values[0] ?? null)}
+            virtualized
+        />
+    )
+}
+
+export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggestions?: string[] }): JSX.Element => {
+    const { referrerFilter } = useValues(webAnalyticsLogic)
+    const { setReferrerFilter } = useActions(webAnalyticsLogic)
+
+    const options = useMemo<LemonInputSelectOption<string>[]>(
+        () =>
+            // Skip the synthetic '$direct' bucket — it's a display-only label, not a real referrer value.
+            suggestions
+                .filter((domain) => domain && domain !== '$direct')
+                .map((domain) => ({ key: domain, label: domain })),
+        [suggestions]
+    )
+
+    return (
+        <LemonInputSelect<string>
+            mode="single"
+            size="small"
+            value={referrerFilter ? [referrerFilter] : []}
+            options={options}
+            allowCustomValues
+            placeholder="All referrers"
+            onChange={(values) => setReferrerFilter(values[0] ?? null)}
+        />
+    )
+}
+
 const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
@@ -293,26 +394,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
                 value={deviceTypeFilter ?? undefined}
                 allowClear={true}
                 onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
-                options={[
-                    {
-                        value: 'Desktop',
-                        label: (
-                            <div>
-                                <IconMonitor className="mx-1" /> Desktop
-                            </div>
-                        ),
-                        tooltip: 'Desktop devices include laptops and desktops.',
-                    },
-                    {
-                        value: 'Mobile',
-                        label: (
-                            <div>
-                                <IconPhone className="mx-1" /> Mobile
-                            </div>
-                        ),
-                        tooltip: 'Mobile devices include smartphones and tablets.',
-                    },
-                ]}
+                options={DEVICE_TYPE_SELECT_OPTIONS}
             />
         )
     }
