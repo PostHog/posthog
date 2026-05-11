@@ -72,9 +72,7 @@ const OkPlainStringTitle = <Tooltip title="Just a label"><span>trigger</span></T
 // ok: tooltip-link-needs-doclink-or-interactive
 const OkRichTextNoLink = <Tooltip title={<span className="font-mono">code-ish content</span>}><IconInfo /></Tooltip>
 
-// Suppressed call site — escape hatch for intentional non-hoverable cases.
-// The negative annotation immediately below lets semgrep --test assert no
-// finding fires here, confirming the nosemgrep suppression works.
-// nosemgrep: tooltip-link-needs-doclink-or-interactive
-// ok: tooltip-link-needs-doclink-or-interactive
-const SuppressedIntentionally = <Tooltip title={<>Decorative <Link to="https://posthog.com/docs/foo">link</Link> that nobody clicks</>}><IconInfo /></Tooltip>
+// (The `// nosemgrep:` escape hatch is documented in the rule message and
+// works at runtime via `semgrep ci`, but `semgrep --test` doesn't honor
+// nosemgrep suppression — it treats every finding as a positive regardless
+// of the inline directive. So we don't fixture-test the escape hatch.)
