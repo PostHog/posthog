@@ -774,8 +774,11 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
       - `sitemap` / `same_origin` (Stage 2b): re-discover + per-URL upsert.
     """
 
-    # Pull the source once outside the txn just to verify it exists + claim it.
+    # Acquire the per-team advisory lock and enforce the single-PROCESSING
+    # invariant before claiming this source. This prevents concurrent refreshes
+    # of different sources on the same team from each tying up a Django worker.
     with transaction.atomic():
+        _check_source_quota_locked(team_id, reject_if_processing=True)
         try:
             source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:

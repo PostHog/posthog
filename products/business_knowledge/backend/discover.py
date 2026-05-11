@@ -129,7 +129,7 @@ def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:
     # One level of sitemap-index unfurling. A huge site usually has nested
     # indexes (products, docs, blog). Deeper nesting is rare; we cap at 1 to
     # keep the total network IO bounded on discover.
-    for sub in subs[:HARD_DISCOVER_CAP]:
+    for sub in subs[: min(config.max_pages, HARD_DISCOVER_CAP)]:
         if len(urls) >= HARD_DISCOVER_CAP:
             break
         try:

@@ -307,6 +307,15 @@ class TestRefreshSource(BaseTest):
         with self.assertRaises(SourceBusyError):
             refresh_source(source_id=source.id, team_id=self.team.id)
 
+    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    def test_refresh_blocked_when_another_source_processing(self, _ssrf: MagicMock, _fetch: MagicMock) -> None:
+        source_a = self._seed()
+        source_b = self._seed()
+        KnowledgeSource.objects.unscoped().filter(id=source_a.id).update(status=SourceStatus.PROCESSING)
+        with self.assertRaises(SourceBusyError):
+            refresh_source(source_id=source_b.id, team_id=self.team.id)
+
     def test_cross_team_refresh_returns_none(self) -> None:
         from posthog.models.team import Team
 
