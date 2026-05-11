@@ -9,6 +9,7 @@ from posthog.clickhouse.client.execute import (
     _get_kill_switch_team_sets,
     default_settings,
     get_kill_switch_level,
+    get_team_kill_switch_level,
 )
 
 
@@ -37,60 +38,59 @@ class TestGetKillSwitchLevel:
         _get_kill_switch_level.cache_clear()
 
 
-class TestGetKillSwitchLevelPerTeam:
-    def _instance_setting(self, name: str) -> object:
-        return {
-            "CLICKHOUSE_KILL_SWITCH": self._global,
-            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": self._full,
-            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": self._light,
-        }[name]
+class TestGetTeamKillSwitchLevel:
+    @parameterized.expand(
+        [
+            ("team_in_full_list_gets_full", [42], [], 42, KillSwitchLevel.FULL),
+            ("team_in_light_list_gets_light", [], [42], 42, KillSwitchLevel.LIGHT),
+            ("team_not_in_any_list_is_off", [99], [99], 42, KillSwitchLevel.OFF),
+            ("team_in_both_lists_picks_full", [42], [42], 42, KillSwitchLevel.FULL),
+        ]
+    )
+    def test_per_team_lookup(
+        self,
+        _name: str,
+        full: list[int],
+        light: list[int],
+        team_id: int,
+        expected: KillSwitchLevel,
+    ):
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": full,
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": light,
+        }
+        with patch("posthog.models.instance_setting.get_instance_setting", side_effect=lambda name: settings[name]):
+            assert get_team_kill_switch_level(team_id) == expected
+        _get_kill_switch_team_sets.cache_clear()
 
-    def _set(self, global_value: str, full: list[int], light: list[int]) -> None:
-        self._global = global_value
-        self._full = full
-        self._light = light
-
-    def _clear_caches(self) -> None:
+    def test_global_get_kill_switch_level_ignores_per_team_lists(self):
+        """The global resolver must remain unchanged — per-team overrides are opt-in."""
+        _get_kill_switch_level.cache_clear()
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH": "off",
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": [42],
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": [],
+        }
+        with patch("posthog.models.instance_setting.get_instance_setting", side_effect=lambda name: settings[name]):
+            assert get_kill_switch_level() == KillSwitchLevel.OFF
         _get_kill_switch_level.cache_clear()
         _get_kill_switch_team_sets.cache_clear()
 
-    @parameterized.expand(
-        [
-            ("team_in_full_list_gets_full", "off", [42], [], 42, KillSwitchLevel.FULL),
-            ("team_in_light_list_gets_light", "off", [], [42], 42, KillSwitchLevel.LIGHT),
-            ("team_not_in_any_list_is_off", "off", [99], [99], 42, KillSwitchLevel.OFF),
-            ("global_light_wins_over_team_off", "light", [], [], 42, KillSwitchLevel.LIGHT),
-            ("global_full_wins_over_team_light", "full", [], [42], 42, KillSwitchLevel.FULL),
-            ("team_full_overrides_global_light", "light", [42], [], 42, KillSwitchLevel.FULL),
-            ("team_full_in_both_lists_picks_full", "off", [42], [42], 42, KillSwitchLevel.FULL),
-            ("no_team_id_falls_back_to_global", "light", [42], [], None, KillSwitchLevel.LIGHT),
-        ]
-    )
-    def test_per_team_resolution(
-        self,
-        _name: str,
-        global_value: str,
-        full: list[int],
-        light: list[int],
-        team_id: int | None,
-        expected: KillSwitchLevel,
-    ):
-        self._clear_caches()
-        self._set(global_value, full, light)
-        with patch("posthog.models.instance_setting.get_instance_setting", side_effect=self._instance_setting):
-            assert get_kill_switch_level(team_id=team_id) == expected
-        self._clear_caches()
-
     def test_team_sets_are_cached(self):
-        self._clear_caches()
-        self._set("off", [42], [7])
-        mock = MagicMock(side_effect=self._instance_setting)
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": [42],
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": [7],
+        }
+        mock = MagicMock(side_effect=lambda name: settings[name])
         with patch("posthog.models.instance_setting.get_instance_setting", mock):
-            get_kill_switch_level(team_id=42)
-            get_kill_switch_level(team_id=42)
-            # 1 call for global + 2 calls for the per-team sets (full + light) over the same minute
-            assert mock.call_count == 3
-        self._clear_caches()
+            get_team_kill_switch_level(42)
+            get_team_kill_switch_level(42)
+            # 2 calls for the per-team sets (full + light) over the same minute, no additional calls on the second invocation
+            assert mock.call_count == 2
+        _get_kill_switch_team_sets.cache_clear()
 
 
 class TestKillSwitchResourceLimits:

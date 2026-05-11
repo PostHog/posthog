@@ -113,31 +113,24 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
 }
 
 
-_KILL_SWITCH_SEVERITY: dict[KillSwitchLevel, int] = {
-    KillSwitchLevel.OFF: 0,
-    KillSwitchLevel.LIGHT: 1,
-    KillSwitchLevel.FULL: 2,
-}
+def get_kill_switch_level() -> KillSwitchLevel:
+    return _get_kill_switch_level(round(time.time() / 60))
 
 
-def get_kill_switch_level(team_id: Optional[int] = None) -> KillSwitchLevel:
+def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     """
-    Resolve the active kill switch level, optionally accounting for per-team restrictions.
+    Per-team kill switch override.
 
-    The effective level is the most severe of:
-      1. the global `CLICKHOUSE_KILL_SWITCH` instance setting, and
-      2. any per-team override (FULL > LIGHT) configured via
-         `CLICKHOUSE_KILL_SWITCH_FULL_TEAMS` / `CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS`.
-
-    Per-team overrides let us throttle abusive teams without degrading the whole cluster.
+    Returns FULL or LIGHT if `team_id` is in the corresponding admin-managed list,
+    else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
+    that want the combined effect should take the more severe of the two levels.
     """
-    ttl = round(time.time() / 60)
-    level = _get_kill_switch_level(ttl)
-    if team_id is not None:
-        team_level = _get_team_kill_switch_level(team_id, ttl)
-        if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
-            level = team_level
-    return level
+    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in full_teams:
+        return KillSwitchLevel.FULL
+    if team_id in light_teams:
+        return KillSwitchLevel.LIGHT
+    return KillSwitchLevel.OFF
 
 
 def get_hedged_app_queries_enabled() -> bool:
@@ -175,15 +168,6 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     except Exception:
         light_teams = frozenset()
     return full_teams, light_teams
-
-
-def _get_team_kill_switch_level(team_id: int, ttl: int) -> KillSwitchLevel:
-    full_teams, light_teams = _get_kill_switch_team_sets(ttl)
-    if team_id in full_teams:
-        return KillSwitchLevel.FULL
-    if team_id in light_teams:
-        return KillSwitchLevel.LIGHT
-    return KillSwitchLevel.OFF
 
 
 @lru_cache(maxsize=1)
@@ -330,7 +314,16 @@ def sync_execute(
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
 
-    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level(team_id=team_id)
+    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
+    if not TEST and team_id is not None:
+        team_level = get_team_kill_switch_level(team_id)
+        # Use the more severe of the global level and any per-team override so that
+        # teams listed in the per-team kill switch are throttled even when the global
+        # switch is off, and the global level still wins when it's stricter.
+        if team_level == KillSwitchLevel.FULL or (
+            team_level == KillSwitchLevel.LIGHT and kill_switch_level == KillSwitchLevel.OFF
+        ):
+            kill_switch_level = team_level
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
