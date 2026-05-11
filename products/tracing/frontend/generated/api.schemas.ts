@@ -20,16 +20,15 @@ export interface _TracingDateRangeApi {
     date_to?: string | null
 }
 
-/**
- * * `latest` - latest
- * `earliest` - earliest
- */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
-
-export const OrderByEnumApi = {
-    Latest: 'latest',
-    Earliest: 'earliest',
-} as const
+export interface _CompareFilterApi {
+    /** When true, also fetch results for a comparison window and return them under `compare`. */
+    compare?: boolean
+    /**
+     * Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.
+     * @nullable
+     */
+    compare_to?: string | null
+}
 
 /**
  * * `span` - span
@@ -98,6 +97,33 @@ export interface _SpanPropertyFilterApi {
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
     value?: unknown
 }
+
+export interface _TracingAggregationQueryBodyApi {
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Property filters applied to spans in both windows. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingAggregationRequestApi {
+    /** The span aggregation query to execute. */
+    query: _TracingAggregationQueryBodyApi
+}
+
+/**
+ * * `latest` - latest
+ * `earliest` - earliest
+ */
+export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+
+export const OrderByEnumApi = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
 
 export interface _TracingQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
