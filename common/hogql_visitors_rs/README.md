@@ -69,13 +69,22 @@ the conversion overhead is visible separately from the visitor cost.
 
 ```text
 query                     python    A: PyO3   B: full   B: visit only   B: convert
-tiny                       19.40       1.46      1.54            0.57         0.97
-events_simple              36.19       4.28      5.09            1.31         3.78
-events_in_clause           44.50       5.57      7.16            1.55         5.61
-join_persons               56.80       5.38      6.98            1.27         5.71
-subquery_with_filters     121.53       6.35     10.71            0.86         9.85
-trends_like_breakdown     178.95       7.12      9.93            0.87         9.06
+tiny                       20.10       1.65      1.61            0.56         1.06
+events_simple              36.54       4.44      5.34            1.13         4.21
+events_in_clause           43.78       5.64      7.04            1.51         5.53
+join_persons               54.97       5.05      6.72            1.36         5.37
+subquery_with_filters     120.58       6.44     10.73            0.82         9.90
+trends_like_breakdown     178.32       7.20      9.96            0.87         9.09
+pathological_deep        1205.64       4.95     13.49            0.80        12.69
 ```
+
+`pathological_deep` is a synthetic 361-AST-node query — multi-CTE, nested
+UNION ALL branches, multi-join — shaped after a complex insight. The row
+is the most compelling argument for Rust here: **Python spends 240 µs per
+call** on that shape; Rust-A finishes in ~1 µs. ~243× speedup, and A is
+actually _faster_ than its smaller-query numbers because the targeted
+visitor only recurses where it needs to, while Python's TraversingVisitor
+base walks every child of every node.
 
 What the split makes obvious:
 

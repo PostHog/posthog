@@ -45,6 +45,78 @@ QUERIES = {
         "  ) GROUP BY day_start, breakdown_value, counts ORDER BY day_start"
         ") GROUP BY breakdown_value LIMIT 50"
     ),
+    # Pathological: 361 AST nodes. Shape modelled on a complex insight query
+    # — multi-CTE, deeply nested subqueries, wide SELECT + WHERE, IN clauses
+    # with many values, UNION ALL branches, multiple JOINs.
+    "pathological_deep": """
+        WITH active_users AS (
+            SELECT distinct_id, min(timestamp) AS first_seen, max(timestamp) AS last_seen, count() AS event_count,
+                   sum(if(event = '$pageview', 1, 0)) AS pageview_count,
+                   sum(if(event = '$autocapture', 1, 0)) AS autocapture_count,
+                   sum(if(event = 'sign up', 1, 0)) AS signup_count,
+                   sum(if(event = 'product viewed', 1, 0)) AS product_count,
+                   sum(if(event = 'purchase', 1, 0)) AS purchase_count
+            FROM events
+            WHERE timestamp > now() - INTERVAL 30 DAY
+              AND event IN ('$pageview', '$autocapture', 'sign up', 'product viewed', 'item added to cart',
+                            'purchase', 'subscription started', 'subscription cancelled', '$identify', '$set',
+                            '$exception', '$web_vitals', '$ai_generation', '$feature_flag_called')
+              AND properties.$current_url NOT LIKE '%admin%' AND properties.$current_url NOT LIKE '%internal%'
+              AND properties.$current_url NOT LIKE '%test%' AND properties.$current_url NOT LIKE '%staging%'
+              AND properties.$browser IN ('Chrome', 'Firefox', 'Safari', 'Edge', 'Opera', 'Brave')
+              AND properties.$os IN ('macOS', 'Windows', 'Linux', 'iOS', 'Android')
+            GROUP BY distinct_id
+            HAVING event_count > 3 AND pageview_count > 1
+        ),
+        breakdown_pre AS (
+            SELECT toStartOfDay(e.timestamp) AS day_start, e.properties.$some_property AS breakdown_value,
+                   e.properties.$browser AS browser, e.properties.$os AS os,
+                   e.properties.$device_type AS device, e.properties.$current_url AS url,
+                   count(DISTINCT e.person_id) AS count,
+                   sum(if(e.event = 'sign up', 1, 0)) AS signups,
+                   sum(if(e.event = 'purchase', 1, 0)) AS purchases
+            FROM events AS e
+            JOIN active_users AS au ON e.distinct_id = au.distinct_id
+            LEFT JOIN persons AS p ON p.id = e.person_id
+            WHERE e.event IN ('sign up', 'purchase', '$pageview', 'subscription started')
+              AND e.timestamp > now() - INTERVAL 14 DAY
+              AND (p.properties.email != '' OR p.properties.$initial_referring_domain IS NOT NULL
+                   OR p.properties.$initial_utm_source IS NOT NULL OR p.properties.$initial_utm_campaign IS NOT NULL)
+              AND e.properties.$ai_generation IS NULL AND e.properties.$exception IS NULL
+              AND coalesce(e.properties.value, 0) > 0
+            GROUP BY day_start, breakdown_value, browser, os, device, url
+        ),
+        combined AS (
+            SELECT day_start, count, signups, purchases, breakdown_value, browser, os, device, url
+            FROM breakdown_pre
+            WHERE count > 5 AND signups > 0
+            UNION ALL
+            SELECT toStartOfDay(timestamp) AS day_start, count() AS count, 0 AS signups, 0 AS purchases,
+                   properties.$some_property AS breakdown_value, properties.$browser AS browser,
+                   properties.$os AS os, properties.$device_type AS device, properties.$current_url AS url
+            FROM events
+            WHERE event = '$exception' AND timestamp > now() - INTERVAL 7 DAY
+            GROUP BY day_start, breakdown_value, browser, os, device, url
+            UNION ALL
+            SELECT toStartOfDay(timestamp) AS day_start, count() AS count, 0 AS signups, 0 AS purchases,
+                   properties.$some_property AS breakdown_value, properties.$browser AS browser,
+                   properties.$os AS os, properties.$device_type AS device, properties.$current_url AS url
+            FROM events
+            WHERE event = '$web_vitals' AND timestamp > now() - INTERVAL 7 DAY
+            GROUP BY day_start, breakdown_value, browser, os, device, url
+        )
+        SELECT groupArray(day_start)[1] AS first_day,
+               arraySum(arrayMap(x -> x, groupArray(count))) AS total_count,
+               arraySum(groupArray(signups)) AS total_signups,
+               arraySum(groupArray(purchases)) AS total_purchases,
+               breakdown_value, browser, os, device, count(DISTINCT url) AS distinct_urls
+        FROM combined
+        WHERE count > 1 AND (signups > 0 OR purchases > 0 OR breakdown_value LIKE '%marketing%')
+        GROUP BY breakdown_value, browser, os, device
+        HAVING total_count > 10
+        ORDER BY total_count DESC, total_signups DESC, breakdown_value ASC
+        LIMIT 1000
+    """,
 }
 
 N = 5000
