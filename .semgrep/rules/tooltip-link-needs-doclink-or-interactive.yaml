@@ -50,11 +50,15 @@ rules:
           - pattern-not: <Tooltip interactive ...>$...</Tooltip>
           - pattern-not: <Tooltip ... interactive>$...</Tooltip>
           - pattern-not: <Tooltip ... interactive ...>$...</Tooltip>
-          # Same set for `interactive={<expr>}`.
-          - pattern-not: <Tooltip interactive={$X}>$...</Tooltip>
-          - pattern-not: <Tooltip interactive={$X} ...>$...</Tooltip>
-          - pattern-not: <Tooltip ... interactive={$X}>$...</Tooltip>
-          - pattern-not: <Tooltip ... interactive={$X} ...>$...</Tooltip>
+          # Same set for the explicit `interactive={true}`. Note: only the
+          # literal `true` is excluded — `interactive={false}` (and other
+          # falsy values like `interactive={undefined}`) leave the popup
+          # non-hoverable and should still trigger the rule, so we match
+          # `={true}` specifically rather than `={$X}`.
+          - pattern-not: <Tooltip interactive={true}>$...</Tooltip>
+          - pattern-not: <Tooltip interactive={true} ...>$...</Tooltip>
+          - pattern-not: <Tooltip ... interactive={true}>$...</Tooltip>
+          - pattern-not: <Tooltip ... interactive={true} ...>$...</Tooltip>
           # Same set for `docLink=...`. The `=$D` form matches both
           # docLink="string" and docLink={expr}.
           - pattern-not: <Tooltip docLink=$D>$...</Tooltip>

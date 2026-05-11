@@ -40,11 +40,17 @@ const Case6DeeplyNested = <Tooltip title={<div className="deprecated-space-y-2">
 // ruleid: tooltip-link-needs-doclink-or-interactive
 const Case7PlainAnchor = <Tooltip title={<>See <a href="/somewhere">over here</a></>}><IconInfo /></Tooltip>
 
+// Shape 8: `interactive={false}` is identical to the default — the popup is
+// still non-hoverable, so the rule must still fire.
+// ruleid: tooltip-link-needs-doclink-or-interactive
+const Case8InteractiveFalse = <Tooltip interactive={false} title={<>Body. <Link to="https://posthog.com/docs/foo">Docs</Link></>}><IconInfo /></Tooltip>
+
 // ─── Negative cases — rule must NOT match ───
 
-// docLink set
+// docLink set — title also contains a Link so the metavariable-pattern step
+// succeeds; the docLink exclusion is what actually suppresses the rule.
 // ok: tooltip-link-needs-doclink-or-interactive
-const OkWithDocLink = <Tooltip docLink="https://posthog.com/docs/foo" title="Some prose."><IconInfo /></Tooltip>
+const OkWithDocLink = <Tooltip docLink="https://posthog.com/docs/foo" title={<>Some prose. <Link to="https://posthog.com/docs/foo">Learn more</Link></>}><IconInfo /></Tooltip>
 
 // interactive set as a bare prop
 // ok: tooltip-link-needs-doclink-or-interactive
@@ -67,5 +73,8 @@ const OkPlainStringTitle = <Tooltip title="Just a label"><span>trigger</span></T
 const OkRichTextNoLink = <Tooltip title={<span className="font-mono">code-ish content</span>}><IconInfo /></Tooltip>
 
 // Suppressed call site — escape hatch for intentional non-hoverable cases.
+// The `// ok:` annotation lets semgrep --test assert no finding fires here,
+// confirming the nosemgrep suppression behaves as expected.
 // nosemgrep: tooltip-link-needs-doclink-or-interactive
+// ok: tooltip-link-needs-doclink-or-interactive
 const SuppressedIntentionally = <Tooltip title={<>Decorative <Link to="https://posthog.com/docs/foo">link</Link> that nobody clicks</>}><IconInfo /></Tooltip>
