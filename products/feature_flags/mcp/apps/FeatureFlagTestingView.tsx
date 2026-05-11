@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card } from '@posthog/quill'
+import { Badge, Card, CardContent, CardHeader, CardTitle, CardDescription } from '@posthog/quill'
 
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
@@ -60,12 +60,14 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
 
                 {/* Evaluation Result */}
                 <Card>
-                    <div className="p-1 flex flex-col gap-1">
-                        <span className="font-medium text-primary">Test Evaluation Results</span>
-                        <span className="text-sm text-secondary">
+                    <CardHeader>
+                        <CardTitle>Test Evaluation Results</CardTitle>
+                        <CardDescription>
                             This shows how the flag evaluated for the specified user, including which condition matched
                             and the person properties that were considered.
-                        </span>
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">Result:</span>
                             <Badge variant={getResultBadgeVariant()}>{formatResult()}</Badge>
@@ -88,14 +90,17 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                 </code>
                             </div>
                         )}
-                    </div>
+                    </CardContent>
+                    <div className="p-1 flex flex-col gap-1" />
                 </Card>
 
                 {/* Person Properties */}
                 {Object.keys(flag.person_properties).length > 0 && (
                     <Card>
-                        <div className="flex flex-col gap-1 p-1">
-                            <span className="font-medium text-primary">Person Properties</span>
+                        <CardHeader>
+                            <CardTitle>Person Properties</CardTitle>{' '}
+                        </CardHeader>
+                        <CardContent>
                             <div className="space-y-1">
                                 {Object.entries(flag.person_properties).map(([key, value]) => (
                                     <div key={key} className="flex items-center gap-2 text-sm">
@@ -106,24 +111,24 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                     </div>
                                 ))}
                             </div>
-                        </div>
+                        </CardContent>
                     </Card>
                 )}
 
                 {/* Condition Analysis */}
                 {flag.conditions.length > 0 && (
                     <Card>
-                        <div className="flex flex-col gap-1 p-1">
-                            <span className="font-medium text-primary">Condition Analysis</span>
-                            <span className="text-sm text-secondary">
-                                Detailed breakdown of how each condition was evaluated
-                            </span>
+                        <CardHeader>
+                            <CardTitle>Condition Analysis</CardTitle>
+                            <CardDescription>Detailed breakdown of how each condition was evaluated</CardDescription>
+                        </CardHeader>
+                        <CardContent>
                             <div className="flex flex-col gap-1">
                                 {flag.conditions.map((condition, index) => (
                                     <Card key={index}>
-                                        <div className="flex flex-col gap-1 p-1">
+                                        <CardContent>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">Condition</span>
+                                                <span className="text-sm font-medium">Condition #{index + 1}:</span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
@@ -140,11 +145,11 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                     filters={condition.properties as PropertyFilter[]}
                                                 />
                                             )}
-                                        </div>
+                                        </CardContent>
                                     </Card>
                                 ))}
                             </div>
-                        </div>
+                        </CardContent>
                     </Card>
                 )}
             </div>
