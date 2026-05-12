@@ -133,9 +133,10 @@ _LITERAL_DETECTION_MIN_LEN = 32
 # adds no measurable speedup and they'd churn cache slots that longer,
 # higher-value entries could use. Cap the upper end too, to bound memory
 # from user-controlled inputs. Explicit `cache_origin=BUILTIN` bypasses
-# only the upper bound (trusted opt-in for large queries).
+# only the upper bound (trusted opt-in for large queries — some in-code
+# templates run past this).
 _MIN_CACHEABLE_STATEMENT_LEN = 40
-_MAX_CACHEABLE_STATEMENT_LEN = 64 * 1024
+_MAX_CACHEABLE_STATEMENT_LEN = 4 * 1024
 
 _PARSE_CACHE_EVENTS = Counter(
     "hogql_parse_cache_events_total",
