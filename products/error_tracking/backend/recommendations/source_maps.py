@@ -15,9 +15,9 @@ from .base import Recommendation
 MIN_SAMPLE_FRAMES = 20
 
 # Show the card when more than this fraction of recent JS/TS frames are unresolved.
-UNRESOLVED_THRESHOLD = 0.10
+UNRESOLVED_THRESHOLD = 0.30
 
-LOOKBACK_DAYS = 7
+LOOKBACK_HOURS = 24
 
 
 class SourceMapsRecommendation(Recommendation):
@@ -30,7 +30,7 @@ class SourceMapsRecommendation(Recommendation):
         # as "javascript" pre-resolution; the source map is what would map them
         # back to the original .ts source, so they're exactly the population we
         # care about here.
-        since = timezone.now() - timedelta(days=LOOKBACK_DAYS)
+        since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
 
         counts = ErrorTrackingStackFrame.objects.filter(
             team=team,
@@ -51,7 +51,7 @@ class SourceMapsRecommendation(Recommendation):
             "unresolved_pct": unresolved_pct,
             "threshold_pct": UNRESOLVED_THRESHOLD,
             "min_sample_frames": MIN_SAMPLE_FRAMES,
-            "lookback_days": LOOKBACK_DAYS,
+            "lookback_hours": LOOKBACK_HOURS,
         }
 
     def is_completed(self, meta: dict[str, Any]) -> bool:

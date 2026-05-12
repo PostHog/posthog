@@ -375,7 +375,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         mock_alerts.assert_not_called()
         mock_long_running.assert_not_called()
 
-    def _make_frame(self, lang: str, resolved: bool, created_days_ago: int = 1) -> ErrorTrackingStackFrame:
+    def _make_frame(self, lang: str, resolved: bool, created_hours_ago: int = 1) -> ErrorTrackingStackFrame:
         frame = ErrorTrackingStackFrame.objects.create(
             team=self.team,
             raw_id=str(uuid4()),
@@ -383,7 +383,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             resolved=resolved,
         )
         ErrorTrackingStackFrame.objects.filter(id=frame.id).update(
-            created_at=timezone.now() - timedelta(days=created_days_ago)
+            created_at=timezone.now() - timedelta(hours=created_hours_ago)
         )
         return frame
 
@@ -417,8 +417,8 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(meta["unresolved_frames"], 0)
 
     def test_source_maps_compute_ignores_frames_outside_lookback(self):
-        self._make_frame(lang="javascript", resolved=False, created_days_ago=30)
-        self._make_frame(lang="javascript", resolved=True, created_days_ago=1)
+        self._make_frame(lang="javascript", resolved=False, created_hours_ago=48)
+        self._make_frame(lang="javascript", resolved=True, created_hours_ago=1)
 
         meta = SourceMapsRecommendation().compute(self.team)
 
@@ -439,12 +439,12 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(meta["total_frames"], 0)
 
     def test_source_maps_is_completed_when_below_threshold(self):
-        # 5% unresolved, threshold is 10%
+        # 5% unresolved, threshold is 30%
         meta = {
             "total_frames": 100,
             "unresolved_frames": 5,
             "unresolved_pct": 0.05,
-            "threshold_pct": 0.10,
+            "threshold_pct": 0.30,
             "min_sample_frames": 20,
         }
         self.assertTrue(SourceMapsRecommendation().is_completed(meta))
@@ -452,9 +452,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_source_maps_is_completed_false_when_above_threshold(self):
         meta = {
             "total_frames": 100,
-            "unresolved_frames": 25,
-            "unresolved_pct": 0.25,
-            "threshold_pct": 0.10,
+            "unresolved_frames": 45,
+            "unresolved_pct": 0.45,
+            "threshold_pct": 0.30,
             "min_sample_frames": 20,
         }
         self.assertFalse(SourceMapsRecommendation().is_completed(meta))
@@ -465,7 +465,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             "total_frames": 5,
             "unresolved_frames": 5,
             "unresolved_pct": 1.0,
-            "threshold_pct": 0.10,
+            "threshold_pct": 0.30,
             "min_sample_frames": 20,
         }
         self.assertTrue(SourceMapsRecommendation().is_completed(meta))

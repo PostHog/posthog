@@ -69,7 +69,7 @@ export interface SourceMapsRecommendationMeta extends Record<string, unknown> {
     unresolved_pct: number
     threshold_pct: number
     min_sample_frames: number
-    lookback_days: number
+    lookback_hours: number
 }
 
 export type SourceMapsRecommendation = ErrorTrackingRecommendation<SourceMapsRecommendationMeta>

@@ -1,9 +1,10 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { useState } from 'react'
 
-import { humanFriendlyLargeNumber } from 'lib/utils'
-import { urls } from 'scenes/urls'
+import { IconMagicWand } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { RecommendationCard } from './RecommendationCard'
+import { SourceMapsFixModal } from './SourceMapsFixModal'
 import type { SourceMapsRecommendation } from './types'
 
 const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
@@ -15,7 +16,8 @@ export function SourceMapsRecommendationCard({
     recommendation: SourceMapsRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
-    const { total_frames, unresolved_frames, unresolved_pct, lookback_days } = recommendation.meta
+    const { unresolved_pct, lookback_hours } = recommendation.meta
+    const [isModalOpen, setIsModalOpen] = useState(false)
     const isFirstLoad = recommendation.computed_at === null
 
     if (isFirstLoad) {
@@ -32,38 +34,32 @@ export function SourceMapsRecommendationCard({
     const percent = Math.round((unresolved_pct ?? 0) * 100)
 
     return (
-        <RecommendationCard
-            recommendationId={recommendation.id}
-            title="Missing source maps"
-            description="Upload source maps so JavaScript stack traces show your original source code."
-            dismissed={dismissed}
-        >
-            <div className="flex flex-col gap-3">
-                <div className="text-sm">
-                    <span className="font-semibold">{percent}%</span>
-                    <span className="text-secondary">
-                        {' '}
-                        of JavaScript frames in the last {lookback_days} days couldn't be resolved (
-                        {humanFriendlyLargeNumber(unresolved_frames)} of {humanFriendlyLargeNumber(total_frames)}).
-                    </span>
-                </div>
+        <RecommendationCard recommendationId={recommendation.id} title="Missing source maps" dismissed={dismissed}>
+            <div className="flex flex-col items-center gap-1 py-2">
+                <div className="text-5xl font-bold leading-none">{percent}%</div>
                 <div className="text-xs text-secondary">
-                    Without source maps, stack traces point at minified bundles instead of your original code, which
-                    makes debugging much harder.
-                </div>
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        to={urls.settings('environment-error-tracking', 'error-tracking-symbol-sets')}
-                    >
-                        Manage symbol sets
-                    </LemonButton>
-                    <Link to={SOURCE_MAPS_DOCS_URL} target="_blank" className="text-xs">
-                        Read the docs
-                    </Link>
+                    of JavaScript frames were unresolved in the last {lookback_hours} hours
                 </div>
             </div>
+            <div className="flex items-center gap-2 mt-2 max-w-xs mx-auto">
+                <div className="flex-1">
+                    <LemonButton
+                        type="primary"
+                        icon={<IconMagicWand />}
+                        onClick={() => setIsModalOpen(true)}
+                        fullWidth
+                        center
+                    >
+                        Fix with AI
+                    </LemonButton>
+                </div>
+                <div className="flex-1">
+                    <LemonButton type="secondary" to={SOURCE_MAPS_DOCS_URL} targetBlank fullWidth center>
+                        Docs
+                    </LemonButton>
+                </div>
+            </div>
+            <SourceMapsFixModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
         </RecommendationCard>
     )
 }
