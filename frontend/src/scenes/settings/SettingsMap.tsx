@@ -63,6 +63,7 @@ import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimen
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
+import { EnvironmentLabelConfig } from './environment/EnvironmentLabelConfig'
 import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
@@ -107,7 +108,6 @@ import {
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
 import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
-import { EnvironmentLabelConfig } from './environment/EnvironmentLabelConfig'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'

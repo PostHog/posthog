@@ -141,12 +141,7 @@ export function EnvironmentLabelConfig(): JSX.Element {
                                         : 'border-transparent hover:border-secondary'
                                 )}
                             >
-                                <span
-                                    className={cn(
-                                        'absolute inset-1 rounded-full',
-                                        option.dotClassName
-                                    )}
-                                />
+                                <span className={cn('absolute inset-1 rounded-full', option.dotClassName)} />
                             </button>
                         )
                     })}
