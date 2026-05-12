@@ -19,6 +19,7 @@ from posthog.schema import (
     CompareFilter,
     DateRange,
     HogQLFilters,
+    HogQLQueryModifiers,
     IntervalType,
     PropertyGroupFilter,
     PropertyGroupsMode,
@@ -497,6 +498,7 @@ def run_service_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
@@ -565,6 +567,7 @@ def run_attribute_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
@@ -636,6 +639,7 @@ def run_attribute_values_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
