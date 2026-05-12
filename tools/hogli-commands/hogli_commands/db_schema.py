@@ -25,6 +25,8 @@ SCHEMA_ARTIFACT_NAME = "migrated-schema"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+DEFAULT_BASE_BRANCH = "master"
+DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -57,6 +59,7 @@ class SchemaArtifact:
     size_in_bytes: int
     archive_download_url: str
     head_sha: str
+    head_branch: str
     created_at: str
 
 
@@ -247,6 +250,7 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
             size_in_bytes=_require_type(raw.get("size_in_bytes"), int),
             archive_download_url=_require_type(raw.get("archive_download_url"), str),
             head_sha=_require_type(workflow_run.get("head_sha"), str),
+            head_branch=_require_type(workflow_run.get("head_branch"), str),
             created_at=_require_type(raw.get("created_at"), str),
         )
     except TypeError:
@@ -260,7 +264,12 @@ def _parse_github_datetime(value: str) -> datetime:
         return datetime.min.replace(tzinfo=UTC)
 
 
-def _is_git_ancestor(base_sha: str, head_ref: str) -> bool:
+def _is_git_ancestor(base_sha: str, head_ref: str) -> bool | None:
+    """Return True if base_sha is an ancestor of head_ref, False if not, None if undetermined.
+
+    None signals that git could not resolve the SHA locally (typical in shallow CI
+    checkouts) — callers can treat this as "trust the branch identity instead".
+    """
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", base_sha, head_ref],
         cwd=REPO_ROOT,
@@ -268,15 +277,18 @@ def _is_git_ancestor(base_sha: str, head_ref: str) -> bool:
         stderr=subprocess.DEVNULL,
         check=False,
     )
-    return result.returncode == 0
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    return None
 
 
-def select_newest_compatible_artifact(
+def _filter_and_sort_candidates(
     artifacts: Iterable[SchemaArtifact],
     *,
-    head_ref: str = "HEAD",
-    is_ancestor: Callable[[str, str], bool] = _is_git_ancestor,
-) -> SchemaArtifact | None:
+    base_branch: str,
+) -> list[SchemaArtifact]:
     candidates = [
         artifact
         for artifact in artifacts
@@ -284,11 +296,25 @@ def select_newest_compatible_artifact(
         and not artifact.expired
         and artifact.size_in_bytes > MIN_SCHEMA_ARTIFACT_BYTES
         and artifact.head_sha
+        and artifact.head_branch == base_branch
     ]
     candidates.sort(key=lambda artifact: (_parse_github_datetime(artifact.created_at), artifact.id), reverse=True)
+    return candidates
 
-    for artifact in candidates:
-        if is_ancestor(artifact.head_sha, head_ref):
+
+def select_newest_compatible_artifact(
+    artifacts: Iterable[SchemaArtifact],
+    *,
+    head_ref: str = "HEAD",
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    is_ancestor: Callable[[str, str], bool | None] | None = None,
+) -> SchemaArtifact | None:
+    # Late-bind so tests can monkeypatch _is_git_ancestor at module scope.
+    check_ancestor = is_ancestor if is_ancestor is not None else _is_git_ancestor
+    for artifact in _filter_and_sort_candidates(artifacts, base_branch=base_branch):
+        # Branch identity already vouches for the artifact, so an unresolvable
+        # SHA (None) is accepted — only a definitive False rejects.
+        if check_ancestor(artifact.head_sha, head_ref) is not False:
             return artifact
 
     return None
@@ -375,17 +401,45 @@ def download_schema_artifact(
     click.echo(f"Downloaded schema artifact {artifact.id} to {destination}")
 
 
+def _emit_selection_diagnostics(
+    artifacts: list[SchemaArtifact],
+    *,
+    head_ref: str,
+    base_branch: str,
+) -> None:
+    candidates = _filter_and_sort_candidates(artifacts, base_branch=base_branch)
+    click.echo(
+        f"Fetched {len(artifacts)} {SCHEMA_ARTIFACT_NAME} artifact(s) from GitHub Actions",
+        err=True,
+    )
+    click.echo(
+        f"After name/expiry/size/branch filters: {len(candidates)} candidate(s) (base_branch={base_branch})",
+        err=True,
+    )
+    for artifact in candidates[:DIAGNOSTIC_CANDIDATE_LIMIT]:
+        ancestry = _is_git_ancestor(artifact.head_sha, head_ref)
+        label = {True: "true", False: "false", None: "unknown"}[ancestry]
+        click.echo(
+            f"  candidate id={artifact.id} sha={artifact.head_sha[:8]} created_at={artifact.created_at} ancestry={label}",
+            err=True,
+        )
+
+
 def download_latest_compatible_schema(
     *,
     destination: Path = LOCAL_SCHEMA_PATH,
     head_ref: str = "HEAD",
+    base_branch: str = DEFAULT_BASE_BRANCH,
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
     token = _github_token()
     artifacts = fetch_schema_artifacts(token=token, session=session)
-    artifact = select_newest_compatible_artifact(artifacts, head_ref=head_ref)
+    artifact = select_newest_compatible_artifact(artifacts, head_ref=head_ref, base_branch=base_branch)
     if artifact is None:
-        raise SchemaRestoreUnavailable(f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found")
+        _emit_selection_diagnostics(artifacts, head_ref=head_ref, base_branch=base_branch)
+        raise SchemaRestoreUnavailable(
+            f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found for base_branch={base_branch}"
+        )
 
     download_schema_artifact(artifact, token=token, destination=destination, session=session)
     return artifact
@@ -430,7 +484,7 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
         return False
 
     click.echo(f"Database {target_db} is empty; restoring latest compatible schema before migrations")
-    download_latest_compatible_schema()
+    download_latest_compatible_schema(base_branch=_effective_base_branch(None))
     restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
     return True
 
@@ -497,10 +551,20 @@ def _confirm_restore_schema(yes: bool) -> bool:
     return False
 
 
+def _effective_base_branch(base_branch: str | None) -> str:
+    return base_branch or os.environ.get("POSTHOG_SCHEMA_RESTORE_BASE_BRANCH") or DEFAULT_BASE_BRANCH
+
+
 @click.command(name="db:download-schema", help="Download the latest compatible pre-migrated schema artifact")
-def db_download_schema() -> None:
+@click.option(
+    "--base-branch",
+    default=None,
+    help="Source branch of the workflow run to pull artifacts from. "
+    "Defaults to POSTHOG_SCHEMA_RESTORE_BASE_BRANCH or master.",
+)
+def db_download_schema(base_branch: str | None) -> None:
     try:
-        download_latest_compatible_schema()
+        download_latest_compatible_schema(base_branch=_effective_base_branch(base_branch))
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -551,7 +615,7 @@ def db_restore_schema(yes: bool) -> None:
         return
 
     try:
-        download_latest_compatible_schema()
+        download_latest_compatible_schema(base_branch=_effective_base_branch(None))
         _create_postgres_backup()
         restore_schema_dump(target_db="posthog", recreate=False, ensure_defaults=False)
         _run([str(REPO_ROOT / "bin" / "migrate")])
