@@ -20,16 +20,15 @@ export interface _TracingDateRangeApi {
     date_to?: string | null
 }
 
-/**
- * * `latest` - latest
- * `earliest` - earliest
- */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
-
-export const OrderByEnumApi = {
-    Latest: 'latest',
-    Earliest: 'earliest',
-} as const
+export interface _CompareFilterApi {
+    /** When true, also fetch results for a comparison window and return them under `compare`. */
+    compare?: boolean
+    /**
+     * Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.
+     * @nullable
+     */
+    compare_to?: string | null
+}
 
 /**
  * * `span` - span
@@ -78,26 +77,53 @@ export interface _SpanPropertyFilterApi {
     key: string
     /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
 
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute */
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute */
     type: _SpanPropertyFilterTypeEnumApi
     /** Comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `icontains` - icontains
-* `not_icontains` - not_icontains
-* `regex` - regex
-* `not_regex` - not_regex
-* `gt` - gt
-* `lt` - lt
-* `is_set` - is_set
-* `is_not_set` - is_not_set */
+  * `exact` - exact
+  * `is_not` - is_not
+  * `icontains` - icontains
+  * `not_icontains` - not_icontains
+  * `regex` - regex
+  * `not_regex` - not_regex
+  * `gt` - gt
+  * `lt` - lt
+  * `is_set` - is_set
+  * `is_not_set` - is_not_set */
     operator: _SpanPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-    value?: unknown | null
+    value?: unknown
 }
+
+export interface _TracingAggregationQueryBodyApi {
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Property filters applied to spans in both windows. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingAggregationRequestApi {
+    /** The span aggregation query to execute. */
+    query: _TracingAggregationQueryBodyApi
+}
+
+/**
+ * * `latest` - latest
+ * `earliest` - earliest
+ */
+export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+
+export const OrderByEnumApi = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
 
 export interface _TracingQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
@@ -108,8 +134,8 @@ export interface _TracingQueryBodyApi {
     statusCodes?: number[]
     /** Order results by timestamp. Defaults to latest.
 
-* `latest` - latest
-* `earliest` - earliest */
+  * `latest` - latest
+  * `earliest` - earliest */
     orderBy?: OrderByEnumApi
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
@@ -133,6 +159,24 @@ export interface _TracingQueryRequestApi {
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
+}
+
+export interface _TracingTreeQueryBodyApi {
+    /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
+    spanName: string
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Additional property filters applied to spans in both windows. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingTreeRequestApi {
+    /** The span call-tree aggregation query to execute. */
+    query: _TracingTreeQueryBodyApi
 }
 
 export type TracingSpansAttributesRetrieveParams = {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
@@ -11,7 +12,7 @@ import django_filters
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -128,6 +129,9 @@ class TraceReviewSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Trace ID for the review.",
     )
+    trace_url = serializers.SerializerMethodField(
+        help_text="Absolute URL to the trace this review is attached to.",
+    )
     comment = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -141,11 +145,16 @@ class TraceReviewSerializer(serializers.ModelSerializer):
         help_text="Saved scorer values for this review.",
     )
 
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_trace_url(self, obj: TraceReview) -> str:
+        return f"{settings.SITE_URL}/project/{obj.team_id}/llm-analytics/traces/{obj.trace_id}"
+
     class Meta:
         model = TraceReview
         fields = [
             "id",
             "trace_id",
+            "trace_url",
             "comment",
             "created_at",
             "updated_at",

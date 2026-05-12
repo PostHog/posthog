@@ -20,7 +20,7 @@ nodejs = { pkg-path = "nodejs_24", pkg-group = "nodejs", version = "24.13.0" } #
 corepack = { pkg-path = "corepack_24", pkg-group = "nodejs", version = "24.13.0", priority = 4 } # Same maj.min as in Dockerfile; diverges from patch ver
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 zstd = { pkg-path = "zstd", pkg-group = "nodejs" }
-openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
+openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl", outputs = ["bin", "man", "dev", "out"] }
 nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
 cargo = { pkg-path = "cargo", pkg-group = "rust-toolchain", version = "1.91.1" }

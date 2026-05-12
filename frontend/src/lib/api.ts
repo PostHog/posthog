@@ -22,6 +22,7 @@ import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLog
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
+    AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
@@ -56,6 +57,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    SpanTreeNode,
     TileFilters,
     UserProductListItem,
 } from '~/queries/schema/schema-general'
@@ -280,6 +282,10 @@ export interface PaginatedResponse<T> {
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
+    count: number
+}
+
+export interface CountResponse {
     count: number
 }
 
@@ -1930,6 +1936,10 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
+    public messagingPreferencesAddOptOut(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -2420,7 +2430,7 @@ const api = {
                 })
                 .get()
         },
-        async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        async unfiled(type?: string): Promise<CountResponse | null> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
@@ -2855,6 +2865,29 @@ const api = {
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async aggregate(query: {
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            filterGroup?: PropertyGroupFilter
+            compareFilter?: { compare?: boolean; compare_to?: string | null }
+        }): Promise<{
+            results: AggregatedSpanRow[]
+            compare?: AggregatedSpanRow[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('aggregate').create({ data: { query } })
+        },
+        async tree(query: {
+            spanName: string
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            filterGroup?: PropertyGroupFilter
+            compareFilter?: { compare?: boolean; compare_to?: string | null }
+        }): Promise<{
+            results: SpanTreeNode[]
+            compare?: SpanTreeNode[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('tree').create({ data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
             return new ApiRequest()
@@ -4102,8 +4135,10 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
-        async listRecommendations(): Promise<{ results: ErrorTrackingRecommendation[] }> {
-            return await new ApiRequest().errorTrackingRecommendations().get()
+        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
+            results: ErrorTrackingRecommendation[]
+        }> {
+            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
         },
 
         async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
@@ -6099,6 +6134,11 @@ const api = {
                     page: page || 1,
                 })
                 .get()
+        },
+        async addOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
+            return await new ApiRequest().messagingPreferencesAddOptOut().create({
+                data: { identifier, category_key: categoryKey },
+            })
         },
     },
     hogFlows: {

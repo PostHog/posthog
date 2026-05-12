@@ -665,3 +665,25 @@ export const ReadDataSchemaSchema = z.object({
         ])
         .describe('The data schema query to execute.'),
 })
+
+// Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
+// instead of forwarding an empty/ambiguous body and waiting for a 400.
+export function validateDistinctIdPersonIdExclusive(
+    data: { distinct_id?: string | undefined; person_id?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    const hasDistinctId = typeof data.distinct_id === 'string' && data.distinct_id.length > 0
+    const hasPersonId = typeof data.person_id === 'string' && data.person_id.length > 0
+    if (!hasDistinctId && !hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Either distinct_id or person_id must be provided',
+        })
+    }
+    if (hasDistinctId && hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Cannot provide both distinct_id and person_id (they are mutually exclusive)',
+        })
+    }
+}

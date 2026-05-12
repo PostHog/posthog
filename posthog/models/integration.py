@@ -1117,6 +1117,9 @@ class SlackIntegrationError(Exception):
 
 SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
 
+SLACK_CHANNELS_PAGE_SIZE = 1000
+SLACK_CHANNELS_MAX_PAGES = 10
+
 
 class SlackIntegration:
     integration: Integration
@@ -1176,17 +1179,23 @@ class SlackIntegration:
         should_include_private_channels: bool = False,
         authed_user: str | None = None,
     ) -> list[dict]:
-        max_page = 50
+        max_page = SLACK_CHANNELS_MAX_PAGES
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
             if type == "public_channel":
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+                res = self.client.conversations_list(
+                    exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
+                )
             else:
                 res = self.client.users_conversations(
-                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                    exclude_archived=True,
+                    types=type,
+                    limit=SLACK_CHANNELS_PAGE_SIZE,
+                    cursor=cursor,
+                    user=authed_user,
                 )
 
                 for channel in res["channels"]:

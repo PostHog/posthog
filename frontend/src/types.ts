@@ -5331,6 +5331,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'replay_lens'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -7399,6 +7400,8 @@ export interface WebAnalyticsFiltersConfig {
     compareFilter?: { compare?: boolean; compare_to?: string | null }
     domainFilter?: string | null
     deviceTypeFilter?: string | null
+    countryFilter?: string | null
+    referrerFilter?: string | null
     conversionGoal?: { actionId?: number; customEventName?: string } | null
     isPathCleaningEnabled?: boolean
     shouldFilterTestAccounts?: boolean

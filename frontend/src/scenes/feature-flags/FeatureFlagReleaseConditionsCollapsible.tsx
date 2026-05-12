@@ -48,6 +48,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -927,24 +928,49 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     // Handler for option selection logic (shared by click and keyboard events)
     const selectMatchByOption = (value: string): void => {
-        if (value === 'user') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-        } else if (value === 'device') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-        } else if (value === 'group') {
-            setIsMixedTargeting(false)
-            const firstGroupType = groupTypeValues[0]
-            if (firstGroupType) {
-                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+        const applyChange = (targetValue: string): void => {
+            if (targetValue === 'user') {
+                setIsMixedTargeting(false)
+                setAggregationGroupTypeIndex(null)
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+            } else if (targetValue === 'device') {
+                setIsMixedTargeting(false)
+                setAggregationGroupTypeIndex(null)
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+            } else if (targetValue === 'group') {
+                setIsMixedTargeting(false)
+                const firstGroupType = groupTypeValues[0]
+                if (firstGroupType) {
+                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                }
+                onBucketingIdentifierChange?.(null)
+            } else if (targetValue === 'mixed') {
+                switchToMixedTargeting()
+                onBucketingIdentifierChange?.(null)
             }
-            onBucketingIdentifierChange?.(null)
-        } else if (value === 'mixed') {
-            switchToMixedTargeting()
-            onBucketingIdentifierChange?.(null)
+        }
+
+        // Only confirm when changing bucketing on an existing flag
+        const isExistingFlag = flagId !== 'new'
+        const isChangingValue = value !== currentSelected
+        if (isExistingFlag && isChangingValue) {
+            LemonDialog.open({
+                title: 'Change bucketing option?',
+                description:
+                    'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
+                primaryButton: {
+                    children: 'Continue',
+                    onClick: () => applyChange(value),
+                    size: 'small',
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                    size: 'small',
+                },
+            })
+        } else {
+            applyChange(value)
         }
     }
 

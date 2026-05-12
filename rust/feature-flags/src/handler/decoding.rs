@@ -4,7 +4,7 @@ use crate::{
         types::{Compression, FlagsQueryParams},
     },
     flags::flag_request::FlagRequest,
-    metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
+    metrics::consts::{FLAG_GZIP_OUTPUT_EXCEEDED_COUNTER, FLAG_REQUEST_KLUDGE_COUNTER},
     utils::user_agent::UserAgentInfo,
 };
 use axum::http::{header::CONTENT_TYPE, header::USER_AGENT, HeaderMap};
@@ -13,6 +13,11 @@ use bytes::Bytes;
 use common_compression;
 use common_metrics::inc;
 use percent_encoding::percent_decode;
+
+/// 4 MiB cap on the decompressed `/flags` request body. The compressed body is
+/// already capped at 2 MiB by axum's `DefaultBodyLimit` (`MAX_FLAGS_BODY_BYTES`),
+/// so this is a backstop against gzip-bomb amplification.
+const MAX_FLAGS_DECOMPRESSED_BYTES: usize = 4 * 1024 * 1024;
 
 /// Lightweight token extraction for rate limiting.
 /// Tries to extract the token without full request deserialization.
@@ -114,11 +119,18 @@ fn decode_body(
 }
 
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
-    common_compression::decompress_gzip(&compressed)
+    common_compression::decompress_gzip_capped(&compressed, MAX_FLAGS_DECOMPRESSED_BYTES)
         .map(Bytes::from)
         .map_err(|e| {
-            tracing::warn!("gzip decompression failed: {}", e);
-            FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
+            if matches!(
+                e,
+                common_compression::CompressionError::OutputTooLarge { .. }
+            ) {
+                inc(FLAG_GZIP_OUTPUT_EXCEEDED_COUNTER, &[], 1);
+            } else {
+                tracing::warn!("gzip decompression failed: {}", e);
+            }
+            FlagError::from(e)
         })
 }
 
@@ -329,6 +341,60 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_gzip_bomb_rejected_with_payload_too_large() {
+        // Compress 8 MiB of zeros — gzip's redundant-input case where the
+        // decompressed size dwarfs the compressed size. Decompresses to
+        // 8 MiB, which is well over MAX_FLAGS_DECOMPRESSED_BYTES (4 MiB).
+        let bomb = vec![0u8; 8 * 1024 * 1024];
+        let compressed = common_compression::compress_gzip(&bomb).unwrap();
+        assert!(
+            compressed.len() < 100_000,
+            "bomb should compress small (got {} bytes)",
+            compressed.len()
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+        let query = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, Bytes::from(compressed), &query);
+        match result {
+            Err(FlagError::PayloadTooLarge {
+                decompressed,
+                limit,
+            }) => {
+                assert_eq!(limit, MAX_FLAGS_DECOMPRESSED_BYTES);
+                assert!(
+                    decompressed > MAX_FLAGS_DECOMPRESSED_BYTES,
+                    "decompressed size {decompressed} should exceed cap {MAX_FLAGS_DECOMPRESSED_BYTES}"
+                );
+            }
+            other => panic!("expected PayloadTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_gzip_under_cap_still_works() {
+        // A 1 MiB body is well over typical /flags traffic but still inside
+        // the 4 MiB cap, so it must round-trip cleanly.
+        let mut large_payload = String::from(r#"{"distinct_id": "u", "token": "t", "padding": ""#);
+        large_payload.push_str(&"a".repeat(1024 * 1024));
+        large_payload.push_str(r#""}"#);
+
+        let gzipped = create_gzipped_json(&large_payload);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+        let query = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, gzipped, &query);
+        assert!(
+            result.is_ok(),
+            "1 MiB request body should decode under the 4 MiB cap, got {:?}",
+            result.err()
+        );
     }
 
     #[test]
