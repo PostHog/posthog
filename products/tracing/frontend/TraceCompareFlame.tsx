@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
-import { SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonDropdown, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -18,6 +18,10 @@ interface TreeNode {
 
 const ROW_HEIGHT_PX = 28
 const ROOT_KEY = '\u0000<ROOT>'
+/** Children whose normalized share is below this fraction get bundled into a "+N more" group. */
+const MIN_VISIBLE_FRACTION = 0.01
+/** Don't bother grouping if there are fewer children than this — they'll all fit. */
+const GROUP_THRESHOLD = 6
 
 function nodeKey(serviceName: string, name: string): string {
     return `${serviceName}\u0000${name}`
@@ -85,12 +89,6 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
     return build(ROOT_KEY, '', '<ROOT>')
 }
 
-interface FlameRowProps {
-    node: TreeNode
-    depth: number
-    parentDurationNano: number
-}
-
 function deltaColor(current: SpanTreeNode | null, previous: SpanTreeNode | null): string {
     if (!current || !previous) {
         // New or vanished — neutral neon.
@@ -112,11 +110,16 @@ function deltaColor(current: SpanTreeNode | null, previous: SpanTreeNode | null)
     return 'rgba(120, 150, 200, 0.45)'
 }
 
-function FlameRow({ node, depth, parentDurationNano }: FlameRowProps): JSX.Element {
-    // Width fraction relative to parent: a node occupies a slice proportional to its
-    // share of the parent's total duration in the current window.
+interface FlameRowProps {
+    node: TreeNode
+    depth: number
+    /** This node's width as a fraction (0..1) of the row it lives in. */
+    fraction: number
+}
+
+function FlameRow({ node, fraction }: FlameRowProps): JSX.Element {
+    const widthPct = Math.max(0, Math.min(100, fraction * 100))
     const own = totalDuration(node.node)
-    const widthPct = parentDurationNano > 0 ? Math.min(100, (own / parentDurationNano) * 100) : 100
     const color = deltaColor(node.node, node.previousNode)
 
     const current = node.node
@@ -164,19 +167,109 @@ function FlameRow({ node, depth, parentDurationNano }: FlameRowProps): JSX.Eleme
                     <span className="truncate">{node.name}</span>
                 </div>
             </Tooltip>
-            {node.children.length > 0 && (
-                <div className="flex w-full">
-                    {node.children.map((child) => (
-                        <FlameRow
-                            key={nodeKey(child.serviceName, child.name)}
-                            node={child}
-                            depth={depth + 1}
-                            parentDurationNano={own}
-                        />
-                    ))}
-                </div>
-            )}
+            {node.children.length > 0 && <ChildrenRow parent={node} parentTotal={own} />}
         </div>
+    )
+}
+
+interface ChildrenRowProps {
+    parent: TreeNode
+    parentTotal: number
+}
+
+/**
+ * Lays out one row of children. Their widths are normalized so that visible siblings
+ * always sum to 100% — preventing the "spans overlap" effect that happens when
+ * aggregate child durations exceed the parent (concurrent execution). Tiny children
+ * (< 1% of the visible row) are bundled into a "+N more" cell that opens a popover
+ * with that subset rendered at full width.
+ */
+function ChildrenRow({ parent, parentTotal }: ChildrenRowProps): JSX.Element {
+    const childrenWithSize = parent.children.map((child) => ({
+        child,
+        size: totalDuration(child.node),
+    }))
+    const totalSize = childrenWithSize.reduce((acc, c) => acc + c.size, 0)
+    // Normalization base: use the larger of parent's own total and the summed children
+    // total — the latter wins under concurrency so siblings always fit inside 100%.
+    const base = Math.max(parentTotal, totalSize, 1)
+
+    let visible: { child: TreeNode; fraction: number }[]
+    let grouped: { child: TreeNode; fraction: number }[]
+    if (parent.children.length < GROUP_THRESHOLD) {
+        visible = childrenWithSize.map(({ child, size }) => ({ child, fraction: size / base }))
+        grouped = []
+    } else {
+        visible = []
+        grouped = []
+        for (const { child, size } of childrenWithSize) {
+            const fraction = size / base
+            if (fraction >= MIN_VISIBLE_FRACTION) {
+                visible.push({ child, fraction })
+            } else {
+                grouped.push({ child, fraction })
+            }
+        }
+    }
+
+    const visibleSum = visible.reduce((acc, v) => acc + v.fraction, 0)
+    const groupedSum = grouped.reduce((acc, v) => acc + v.fraction, 0)
+    const remainder = Math.max(0, 1 - visibleSum - groupedSum)
+
+    return (
+        <div className="flex w-full">
+            {visible.map(({ child, fraction }) => (
+                <FlameRow key={nodeKey(child.serviceName, child.name)} node={child} depth={0} fraction={fraction} />
+            ))}
+            {grouped.length > 0 && <GroupedCell items={grouped} fraction={groupedSum + remainder} />}
+        </div>
+    )
+}
+
+interface GroupedCellProps {
+    items: { child: TreeNode; fraction: number }[]
+    /** Combined width fraction of the bundle inside the row. */
+    fraction: number
+}
+
+function GroupedCell({ items, fraction }: GroupedCellProps): JSX.Element {
+    const [open, setOpen] = useState(false)
+    const widthPct = Math.max(0, Math.min(100, fraction * 100))
+    // Inside the popover, redistribute the bundle's items to fill the full width.
+    const bundleTotal = items.reduce((acc, i) => acc + totalDuration(i.child.node), 0) || 1
+    return (
+        <LemonDropdown
+            visible={open}
+            onClickOutside={() => setOpen(false)}
+            overlay={
+                <div className="flex flex-col gap-1 max-w-[640px]">
+                    <div className="text-xs text-muted px-1">{items.length} small spans</div>
+                    <div className="flex w-full" style={{ minWidth: 480 }}>
+                        {items
+                            .slice()
+                            .sort((a, b) => totalDuration(b.child.node) - totalDuration(a.child.node))
+                            .map((item) => (
+                                <FlameRow
+                                    key={nodeKey(item.child.serviceName, item.child.name)}
+                                    node={item.child}
+                                    depth={0}
+                                    fraction={totalDuration(item.child.node) / bundleTotal}
+                                />
+                            ))}
+                    </div>
+                </div>
+            }
+        >
+            <div
+                style={{ width: `${widthPct}%` }}
+                className="flex items-center justify-center text-xs cursor-pointer border-r border-b border-bg-bg bg-fill-tertiary hover:brightness-110"
+                onClick={() => setOpen(!open)}
+                role="button"
+                tabIndex={0}
+            >
+                <span className="truncate px-1 text-muted">+ {items.length} more</span>
+            </div>
+        </LemonDropdown>
     )
 }
 
@@ -243,15 +336,11 @@ export function TraceCompareFlame({ current, previous, loading }: TraceCompareFl
                     vanished
                 </span>
             </div>
-            <div className="flex w-full overflow-x-auto">
-                {tree.children.map((child) => (
-                    <FlameRow
-                        key={nodeKey(child.serviceName, child.name)}
-                        node={child}
-                        depth={0}
-                        parentDurationNano={tree.children.reduce((sum, c) => sum + totalDuration(c.node), 0)}
-                    />
-                ))}
+            <div className="overflow-x-auto">
+                <ChildrenRow
+                    parent={tree}
+                    parentTotal={tree.children.reduce((sum, c) => sum + totalDuration(c.node), 0)}
+                />
             </div>
         </div>
     )
