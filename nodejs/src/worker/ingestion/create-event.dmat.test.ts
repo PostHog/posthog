@@ -45,7 +45,6 @@ describe('createEvent dmat extraction', () => {
                 property_name: 'browser',
                 slot_index: 3,
                 state: 'READY',
-                compaction_target_slot_index: null,
             },
         ]
 
@@ -67,7 +66,6 @@ describe('createEvent dmat extraction', () => {
                 property_name: 'never_seen',
                 slot_index: 5,
                 state: 'READY',
-                compaction_target_slot_index: null,
             },
         ]
 
@@ -76,42 +74,12 @@ describe('createEvent dmat extraction', () => {
         expect(event.dmat_columns).toBeUndefined()
     })
 
-    it('dual-writes to both old and new columns when compaction_target_slot_index is set', () => {
-        // The slot is being repacked from column 7 → column 2. Until the workflow swaps after
-        // the mutation completes, both columns must be populated for new events: the old one
-        // because HogQL still reads from it, and the new one so the historical-data mutation
-        // doesn't overwrite live values.
-        const slots: MaterializedColumnSlot[] = [
-            {
-                property_name: 'browser',
-                slot_index: 7,
-                state: 'READY',
-                compaction_target_slot_index: 2,
-            },
-        ]
-
-        const event = createEvent(
-            { ...baseEvent, properties: { browser: 'Safari' } },
-            fakePerson,
-            true,
-            false,
-            null,
-            slots
-        )
-
-        expect(event.dmat_columns).toEqual({
-            dmat_string_7: 'Safari',
-            dmat_string_2: 'Safari',
-        })
-    })
-
     it('writes BACKFILL slots — ingestion has to populate before the historical mutation runs', () => {
         const slots: MaterializedColumnSlot[] = [
             {
                 property_name: 'browser',
                 slot_index: 7,
                 state: 'BACKFILL',
-                compaction_target_slot_index: null,
             },
         ]
 
@@ -159,7 +127,6 @@ describe('createEvent dmat coercion parity vs SQL', () => {
             property_name: 'p',
             slot_index: 0,
             state: 'READY',
-            compaction_target_slot_index: null,
         }
         const event = createEvent({ ...baseEvent, properties: { p: fc.input } }, fakePerson, true, false, null, [slot])
         const actual = event.dmat_columns?.['dmat_string_0']

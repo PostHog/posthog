@@ -47,15 +47,13 @@ export class MaterializedColumnSlotManager {
             property_name: string
             slot_index: number
             state: 'READY' | 'BACKFILL'
-            compaction_target_slot_index: number | null
         }>(
             PostgresUse.COMMON_READ,
             `SELECT
                 s.team_id,
                 pd.name AS property_name,
                 s.slot_index,
-                s.state,
-                s.compaction_target_slot_index
+                s.state
             FROM posthog_materializedcolumnslot s
             JOIN posthog_propertydefinition pd ON s.property_definition_id = pd.id
             WHERE s.team_id = ANY($1)
@@ -76,7 +74,6 @@ export class MaterializedColumnSlotManager {
                 property_name: row.property_name,
                 slot_index: row.slot_index,
                 state: row.state,
-                compaction_target_slot_index: row.compaction_target_slot_index,
             })
         }
 

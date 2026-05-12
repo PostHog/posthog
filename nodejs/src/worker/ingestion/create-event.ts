@@ -145,12 +145,6 @@ function extractDynamicMaterializedColumns(
         }
 
         out[`dmat_string_${slot.slot_index}`] = raw
-
-        // Dual-write during compaction: HogQL still reads from `slot_index` until the workflow
-        // swaps post-mutation, so we keep the future column current.
-        if (slot.compaction_target_slot_index !== null) {
-            out[`dmat_string_${slot.compaction_target_slot_index}`] = raw
-        }
     }
 
     return out

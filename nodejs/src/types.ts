@@ -412,14 +412,13 @@ export interface ProcessedEvent {
 }
 
 /**
- * One row of a team's dmat slot config. If `compaction_target_slot_index` is set,
- * ingestion dual-writes to both columns until the workflow swaps them post-mutation.
+ * One row of a team's dmat slot config. Ingestion writes the extracted property value to
+ * `dmat_string_<slot_index>` for every event in this team.
  */
 export interface MaterializedColumnSlot {
     property_name: string
     slot_index: number
     state: 'READY' | 'BACKFILL'
-    compaction_target_slot_index: number | null
 }
 
 /** Parsed event row from ClickHouse. */
