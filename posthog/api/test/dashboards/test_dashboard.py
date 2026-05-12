@@ -3282,3 +3282,188 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["dashboards"], [dashboard1.pk])
         self.assertTrue(DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists())
         self.assertFalse(DashboardTile.objects.filter(dashboard=dashboard2, insight=insight, deleted=False).exists())
+
+    def _get_dashboard_activity_log(self, dashboard_id: int) -> ActivityLog:
+        return ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard_id), activity="updated").latest(
+            "created_at"
+        )
+
+    def test_revert_dashboard_restores_simple_field(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Original Name", description="Original description")
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"name": "Edited Name"},
+            content_type="application/json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        log_entry = self._get_dashboard_activity_log(dashboard.pk)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(log_entry.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["applied_fields"], ["name"])
+        self.assertEqual(body["skipped_fields"], [])
+        self.assertEqual(body["dashboard"]["name"], "Original Name")
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.name, "Original Name")
+
+    def test_revert_dashboard_records_new_activity_log_entry(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Before")
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"name": "After"},
+            content_type="application/json",
+        )
+        log_count_before = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.pk)).count()
+        target_log = self._get_dashboard_activity_log(dashboard.pk)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(target_log.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        log_count_after = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.pk)).count()
+        self.assertEqual(log_count_after, log_count_before + 1)
+        newest = self._get_dashboard_activity_log(dashboard.pk)
+        names = {c["field"] for c in (newest.detail or {}).get("changes", [])}
+        self.assertIn("name", names)
+
+    def test_revert_dashboard_undeletes(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="To delete")
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"deleted": True},
+            content_type="application/json",
+        )
+        target_log = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.pk)).latest("created_at")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(target_log.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("deleted", response.json()["applied_fields"])
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
+    def test_revert_dashboard_with_unknown_log_id_returns_404(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": "00000000-0000-0000-0000-000000000000"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_revert_dashboard_with_log_for_different_dashboard_returns_404(self):
+        dashboard1 = Dashboard.objects.create(team=self.team, name="Dashboard 1")
+        dashboard2 = Dashboard.objects.create(team=self.team, name="Dashboard 2")
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard1.pk}/",
+            {"name": "Dashboard 1 edited"},
+            content_type="application/json",
+        )
+        log_for_dashboard1 = self._get_dashboard_activity_log(dashboard1.pk)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard2.pk}/revert/",
+            {"activity_log_id": str(log_for_dashboard1.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_revert_dashboard_with_no_revertable_fields_returns_400(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        # Hand-craft a log entry referencing only a non-revertable field (created_by) so the endpoint
+        # has nothing to apply and must reject the request.
+        log_entry = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            scope="Dashboard",
+            item_id=str(dashboard.pk),
+            activity="updated",
+            detail={
+                "name": dashboard.name,
+                "type": "dashboard",
+                "changes": [
+                    {"type": "Dashboard", "action": "changed", "field": "created_by", "before": None, "after": 1}
+                ],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(log_entry.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_revert_dashboard_with_empty_changes_returns_400(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        log_entry = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            scope="Dashboard",
+            item_id=str(dashboard.pk),
+            activity="updated",
+            detail={"name": dashboard.name, "type": "dashboard", "changes": []},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(log_entry.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_revert_dashboard_mixed_fields_lists_skipped(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Original")
+        # Hand-craft a log entry mixing revertable (name) and skipped (created_by) fields.
+        log_entry = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            scope="Dashboard",
+            item_id=str(dashboard.pk),
+            activity="updated",
+            detail={
+                "name": dashboard.name,
+                "type": "dashboard",
+                "changes": [
+                    {
+                        "type": "Dashboard",
+                        "action": "changed",
+                        "field": "name",
+                        "before": "Original",
+                        "after": "Edited",
+                    },
+                    {"type": "Dashboard", "action": "changed", "field": "created_by", "before": None, "after": 1},
+                ],
+            },
+        )
+        # Move dashboard away from the `before` so revert has something to do.
+        dashboard.name = "Edited"
+        dashboard.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(log_entry.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["applied_fields"], ["name"])
+        self.assertEqual(body["skipped_fields"], ["created_by"])
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.name, "Original")

@@ -183,6 +183,29 @@ tools:
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a
             2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile
             IDs.
+    dashboard-revert:
+        operation: dashboards_revert_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Revert dashboard to a previous state
+        description: >
+            Revert a dashboard to the state captured immediately before a specific activity log entry. Provide the
+            dashboard id and the UUID `activity_log_id` of the entry to undo (look it up via activity-log-list or
+            advanced-activity-logs-list with scope=Dashboard and item_id={dashboard_id}). The endpoint resets each
+            field captured in that entry's `changes` to its `before` value. Foreign keys (created_by,
+            data_color_theme), m2m relations (tags, insights), and immutable metadata (creation_mode) are skipped
+            and returned in `skipped_fields`. Saving the dashboard records a new activity log entry, so the revert
+            is itself auditable and reversible. Reverts to "created" entries (no prior state) and entries with no
+            applicable fields return a 400.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false

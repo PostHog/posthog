@@ -22,7 +22,10 @@ tools:
         title: List recent activity in the project.
         description: >
             List recent activity log entries for the project. Shows who did what and when — feature flag changes,
-            dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.
+            dashboard edits, experiment launches, etc. Each entry's `detail.changes` contains per-field diffs
+            (before/after values) so you can see exactly what changed. Supports filtering by scope, user, and date
+            range. To revert a dashboard to a prior state, look up its changes here and pass the entry id to
+            dashboard-revert.
         param_overrides:
             page_size:
                 default: 10
@@ -43,6 +46,7 @@ tools:
                 - detail.name
                 - detail.short_id
                 - detail.type
+                - detail.changes
                 - created_at
     advanced-activity-logs-export:
         operation: advanced_activity_logs_export_create

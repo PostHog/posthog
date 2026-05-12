@@ -58,7 +58,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
@@ -163,6 +163,37 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
 class CopyDashboardTileRequestSerializer(serializers.Serializer):
     fromDashboardId = serializers.IntegerField(help_text="Dashboard id the tile currently belongs to.")
     tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
+
+
+# Fields on Dashboard whose `before` value can be safely applied during revert.
+# Excludes foreign keys (created_by, data_color_theme, team), m2m (insights, tags),
+# immutable metadata (creation_mode, share_token, is_shared), and bookkeeping fields.
+REVERTABLE_DASHBOARD_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "description",
+        "pinned",
+        "deleted",
+        "filters",
+        "variables",
+        "breakdown_colors",
+        "restriction_level",
+        "quick_filter_ids",
+        "deprecated_tags",
+        "deprecated_tags_v2",
+    }
+)
+
+
+class RevertDashboardRequestSerializer(serializers.Serializer):
+    activity_log_id = serializers.UUIDField(
+        help_text=(
+            "UUID of the ActivityLog entry to revert. The entry must reference this dashboard "
+            "(scope='Dashboard', item_id equal to this dashboard id) and belong to the same team. "
+            "Look up candidates via the activity-log-list MCP tool or "
+            "GET /api/projects/{team_id}/activity_log/?scope=Dashboard&item_id={dashboard_id}."
+        )
+    )
 
 
 class CanEditDashboard(BasePermission):
@@ -1006,6 +1037,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+class RevertDashboardResponseSerializer(serializers.Serializer):
+    dashboard = DashboardSerializer(help_text="The dashboard after the revert has been applied.")
+    applied_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Fields that were reset to their `before` value from the activity log entry.",
+    )
+    skipped_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Fields recorded in the activity log entry that this endpoint will not revert — typically "
+            "relations (created_by, data_color_theme, tags), m2m fields (insights), or immutable metadata "
+            "like creation_mode. Use these to decide whether the revert is sufficient or whether you also "
+            "need to make manual changes."
+        ),
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1579,6 +1627,68 @@ class DashboardsViewSet(
         DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=RevertDashboardRequestSerializer,
+        responses={200: RevertDashboardResponseSerializer},
+        description=(
+            "Revert this dashboard to the state recorded immediately before a specific activity log entry. "
+            "Each field captured in that entry's `changes` is reset to its `before` value. Foreign keys, m2m "
+            "relations (tags, insights), and immutable metadata are skipped and listed in `skipped_fields`. "
+            "Saving the dashboard records a new `updated` activity log entry, so reverts are themselves auditable "
+            "and can be reverted in turn."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def revert(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+
+        serializer = RevertDashboardRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        activity_log_id = serializer.validated_data["activity_log_id"]
+
+        try:
+            log_entry = ActivityLog.objects.get(
+                id=activity_log_id,
+                team_id=self.team_id,
+                scope="Dashboard",
+                item_id=str(dashboard.id),
+            )
+        except ActivityLog.DoesNotExist:
+            raise exceptions.NotFound("Activity log entry not found for this dashboard.")
+
+        detail = log_entry.detail or {}
+        changes = detail.get("changes") or []
+        if not changes:
+            raise exceptions.ValidationError("Activity log entry has no field changes to revert.")
+
+        applied: list[str] = []
+        skipped: list[str] = []
+        for change in changes:
+            field_name = change.get("field")
+            if not field_name:
+                continue
+            if field_name not in REVERTABLE_DASHBOARD_FIELDS:
+                skipped.append(field_name)
+                continue
+            setattr(dashboard, field_name, change.get("before"))
+            applied.append(field_name)
+
+        if not applied:
+            raise exceptions.ValidationError(
+                f"None of the recorded changes are revertable through this endpoint. "
+                f"Skipped fields: {sorted(set(skipped))}."
+            )
+
+        dashboard.save()
+
+        return Response(
+            {
+                "dashboard": DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+                "applied_fields": applied,
+                "skipped_fields": skipped,
+            }
+        )
 
     @extend_schema(
         parameters=[
