@@ -606,6 +606,8 @@ export interface ProjectBasicType {
     name: string
 }
 
+export type EnvironmentLabelColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'pink' | 'gray'
+
 export interface TeamBasicType extends WithAccessControl {
     id: number
     uuid: string
@@ -620,6 +622,8 @@ export interface TeamBasicType extends WithAccessControl {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
+    environment_label: string | null
+    environment_color: EnvironmentLabelColor | null
 }
 
 export interface CorrelationConfigType {

@@ -35,6 +35,7 @@ import { AvailableFeature } from '~/types'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
+import { EnvironmentLabel } from '../EnvironmentLabel/EnvironmentLabel'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
@@ -95,7 +96,16 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         Organization:{' '}
                                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                                     </div>
-                                    <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span>Project: {currentTeam ? currentTeam.name : 'Select project'}</span>
+                                        {isAuthenticatedTeam(currentTeam) && (
+                                            <EnvironmentLabel
+                                                label={currentTeam.environment_label}
+                                                color={currentTeam.environment_color}
+                                                size="xs"
+                                            />
+                                        )}
+                                    </div>
                                     {hasPendingInvites && <div>You have a pending invitation</div>}
                                 </div>
                             }
@@ -116,6 +126,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         ? (projectNameWithoutFirstEmoji ?? 'Project')
                                         : 'Account menu'}
                                 </span>
+                            )}
+                            {!isLayoutNavCollapsed && isAuthenticatedTeam(currentTeam) && (
+                                <EnvironmentLabel
+                                    label={currentTeam.environment_label}
+                                    color={currentTeam.environment_color}
+                                    size="xs"
+                                    className="shrink-0"
+                                />
                             )}
                             {hasPendingInvites && (
                                 <PendingInviteDot

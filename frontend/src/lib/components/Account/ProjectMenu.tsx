@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonSnack } from '@posthog/lemon-ui'
 
+import { EnvironmentLabel } from 'lib/components/EnvironmentLabel/EnvironmentLabel'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import {
@@ -19,9 +20,15 @@ import { ProjectCombobox } from './ProjectCombobox'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center max-w-full">
+        <div className="flex items-center max-w-full min-w-0 gap-2">
             <span className="truncate">{team.name}</span>
-            {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
+            <EnvironmentLabel
+                label={team.environment_label}
+                color={team.environment_color}
+                size="xs"
+                className="shrink-0"
+            />
+            {team.is_demo ? <LemonSnack className="text-xs shrink-0">Demo</LemonSnack> : null}
         </div>
     )
 }
@@ -68,7 +75,15 @@ export function ProjectMenu({
                             {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                         </div>
                     ) : (
-                        <span className="truncate">{currentTeam.name ?? 'Project'}</span>
+                        <>
+                            <span className="truncate">{currentTeam.name ?? 'Project'}</span>
+                            <EnvironmentLabel
+                                label={currentTeam.environment_label}
+                                color={currentTeam.environment_color}
+                                size="xs"
+                                className="ml-1.5 shrink-0"
+                            />
+                        </>
                     )}
                     {hasPendingInvites && (
                         <PendingInviteDot className={iconOnly ? 'absolute top-0.5 right-0.5' : 'ml-1'} />

@@ -221,9 +221,25 @@ TEAM_CONFIG_FIELDS = (
     "conversations_enabled",
     "conversations_settings",
     "proactive_tasks_enabled",
+    "environment_label",
+    "environment_color",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
+
+# Color keys exposed via the API. The frontend maps these to themed CSS variables;
+# we keep the list small and aligned with PostHog's design tokens so the palette
+# stays cohesive across the product.
+ENVIRONMENT_COLOR_CHOICES = (
+    ("red", "Red"),
+    ("orange", "Orange"),
+    ("yellow", "Yellow"),
+    ("green", "Green"),
+    ("blue", "Blue"),
+    ("purple", "Purple"),
+    ("pink", "Pink"),
+    ("gray", "Gray"),
+)
 
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -488,6 +504,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    environment_label = serializers.CharField(
+        max_length=30,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Human-readable label shown alongside this environment's name in navigation "
+            '(for example "Production", "Staging"). Used to help users avoid acting in the wrong environment.'
+        ),
+    )
+    environment_color = serializers.ChoiceField(
+        choices=ENVIRONMENT_COLOR_CHOICES,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Color key paired with `environment_label`. Must be one of the predefined values; "
+            "the UI maps each to a themed background and text color."
+        ),
+    )
 
     class Meta:
         model = Team

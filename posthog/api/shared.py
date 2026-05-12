@@ -187,6 +187,20 @@ class TeamBasicSerializer(serializers.ModelSerializer):
     Also used for nested serializers.
     """
 
+    environment_label = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            'Human-readable label shown alongside the environment name (e.g. "Production"). '
+            "Surfaced here so the project switcher can render it without an extra round-trip."
+        ),
+    )
+    environment_color = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Color key paired with `environment_label`; the UI maps it to a themed badge.",
+    )
+
     class Meta:
         model = Team
         fields = (
@@ -202,6 +216,8 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "access_control",
+            "environment_label",
+            "environment_color",
         )
         read_only_fields = fields
 

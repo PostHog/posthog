@@ -86,6 +86,7 @@ export type SettingId =
     | 'replay-triggers'
     | 'replay-integrations'
     | 'display-name'
+    | 'environment-label'
     | 'snippet'
     | 'web-analytics-authorized-urls'
     | 'variables'

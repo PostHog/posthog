@@ -303,6 +303,12 @@ class Team(UUIDTClassicModel):
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    # Environment label (e.g. "Production", "Staging") shown in navigation to help
+    # users distinguish which environment they're working in.
+    environment_label = models.CharField(max_length=30, null=True, blank=True)
+    # Color key paired with the label. Values are validated client-side against a
+    # predefined palette so the UI can map them to themed CSS classes.
+    environment_color = models.CharField(max_length=20, null=True, blank=True)
     # DEPRECATED - not used anywhere and eligible for deletion
     slack_incoming_webhook = models.CharField(max_length=500, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

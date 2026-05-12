@@ -362,6 +362,51 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
+        def test_set_environment_label_and_color(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"environment_label": "Production", "environment_color": "red"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["environment_label"], "Production")
+            self.assertEqual(response_data["environment_color"], "red")
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.environment_label, "Production")
+            self.assertEqual(self.team.environment_color, "red")
+
+        def test_clear_environment_label(self):
+            self.team.environment_label = "Staging"
+            self.team.environment_color = "orange"
+            self.team.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"environment_label": None, "environment_color": None},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertIsNone(response_data["environment_label"])
+            self.assertIsNone(response_data["environment_color"])
+
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.environment_label)
+            self.assertIsNone(self.team.environment_color)
+
+        def test_cannot_set_invalid_environment_color(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"environment_label": "Production", "environment_color": "neon-rainbow"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "environment_color")
+
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.environment_color)
+
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")

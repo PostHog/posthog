@@ -107,6 +107,7 @@ import {
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
 import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
+import { EnvironmentLabelConfig } from './environment/EnvironmentLabelConfig'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
@@ -246,6 +247,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'A human-friendly name for this environment.',
                 component: <TeamDisplayName />,
                 keywords: ['name', 'rename', 'label'],
+            },
+            {
+                id: 'environment-label',
+                title: 'Environment label',
+                description:
+                    'Tag this environment with a colored label (e.g. Production, Staging) shown in navigation to help avoid acting in the wrong environment.',
+                component: <EnvironmentLabelConfig />,
+                keywords: [
+                    'label',
+                    'environment',
+                    'production',
+                    'staging',
+                    'development',
+                    'testing',
+                    'demo',
+                    'color',
+                    'badge',
+                    'tag',
+                ],
             },
             {
                 id: 'date-and-time',
