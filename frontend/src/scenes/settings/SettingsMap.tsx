@@ -111,7 +111,6 @@ import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
-import { ToolbarSettings } from './environment/ToolbarSettings'
 import {
     TeamAuthorizedURLs,
     TeamBusinessModel,
@@ -120,6 +119,7 @@ import {
     TeamVariables,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { ToolbarSettings } from './environment/ToolbarSettings'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
