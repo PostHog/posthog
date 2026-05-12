@@ -20,7 +20,8 @@ class TestAuthorizedUrlsCheckEvaluateForTeam(BaseTest):
             status=HealthIssue.Status.ACTIVE,
         )
         self.assertEqual(issues.count(), 1)
-        self.assertEqual(issues.first().severity, HealthIssue.Severity.WARNING)
+        issue = issues.get()
+        self.assertEqual(issue.severity, HealthIssue.Severity.WARNING)
 
     def test_resolves_active_issue_when_team_has_app_urls(self):
         self.team.app_urls = []
