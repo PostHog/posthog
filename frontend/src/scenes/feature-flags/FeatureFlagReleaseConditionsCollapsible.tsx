@@ -680,7 +680,12 @@ const ConditionContent = ({
                                                 <span className="font-medium text-default">Optional override</span>
                                                 <Tooltip
                                                     docLink="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
-                                                    title={<>Force all matching {resolvedTargetName} to receive a specific variant.</>}
+                                                    title={
+                                                        <>
+                                                            Force all matching {resolvedTargetName} to receive a
+                                                            specific variant.
+                                                        </>
+                                                    }
                                                 >
                                                     <IconInfo className="text-base" />
                                                 </Tooltip>
