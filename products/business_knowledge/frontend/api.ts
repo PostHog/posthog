@@ -37,7 +37,7 @@ export interface UpdateSourcePayload {
 }
 
 export async function listSources(): Promise<KnowledgeSourceApi[]> {
-    const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()))
+    const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()), { limit: 1000 })
     return response.results
 }
 
@@ -58,7 +58,7 @@ export async function createUrlSource(payload: CreateUrlSourcePayload): Promise<
 }
 
 export async function createFileSource(formData: FormData): Promise<KnowledgeSourceApi> {
-    return await apiMutator<KnowledgeSourceApi>(`/api/environments/${getCurrentTeamId()}/business_knowledge/sources/`, {
+    return await apiMutator<KnowledgeSourceApi>(`/api/projects/${getCurrentTeamId()}/business_knowledge/sources/`, {
         method: 'POST',
         body: formData,
     })
