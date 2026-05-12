@@ -30,13 +30,15 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'traceSpansLoading',
                 'aggregation',
                 'aggregationLoading',
+                'spanTree',
+                'spanTreeLoading',
             ],
             tracingFiltersLogic,
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
             tracingDataLogic,
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation'],
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree'],
             tracingFiltersLogic,
             [
                 'setDateRange',
@@ -53,6 +55,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     actions({
         openTraceModal: (traceId: string) => ({ traceId }),
         closeTraceModal: true,
+        openCompareFlame: (spanName: string) => ({ spanName }),
+        closeCompareFlame: true,
         syncUrlAndRunQuery: true,
     }),
 
@@ -62,6 +66,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             {
                 openTraceModal: (_, { traceId }) => traceId,
                 closeTraceModal: () => null,
+            },
+        ],
+        compareFlameSpanName: [
+            null as string | null,
+            {
+                openCompareFlame: (_, { spanName }) => spanName,
+                closeCompareFlame: () => null,
             },
         ],
     }),
@@ -93,6 +104,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             if (prefetchedSpans.length >= PREFETCH_SPANS) {
                 actions.loadTraceSpans(traceId)
             }
+        },
+        openCompareFlame: ({ spanName }) => {
+            actions.fetchSpanTree({ spanName })
         },
         setDateRange: () => {
             actions.syncUrlAndRunQuery()

@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
-import { AggregatedSpanRow } from '~/queries/schema/schema-general'
+import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import type { tracingDataLogicType } from './tracingDataLogicType'
@@ -103,6 +103,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchAggregationFailure: () => false,
             },
         ],
+        spanTreeLoading: [
+            false as boolean,
+            {
+                fetchSpanTree: () => true,
+                fetchSpanTreeSuccess: () => false,
+                fetchSpanTreeFailure: () => false,
+            },
+        ],
         hasMoreToLoad: [
             true as boolean,
             {
@@ -179,6 +187,35 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                     })
                     return response.results as Span[]
+                },
+            },
+        ],
+        spanTree: [
+            {
+                spanName: null as string | null,
+                current: [] as SpanTreeNode[],
+                previous: null as SpanTreeNode[] | null,
+            },
+            {
+                fetchSpanTree: async (params: { spanName: string }) => {
+                    const response = await api.tracing.tree({
+                        spanName: params.spanName,
+                        dateRange: {
+                            date_from: new Date(values.currentWindowMs.startMs).toISOString(),
+                            date_to: new Date(values.currentWindowMs.endMs).toISOString(),
+                        },
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        compareFilter: {
+                            compare: values.filters.compareMode,
+                            compare_to: new Date(values.previousWindowMs.startMs).toISOString(),
+                        },
+                    })
+                    return {
+                        spanName: params.spanName,
+                        current: response.results ?? [],
+                        previous: response.compare ?? null,
+                    }
                 },
             },
         ],

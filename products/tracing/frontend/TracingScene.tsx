@@ -10,6 +10,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
 import { TracingFilterBar } from './TracingFilterBar'
@@ -97,8 +98,12 @@ export default function TracingScene(): JSX.Element {
         filters,
         currentWindowMs,
         previousWindowMs,
+        spanTree,
+        spanTreeLoading,
+        compareFlameSpanName,
     } = useValues(tracingSceneLogic)
-    const { openTraceModal, closeTraceModal, setDateRange, setOverlayWindows } = useActions(tracingSceneLogic)
+    const { openTraceModal, closeTraceModal, setDateRange, setOverlayWindows, openCompareFlame, closeCompareFlame } =
+        useActions(tracingSceneLogic)
     const compareMode = filters.compareMode
 
     // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
@@ -146,6 +151,7 @@ export default function TracingScene(): JSX.Element {
                     current={aggregation.current}
                     previous={aggregation.previous}
                     loading={aggregationLoading}
+                    onRowClick={(row) => openCompareFlame(row.name)}
                 />
             ) : (
                 <LemonTable
@@ -176,6 +182,14 @@ export default function TracingScene(): JSX.Element {
                     {isLoadingFullTrace && <SpinnerOverlay />}
                     <TraceFlameChart spans={modalSpans} />
                 </div>
+            </LemonModal>
+            <LemonModal
+                title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
+                isOpen={compareFlameSpanName !== null}
+                onClose={closeCompareFlame}
+                width="90vw"
+            >
+                <TraceCompareFlame current={spanTree.current} previous={spanTree.previous} loading={spanTreeLoading} />
             </LemonModal>
         </SceneContent>
     )

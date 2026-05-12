@@ -88,9 +88,10 @@ export interface TraceCompareTableProps {
     current: AggregatedSpanRow[]
     previous: AggregatedSpanRow[] | null
     loading: boolean
+    onRowClick?: (row: { service_name: string; name: string }) => void
 }
 
-export function TraceCompareTable({ current, previous, loading }: TraceCompareTableProps): JSX.Element {
+export function TraceCompareTable({ current, previous, loading, onRowClick }: TraceCompareTableProps): JSX.Element {
     const rows = useMemo(() => buildRows(current, previous), [current, previous])
 
     const columns: LemonTableColumns<CompareRow> = [
@@ -174,6 +175,14 @@ export function TraceCompareTable({ current, previous, loading }: TraceCompareTa
             rowKey={(row) => rowKey(row)}
             emptyState="No spans found"
             defaultSorting={{ columnKey: 'count', order: -1 }}
+            onRow={
+                onRowClick
+                    ? (row) => ({
+                          onClick: () => onRowClick({ service_name: row.service_name, name: row.name }),
+                          className: 'cursor-pointer',
+                      })
+                    : undefined
+            }
         />
     )
 }
