@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import (
     _MAX_CACHEABLE_STATEMENT_LEN,
+    _MIN_CACHEABLE_STATEMENT_LEN,
     CacheOrigin,
     _builtin_parse_cache,
     _looks_like_code_literal,
@@ -62,7 +63,7 @@ class TestParserCache(BaseTest):
         ]
     )
     def test_explicit_origin_routes_to_matching_cache(self, origin, target_getter, other_getter):
-        parse_select(f"SELECT 1 -- routing test {origin}", cache_origin=origin)
+        parse_select(f"SELECT 1 -- routing test {origin}, plenty long enough to cache", cache_origin=origin)
         self.assertEqual(target_getter().currsize, 1)
         self.assertEqual(other_getter().currsize, 0)
 
@@ -82,18 +83,22 @@ class TestParserCache(BaseTest):
         self.assertEqual(_user_parse_cache.currsize, 1)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
-    def test_auto_short_strings_route_to_user_cache(self):
-        # Short identifier-shaped strings can be auto-interned by CPython
-        # and spuriously identity-match `co_consts` entries elsewhere.
+    def test_auto_short_strings_skip_cache(self):
+        # Short queries parse fast enough that caching isn't worth a slot.
         parse_expr("count()")
-        self.assertEqual(_user_parse_cache.currsize, 1)
+        self.assertEqual(_user_parse_cache.currsize, 0)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
     def test_user_pollution_does_not_displace_builtin(self):
-        parse_select("SELECT 'builtin entry'", cache_origin=CacheOrigin.BUILTIN)
+        parse_select(
+            "SELECT 'builtin entry' -- pollution test, plenty long enough to cache",
+            cache_origin=CacheOrigin.BUILTIN,
+        )
         user_maxsize = int(_user_parse_cache.maxsize)
         for i in range(user_maxsize + 50):
-            parse_select(f"SELECT {i}", cache_origin=CacheOrigin.USER)
+            parse_select(
+                f"SELECT {i} -- pollution test row, plenty long enough to cache", cache_origin=CacheOrigin.USER
+            )
         self.assertEqual(_builtin_parse_cache.currsize, 1)
         self.assertEqual(_user_parse_cache.currsize, user_maxsize)
 
@@ -167,9 +172,23 @@ class TestParserCache(BaseTest):
         self.assertEqual(_builtin_parse_cache.currsize, 0)
         self.assertEqual(_user_parse_cache.currsize, 0)
 
+    @parameterized.expand([(CacheOrigin.AUTO,), (CacheOrigin.USER,)])
+    def test_undersized_query_skips_user_and_auto_caches(self, origin):
+        sql = "SELECT 1"
+        assert len(sql) < _MIN_CACHEABLE_STATEMENT_LEN
+        parse_select(sql, cache_origin=origin)
+        self.assertEqual(_builtin_parse_cache.currsize, 0)
+        self.assertEqual(_user_parse_cache.currsize, 0)
+
+    def test_undersized_query_still_caches_under_explicit_builtin(self):
+        # Explicit BUILTIN bypasses the size bounds.
+        sql = "SELECT 1"
+        assert len(sql) < _MIN_CACHEABLE_STATEMENT_LEN
+        parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
+        self.assertEqual(_builtin_parse_cache.currsize, 1)
+
     def test_oversized_query_still_caches_under_explicit_builtin(self):
-        # Explicit BUILTIN is opt-in by code that knows what it's storing;
-        # the size cap doesn't apply.
+        # Explicit BUILTIN bypasses the size bounds.
         padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
         sql = f"SELECT 1 -- {padding}"
         parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
