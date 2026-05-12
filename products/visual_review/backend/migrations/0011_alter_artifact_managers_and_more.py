@@ -1,11 +1,11 @@
-# Generated for the `default_manager_name = "all_teams"` change on
-# `ProductTeamModel.Meta`. State-only — no SQL emitted. Records the
-# manager configuration in migration state so future migrations stay
-# consistent with the model definitions.
+# State-only — records the new `all_teams` manager on each
+# `ProductTeamModel`-backed model. No SQL emitted; just keeps Django's
+# migration state in sync with the model definitions after
+# `posthog/models/scoping/product_mixin.py` started exposing a sibling
+# unscoped manager alongside `objects`.
 
-from django.db import migrations, models
-
-import posthog.models.scoping.manager
+import django.db.models.manager
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
@@ -14,73 +14,40 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterModelOptions(
-            name="artifact",
-            options={"default_manager_name": "all_teams"},
-        ),
-        migrations.AlterModelOptions(
-            name="quarantinedidentifier",
-            options={"default_manager_name": "all_teams"},
-        ),
-        migrations.AlterModelOptions(
-            name="repo",
-            options={"default_manager_name": "all_teams"},
-        ),
-        migrations.AlterModelOptions(
-            name="run",
-            options={
-                "default_manager_name": "all_teams",
-                "ordering": ["-created_at"],
-            },
-        ),
-        migrations.AlterModelOptions(
-            name="runsnapshot",
-            options={"default_manager_name": "all_teams"},
-        ),
-        migrations.AlterModelOptions(
-            name="toleratedhash",
-            options={"default_manager_name": "all_teams"},
-        ),
         migrations.AlterModelManagers(
             name="artifact",
             managers=[
-                ("objects", posthog.models.scoping.manager.TeamScopedManager()),
-                ("all_teams", models.Manager()),
+                ("all_teams", django.db.models.manager.Manager()),
             ],
         ),
         migrations.AlterModelManagers(
             name="quarantinedidentifier",
             managers=[
-                ("objects", posthog.models.scoping.manager.TeamScopedManager()),
-                ("all_teams", models.Manager()),
+                ("all_teams", django.db.models.manager.Manager()),
             ],
         ),
         migrations.AlterModelManagers(
             name="repo",
             managers=[
-                ("objects", posthog.models.scoping.manager.TeamScopedManager()),
-                ("all_teams", models.Manager()),
+                ("all_teams", django.db.models.manager.Manager()),
             ],
         ),
         migrations.AlterModelManagers(
             name="run",
             managers=[
-                ("objects", posthog.models.scoping.manager.TeamScopedManager()),
-                ("all_teams", models.Manager()),
+                ("all_teams", django.db.models.manager.Manager()),
             ],
         ),
         migrations.AlterModelManagers(
             name="runsnapshot",
             managers=[
-                ("objects", posthog.models.scoping.manager.TeamScopedManager()),
-                ("all_teams", models.Manager()),
+                ("all_teams", django.db.models.manager.Manager()),
             ],
         ),
         migrations.AlterModelManagers(
             name="toleratedhash",
             managers=[
-                ("objects", posthog.models.scoping.manager.TeamScopedManager()),
-                ("all_teams", models.Manager()),
+                ("all_teams", django.db.models.manager.Manager()),
             ],
         ),
     ]
