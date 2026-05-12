@@ -189,6 +189,8 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
                     "is_demo": False,
                     "timezone": "UTC",
                     "access_control": False,
+                    "environment_label": None,
+                    "environment_color": None,
                 }
             ],
         )

@@ -122,6 +122,8 @@
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
+         "posthog_team"."environment_label",
+         "posthog_team"."environment_color",
          "posthog_team"."slack_incoming_webhook",
          "posthog_team"."created_at",
          "posthog_team"."updated_at",
