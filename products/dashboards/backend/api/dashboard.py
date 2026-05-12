@@ -1033,6 +1033,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
 class RevertDashboardResponseSerializer(serializers.Serializer):
     dashboard = DashboardSerializer(help_text="The dashboard after the revert has been applied.")
+    activity_log_id = serializers.UUIDField(
+        help_text=(
+            "ID of the activity log entry that was reverted. When the caller passed an explicit id, "
+            "this echoes it; when omitted, this is the most recent revertable entry the endpoint picked."
+        ),
+    )
     applied_fields = serializers.ListField(
         child=serializers.CharField(),
         help_text="Fields that were reset to their `before` value from the activity log entry.",
@@ -1626,11 +1632,13 @@ class DashboardsViewSet(
         request=RevertActivityLogRequestSerializer,
         responses={200: RevertDashboardResponseSerializer},
         description=(
-            "Revert this dashboard to the state recorded immediately before a specific activity log entry. "
-            "Each field captured in that entry's `changes` is reset to its `before` value. Foreign keys, m2m "
-            "relations (tags, insights), and immutable metadata are skipped and listed in `skipped_fields`. "
-            "Saving the dashboard records a new `updated` activity log entry, so reverts are themselves auditable "
-            "and can be reverted in turn."
+            "Revert this dashboard to a previous state captured in the activity log. Pass `activity_log_id` "
+            "to target a specific entry, or omit it to undo the most recent revertable change — the "
+            "natural meaning of 'revert this dashboard'. The chosen entry id is echoed back as "
+            "`activity_log_id` so callers can confirm what was reverted. Each captured field is reset to "
+            "its `before` value; foreign keys, m2m relations (tags, insights), and immutable metadata are "
+            "skipped and listed in `skipped_fields`. Saving the dashboard records a new `updated` activity "
+            "log entry, so reverts are themselves auditable and can be reverted in turn."
         ),
     )
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
@@ -1644,13 +1652,14 @@ class DashboardsViewSet(
         serializer.is_valid(raise_exception=True)
 
         log_entry = lookup_revertable_activity_log_entry(
-            activity_log_id=serializer.validated_data["activity_log_id"],
+            activity_log_id=serializer.validated_data.get("activity_log_id"),
             scope="Dashboard",
             item_id=str(dashboard.id),
             team_id=self.team_id,
             organization_id=self.team.organization_id,
             include_org_scoped=bool(self.team.receive_org_level_activity_logs),
             user=request.user,
+            revertable_fields=REVERTABLE_DASHBOARD_FIELDS,
         )
         applied, skipped = apply_revert_to_instance(dashboard, log_entry, REVERTABLE_DASHBOARD_FIELDS)
         dashboard.save()
@@ -1658,6 +1667,7 @@ class DashboardsViewSet(
         return Response(
             {
                 "dashboard": DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+                "activity_log_id": str(log_entry.id),
                 "applied_fields": applied,
                 "skipped_fields": skipped,
             }

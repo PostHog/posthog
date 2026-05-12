@@ -89,6 +89,99 @@ class TestLookupRevertableActivityLogEntry(BaseTest):
                 user=self.user,
             )
 
+    def _create_log_with_changes(self, item_id: str, changes: list[dict]) -> ActivityLog:
+        return ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="Dashboard",
+            item_id=item_id,
+            activity="updated",
+            detail={"name": "D", "type": "dashboard", "changes": changes},
+        )
+
+    def test_fallback_returns_most_recent_revertable_entry(self):
+        # An older revertable entry followed by a newer revertable entry — the newer one wins.
+        self._create_log_with_changes(
+            "42",
+            [{"type": "Dashboard", "action": "changed", "field": "name", "before": "old", "after": "new"}],
+        )
+        newer = self._create_log_with_changes(
+            "42",
+            [
+                {
+                    "type": "Dashboard",
+                    "action": "changed",
+                    "field": "description",
+                    "before": "old desc",
+                    "after": "new desc",
+                }
+            ],
+        )
+        result = lookup_revertable_activity_log_entry(
+            activity_log_id=None,
+            scope="Dashboard",
+            item_id="42",
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            include_org_scoped=False,
+            user=self.user,
+            revertable_fields={"name", "description"},
+        )
+        assert result.id == newer.id
+
+    def test_fallback_skips_non_revertable_entries(self):
+        # Newest entry only touches a non-revertable field; the previous one is returned.
+        older = self._create_log_with_changes(
+            "42",
+            [{"type": "Dashboard", "action": "changed", "field": "name", "before": "old", "after": "new"}],
+        )
+        self._create_log_with_changes(
+            "42",
+            [{"type": "Dashboard", "action": "changed", "field": "created_by", "before": None, "after": 1}],
+        )
+        result = lookup_revertable_activity_log_entry(
+            activity_log_id=None,
+            scope="Dashboard",
+            item_id="42",
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            include_org_scoped=False,
+            user=self.user,
+            revertable_fields={"name"},
+        )
+        assert result.id == older.id
+
+    def test_fallback_raises_not_found_when_no_revertable_entry(self):
+        self._create_log_with_changes(
+            "42",
+            [{"type": "Dashboard", "action": "changed", "field": "created_by", "before": None, "after": 1}],
+        )
+        with pytest.raises(exceptions.NotFound):
+            lookup_revertable_activity_log_entry(
+                activity_log_id=None,
+                scope="Dashboard",
+                item_id="42",
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                include_org_scoped=False,
+                user=self.user,
+                revertable_fields={"name"},
+            )
+
+    def test_fallback_requires_revertable_fields(self):
+        with pytest.raises(exceptions.ValidationError):
+            lookup_revertable_activity_log_entry(
+                activity_log_id=None,
+                scope="Dashboard",
+                item_id="42",
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                include_org_scoped=False,
+                user=self.user,
+                revertable_fields=None,
+            )
+
 
 class TestApplyRevertToInstance(BaseTest):
     def _log_entry_with_changes(self, changes: list[dict]) -> ActivityLog:

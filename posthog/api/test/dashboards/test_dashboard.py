@@ -3288,6 +3288,90 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "created_at"
         )
 
+    def test_revert_dashboard_without_log_id_picks_latest_revertable(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Original", description="Original description")
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"name": "First edit"},
+            content_type="application/json",
+        )
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"description": "Second edit"},
+            content_type="application/json",
+        )
+        latest_log = self._get_dashboard_activity_log(dashboard.pk)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual(body["activity_log_id"], str(latest_log.id))
+        self.assertEqual(body["applied_fields"], ["description"])
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.description, "Original description")
+        # The earlier name edit should still be intact — we only undid the latest change.
+        self.assertEqual(dashboard.name, "First edit")
+
+    def test_revert_dashboard_without_log_id_skips_non_revertable_entries(self):
+        # An activity log entry that touched only a non-revertable field (created_by)
+        # should be skipped — the endpoint walks back to the next revertable entry.
+        dashboard = Dashboard.objects.create(team=self.team, name="Original")
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"name": "Edited"},
+            content_type="application/json",
+        )
+        revertable_log = self._get_dashboard_activity_log(dashboard.pk)
+        # Now add a more-recent, non-revertable-only log entry.
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            scope="Dashboard",
+            item_id=str(dashboard.pk),
+            activity="updated",
+            detail={
+                "name": dashboard.name,
+                "type": "dashboard",
+                "changes": [
+                    {"type": "Dashboard", "action": "changed", "field": "created_by", "before": None, "after": 1}
+                ],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["activity_log_id"], str(revertable_log.id))
+        self.assertEqual(response.json()["applied_fields"], ["name"])
+
+    def test_revert_dashboard_without_log_id_returns_404_when_none_revertable(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        # Only a "created"-style entry with no revertable fields exists.
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            scope="Dashboard",
+            item_id=str(dashboard.pk),
+            activity="created",
+            detail={"name": dashboard.name, "type": "dashboard", "changes": []},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_revert_dashboard_restores_simple_field(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Original Name", description="Original description")
 

@@ -188,13 +188,15 @@ tools:
         enrich_url: '{id}'
         title: Revert insight to a previous state
         description: >
-            Revert an insight to the state recorded immediately before a specific activity log entry. Provide
-            the insight numeric `id` and the UUID `activity_log_id` of the entry to undo (look it up via
-            insights-activity-retrieve to see what changed, or via advanced-activity-logs-list with
-            scope=Insight and item_ids={insight_id} for the full diff). Only scalar/JSON fields (name,
-            description, filters, query) are reverted. Foreign keys, m2m relations (dashboards, tags),
-            derived fields, and UI state are skipped and returned in `skipped_fields`. Saving the insight
-            records a new activity log entry, so the revert is itself auditable and reversible.
+            Revert an insight to a previous state captured in the activity log. The typical case — "undo my
+            last change" — needs only the insight numeric `id`: omit `activity_log_id` and the endpoint
+            picks the most recent revertable entry, returning its id in the response so you can confirm
+            what was undone. To restore an older state, call insights-activity-retrieve (or
+            advanced-activity-logs-list with scope=Insight and item_ids={insight_id}) to inspect entries
+            and pass the chosen `activity_log_id`. Only scalar/JSON fields (name, description, filters,
+            query) are reverted. Foreign keys, m2m relations (dashboards, tags), derived fields, and UI
+            state are skipped and returned in `skipped_fields`. Saving the insight records a new activity
+            log entry, so the revert is itself auditable and reversible.
         param_overrides:
             id:
                 cast: string-int

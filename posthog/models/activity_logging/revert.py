@@ -46,38 +46,75 @@ class RevertActivityLogRequestSerializer(serializers.Serializer):
     """Shared request body for resource-level `/revert/` endpoints."""
 
     activity_log_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
         help_text=(
-            "UUID of the ActivityLog entry to revert. The entry must reference this resource "
-            "(scope and item_id match) and belong to the same team. Look it up via the "
-            "activity-log-list or advanced-activity-logs-list MCP tools."
-        )
+            "Optional UUID of the ActivityLog entry to revert. If omitted, the endpoint "
+            "picks the most recent revertable entry for this resource — the natural "
+            "meaning of 'undo my last change'. The chosen entry's id is returned in "
+            "`activity_log_id` so callers can confirm what was reverted. Use "
+            "activity-log-list or advanced-activity-logs-list to inspect candidates "
+            "when a specific past state needs to be restored."
+        ),
     )
+
+
+# Number of recent activity log entries to scan when falling back to the most recent
+# revertable entry. Bounded so a long-lived resource with thousands of edits doesn't
+# slow the request down. If none of the last `FALLBACK_LOOKBACK_LIMIT` entries are
+# revertable, the endpoint returns 404 and the caller must supply an explicit id.
+FALLBACK_LOOKBACK_LIMIT = 50
 
 
 def lookup_revertable_activity_log_entry(
     *,
-    activity_log_id: UUID,
+    activity_log_id: UUID | None,
     scope: ActivityScope,
     item_id: str,
     team_id: int,
     organization_id: Any,
     include_org_scoped: bool,
     user: User | AnonymousUser | None,
+    revertable_fields: Iterable[str] | None = None,
 ) -> ActivityLog:
     """Fetch a single activity log entry, applying the same access controls the
     activity log endpoints apply: team scoping (with org-level activity log opt-in)
     and the user-level visibility restrictions used by ActivityLogViewSet.
 
-    Raises rest_framework.exceptions.NotFound if no matching entry exists for this
-    user — callers do not need to handle the lookup themselves.
+    When `activity_log_id` is provided, that entry is returned (or NotFound).
+
+    When `activity_log_id` is None, the most recent entry for this resource that
+    has at least one revertable change is returned — this implements the "revert
+    my last edit" shortcut that agents typically want. `revertable_fields` must
+    be supplied in this case so we can skip entries that touched only fields
+    this endpoint doesn't apply (e.g. tag-only updates).
+
+    Raises rest_framework.exceptions.NotFound if no matching entry exists for
+    this user — callers do not need to handle the lookup themselves.
     """
     queryset = ActivityLog.objects.filter(scope=scope, item_id=item_id)
     queryset = apply_organization_scoped_filter(queryset, include_org_scoped, team_id, organization_id)
     queryset = apply_activity_visibility_restrictions(queryset, user)
-    try:
-        return queryset.get(id=activity_log_id)
-    except ActivityLog.DoesNotExist:
-        raise exceptions.NotFound("Activity log entry not found for this resource.")
+
+    if activity_log_id is not None:
+        try:
+            return queryset.get(id=activity_log_id)
+        except ActivityLog.DoesNotExist:
+            raise exceptions.NotFound("Activity log entry not found for this resource.")
+
+    if revertable_fields is None:
+        raise exceptions.ValidationError(
+            "Either activity_log_id or revertable_fields must be provided to pick a fallback entry."
+        )
+    revertable = frozenset(revertable_fields)
+    for entry in queryset.order_by("-created_at")[:FALLBACK_LOOKBACK_LIMIT]:
+        changes = (entry.detail or {}).get("changes") or []
+        if any(c.get("field") in revertable for c in changes):
+            return entry
+    raise exceptions.NotFound(
+        "No recent revertable activity log entry found for this resource. "
+        "List entries via activity-log-list and pass an explicit activity_log_id."
+    )
 
 
 def apply_revert_to_instance(
