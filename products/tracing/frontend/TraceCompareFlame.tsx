@@ -150,9 +150,9 @@ function FlameRow({ node, depth, parentDurationNano }: FlameRowProps): JSX.Eleme
 
     return (
         <div style={{ width: `${widthPct}%` }} className="flex flex-col">
-            <Tooltip title={tooltipContent}>
+            <Tooltip title={tooltipContent} delayMs={100} placement="top">
                 <div
-                    className="flex items-center px-2 overflow-hidden text-xs font-mono cursor-default border-r border-b border-bg-bg"
+                    className="flex items-center px-2 overflow-hidden text-xs font-mono cursor-help border-r border-b border-bg-bg transition-[filter] hover:brightness-125"
                     style={{
                         height: ROW_HEIGHT_PX,
                         backgroundColor: color,
