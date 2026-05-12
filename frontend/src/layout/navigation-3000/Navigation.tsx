@@ -18,7 +18,6 @@ import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
-import { SceneTabs } from '../scenes/SceneTabs'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -129,10 +128,6 @@ export function Navigation({
             >
                 <ProjectDragAndDropProvider>
                     <PanelLayout className="left-nav" />
-
-                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start mt-px">
-                        <SceneTabs />
-                    </div>
 
                     <div
                         className={cn(
