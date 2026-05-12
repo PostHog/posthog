@@ -53,10 +53,10 @@ export function TopHeading({
             date_to = queryDateRange.date_to
         }
     }
-    if (dateFromOverride !== undefined) {
+    if (dateFromOverride != null) {
         date_from = dateFromOverride
     }
-    if (dateToOverride !== undefined) {
+    if (dateToOverride != null) {
         date_to = dateToOverride
     }
 
