@@ -181,6 +181,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "logs_settings",  # Compat with TeamSerializer
             "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
+            "environment_label",  # Compat with TeamSerializer
+            "environment_color",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -261,6 +263,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_settings",
             "logs_settings",
             "proactive_tasks_enabled",
+            "environment_label",
+            "environment_color",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
