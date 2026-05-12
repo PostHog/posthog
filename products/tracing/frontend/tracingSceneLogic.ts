@@ -32,11 +32,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'aggregationLoading',
             ],
             tracingFiltersLogic,
-            ['filters', 'utcDateRange'],
+            ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
             tracingDataLogic,
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans'],
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation'],
             tracingFiltersLogic,
             [
                 'setDateRange',
@@ -44,7 +44,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setFilterGroup',
                 'setOrderBy',
                 'setCompareMode',
-                'setCompareTo',
+                'setOverlayWindows',
                 'setFilters',
             ],
         ],
@@ -109,8 +109,10 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setCompareMode: () => {
             actions.runQuery()
         },
-        setCompareTo: () => {
-            actions.runQuery()
+        setOverlayWindows: () => {
+            // Overlay drags only refetch the aggregation — the sparkline canvas range
+            // stays fixed while the user moves windows around within it.
+            actions.fetchAggregation()
         },
         setFilters: () => {
             actions.syncUrlAndRunQuery()

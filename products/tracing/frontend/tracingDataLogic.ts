@@ -39,7 +39,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
     connect({
-        values: [tracingFiltersLogic, ['filters', 'utcDateRange']],
+        values: [tracingFiltersLogic, ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
     }),
 
     actions({
@@ -189,13 +189,19 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressAggregation(controller)
 
+                    // The aggregation's dateRange is the *current* compare window — the user-positioned
+                    // sub-range inside the sparkline. The previous window's start is passed via
+                    // compare_to as an ISO timestamp; the backend infers width from this dateRange.
                     const response = await api.tracing.aggregate({
-                        dateRange: values.utcDateRange,
+                        dateRange: {
+                            date_from: new Date(values.currentWindowMs.startMs).toISOString(),
+                            date_to: new Date(values.currentWindowMs.endMs).toISOString(),
+                        },
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                         compareFilter: {
                             compare: values.filters.compareMode,
-                            compare_to: values.filters.compareTo ?? undefined,
+                            compare_to: new Date(values.previousWindowMs.startMs).toISOString(),
                         },
                     })
 

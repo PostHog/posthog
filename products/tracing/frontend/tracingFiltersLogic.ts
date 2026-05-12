@@ -14,14 +14,20 @@ export const DEFAULT_ORDER_BY = 'latest' as const
 
 export type TracingOrderBy = 'latest' | 'earliest'
 
+export interface OverlayWindow {
+    startMs: number
+    endMs: number
+}
+
 export interface TracingFilters {
     dateRange: DateRange
     serviceNames: string[]
     filterGroup: UniversalFiltersGroup
     orderBy: TracingOrderBy
     compareMode: boolean
-    /** Relative offset such as `-1h`, `-1d`. When null, the comparison window is the immediately previous period of equal length. */
-    compareTo: string | null
+    /** User-positioned overrides for the two compare windows. Null until the overlay is dragged. */
+    currentWindowOverride: OverlayWindow | null
+    previousWindowOverride: OverlayWindow | null
 }
 
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
@@ -33,7 +39,11 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setOrderBy: (orderBy: TracingOrderBy) => ({ orderBy }),
         setCompareMode: (compareMode: boolean) => ({ compareMode }),
-        setCompareTo: (compareTo: string | null) => ({ compareTo }),
+        /**
+         * Persist the user-dragged overlay windows. Both must be supplied. Setting these
+         * never touches dateRange — the sparkline range is locked once compare mode is on.
+         */
+        setOverlayWindows: (current: OverlayWindow, previous: OverlayWindow) => ({ current, previous }),
         setFilters: (filters: Partial<TracingFilters>) => ({ filters }),
     }),
 
@@ -75,25 +85,55 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 setFilters: (state, { filters }) => filters.compareMode ?? state,
             },
         ],
-        compareTo: [
-            null as string | null,
+        currentWindowOverride: [
+            null as OverlayWindow | null,
             {
-                setCompareTo: (_, { compareTo }) => compareTo,
-                setFilters: (state, { filters }) => filters.compareTo ?? state,
+                setOverlayWindows: (_, { current }) => current,
+                // Any date-range change invalidates user-positioned windows — they were absolute
+                // ms positions inside the old sparkline range, meaningless in a new one.
+                setDateRange: () => null,
+                setCompareMode: () => null,
+                setFilters: (state, { filters }) => filters.currentWindowOverride ?? state,
+            },
+        ],
+        previousWindowOverride: [
+            null as OverlayWindow | null,
+            {
+                setOverlayWindows: (_, { previous }) => previous,
+                setDateRange: () => null,
+                setCompareMode: () => null,
+                setFilters: (state, { filters }) => filters.previousWindowOverride ?? state,
             },
         ],
     }),
 
     selectors({
         filters: [
-            (s) => [s.dateRange, s.serviceNames, s.filterGroup, s.orderBy, s.compareMode, s.compareTo],
-            (dateRange, serviceNames, filterGroup, orderBy, compareMode, compareTo): TracingFilters => ({
+            (s) => [
+                s.dateRange,
+                s.serviceNames,
+                s.filterGroup,
+                s.orderBy,
+                s.compareMode,
+                s.currentWindowOverride,
+                s.previousWindowOverride,
+            ],
+            (
                 dateRange,
                 serviceNames,
                 filterGroup,
                 orderBy,
                 compareMode,
-                compareTo,
+                currentWindowOverride,
+                previousWindowOverride
+            ): TracingFilters => ({
+                dateRange,
+                serviceNames,
+                filterGroup,
+                orderBy,
+                compareMode,
+                currentWindowOverride,
+                previousWindowOverride,
             }),
         ],
         utcDateRange: [
@@ -107,5 +147,64 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                     : dateRange.date_to,
             }),
         ],
+        sparklineWindowMs: [(s) => [s.dateRange], (dateRange: DateRange): OverlayWindow => resolveWindow(dateRange)],
+        currentWindowMs: [
+            (s) => [s.sparklineWindowMs, s.currentWindowOverride],
+            (sparklineWindowMs: OverlayWindow, override: OverlayWindow | null): OverlayWindow => {
+                if (override) {
+                    return override
+                }
+                // Default: right-aligned, 40% of the sparkline duration.
+                const duration = sparklineWindowMs.endMs - sparklineWindowMs.startMs
+                const windowDuration = duration * 0.4
+                return { startMs: sparklineWindowMs.endMs - windowDuration, endMs: sparklineWindowMs.endMs }
+            },
+        ],
+        previousWindowMs: [
+            (s) => [s.sparklineWindowMs, s.previousWindowOverride],
+            (sparklineWindowMs: OverlayWindow, override: OverlayWindow | null): OverlayWindow => {
+                if (override) {
+                    return override
+                }
+                // Default: same 40% width, shifted -50% of sparkline duration from current's
+                // right edge — i.e., right edge at end - 50% of duration.
+                const duration = sparklineWindowMs.endMs - sparklineWindowMs.startMs
+                const windowDuration = duration * 0.4
+                const endMs = sparklineWindowMs.endMs - duration * 0.5
+                return { startMs: endMs - windowDuration, endMs }
+            },
+        ],
     }),
 ])
+
+function resolveWindow(dateRange: DateRange): { startMs: number; endMs: number } {
+    const endMs =
+        dateRange.date_to && dayjs(dateRange.date_to).isValid() ? dayjs(dateRange.date_to).valueOf() : Date.now()
+    const startMs =
+        dateRange.date_from && dayjs(dateRange.date_from).isValid()
+            ? dayjs(dateRange.date_from).valueOf()
+            : resolveRelativeMs(dateRange.date_from ?? '-1h', endMs)
+    return { startMs, endMs }
+}
+
+const RELATIVE_RE = /^-(\d+)([smhdM])$/
+
+function resolveRelativeMs(input: string | null | undefined, anchorMs: number): number {
+    if (!input) {
+        return anchorMs
+    }
+    const match = RELATIVE_RE.exec(input.trim())
+    if (!match) {
+        return anchorMs
+    }
+    const [, nRaw, unit] = match
+    const n = Number(nRaw)
+    const unitMap: Record<string, dayjs.UnitType> = {
+        s: 'second',
+        m: 'minute',
+        h: 'hour',
+        d: 'day',
+        M: 'month',
+    }
+    return dayjs(anchorMs).subtract(n, unitMap[unit]).valueOf()
+}

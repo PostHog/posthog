@@ -95,9 +95,28 @@ export default function TracingScene(): JSX.Element {
         aggregation,
         aggregationLoading,
         filters,
+        currentWindowMs,
+        previousWindowMs,
     } = useValues(tracingSceneLogic)
-    const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
+    const { openTraceModal, closeTraceModal, setDateRange, setOverlayWindows } = useActions(tracingSceneLogic)
     const compareMode = filters.compareMode
+
+    // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
+    // drags never shift the canvas underfoot. The sparkline only refetches when dateRange
+    // changes (via the DateFilter), never via overlay interaction.
+    const sparklineFirstMs = sparklineData.dates.length > 0 ? new Date(sparklineData.dates[0]).valueOf() : null
+    const sparklineLastMs =
+        sparklineData.dates.length > 0 ? new Date(sparklineData.dates[sparklineData.dates.length - 1]).valueOf() : null
+    const compareConfig =
+        compareMode && sparklineFirstMs !== null && sparklineLastMs !== null
+            ? {
+                  fullStartMs: sparklineFirstMs,
+                  fullEndMs: sparklineLastMs,
+                  currentWindow: currentWindowMs,
+                  previousWindow: previousWindowMs,
+                  onChange: setOverlayWindows,
+              }
+            : undefined
 
     return (
         <SceneContent>
@@ -113,6 +132,7 @@ export default function TracingScene(): JSX.Element {
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
                 displayTimezone="UTC"
+                compare={compareConfig}
             />
             <SceneDivider />
             <TracingFilterBar />

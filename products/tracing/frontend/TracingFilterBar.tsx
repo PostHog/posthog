@@ -82,8 +82,7 @@ export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic)
     const { runQuery } = useActions(tracingDataLogic)
     const { filters, utcDateRange } = useValues(tracingFiltersLogic)
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode, setCompareTo } =
-        useActions(tracingFiltersLogic)
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic)
     const { dateRange, serviceNames, filterGroup, compareMode } = filters
 
     return (
@@ -149,12 +148,7 @@ export function TracingFilterBar(): JSX.Element {
                         <LemonSwitch
                             label="Compare"
                             checked={compareMode}
-                            onChange={(checked) => {
-                                setCompareMode(checked)
-                                if (!checked) {
-                                    setCompareTo(null)
-                                }
-                            }}
+                            onChange={setCompareMode}
                             bordered
                             size="small"
                         />
