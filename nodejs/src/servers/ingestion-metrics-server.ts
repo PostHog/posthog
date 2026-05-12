@@ -1,12 +1,25 @@
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerWrapper } from '../kafka/producer'
-import { MetricsIngestionConsumerConfig } from '../metrics-ingestion/config'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
+import {
+    MetricsIngestionConsumerConfig,
+    MetricsIngestionOutputsConfig,
+    getDefaultMetricsIngestionOutputsConfig,
+} from '../metrics-ingestion/config'
 import { MetricsIngestionConsumer } from '../metrics-ingestion/metrics-ingestion-consumer'
+import { createProducerRegistry } from '../metrics-ingestion/outputs/producer-registry'
+import {
+    KafkaWarpstreamIngestionProducerEnvConfig,
+    KafkaWarpstreamMetricsProducerEnvConfig,
+    MetricsProducerName,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
+    getDefaultKafkaWarpstreamMetricsProducerEnvConfig,
+} from '../metrics-ingestion/outputs/producers'
+import { createMetricsOutputsRegistry } from '../metrics-ingestion/outputs/registry'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -20,11 +33,16 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * This is the union of:
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - MetricsIngestionConsumerConfig: Kafka topics, Redis, rate limiter settings
+ * - MetricsIngestionOutputsConfig: per-output topic + producer routing
+ * - Producer env configs: typed env vars for the Warpstream metrics + ingestion producers
  * - Infrastructure configs: Kafka broker, Postgres, Redis
  * - Remaining CommonConfig picks: server mode, observability
  */
 export type IngestionMetricsServerConfig = BaseServerConfig &
     MetricsIngestionConsumerConfig &
+    MetricsIngestionOutputsConfig &
+    KafkaWarpstreamMetricsProducerEnvConfig &
+    KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -36,11 +54,16 @@ export class IngestionMetricsServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private posthogRedisPool?: RedisPool
-    private kafkaProducer?: KafkaProducerWrapper
-    private mskProducer?: KafkaProducerWrapper
+    private producerRegistry?: KafkaProducerRegistry<MetricsProducerName>
 
     constructor(config: Partial<IngestionMetricsServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamMetricsProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultMetricsIngestionOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -63,8 +86,7 @@ export class IngestionMetricsServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.mskProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER')
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to PostHog Redis...')
@@ -78,15 +100,17 @@ export class IngestionMetricsServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
-        // 2. Metrics ingestion consumer
+        // 2. Resolve outputs (topic + producer per logical name, env-controlled)
+        const outputs = createMetricsOutputsRegistry().build(this.producerRegistry, this.config)
+
+        // 3. Metrics ingestion consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
             const consumer = new MetricsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
-                kafkaProducer: this.kafkaProducer!,
-                mskProducer: this.mskProducer!,
+                outputs,
             })
             await consumer.start()
             return consumer.service
@@ -98,9 +122,12 @@ export class IngestionMetricsServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.mskProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
+            additionalCleanup: async () => {
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

@@ -2,26 +2,32 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaProducerWrapper } from '~/kafka/producer'
+import { AppMetricsOutput } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 
-import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
-import { HealthCheckResult, PluginServerService, TimestampFormat } from '../types'
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { HealthCheckResult, PluginServerService } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { TeamManager } from '../utils/team-manager'
-import { castTimestampOrNow } from '../utils/utils'
 import { MetricsIngestionConsumerConfig } from './config'
+import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsIngestionMessage } from './types'
 
 export interface MetricsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
-    kafkaProducer: KafkaProducerWrapper // Warpstream - for metrics data
-    mskProducer: KafkaProducerWrapper // MSK - for app_metrics
+    /**
+     * Resolved outputs registry — must include `METRICS_OUTPUT`, `METRICS_DLQ_OUTPUT`,
+     * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
+     * server via env vars — this consumer never touches a `KafkaProducerWrapper`
+     * directly.
+     */
+    outputs: IngestionOutputs<MetricsOutput | MetricsDlqOutput | AppMetricsOutput>
 }
 
 export type UsageStats = {
@@ -90,48 +96,45 @@ export const metricsRecordsDroppedCounter = new Counter({
 
 export class MetricsIngestionConsumer {
     protected name = 'MetricsIngestionConsumer'
-    protected kafkaConsumer: KafkaConsumer
-    private kafkaProducer?: KafkaProducerWrapper
-    private mskProducer?: KafkaProducerWrapper
+    protected kafkaConsumer: KafkaConsumerInterface
+    private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: MetricsRateLimiterService
 
     protected groupId: string
     protected topic: string
-    protected clickhouseTopic: string
-    protected overflowTopic?: string
-    protected dlqTopic?: string
 
     constructor(
-        private config: MetricsIngestionConsumerConfig,
+        config: MetricsIngestionConsumerConfig,
         private deps: MetricsIngestionConsumerDeps,
         overrides: Partial<MetricsIngestionConsumerConfig> = {}
     ) {
         this.groupId = overrides.METRICS_INGESTION_CONSUMER_GROUP_ID ?? config.METRICS_INGESTION_CONSUMER_GROUP_ID
         this.topic =
             overrides.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC ?? config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC
-        this.clickhouseTopic =
-            overrides.METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC ?? config.METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC
-        this.overflowTopic =
-            overrides.METRICS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.METRICS_INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.METRICS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.METRICS_INGESTION_CONSUMER_DLQ_TOPIC
 
-        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
+
+        this.kafkaConsumer = createKafkaConsumer({ groupId: this.groupId, topic: this.topic })
         this.redis = createRedisV2PoolFromConfig({
-            connection: config.METRICS_REDIS_HOST
-                ? {
-                      url: config.METRICS_REDIS_HOST,
-                      options: {
-                          port: config.METRICS_REDIS_PORT,
-                          tls: config.METRICS_REDIS_TLS ? {} : undefined,
-                      },
-                      name: 'metrics-redis',
-                  }
-                : { url: config.REDIS_URL, name: 'metrics-redis-fallback' },
+            connection:
+                (overrides.METRICS_REDIS_HOST ?? config.METRICS_REDIS_HOST)
+                    ? {
+                          url: overrides.METRICS_REDIS_HOST ?? config.METRICS_REDIS_HOST,
+                          options: {
+                              port: overrides.METRICS_REDIS_PORT ?? config.METRICS_REDIS_PORT,
+                              tls: (overrides.METRICS_REDIS_TLS ?? config.METRICS_REDIS_TLS) ? {} : undefined,
+                          },
+                          name: 'metrics-redis',
+                      }
+                    : { url: config.REDIS_URL, name: 'metrics-redis-fallback' },
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
-        this.rateLimiter = new MetricsRateLimiterService(config, this.redis)
+        this.rateLimiter = new MetricsRateLimiterService(
+            { ...config, ...overrides } as MetricsIngestionConsumerConfig,
+            this.redis
+        )
     }
 
     public get service(): PluginServerService {
@@ -290,16 +293,17 @@ export class MetricsIngestionConsumer {
 
                     // No enrichment needed for metrics — data is already structured numerically.
                     // Just pass through the AVRO buffer as-is.
-                    return this.kafkaProducer!.produce({
-                        topic: this.clickhouseTopic,
-                        value: message.message.value,
-                        key: null,
-                        headers: {
-                            ...parseKafkaHeaders(message.message.headers),
-                            token: message.token,
-                            team_id: message.teamId.toString(),
+                    await this.deps.outputs.queueMessages(METRICS_OUTPUT, [
+                        {
+                            value: message.message.value,
+                            key: null,
+                            headers: {
+                                ...parseKafkaHeaders(message.message.headers),
+                                token: message.token,
+                                team_id: message.teamId.toString(),
+                            },
                         },
-                    })
+                    ])
                 } catch (error) {
                     await this.produceToDlq(message, error)
                     throw error
@@ -317,29 +321,26 @@ export class MetricsIngestionConsumer {
     }
 
     private async produceToDlq(message: MetricsIngestionMessage, error: unknown): Promise<void> {
-        if (!this.dlqTopic) {
-            return
-        }
-
         const errorMessage = error instanceof Error ? error.message : String(error)
         const errorName = error instanceof Error ? error.name : 'UnknownError'
 
         metricMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
 
         try {
-            await this.kafkaProducer!.produce({
-                topic: this.dlqTopic,
-                value: message.message.value,
-                key: null,
-                headers: {
-                    ...parseKafkaHeaders(message.message.headers),
-                    token: message.token,
-                    team_id: message.teamId.toString(),
-                    error_message: errorMessage,
-                    error_name: errorName,
-                    failed_at: new Date().toISOString(),
+            await this.deps.outputs.queueMessages(METRICS_DLQ_OUTPUT, [
+                {
+                    value: message.message.value,
+                    key: null,
+                    headers: {
+                        ...parseKafkaHeaders(message.message.headers),
+                        token: message.token,
+                        team_id: message.teamId.toString(),
+                        error_message: errorMessage,
+                        error_name: errorName,
+                        failed_at: new Date().toISOString(),
+                    },
                 },
-            })
+            ])
         } catch (dlqError) {
             logger.error('Failed to produce message to DLQ', {
                 error: dlqError,
@@ -349,53 +350,35 @@ export class MetricsIngestionConsumer {
     }
 
     private async emitUsageMetrics(usageStats: UsageStatsByTeam): Promise<void> {
-        if (usageStats.size === 0) {
-            return
-        }
-
-        const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
-
-        const metricsPromises: Promise<void>[] = []
         for (const [teamId, stats] of usageStats) {
-            metricsPromises.push(
-                this.produceUsageMetric(teamId, 'bytes_received', stats.bytesReceived, timestamp),
-                this.produceUsageMetric(teamId, 'records_received', stats.recordsReceived, timestamp),
-                this.produceUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed, timestamp),
-                this.produceUsageMetric(teamId, 'records_ingested', stats.recordsAllowed, timestamp),
-                this.produceUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped, timestamp),
-                this.produceUsageMetric(teamId, 'records_dropped', stats.recordsDropped, timestamp)
-            )
+            this.queueUsageMetric(teamId, 'bytes_received', stats.bytesReceived)
+            this.queueUsageMetric(teamId, 'records_received', stats.recordsReceived)
+            this.queueUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed)
+            this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
+            this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
+            this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
         }
 
-        const results = await Promise.allSettled(metricsPromises)
-        const failures = results.filter((r) => r.status === 'rejected')
-        if (failures.length > 0) {
-            logger.error('Failed to emit usage metrics - billing data may be lost', {
-                failureCount: failures.length,
-                totalCount: metricsPromises.length,
-            })
+        // Best-effort: don't let metric failures block ingestion
+        try {
+            await this.appMetricsAggregator.flush()
+        } catch (error) {
+            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
         }
     }
 
-    private produceUsageMetric(teamId: number, metricName: string, count: number, timestamp: string): Promise<void> {
+    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
         if (count === 0) {
-            return Promise.resolve()
+            return
         }
-        return this.mskProducer!.produce({
-            topic: KAFKA_APP_METRICS_2,
-            value: Buffer.from(
-                JSON.stringify({
-                    team_id: teamId,
-                    timestamp,
-                    app_source: 'metrics',
-                    app_source_id: '',
-                    instance_id: '',
-                    metric_kind: 'usage',
-                    metric_name: metricName,
-                    count,
-                })
-            ),
-            key: null,
+        this.appMetricsAggregator.queue({
+            team_id: teamId,
+            app_source: 'metrics',
+            app_source_id: '',
+            instance_id: '',
+            metric_kind: 'usage',
+            metric_name: metricName,
+            count,
         })
     }
 
@@ -417,9 +400,11 @@ export class MetricsIngestionConsumer {
 
                     let team
                     try {
-                        team = await this.deps.teamManager.getTeamByToken(token)
                         if (isDevEnv() && token === 'phc_local') {
+                            // phc_local is a special token used in dev to refer to team 1
                             team = await this.deps.teamManager.getTeam(1)
+                        } else {
+                            team = await this.deps.teamManager.getTeamByToken(token)
                         }
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
@@ -464,17 +449,8 @@ export class MetricsIngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        await Promise.all([
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
-                this.kafkaProducer = producer
-            }),
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
-                this.mskProducer = producer
-            }),
-        ])
-
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info(`${this.name} - handling batch`, {
+            logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
             })
 
@@ -485,10 +461,9 @@ export class MetricsIngestionConsumer {
     }
 
     public async stop(): Promise<void> {
-        logger.info('Stopping metrics consumer...')
+        logger.info('💤', 'Stopping metrics consumer...')
         await this.kafkaConsumer.disconnect()
-        await Promise.all([this.kafkaProducer?.disconnect(), this.mskProducer?.disconnect()])
-        logger.info('Metrics consumer stopped!')
+        logger.info('💤', 'Metrics consumer stopped!')
     }
 
     public isHealthy(): HealthCheckResult {
