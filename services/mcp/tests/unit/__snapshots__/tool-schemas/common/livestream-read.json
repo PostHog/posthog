@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "distinct_id": {
+            "description": "Filter to only events from this distinct ID. Useful for verifying a specific user/session.",
+            "type": "string"
+        },
+        "event_types": {
+            "description": "Filter to only events with these names (e.g. [\"$pageview\", \"user_signed_up\"]). Omit to receive every event.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "limit": {
+            "description": "Maximum number of events to collect before returning. Defaults to 50, capped at 200.",
+            "exclusiveMinimum": 0,
+            "maximum": 200,
+            "type": "integer"
+        },
+        "properties": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Exact-match property filters as a map of property → expected string value (e.g. {\"$current_url\": \"https://example.com/checkout\"}). Multiple entries are AND-combined.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "wait_seconds": {
+            "description": "How long (in seconds) to listen for events before returning what was collected. Defaults to 10, capped at 30.",
+            "exclusiveMinimum": 0,
+            "maximum": 30,
+            "type": "integer"
+        }
+    },
+    "type": "object"
+}

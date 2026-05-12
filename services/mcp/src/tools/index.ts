@@ -11,6 +11,8 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+// Livestream
+import livestreamRead from './livestream/read'
 // LLM Analytics
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
@@ -66,6 +68,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Insights
     'insight-query': queryInsight,
+
+    // Livestream
+    'livestream-read': livestreamRead,
 
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,

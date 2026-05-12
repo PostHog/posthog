@@ -486,6 +486,41 @@ export const OrganizationSetActiveSchema = z.object({
 
 export const ProjectGetAllSchema = z.object({})
 
+export const LivestreamReadSchema = z.object({
+    event_types: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Filter to only events with these names (e.g. ["$pageview", "user_signed_up"]). Omit to receive every event.'
+        ),
+    distinct_id: z
+        .string()
+        .optional()
+        .describe('Filter to only events from this distinct ID. Useful for verifying a specific user/session.'),
+    properties: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+            'Exact-match property filters as a map of property → expected string value (e.g. {"$current_url": "https://example.com/checkout"}). Multiple entries are AND-combined.'
+        ),
+    limit: z
+        .number()
+        .int()
+        .positive()
+        .max(200)
+        .optional()
+        .describe('Maximum number of events to collect before returning. Defaults to 50, capped at 200.'),
+    wait_seconds: z
+        .number()
+        .int()
+        .positive()
+        .max(30)
+        .optional()
+        .describe(
+            'How long (in seconds) to listen for events before returning what was collected. Defaults to 10, capped at 30.'
+        ),
+})
+
 export const ProjectEventDefinitionsSchema = z.object({
     q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
     limit: z.number().int().positive().optional(),
