@@ -15,13 +15,15 @@ export function ToolbarSettings(): JSX.Element {
         <div className="flex flex-col gap-3">
             <TeamSettingToggle
                 field="toolbar_disabled"
-                label="Disable PostHog Toolbar for this environment"
+                invert
+                label="Enable PostHog Toolbar for this environment"
                 disabledReason={restrictedReason}
             />
             <LemonBanner type="info">
-                Disabling the toolbar blocks every OAuth authorize, callback and refresh request from this environment,
-                hides all "Open in toolbar" launch points in the UI, and refuses the legacy redirect-to-site endpoint.
-                Authorized URLs remain configured so re-enabling later does not require re-adding domains.
+                When disabled, the toolbar blocks every OAuth authorize, callback and refresh request from this
+                environment, hides all "Open in toolbar" launch points in the UI, and refuses the legacy
+                redirect-to-site endpoint. Authorized URLs remain configured so re-enabling later does not require
+                re-adding domains.
             </LemonBanner>
         </div>
     )

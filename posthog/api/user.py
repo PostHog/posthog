@@ -1208,6 +1208,27 @@ class UserViewSet(
 # Toolbar
 
 
+def _toolbar_disabled_error_page(request, exc: ToolbarOAuthError) -> HttpResponse:
+    """Render the shared "Toolbar disabled" HTML error page."""
+    return render_template(
+        "toolbar_oauth_error.html",
+        request,
+        context={
+            "error_title": "Toolbar disabled",
+            "error_message": "The PostHog Toolbar has been disabled for this project.",
+            "error_detail": "A project admin can re-enable the toolbar from project settings.",
+            "error_code": "403",
+            "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
+        },
+        status_code=exc.status_code,
+    )
+
+
+def _toolbar_oauth_error_json(exc: ToolbarOAuthError) -> JsonResponse:
+    """Standard JSON error body shared by every toolbar JSON endpoint."""
+    return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+
 @require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
@@ -1267,18 +1288,7 @@ def toolbar_oauth_authorize(request):
                 status_code=exc.status_code,
             )
         if exc.code == "toolbar_disabled":
-            return render_template(
-                "toolbar_oauth_error.html",
-                request,
-                context={
-                    "error_title": "Toolbar disabled",
-                    "error_message": "The PostHog Toolbar has been disabled for this project.",
-                    "error_detail": ("A project admin can re-enable the toolbar from project settings."),
-                    "error_code": "403",
-                    "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
-                },
-                status_code=exc.status_code,
-            )
+            return _toolbar_disabled_error_page(request, exc)
         return HttpResponse(exc.detail, status=exc.status_code)
 
     # Mark session so the callback knows to redirect back to app_url with the code
@@ -1401,7 +1411,7 @@ class ToolbarOAuthRefreshView(APIView):
                 assert_toolbar_enabled(refresh_token_row.user.team)
         except ToolbarOAuthError as exc:
             logger.warning("toolbar_oauth_refresh_failed", code=exc.code)
-            return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+            return _toolbar_oauth_error_json(exc)
 
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
@@ -1428,7 +1438,7 @@ def get_toolbar_preloaded_flags(request):
     try:
         assert_toolbar_enabled(request.user.team)
     except ToolbarOAuthError as exc:
-        return JsonResponse({"error": exc.detail, "code": exc.code}, status=exc.status_code)
+        return _toolbar_oauth_error_json(exc)
 
     toolbar_flags_key = request.GET.get("key")
 
@@ -1478,7 +1488,7 @@ def prepare_toolbar_preloaded_flags(request):
         try:
             assert_toolbar_enabled(team)
         except ToolbarOAuthError as exc:
-            return JsonResponse({"error": exc.detail, "code": exc.code}, status=exc.status_code)
+            return _toolbar_oauth_error_json(exc)
 
         # Use Rust flags service
         result = get_flags_from_service(
@@ -1521,18 +1531,7 @@ def redirect_to_site(request):
     try:
         assert_toolbar_enabled(team)
     except ToolbarOAuthError as exc:
-        return render_template(
-            "toolbar_oauth_error.html",
-            request,
-            context={
-                "error_title": "Toolbar disabled",
-                "error_message": "The PostHog Toolbar has been disabled for this project.",
-                "error_detail": "A project admin can re-enable the toolbar from project settings.",
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
-            },
-            status_code=exc.status_code,
-        )
+        return _toolbar_disabled_error_page(request, exc)
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
