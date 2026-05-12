@@ -11,6 +11,7 @@ import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
 
 import { replayLensLogic } from '../replayLensLogic'
+import { LensQuotaForecast } from './LensQuotaForecast'
 
 const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.PersonProperties,
@@ -101,6 +102,8 @@ export function LensTriggers({ lensId }: { lensId: string }): JSX.Element {
                     )
                 }}
             </Field>
+
+            <LensQuotaForecast lensId={lensId} />
         </div>
     )
 }

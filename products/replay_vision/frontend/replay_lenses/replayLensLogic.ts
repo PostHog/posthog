@@ -2,12 +2,19 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { NodeKind } from '~/queries/schema/schema-general'
+
+import {
+    visionLensesCreate,
+    visionLensesObservationsList,
+    visionLensesPartialUpdate,
+    visionLensesRetrieve,
+} from '../generated/api'
 import type { replayLensLogicType } from './replayLensLogicType'
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, LensConfig, LensType, ReplayLens, ReplayObservation } from './types'
 
@@ -28,6 +35,11 @@ function defaultConfigForType(lensType: LensType): LensConfig {
     return { prompt: '' }
 }
 
+function omitQuery(lens: ReplayLens): Omit<ReplayLens, 'query'> {
+    const { query: _query, ...rest } = lens
+    return rest
+}
+
 function newLens(): ReplayLens {
     return {
         id: 'new',
@@ -35,7 +47,7 @@ function newLens(): ReplayLens {
         description: '',
         enabled: true,
         sampling_rate: 1,
-        query: null,
+        query: { kind: NodeKind.RecordingsQuery },
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
         emits_signals: false,
@@ -92,15 +104,21 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 if (!teamId) {
                     return
                 }
+                const body = lens.query == null ? omitQuery(lens) : lens
                 try {
                     if (props.id === 'new') {
-                        // nosemgrep: prefer-codegen-api
-                        const response = await api.create(`/api/environments/${teamId}/vision/lenses/`, lens)
+                        const response = await visionLensesCreate(
+                            String(teamId),
+                            body as Parameters<typeof visionLensesCreate>[1]
+                        )
                         router.actions.replace(urls.replayVision(response.id))
                         lemonToast.success('Lens created')
                     } else {
-                        // nosemgrep: prefer-codegen-api
-                        await api.update(`/api/environments/${teamId}/vision/lenses/${props.id}/`, lens)
+                        await visionLensesPartialUpdate(
+                            String(teamId),
+                            props.id,
+                            body as Parameters<typeof visionLensesPartialUpdate>[2]
+                        )
                         lemonToast.success('Lens saved')
                     }
                 } catch (error) {
@@ -141,13 +159,6 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 loadObservationsFailure: () => false,
             },
         ],
-        observationsLoaded: [
-            false,
-            {
-                loadObservationsSuccess: () => true,
-                loadLensSuccess: () => false,
-            },
-        ],
     }),
 
     selectors({
@@ -174,9 +185,8 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.get(`/api/environments/${teamId}/vision/lenses/${props.id}/`)
-                actions.loadLensSuccess(response)
+                const response = await visionLensesRetrieve(String(teamId), props.id)
+                actions.loadLensSuccess(response as unknown as ReplayLens)
             } catch (error) {
                 lemonToast.error(`Failed to load lens: ${String(error)}`)
                 actions.loadLensFailure()
@@ -201,9 +211,8 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.get(`/api/environments/${teamId}/vision/lenses/${props.id}/observations/`)
-                actions.loadObservationsSuccess(response.results ?? [])
+                const response = await visionLensesObservationsList(String(teamId), props.id)
+                actions.loadObservationsSuccess((response.results ?? []) as unknown as ReplayObservation[])
             } catch {
                 actions.loadObservationsFailure()
             }

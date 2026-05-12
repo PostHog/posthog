@@ -9,6 +9,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { visionLensesCreate, visionLensesDestroy, visionLensesList, visionLensesPartialUpdate } from '../generated/api'
 import type { replayLensesLogicType } from './replayLensesLogicType'
 import { ENABLED_OPTIONS, EnabledFilter, LENS_TYPE_OPTIONS, LensType, ReplayLens, VisionQuota } from './types'
 
@@ -50,6 +51,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
         setSearch: (search: string) => ({ search }),
         setEnabledFilter: (values: EnabledFilter[]) => ({ values }),
         setLensTypeFilter: (lensTypes: LensType[]) => ({ lensTypes }),
+        setUsageRangeDays: (days: 7 | 30 | 90) => ({ days }),
         clearFilters: true,
     }),
 
@@ -99,6 +101,12 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 clearFilters: () => [],
             },
         ],
+        usageRangeDays: [
+            30 as 7 | 30 | 90,
+            {
+                setUsageRangeDays: (_, { days }) => days,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -108,11 +116,10 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.get(`/api/environments/${teamId}/vision/lenses/`)
-                actions.loadLensesSuccess(response.results ?? [])
+                const response = await visionLensesList(String(teamId))
+                actions.loadLensesSuccess((response.results ?? []) as unknown as ReplayLens[])
             } catch (error) {
-                console.error('Failed to load lenses:', error)
+                lemonToast.error(`Failed to load lenses: ${String(error)}`)
                 actions.loadLensesFailure(String(error))
             }
         },
@@ -137,8 +144,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.delete(`/api/environments/${teamId}/vision/lenses/${id}/`)
+                await visionLensesDestroy(String(teamId), id)
                 actions.deleteLensSuccess(id)
             } catch (error) {
                 lemonToast.error(`Failed to delete lens: ${String(error)}`)
@@ -154,22 +160,26 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
             if (!teamId) {
                 return
             }
-            const duplicate = {
+            const duplicate: Record<string, unknown> = {
                 name: `${original.name} (Copy)`,
                 description: original.description,
                 enabled: false,
                 lens_type: original.lens_type,
                 lens_config: original.lens_config,
-                query: original.query,
                 sampling_rate: original.sampling_rate,
                 provider: original.provider,
                 model: original.model,
                 emits_signals: original.emits_signals,
             }
+            if (original.query != null) {
+                duplicate.query = original.query
+            }
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.create(`/api/environments/${teamId}/vision/lenses/`, duplicate)
-                actions.duplicateLensSuccess(response)
+                const response = await visionLensesCreate(
+                    String(teamId),
+                    duplicate as Parameters<typeof visionLensesCreate>[1]
+                )
+                actions.duplicateLensSuccess(response as unknown as ReplayLens)
             } catch (error) {
                 lemonToast.error(`Failed to duplicate lens: ${String(error)}`)
             }
@@ -185,8 +195,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.update(`/api/environments/${teamId}/vision/lenses/${id}/`, { enabled: !lens.enabled })
+                await visionLensesPartialUpdate(String(teamId), id, { enabled: !lens.enabled })
                 actions.toggleLensEnabledSuccess(id)
             } catch (error) {
                 lemonToast.error(`Failed to ${lens.enabled ? 'disable' : 'enable'} lens: ${String(error)}`)

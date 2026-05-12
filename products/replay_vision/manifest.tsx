@@ -52,6 +52,7 @@ export const manifest: ProductManifest = {
             tags: ['alpha'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
             sceneKey: 'ReplayVision',
+            sceneKeys: ['ReplayVision', 'ReplayVisionLens'],
         },
     ],
 }

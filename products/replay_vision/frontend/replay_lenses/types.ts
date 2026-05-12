@@ -82,11 +82,6 @@ export type LensConfig =
     | ScorerLensConfig
     | IndexerLensConfig
 
-export interface LensStats {
-    runs_count: number
-    success_rate?: number
-}
-
 export interface BaseReplayLens {
     id: string
     name: string
@@ -102,7 +97,6 @@ export interface BaseReplayLens {
     created_at: string
     updated_at: string
     created_by: { id: number; first_name: string; last_name?: string; email?: string } | null
-    stats?: LensStats
     deleted?: boolean
 }
 
@@ -133,12 +127,19 @@ export interface IndexerLens extends BaseReplayLens {
 
 export type ReplayLens = MonitorLens | SummarizerLens | ClassifierLens | ScorerLens | IndexerLens
 
+export interface VisionUsagePoint {
+    date: string
+    count: number
+}
+
 export interface VisionQuota {
     used: number
     limit: number
     policy: 'block' | 'usage_based'
     period_start: string
     period_end: string
+    /** Daily observation counts across the current period. Optional until the backend exposes it. */
+    usage_history?: VisionUsagePoint[]
 }
 
 export interface ReplayObservation {
