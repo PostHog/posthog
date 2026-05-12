@@ -143,8 +143,9 @@ export function SnapshotDiffViewer({
                     <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
                     {variant && (
                         <span className="text-sm text-muted">
-                            @ {variant}
-                            {width && height && ` · ${width}×${height}`}
+                            <span>@ </span>
+                            {variant}
+                            {width && height && <span>{` · ${width}×${height}`}</span>}
                         </span>
                     )}
                 </div>
@@ -208,9 +209,11 @@ export function SnapshotDiffViewer({
                     {isQuarantined && quarantineEntry && (
                         <div className="bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm text-muted-alt flex items-center gap-1.5">
                             <span>
-                                Quarantined — {quarantineEntry.reason}
-                                {quarantineEntry.expires_at &&
-                                    ` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}
+                                <span>Quarantined — </span>
+                                {quarantineEntry.reason}
+                                {quarantineEntry.expires_at && (
+                                    <span>{` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}</span>
+                                )}
                             </span>
                             {quarantineEntry.created_by && (
                                 <>

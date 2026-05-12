@@ -96,7 +96,7 @@ function RolesFilter(props: {
                 sideIcon={<IconChevronDown />}
                 disabledReason={!props.canUseRoles ? 'You must upgrade your plan to use roles' : undefined}
             >
-                Role{props.selectedRoleIds.length ? ` (${props.selectedRoleIds.length})` : ''}
+                Role{props.selectedRoleIds.length ? <span>{` (${props.selectedRoleIds.length})`}</span> : ''}
             </LemonButton>
         </LemonDropdown>
     )
@@ -125,7 +125,7 @@ function MembersFilter(props: {
             }
         >
             <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                Member{props.selectedMemberIds.length ? ` (${props.selectedMemberIds.length})` : ''}
+                Member{props.selectedMemberIds.length ? <span>{` (${props.selectedMemberIds.length})`}</span> : ''}
             </LemonButton>
         </LemonDropdown>
     )
@@ -151,7 +151,8 @@ function FeaturesFilter(props: {
             }
         >
             <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                Feature{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
+                Feature
+                {props.selectedResourceKeys.length ? <span>{` (${props.selectedResourceKeys.length})`}</span> : ''}
             </LemonButton>
         </LemonDropdown>
     )
@@ -177,7 +178,7 @@ function AccessLevelFilter(props: {
             }
         >
             <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                Access{props.selectedRuleLevels.length ? ` (${props.selectedRuleLevels.length})` : ''}
+                Access{props.selectedRuleLevels.length ? <span>{` (${props.selectedRuleLevels.length})`}</span> : ''}
             </LemonButton>
         </LemonDropdown>
     )

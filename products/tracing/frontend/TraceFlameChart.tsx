@@ -569,7 +569,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                             <strong>{span.name}</strong>
                                             <br />
                                             {span.service_name} · {formatDuration(span.duration_nano)}
-                                            {isError ? ' · Error' : ''}
+                                            {isError ? <span> · Error</span> : ''}
                                         </span>
                                     }
                                 >

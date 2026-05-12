@@ -25,7 +25,7 @@ export const InsightResultMetadata = ({
             {samplingFactor ? (
                 <span className="text-secondary">
                     {!disableLastComputation && <span className="mx-1">•</span>}
-                    Results calculated from {samplingFactor * 100}% of users
+                    <span>Results calculated from {samplingFactor * 100}% of users</span>
                 </span>
             ) : null}
             {trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (

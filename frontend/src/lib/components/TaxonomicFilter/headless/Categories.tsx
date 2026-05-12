@@ -71,7 +71,9 @@ function TaxonomicFilterCategoryTab({ group, renderTab }: CategoryTabProps): JSX
             ) : (
                 <>
                     {group.name}
-                    {!list.needsMoreSearchCharacters && `: ${list.isLoading ? '…' : list.totalResultCount}`}
+                    {!list.needsMoreSearchCharacters && (
+                        <span>{`: ${list.isLoading ? '…' : list.totalResultCount}`}</span>
+                    )}
                 </>
             )}
         </Button>

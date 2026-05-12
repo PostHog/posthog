@@ -110,7 +110,7 @@ export function StateInspector({
                                             </div>
                                             <div className="text-muted text-xs truncate">
                                                 {fileName}
-                                                {lineNumber ? `:${lineNumber}` : ''}
+                                                {lineNumber ? <span>{`:${lineNumber}`}</span> : ''}
                                             </div>
                                         </div>
                                         {lineNumber && (

@@ -215,7 +215,8 @@ function SummaryStatistics({
         <div className="mt-1 text-xs text-muted">
             {filter === 'all' && (
                 <>
-                    {statistics.pass_count} passed, {statistics.fail_count} failed
+                    {statistics.pass_count} <span>passed, </span>
+                    {statistics.fail_count} <span>failed</span>
                     {statistics.na_count > 0 && <>, {statistics.na_count} N/A</>}
                 </>
             )}

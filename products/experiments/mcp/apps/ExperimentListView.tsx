@@ -76,9 +76,11 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                                     {variants.map((v) => (
                                         <Badge key={v.key} variant={v.key === 'control' ? 'default' : 'info'}>
                                             {v.key}
-                                            {(v.split_percent ?? v.rollout_percentage) != null
-                                                ? `: ${v.split_percent ?? v.rollout_percentage}%`
-                                                : ''}
+                                            {(v.split_percent ?? v.rollout_percentage) != null ? (
+                                                <span>{`: ${v.split_percent ?? v.rollout_percentage}%`}</span>
+                                            ) : (
+                                                ''
+                                            )}
                                         </Badge>
                                     ))}
                                 </div>
@@ -103,7 +105,7 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">
-                                    {data.results.length} experiment{data.results.length === 1 ? '' : 's'}
+                                    {data.results.length} experiment{data.results.length === 1 ? '' : <span>s</span>}
                                 </span>
                             </div>
                             <DataTable<ExperimentData>

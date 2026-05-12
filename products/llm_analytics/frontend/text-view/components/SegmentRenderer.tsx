@@ -142,7 +142,7 @@ export function SegmentRenderer({
                             title={isExpanded ? 'Collapse' : 'Expand'}
                         >
                             {isExpanded ? '[−]' : '[+]'} {hiddenTools.length} more tool
-                            {hiddenTools.length > 1 ? 's' : ''}
+                            {hiddenTools.length > 1 ? <span>s</span> : ''}
                         </button>
                         {isExpanded && (
                             <div className="ml-4 mt-2 mb-2">

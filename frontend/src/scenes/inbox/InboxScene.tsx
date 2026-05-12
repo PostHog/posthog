@@ -497,7 +497,7 @@ function SuggestedReviewers({ reviewers }: { reviewers: EnrichedReviewer[] }): J
                                 <span className="text-[0.6875rem] text-tertiary">
                                     {reviewer.relevant_commits.map((commit, i) => (
                                         <span key={commit.sha}>
-                                            {i > 0 && ', '}
+                                            {i > 0 && <span>, </span>}
                                             <Tooltip title={commit.reason || undefined}>
                                                 <Link
                                                     to={commit.url}

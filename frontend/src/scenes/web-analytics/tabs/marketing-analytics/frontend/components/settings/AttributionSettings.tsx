@@ -140,7 +140,7 @@ export function AttributionSettings(): JSX.Element {
         <div className="space-y-4">
             <div>
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                    Attribution Settings
+                    <span>Attribution Settings</span>
                     {currentTeamLoading && <Spinner className="text-muted" />}
                 </h3>
                 <p className="text-muted-foreground text-sm mb-4">

@@ -208,9 +208,11 @@ function ChangeRequestTableActions({
                                     content: (
                                         <div className="text-sm text-secondary">
                                             This will add your approval to the change request.
-                                            {changeRequest.policy_snapshot?.quorum === 1
-                                                ? ' The change will be applied automatically.'
-                                                : ''}
+                                            {changeRequest.policy_snapshot?.quorum === 1 ? (
+                                                <span> The change will be applied automatically.</span>
+                                            ) : (
+                                                ''
+                                            )}
                                         </div>
                                     ),
                                     primaryButton: {

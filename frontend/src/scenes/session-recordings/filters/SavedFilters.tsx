@@ -64,8 +64,8 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                                 <p>
                                     You have {unwatchedSavedFiltersCount} unwatched recordings to watch out of a total
                                     of {totalSavedFiltersCount}
-                                    {recordings_counts.saved_filters?.has_more ? '+' : ''} that match these saved
-                                    filters.
+                                    {recordings_counts.saved_filters?.has_more ? <span>+</span> : ''} that match these
+                                    saved filters.
                                 </p>
                             ) : (
                                 <p>

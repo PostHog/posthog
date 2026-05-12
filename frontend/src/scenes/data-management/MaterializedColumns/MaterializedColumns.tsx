@@ -200,8 +200,8 @@ export function MaterializedColumns(): JSX.Element {
                                                 {typedUsage.used} / {typedUsage.total}
                                             </div>
                                             <div className="text-xs text-muted">
-                                                {typedUsage.available} slot{typedUsage.available !== 1 ? 's' : ''}{' '}
-                                                available
+                                                {typedUsage.available} slot
+                                                {typedUsage.available !== 1 ? <span>s</span> : ''} available
                                             </div>
                                         </div>
                                     )

@@ -130,8 +130,9 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                                                 {' ('}
                                                 <code className="text-xs text-muted bg-fill-secondary px-1 py-0.5 rounded">
                                                     {event.target_event.event}
-                                                    {event.target_event.event_type &&
-                                                        ` (${event.target_event.event_type})`}
+                                                    {event.target_event.event_type && (
+                                                        <span>{` (${event.target_event.event_type})`}</span>
+                                                    )}
                                                 </code>
                                                 )
                                             </>

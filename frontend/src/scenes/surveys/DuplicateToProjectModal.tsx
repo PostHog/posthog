@@ -81,7 +81,7 @@ export function DuplicateToProjectModal(): JSX.Element {
                         loading={duplicatedSurveyLoading}
                         disabledReason={selectedTeamIds.size === 0 ? 'Select at least one project' : undefined}
                     >
-                        Duplicate to {selectedTeamIds.size} project{selectedTeamIds.size !== 1 ? 's' : ''}
+                        Duplicate to {selectedTeamIds.size} project{selectedTeamIds.size !== 1 ? <span>s</span> : ''}
                     </LemonButton>
                 </>
             }

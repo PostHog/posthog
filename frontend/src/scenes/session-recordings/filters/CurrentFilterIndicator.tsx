@@ -39,7 +39,7 @@ export function CurrentFilterIndicator(): JSX.Element | null {
                 >
                     <span className="truncate">
                         {appliedSavedFilter.name || appliedSavedFilter.derived_name || 'Unnamed'}
-                        {hasFilterChanges && ' (edited)'}
+                        {hasFilterChanges && <span> (edited)</span>}
                     </span>
                 </LemonTag>
             </div>

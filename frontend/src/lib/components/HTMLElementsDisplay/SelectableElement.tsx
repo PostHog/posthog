@@ -227,14 +227,14 @@ export function SelectableElement({
             )}
         >
             {indent}
-            &lt;
+            <span>&lt;</span>
             <TagPart
                 tagName={element.tag_name}
                 selectedParts={parsedCSSSelector || ({} as ParsedCSSSelector)}
                 readonly={readonly}
                 onChange={setParsedCSSSelector}
             />
-            {element.attr_id && ' '}
+            {element.attr_id && <span> </span>}
             <IdPart
                 id={element.attr_id}
                 selectedParts={parsedCSSSelector || ({} as ParsedCSSSelector)}
@@ -257,7 +257,7 @@ export function SelectableElement({
                         />
                     )
                 })}
-            &gt;
+            <span>&gt;</span>
             <WithSelectedText text={element.text} selectedText={selectedText} />
             {isDeepestChild && <span>&lt;/{element.tag_name}&gt;</span>}
         </pre>

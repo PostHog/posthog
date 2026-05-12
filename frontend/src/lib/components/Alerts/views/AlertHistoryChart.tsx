@@ -425,7 +425,7 @@ export function AlertHistoryChart({
             )}
             {hasHistoricalFiringState && thresholdCtx && currentOnlyCount > 0 ? (
                 <p className="text-muted text-xs mb-0">
-                    {historicalCount > 0 ? 'Red squares fired at the time they ran. ' : ''}
+                    {historicalCount > 0 ? <span>Red squares fired at the time they ran. </span> : ''}
                     Orange triangles would fire under the current thresholds but didn't when they ran.
                 </p>
             ) : null}

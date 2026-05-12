@@ -219,7 +219,7 @@ export function PersonsModal({
                                 </>
                             ) : (
                                 <span>
-                                    {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
+                                    {actorsResponse?.next || actorsResponse?.offset ? <span>More than </span> : ''}
                                     <b>
                                         {totalActorsCount || 'No'} unique{' '}
                                         {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}

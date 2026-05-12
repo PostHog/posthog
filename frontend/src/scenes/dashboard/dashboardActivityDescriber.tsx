@@ -44,8 +44,11 @@ const dashboardActionsMapping: Record<
         return {
             description: [
                 <>
-                    renamed {asNotification && 'the dashboard '}"{change?.before}" to{' '}
-                    <strong>"{nameAndLink(logItem)}"</strong>
+                    <span>renamed </span>
+                    {asNotification && <span>the dashboard </span>}
+                    <span>"</span>
+                    {change?.before}
+                    <span>" to</span> <strong>"{nameAndLink(logItem)}"</strong>
                 </>,
             ],
             suffix: <></>,
@@ -58,7 +61,7 @@ const dashboardActionsMapping: Record<
             description: [
                 <>
                     {describeChange}
-                    {asNotification && ' the dashboard '}
+                    {asNotification && <span> the dashboard </span>}
                 </>,
             ],
             suffix: <>{nameAndLink(logItem)}</>,
@@ -68,8 +71,9 @@ const dashboardActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the description {asNotification && ' of the dashboard '}to{' '}
-                    <strong>"{change?.after as string}"</strong>
+                    <span>changed the description </span>
+                    {asNotification && <span> of the dashboard </span>}
+                    <span>to</span> <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -106,7 +110,9 @@ const dashboardActionsMapping: Record<
             description: [
                 <>
                     <div className="highlighted-activity">
-                        {isFavoriteAfter ? '' : 'un-'}pinned{asNotification && ' the dashboard '}
+                        {isFavoriteAfter ? '' : <span>un-</span>}
+                        <span>pinned</span>
+                        {asNotification && <span> the dashboard </span>}
                     </div>
                 </>,
             ],
@@ -179,7 +185,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         let extendedDescription: JSX.Element | undefined
         let changeSuffix: Description = (
             <>
-                on {asNotification && ' the dashboard '}
+                <span>on </span>
+                {asNotification && <span> the dashboard </span>}
                 {nameAndLink(logItem)}
             </>
         )

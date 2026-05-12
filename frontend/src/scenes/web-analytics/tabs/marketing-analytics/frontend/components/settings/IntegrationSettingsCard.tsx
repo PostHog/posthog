@@ -42,10 +42,14 @@ export function IntegrationSettingsCard({ integrationName }: IntegrationSettings
                     <div className="font-semibold text-sm">{integrationName}</div>
                     {hasSettings ? (
                         <div className="text-xs text-muted mt-1">
-                            {mappingsCount > 0 && `${mappingsCount} mapping${mappingsCount !== 1 ? 's' : ''}`}
-                            {mappingsCount > 0 && (sourcesCount > 0 || hasFieldPref) && ', '}
-                            {sourcesCount > 0 && `${sourcesCount} source${sourcesCount !== 1 ? 's' : ''}`}
-                            {sourcesCount > 0 && hasFieldPref && ', '}
+                            {mappingsCount > 0 && (
+                                <span>{`${mappingsCount} mapping${mappingsCount !== 1 ? 's' : ''}`}</span>
+                            )}
+                            {mappingsCount > 0 && (sourcesCount > 0 || hasFieldPref) && <span>, </span>}
+                            {sourcesCount > 0 && (
+                                <span>{`${sourcesCount} source${sourcesCount !== 1 ? 's' : ''}`}</span>
+                            )}
+                            {sourcesCount > 0 && hasFieldPref && <span>, </span>}
                             {hasFieldPref && fieldPreference.match_field}
                         </div>
                     ) : (

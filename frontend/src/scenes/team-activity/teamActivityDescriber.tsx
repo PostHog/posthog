@@ -638,7 +638,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
                     {changedTasks.map(([key, value], index) => (
                         <span key={key}>
                             {index > 0 && <>, </>}
-                            {value === 'completed' ? 'completed' : 'uncompleted'} onboarding task <em>{key}</em>
+                            {value === 'completed' ? 'completed' : 'uncompleted'} <span>onboarding task </span>
+                            <em>{key}</em>
                         </span>
                     ))}
                 </>,

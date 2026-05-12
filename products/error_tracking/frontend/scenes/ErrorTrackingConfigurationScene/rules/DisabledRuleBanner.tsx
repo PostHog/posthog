@@ -25,7 +25,7 @@ export function DisabledRuleBanner({ rule, onClose }: { rule: ErrorTrackingRule;
                 children: 'Contact support',
             }}
         >
-            This rule has been disabled due to an error. Saving will re-enable it.
+            <span>This rule has been disabled due to an error. Saving will re-enable it.</span>
             {message && <div className="mt-1 text-xs text-muted">Error: {message}</div>}
         </LemonBanner>
     )

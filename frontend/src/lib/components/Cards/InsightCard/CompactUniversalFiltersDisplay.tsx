@@ -158,7 +158,7 @@ export function CompactUniversalFiltersDisplay({
                                                     <code className="SeriesDisplay__value">{String(subValue)}</code>
                                                     {index <
                                                         (propertyFilter.value as PropertyFilterBaseValue[]).length -
-                                                            1 && ' or '}
+                                                            1 && <span> or </span>}
                                                 </React.Fragment>
                                             ))
                                         ) : propertyFilter.value != undefined ? (

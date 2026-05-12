@@ -249,7 +249,9 @@ function Step2Content(): JSX.Element {
 
     if (csvFailed) {
         return (
-            <LemonBanner type="error">CSV import failed{csvFailureDetail ? `: ${csvFailureDetail}` : ''}</LemonBanner>
+            <LemonBanner type="error">
+                CSV import failed{csvFailureDetail ? <span>{`: ${csvFailureDetail}`}</span> : ''}
+            </LemonBanner>
         )
     }
 

@@ -280,8 +280,8 @@ export function VisualReviewRunScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
                 <LemonBanner type="error">
-                    This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
-                    details, or rerun the job to try again.
+                    This run failed to process.{run.error_message ? <span>{` ${run.error_message}`}</span> : ''} Check
+                    the CI logs for details, or rerun the job to try again.
                 </LemonBanner>
             </SceneContent>
         )
@@ -397,7 +397,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         reviewPending > 0 && (
                                             <span key="pend">
                                                 <span className="font-semibold">{reviewPending}</span>
-                                                {hasMore ? '+' : ''} pending
+                                                {hasMore ? <span>+</span> : ''} pending
                                             </span>
                                         ),
                                         reviewApproved > 0 && (

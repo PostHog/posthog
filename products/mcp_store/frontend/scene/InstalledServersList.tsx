@@ -54,8 +54,12 @@ export function InstalledServersList(): JSX.Element | null {
                                     <div className="flex-1 min-w-0">
                                         <h4 className="mb-0 truncate">{installation.name}</h4>
                                         <div className="text-xs text-secondary truncate">
-                                            {toolCount} tool{toolCount === 1 ? '' : 's'}
-                                            {installation.description ? ` · ${installation.description}` : ''}
+                                            {toolCount} tool{toolCount === 1 ? '' : <span>s</span>}
+                                            {installation.description ? (
+                                                <span>{` · ${installation.description}`}</span>
+                                            ) : (
+                                                ''
+                                            )}
                                         </div>
                                     </div>
                                     {statusTag}

@@ -489,7 +489,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         </CodeSnippet>
 
                         <LemonBanner type="warning" className="mt-4">
-                            Your previous key{prevMaskedValue ? ` "${prevMaskedValue}"` : ''} is no longer valid.
+                            Your previous key{prevMaskedValue ? <span>{` "${prevMaskedValue}"`}</span> : ''} is no
+                            longer valid.
                         </LemonBanner>
                     </>
                 ),

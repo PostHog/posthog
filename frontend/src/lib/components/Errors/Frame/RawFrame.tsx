@@ -12,8 +12,8 @@ export function RawFrame({
     return (
         <>
             <p className="font-mono indent-[1rem] whitespace-no-wrap mb-0 line-clamp-1">
-                File "{frame.source || 'Unknown Source'}"{frame.line ? `, line: ${frame.line}` : ''}
-                {resolvedName ? `, in: ${resolvedName}` : ''}
+                File "{frame.source || 'Unknown Source'}"{frame.line ? <span>{`, line: ${frame.line}`}</span> : ''}
+                {resolvedName ? <span>{`, in: ${resolvedName}`}</span> : ''}
             </p>
             {record && record.context?.line.line && (
                 <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">

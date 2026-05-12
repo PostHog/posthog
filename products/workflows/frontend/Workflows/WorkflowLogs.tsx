@@ -122,7 +122,7 @@ function UpcomingOccurrences(): JSX.Element | null {
                 )}
                 <div className="text-xs text-muted mb-2">
                     <span className="font-semibold uppercase tracking-wide">Next occurrences</span>
-                    {timezone ? ` in ${timezone}` : ''}
+                    {timezone ? <span>{` in ${timezone}`}</span> : ''}
                 </div>
                 <div className="space-y-1.5">
                     <OccurrencesList

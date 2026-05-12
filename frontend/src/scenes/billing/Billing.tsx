@@ -161,10 +161,16 @@ export function Billing(): JSX.Element {
                         <div>
                             <p className="text-lg">You're on (a) trial</p>
                             <p>
-                                You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b>{' '}
-                                until <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.
-                                {billing.trial.type === 'autosubscribe' &&
-                                    ' At the end of the trial you will be automatically subscribed to the plan.'}
+                                <span>You are currently on a free trial for </span>
+                                <b>{toSentenceCase(billing.trial.target)} plan</b> <span>until </span>
+                                <b>{dayjs(billing.trial.expires_at).format('LL')}</b>
+                                <span>.</span>
+                                {billing.trial.type === 'autosubscribe' && (
+                                    <span>
+                                        {' '}
+                                        At the end of the trial you will be automatically subscribed to the plan.
+                                    </span>
+                                )}
                             </p>
                         </div>
                     </div>

@@ -109,7 +109,7 @@ function InternalInlineSourceSetup({
                                     size="small"
                                 >
                                     Show {hiddenSources.length} more source
-                                    {hiddenSources.length !== 1 ? 's' : ''}
+                                    {hiddenSources.length !== 1 ? <span>s</span> : ''}
                                 </LemonButton>
                             </div>
                         )}

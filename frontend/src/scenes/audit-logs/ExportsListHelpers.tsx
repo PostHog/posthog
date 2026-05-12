@@ -89,9 +89,9 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
             <div key="dates">
                 <strong>Date range:</strong>
                 <br />
-                {filters.start_date && `From: ${formatDate(filters.start_date)}`}
+                {filters.start_date && <span>{`From: ${formatDate(filters.start_date)}`}</span>}
                 {filters.start_date && filters.end_date && <br />}
-                {filters.end_date && `To: ${formatDate(filters.end_date)}`}
+                {filters.end_date && <span>{`To: ${formatDate(filters.end_date)}`}</span>}
             </div>
         )
     }
@@ -102,7 +102,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <strong>Users ({filters.users.length}):</strong>
                 <br />
                 {filters.users.slice(0, 5).join(', ')}
-                {filters.users.length > 5 && `... and ${filters.users.length - 5} more`}
+                {filters.users.length > 5 && <span>{`... and ${filters.users.length - 5} more`}</span>}
             </div>
         )
     }
@@ -113,7 +113,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <strong>Scopes ({filters.scopes.length}):</strong>
                 <br />
                 {filters.scopes.slice(0, 5).join(', ')}
-                {filters.scopes.length > 5 && `... and ${filters.scopes.length - 5} more`}
+                {filters.scopes.length > 5 && <span>{`... and ${filters.scopes.length - 5} more`}</span>}
             </div>
         )
     }
@@ -124,7 +124,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <strong>Activities ({filters.activities.length}):</strong>
                 <br />
                 {filters.activities.slice(0, 5).join(', ')}
-                {filters.activities.length > 5 && `... and ${filters.activities.length - 5} more`}
+                {filters.activities.length > 5 && <span>{`... and ${filters.activities.length - 5} more`}</span>}
             </div>
         )
     }
@@ -143,7 +143,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <strong>Detail filters ({detailFilterEntries.length}):</strong>
                 <br />
                 {detailFilterText.slice(0, 3).join(', ')}
-                {detailFilterText.length > 3 && `... and ${detailFilterText.length - 3} more`}
+                {detailFilterText.length > 3 && <span>{`... and ${detailFilterText.length - 3} more`}</span>}
             </div>
         )
     }
@@ -174,7 +174,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <strong>Item IDs ({filters.item_ids.length}):</strong>
                 <br />
                 {filters.item_ids.slice(0, 5).join(', ')}
-                {filters.item_ids.length > 5 && `... and ${filters.item_ids.length - 5} more`}
+                {filters.item_ids.length > 5 && <span>{`... and ${filters.item_ids.length - 5} more`}</span>}
             </div>
         )
     }
@@ -185,7 +185,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <strong>Clients ({filters.clients.length}):</strong>
                 <br />
                 {filters.clients.slice(0, 5).join(', ')}
-                {filters.clients.length > 5 && `... and ${filters.clients.length - 5} more`}
+                {filters.clients.length > 5 && <span>{`... and ${filters.clients.length - 5} more`}</span>}
             </div>
         )
     }

@@ -478,7 +478,7 @@ function SavedFilterNameEditor({
             >
                 <span className="truncate">
                     {appliedSavedFilter.name || appliedSavedFilter.derived_name || 'Unnamed'}
-                    {hasFilterChanges && ' (edited)'}
+                    {hasFilterChanges && <span> (edited)</span>}
                 </span>
             </LemonTag>
             <LemonButton

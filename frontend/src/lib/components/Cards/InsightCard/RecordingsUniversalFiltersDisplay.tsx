@@ -23,7 +23,7 @@ function DurationSummary({ filters }: { filters: RecordingUniversalFilters }): J
                     <span className="font-medium">
                         {humanFriendlyDurationFilter(durationFilter, durationFilter.key as DurationType)}
                     </span>
-                    {index < filters.duration.length - 1 && ' and '}
+                    {index < filters.duration.length - 1 && <span> and </span>}
                 </React.Fragment>
             ))}
         </InsightDetailSectionDisplay>

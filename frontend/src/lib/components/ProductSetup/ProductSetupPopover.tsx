@@ -487,7 +487,7 @@ function TaskHoverDescription({ task, anchored = false }: TaskHoverDescriptionPr
                     )}
                     {task.requiresManualCompletion && !task.completed && !task.skipped && (
                         <p className="text-xs text-muted mt-1 italic">
-                            Manual task – {task.docsUrl ? 'click for instructions, then ' : ''}
+                            Manual task – {task.docsUrl ? <span>click for instructions, then </span> : ''}
                             mark as complete when done.
                         </p>
                     )}

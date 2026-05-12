@@ -20,8 +20,9 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> logged in using {loginMethod}
-                    {reauthSensitiveOps && <> (re-authenticated for sensitive operations)</>}
+                    <strong>{userNameForLogItem(logItem)}</strong>
+                    <span> logged in using {loginMethod}</span>
+                    {reauthSensitiveOps && <span> (re-authenticated for sensitive operations)</span>}
                 </>
             ),
         }

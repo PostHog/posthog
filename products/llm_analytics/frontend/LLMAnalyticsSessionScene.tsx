@@ -143,7 +143,7 @@ function SessionSceneWrapper(): JSX.Element {
                             </LemonTag>
                             <LemonTag size="medium" className="bg-surface-primary">
                                 {sessionStats.traceCount}
-                                {hasMoreData ? '+' : ''} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
+                                {hasMoreData ? <span>+</span> : ''} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
                                 <LemonTag size="medium" className="bg-surface-primary">

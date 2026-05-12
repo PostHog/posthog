@@ -39,7 +39,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                     <Spinner className="text-4xl" />
                 </div>
             ) : (
-                <div className="p-2">No {searchTerm.length ? 'matching ' : ''}actions found.</div>
+                <div className="p-2">No {searchTerm.length ? <span>matching </span> : ''}actions found.</div>
             )}
         </div>
     )

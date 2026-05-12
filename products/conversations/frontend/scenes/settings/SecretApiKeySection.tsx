@@ -39,7 +39,7 @@ export function SecretApiKeySection(): JSX.Element {
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                 <div>
                     <h3 className="text-sm font-semibold mb-1">
-                        Primary key{' '}
+                        <span>Primary key</span>{' '}
                         {currentTeam?.secret_api_token && <span className="text-green-700 text-xs ml-2">(Active)</span>}
                     </h3>
                     <CodeSnippet

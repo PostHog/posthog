@@ -177,7 +177,7 @@ export const LemonFileInput = ({
                     {callToAction || (
                         <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
                             Click or drag and drop to upload
-                            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                            {accept ? <span>{` ${acceptToDisplayName(accept)}`}</span> : ''}
                         </LemonButton>
                     )}
                 </div>

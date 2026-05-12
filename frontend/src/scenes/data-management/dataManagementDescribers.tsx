@@ -61,8 +61,9 @@ const dataManagementActionsMapping: Record<
         return {
             description: [
                 <>
-                    marked {nameAndLink(logItem)} as <strong>{verified ? 'verified' : 'unverified'}</strong>{' '}
-                    {verified && <IconVerifiedEvent />}
+                    <span>marked </span>
+                    {nameAndLink(logItem)} <span>as </span>
+                    <strong>{verified ? 'verified' : 'unverified'}</strong> {verified && <IconVerifiedEvent />}
                 </>,
             ],
             suffix: <></>,

@@ -470,7 +470,7 @@ function AggregationTargetContext({ insightProps, isHogQL }: AggregationTargetCo
                 >
                     For more help
                 </Link>
-                . {isHogQL ? '(currently using SQL expression)' : ''}
+                . {isHogQL ? <span>(currently using SQL expression)</span> : ''}
             </span>
         </FieldDescription>
     )

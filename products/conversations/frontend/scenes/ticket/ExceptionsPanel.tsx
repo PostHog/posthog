@@ -21,7 +21,7 @@ export function ExceptionsPanel({ exceptionsQuery, sessionId, distinctId }: Exce
                     key: 'exceptions',
                     header: (
                         <>
-                            Exceptions
+                            <span>Exceptions</span>
                             {sessionId && <span className="text-muted-alt font-normal ml-1">(session)</span>}
                         </>
                     ),

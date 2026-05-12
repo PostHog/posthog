@@ -125,7 +125,9 @@ export function ExternalDataSourceConfiguration({
                             return (
                                 <span className="inline-flex items-centet gap-2">
                                     <Link to={urls.dataWarehouseSource(`managed-${source.id}`)}>
-                                        {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
+                                        {source.source_type}
+                                        <span>&nbsp;</span>
+                                        {source.prefix && <span>{`(${source.prefix})`}</span>}
                                     </Link>
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.RevenueAnalytics}

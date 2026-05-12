@@ -58,7 +58,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                         <LemonBanner type="warning">
                             <b>Warning:</b> This destination would have triggered{' '}
                             <strong>
-                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? <span>s</span> : ''}
                             </strong>{' '}
                             in the last 7 days. Consider the impact of this function on your destination.
                         </LemonBanner>
@@ -66,7 +66,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                         <p>
                             This {type} would have triggered{' '}
                             <strong>
-                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? <span>s</span> : ''}
                             </strong>{' '}
                             in the last 7 days.
                         </p>

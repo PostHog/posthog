@@ -74,7 +74,7 @@ export function SnapshotStatusIndicator({
                 {review && (
                     <span className={`text-xs ${review.className}`}>
                         {reviewState === 'approved' && <IconCheck className="w-3.5 h-3.5 inline" />}
-                        {reviewState === 'tolerated' && '~'}
+                        {reviewState === 'tolerated' && <span>~</span>}
                     </span>
                 )}
             </span>

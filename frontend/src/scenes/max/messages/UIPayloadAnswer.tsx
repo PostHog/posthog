@@ -338,7 +338,8 @@ export function SummarizeSessionsWidget({
             type="primary"
             className="bg-surface-primary w-fit mx-1"
         >
-            Open analysis of sessions{title && `: ${title}`}
+            <span>Open analysis of sessions</span>
+            {title && <span>{`: ${title}`}</span>}
         </LemonButton>
     )
 }

@@ -134,7 +134,7 @@ export function QueryTabs<Q extends Node>({
                   key: 'hogql',
                   label: (
                       <>
-                          SQL
+                          <span>SQL</span>
                           {hogQLTime && <LemonTag className="ml-2">{Math.floor(hogQLTime * 10) / 10}s</LemonTag>}
                       </>
                   ),

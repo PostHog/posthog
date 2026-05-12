@@ -40,7 +40,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     data-attr="navbar-settings"
                 >
                     <IconGear />
-                    {!isLayoutNavCollapsed && 'Settings'}
+                    {!isLayoutNavCollapsed && <span>Settings</span>}
                 </Link>
                 <Link
                     to={urls.exports()}
@@ -50,7 +50,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     data-attr="navbar-exports-button"
                 >
                     <IconDownload />
-                    {!isLayoutNavCollapsed && 'Exports'}
+                    {!isLayoutNavCollapsed && <span>Exports</span>}
                 </Link>
                 <HealthMenu iconOnly={isLayoutNavCollapsed} />
                 <HelpMenu iconOnly={isLayoutNavCollapsed} />

@@ -88,8 +88,8 @@ export function SnapshotClusterPanel({
                                     {cluster.x},{cluster.y} · {cluster.width}×{cluster.height}
                                 </div>
                                 <div className="text-muted">
-                                    {formatNumber(cluster.pixel_count)} px
-                                    {pctOfImage != null && ` · ${pctOfImage.toFixed(2)}%`}
+                                    {formatNumber(cluster.pixel_count)} <span>px</span>
+                                    {pctOfImage != null && <span>{` · ${pctOfImage.toFixed(2)}%`}</span>}
                                 </div>
                             </div>
                         </button>

@@ -227,11 +227,12 @@ export function OpenQuestionSummaryV2({
                     <div className="flex items-center justify-between text-xs text-muted mt-3 pt-2 border-t">
                         <div className="flex items-center gap-2">
                             <span>
-                                Based on {summary.responseCount}
+                                <span>Based on </span>
+                                {summary.responseCount}
                                 {totalResponses > summary.responseCount
                                     ? ` of ${totalResponses} responses (sampled)`
                                     : ' responses'}
-                                {generatedTime.isValid() && ` • ${generatedTime.fromNow()}`}
+                                {generatedTime.isValid() && <span>{` • ${generatedTime.fromNow()}`}</span>}
                                 {' • AI-generated • Verify key details'}
                             </span>
                             {dataProcessingAccepted || !showConsentPopover ? (

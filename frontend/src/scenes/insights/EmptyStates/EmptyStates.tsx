@@ -710,7 +710,7 @@ export function FunnelDataWarehouseStepIncompleteState(): JSX.Element {
             <IconFunnels className="text-4xl shrink-0 text-muted mb-2" />
 
             <h2 className="text-xl leading-tight font-medium mb-0">
-                Complete your data warehouse step{incompleteSteps.length === 1 ? '' : 's'}!
+                Complete your data warehouse step{incompleteSteps.length === 1 ? '' : <span>s</span>}!
             </h2>
             <p className="text-sm text-muted mb-1">
                 {incompleteSteps.length > 1

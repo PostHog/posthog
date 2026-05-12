@@ -68,7 +68,7 @@ export function OccurrencesList({
             <>
                 {head.map((date, i) => renderRow(date, i))}
                 <div className="text-xs text-muted italic pl-4">
-                    ...{hiddenCount} more occurrence{hiddenCount > 1 ? 's' : ''}...
+                    ...{hiddenCount} more occurrence{hiddenCount > 1 ? <span>s</span> : ''}...
                 </div>
                 {tail.map((date, i) => renderRow(date, total - VISIBLE_TAIL + i))}
             </>

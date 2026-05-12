@@ -73,13 +73,16 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                     </LemonButton>
                     <LemonButton type="primary" onClick={() => submitCreditForm()} loading={isCreditFormSubmitting}>
                         Buy{' '}
-                        {creditForm.creditInput
-                            ? `$${Math.round(creditInputValue).toLocaleString('en-US', {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 0,
-                              })}`
-                            : ''}{' '}
-                        credits {creditDiscount > 0 ? `at ${floatDiscountToText(creditDiscount)} off` : ''}
+                        {creditForm.creditInput ? (
+                            <span>{`$${Math.round(creditInputValue).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                            })}`}</span>
+                        ) : (
+                            ''
+                        )}{' '}
+                        credits{' '}
+                        {creditDiscount > 0 ? <span>{`at ${floatDiscountToText(creditDiscount)} off`}</span> : ''}
                     </LemonButton>
                 </>
             }

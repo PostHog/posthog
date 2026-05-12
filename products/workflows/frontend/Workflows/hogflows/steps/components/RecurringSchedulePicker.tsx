@@ -225,7 +225,7 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
                                 ? `${previewOccurrences.length} occurrences`
                                 : 'Next occurrences'}
                         </span>
-                        {timezone ? ` in ${timezone}` : ''}
+                        {timezone ? <span>{` in ${timezone}`}</span> : ''}
                     </div>
                     <div className="space-y-1.5">
                         <OccurrencesList

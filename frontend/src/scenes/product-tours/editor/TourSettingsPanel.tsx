@@ -268,7 +268,7 @@ export function TourSettingsPanel({ tourId }: TourSettingsPanelProps): JSX.Eleme
                                           key: 'translations',
                                           header: (
                                               <div className="flex gap-2 items-center">
-                                                  Translations
+                                                  <span>Translations</span>
                                                   {selectedLanguage && <LemonTag>{selectedLanguage}</LemonTag>}
                                               </div>
                                           ),

@@ -226,7 +226,7 @@ export function getDatumTitle(
                             ) : (
                                 <span>{midEllipsis(pill, 60)}</span>
                             )}
-                            {index < pillValues.length - 1 && ' · '}
+                            {index < pillValues.length - 1 && <span> · </span>}
                         </React.Fragment>
                     )
                 })}

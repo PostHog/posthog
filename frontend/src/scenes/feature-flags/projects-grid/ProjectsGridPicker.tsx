@@ -87,7 +87,7 @@ export function ProjectsGridPicker(): JSX.Element {
             }
         >
             <LemonButton type="secondary" icon={<IconPlus />} data-attr="projects-grid-picker">
-                Projects
+                <span>Projects</span>
                 {pickedTeamIds.length > 0 && <span className="ml-1 text-tertiary">({pickedTeamIds.length})</span>}
             </LemonButton>
         </LemonDropdown>

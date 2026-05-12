@@ -82,7 +82,7 @@ export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element |
                                 <Tooltip title={job.error}>
                                     <span className="text-danger truncate max-w-xs inline-block">
                                         {job.error.slice(0, 80)}
-                                        {job.error.length > 80 ? '...' : ''}
+                                        {job.error.length > 80 ? <span>...</span> : ''}
                                     </span>
                                 </Tooltip>
                             ) : (

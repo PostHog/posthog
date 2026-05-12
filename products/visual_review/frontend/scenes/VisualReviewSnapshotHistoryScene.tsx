@@ -222,7 +222,10 @@ function QuarantineSection({
                 }}
             >
                 <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-semibold">Quarantined{label && ` (${label})`}</span>
+                    <span className="font-semibold">
+                        <span>Quarantined</span>
+                        {label && <span>{` (${label})`}</span>}
+                    </span>
                     <span>— {quarantineEntry.reason || 'no reason given'}</span>
                     {expires && (
                         <>

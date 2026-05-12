@@ -68,8 +68,9 @@ export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicPro
                 <>
                     <div className="px-4 py-2 border-b text-sm text-muted">
                         <div>
-                            {areaEvents.total_count} event{areaEvents.total_count !== 1 ? 's' : ''} found
-                            {areaEvents.has_more && ` (showing ${areaEvents.results.length})`}
+                            {areaEvents.total_count} <span>event</span>
+                            {areaEvents.total_count !== 1 ? <span>s</span> : ''} <span>found</span>
+                            {areaEvents.has_more && <span>{` (showing ${areaEvents.results.length})`}</span>}
                         </div>
                         <div className="text-xs mt-1">
                             Note: These are raw events at this exact coordinate. The heatmap display uses interpolation,

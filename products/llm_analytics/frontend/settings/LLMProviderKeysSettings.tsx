@@ -606,7 +606,7 @@ function DeleteKeyModal({
                         <div className="bg-bg-light border rounded p-3">
                             <p className="font-medium mb-2">
                                 {dependentConfigs!.evaluations.length} evaluation
-                                {dependentConfigs!.evaluations.length === 1 ? '' : 's'} using this key:
+                                {dependentConfigs!.evaluations.length === 1 ? '' : <span>s</span>} using this key:
                             </p>
                             <ul className="list-disc pl-4 text-sm text-muted space-y-1">
                                 {dependentConfigs!.evaluations.map((evaluation) => (
@@ -704,9 +704,11 @@ function AssignKeyModal(): JSX.Element | null {
                         onClick={() => confirmAssignKey(Array.from(selectedIds), enableAfterAssign && hasDisabledEvals)}
                     >
                         Apply key
-                        {selectedIds.size > 0
-                            ? ` to ${selectedIds.size} evaluation${selectedIds.size !== 1 ? 's' : ''}`
-                            : ''}
+                        {selectedIds.size > 0 ? (
+                            <span>{` to ${selectedIds.size} evaluation${selectedIds.size !== 1 ? 's' : ''}`}</span>
+                        ) : (
+                            ''
+                        )}
                     </LemonButton>
                 </>
             }

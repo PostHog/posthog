@@ -268,7 +268,7 @@ function EventTriggerRow({
                 {hasProperties && (
                     <span className="text-xs text-muted flex items-center gap-1">
                         <IconFilter className="w-3 h-3" />
-                        {event.properties!.length} filter{event.properties!.length !== 1 ? 's' : ''}
+                        {event.properties!.length} filter{event.properties!.length !== 1 ? <span>s</span> : ''}
                     </span>
                 )}
                 <LemonButton size="xsmall" status="danger" onClick={onRemove}>

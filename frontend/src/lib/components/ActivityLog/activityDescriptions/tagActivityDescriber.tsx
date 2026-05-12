@@ -92,7 +92,7 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
 
     return (
         <>
-            {preposition && `${preposition} `}
+            {preposition && <span>{`${preposition} `}</span>}
             {objectTypeDisplayName} {getObjectLink()}
         </>
     )

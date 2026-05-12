@@ -119,8 +119,8 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
 
                 {events.length > 1 && (
                     <span className="text-xs text-muted-foreground">
-                        Showing most recent event. {events.length - 1} more event{events.length - 1 === 1 ? '' : 's'} in
-                        this issue.
+                        Showing most recent event. {events.length - 1} more event
+                        {events.length - 1 === 1 ? '' : <span>s</span>} in this issue.
                     </span>
                 )}
             </div>

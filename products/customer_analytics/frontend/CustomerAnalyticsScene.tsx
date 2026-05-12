@@ -129,7 +129,7 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                             {isEditMode ? (
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-muted font-medium whitespace-nowrap">
-                                        {stagedNodes.length} step{stagedNodes.length !== 1 ? 's' : ''} to add
+                                        {stagedNodes.length} step{stagedNodes.length !== 1 ? <span>s</span> : ''} to add
                                     </span>
                                     <LemonButton type="secondary" size="small" onClick={cancelChanges}>
                                         Cancel

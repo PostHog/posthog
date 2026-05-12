@@ -424,7 +424,8 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         let changes: Description[] = []
         let changeSuffix: Description = (
             <>
-                on {asNotification && ' the flag '}
+                <span>on </span>
+                {asNotification && <span> the flag </span>}
                 {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
             </>
         )

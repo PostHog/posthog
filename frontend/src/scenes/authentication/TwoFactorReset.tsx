@@ -37,7 +37,7 @@ export function TwoFactorReset(): JSX.Element {
                 message={
                     <>
                         Welcome to
-                        <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                        <br /> PostHog{preflight?.cloud ? <span> Cloud</span> : ''}!
                     </>
                 }
             >
@@ -58,7 +58,7 @@ export function TwoFactorReset(): JSX.Element {
                 message={
                     <>
                         Welcome to
-                        <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                        <br /> PostHog{preflight?.cloud ? <span> Cloud</span> : ''}!
                     </>
                 }
             >
@@ -82,7 +82,7 @@ export function TwoFactorReset(): JSX.Element {
                 message={
                     <>
                         Welcome to
-                        <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                        <br /> PostHog{preflight?.cloud ? <span> Cloud</span> : ''}!
                     </>
                 }
             >
@@ -111,7 +111,7 @@ export function TwoFactorReset(): JSX.Element {
             message={
                 <>
                     Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                    <br /> PostHog{preflight?.cloud ? <span> Cloud</span> : ''}!
                 </>
             }
         >

@@ -154,11 +154,17 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         fullWidth
                     />
                     <div className="text-xs text-muted mt-1">
-                        {exposureCriteria?.multiple_variant_handling === 'first_seen' &&
-                            'Users exposed to multiple variants will be analyzed using their first seen variant.'}
+                        {exposureCriteria?.multiple_variant_handling === 'first_seen' && (
+                            <span>
+                                Users exposed to multiple variants will be analyzed using their first seen variant.
+                            </span>
+                        )}
                         {(!exposureCriteria?.multiple_variant_handling ||
-                            exposureCriteria?.multiple_variant_handling === 'exclude') &&
-                            'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
+                            exposureCriteria?.multiple_variant_handling === 'exclude') && (
+                            <span>
+                                Users exposed to multiple variants will be excluded from the analysis (recommended).
+                            </span>
+                        )}
                     </div>
                 </div>
                 <TestAccountFilterSwitch

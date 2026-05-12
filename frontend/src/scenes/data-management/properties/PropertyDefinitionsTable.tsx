@@ -80,7 +80,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 }}
             />
             <LemonBanner type="info">
-                Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
+                Looking for {filters.type === 'person' ? <span>person </span> : ''}property usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL({
                         query:

@@ -152,7 +152,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
             <div className="space-y-4">
                 <h4>
                     Are you sure you want to delete {selectedRecordingsIds.length} recording
-                    {selectedRecordingsIds.length > 1 ? 's' : ''}?
+                    {selectedRecordingsIds.length > 1 ? <span>s</span> : ''}?
                 </h4>
                 <div className="space-y-2">
                     <label className="text-sm">
@@ -208,7 +208,7 @@ function NewCollectionModal(): JSX.Element {
                 <p>
                     Collections help you organize and save recordings for later analysis. This will create a new
                     collection with the {selectedRecordingsIds.length} selected recording
-                    {selectedRecordingsIds.length > 1 ? 's' : ''}.
+                    {selectedRecordingsIds.length > 1 ? <span>s</span> : ''}.
                 </p>
                 <div className="space-y-2">
                     <label className="text-sm font-medium">Collection name</label>

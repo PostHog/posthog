@@ -203,9 +203,11 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                         const propertyCount = condition.properties?.length ?? 0
                         return (
                             <LemonTag key={condition.id} type="option">
-                                {parseFloat((condition.rollout_percentage ?? 0).toFixed(2))}%
-                                {propertyCount > 0 &&
-                                    ` when ${propertyCount} condition${propertyCount !== 1 ? 's' : ''}`}
+                                {parseFloat((condition.rollout_percentage ?? 0).toFixed(2))}
+                                <span>%</span>
+                                {propertyCount > 0 && (
+                                    <span>{` when ${propertyCount} condition${propertyCount !== 1 ? 's' : ''}`}</span>
+                                )}
                             </LemonTag>
                         )
                     })}
@@ -232,7 +234,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                 return (
                     <div className="flex flex-col items-center">
                         <div className="text-sm">
-                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
+                            {stats.runs_count} run{stats.runs_count !== 1 ? <span>s</span> : ''}
                         </div>
                         <div className={`font-semibold ${passRateColor}`}>
                             {parseFloat(stats.pass_rate.toFixed(2))}%

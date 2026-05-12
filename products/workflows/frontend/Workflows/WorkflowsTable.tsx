@@ -366,7 +366,8 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                     {isArchived && selectedArchivedCount > 0 && (
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-muted text-sm">
-                                {selectedArchivedCount} workflow{selectedArchivedCount !== 1 ? 's' : ''} selected
+                                {selectedArchivedCount} workflow{selectedArchivedCount !== 1 ? <span>s</span> : ''}{' '}
+                                selected
                             </span>
                             <LemonButton
                                 type="secondary"

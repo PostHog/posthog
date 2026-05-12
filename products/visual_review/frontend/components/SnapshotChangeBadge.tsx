@@ -153,7 +153,7 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
                 }`}
             >
                 <IconWarning className={iconClass} />
-                {!isCompact && 'Size changed'}
+                {!isCompact && <span>Size changed</span>}
             </span>
         </Tooltip>
     ) : null

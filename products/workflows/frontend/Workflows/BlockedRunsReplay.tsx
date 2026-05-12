@@ -172,7 +172,7 @@ export function BlockedRunsReplay({ id }: { id: string }): JSX.Element {
             {selectedCount > 0 && (
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">
-                        {selectedCount} run{selectedCount !== 1 ? 's' : ''} selected
+                        {selectedCount} run{selectedCount !== 1 ? <span>s</span> : ''} selected
                     </span>
                     <LemonButton type="primary" size="small" onClick={confirmReplay}>
                         Replay selected

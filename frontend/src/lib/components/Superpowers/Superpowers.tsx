@@ -191,8 +191,8 @@ function SuperpowersContent(): JSX.Element {
 
             <div className="text-xs text-secondary">
                 <div>
-                    User: {user?.email} {user?.is_staff ? '(staff)' : ''}{' '}
-                    {user?.is_impersonated ? '(impersonated)' : ''}
+                    User: {user?.email} {user?.is_staff ? <span>(staff)</span> : ''}{' '}
+                    {user?.is_impersonated ? <span>(impersonated)</span> : ''}
                 </div>
                 <div>Team ID: {currentTeam?.id}</div>
             </div>

@@ -81,7 +81,7 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">
-                                    {data.results.length} action{data.results.length === 1 ? '' : 's'}
+                                    {data.results.length} action{data.results.length === 1 ? '' : <span>s</span>}
                                 </span>
                             </div>
                             <DataTable<ActionData>

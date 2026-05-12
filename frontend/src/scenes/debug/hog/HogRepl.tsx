@@ -115,7 +115,7 @@ export function ReplChunk({
                                 {line.map((arg, argIndex) => (
                                     <React.Fragment key={argIndex}>
                                         {printRichHogOutput(arg)}
-                                        {argIndex < line.length - 1 ? ' ' : ''}
+                                        {argIndex < line.length - 1 ? <span> </span> : ''}
                                     </React.Fragment>
                                 ))}
                             </div>

@@ -117,7 +117,8 @@ const surveyActionsMapping: Record<
         return {
             description: [
                 <>
-                    updated <strong>{questionChanges.length}</strong> question{questionChanges.length !== 1 ? 's' : ''}:
+                    updated <strong>{questionChanges.length}</strong> question
+                    {questionChanges.length !== 1 ? <span>s</span> : ''}:
                     <ul className="bullet-list">
                         {questionChanges.map(({ index, changes }) => (
                             <li key={index}>
@@ -590,7 +591,7 @@ export function describeFieldChange<T>(fieldName: string, before: T, after: T, u
                 set {fieldName} to{' '}
                 <strong>
                     {String(after)}
-                    {unit ? ` ${unit}` : ''}
+                    {unit ? <span>{` ${unit}`}</span> : ''}
                 </strong>
             </>
         )
@@ -600,7 +601,7 @@ export function describeFieldChange<T>(fieldName: string, before: T, after: T, u
                 removed {fieldName} (was{' '}
                 <strong>
                     {String(before)}
-                    {unit ? ` ${unit}` : ''}
+                    {unit ? <span>{` ${unit}`}</span> : ''}
                 </strong>
                 )
             </>
@@ -611,12 +612,12 @@ export function describeFieldChange<T>(fieldName: string, before: T, after: T, u
                 changed {fieldName} from{' '}
                 <strong>
                     {String(before)}
-                    {unit ? ` ${unit}` : ''}
+                    {unit ? <span>{` ${unit}`}</span> : ''}
                 </strong>{' '}
                 to{' '}
                 <strong>
                     {String(after)}
-                    {unit ? ` ${unit}` : ''}
+                    {unit ? <span>{` ${unit}`}</span> : ''}
                 </strong>
             </>
         )

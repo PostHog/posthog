@@ -336,7 +336,7 @@ function ImplementStep(): JSX.Element {
                                 </CodeSnippet>
                                 <p className="text-xs text-muted mt-2">
                                     Send survey events directly.
-                                    {followUpEnabled ? " You'll need to build your own follow-up UI." : ''}
+                                    {followUpEnabled ? <span> You'll need to build your own follow-up UI.</span> : ''}
                                 </p>
                             </div>
                         ),

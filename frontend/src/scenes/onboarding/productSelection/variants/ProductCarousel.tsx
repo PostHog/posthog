@@ -696,7 +696,8 @@ export function ProductCarousel({ mode, recommendationSource }: ProductCarouselP
                                 sideIcon={<IconArrowRight />}
                                 data-attr="onboarding-continue"
                             >
-                                Get started{selectedProducts.length > 1 ? ` (${selectedProducts.length})` : ''}
+                                Get started
+                                {selectedProducts.length > 1 ? <span>{` (${selectedProducts.length})`}</span> : ''}
                             </LemonButton>
                         </div>
                     )

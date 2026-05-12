@@ -224,8 +224,9 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
                                     <>
                                         {totalPrimaryMetrics > 1 && (
                                             <div className="text-xs text-muted mb-1">
-                                                Showing most significant of {totalPrimaryMetrics} metrics
-                                                {bestMetric.metric.name && `: ${bestMetric.metric.name}`}
+                                                <span>Showing most significant of </span>
+                                                {totalPrimaryMetrics} <span>metrics</span>
+                                                {bestMetric.metric.name && <span>{`: ${bestMetric.metric.name}`}</span>}
                                             </div>
                                         )}
                                         <NotebookWinningVariantSummary

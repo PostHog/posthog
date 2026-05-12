@@ -95,7 +95,7 @@ export function DataWarehouseManagedViewsetImpactModal({
 
                 <div>
                     <p className="font-semibold mb-2">
-                        The following {views.length} view{views.length !== 1 ? 's' : ''} {viewsActionText}:
+                        The following {views.length} view{views.length !== 1 ? <span>s</span> : ''} {viewsActionText}:
                     </p>
                     <div className="flex flex-wrap gap-2 max-w-2xl">
                         {viewsLoading ? (

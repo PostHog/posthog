@@ -90,7 +90,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">
-                                    {data.results.length} survey{data.results.length === 1 ? '' : 's'}
+                                    {data.results.length} survey{data.results.length === 1 ? '' : <span>s</span>}
                                 </span>
                             </div>
                             <DataTable<SurveyData>

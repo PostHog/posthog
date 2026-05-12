@@ -241,7 +241,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             message={
                 <>
                     Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                    <br /> PostHog{preflight?.cloud ? <span> Cloud</span> : ''}!
                 </>
             }
             leftContainerContent={

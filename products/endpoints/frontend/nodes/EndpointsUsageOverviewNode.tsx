@@ -147,7 +147,7 @@ const ItemCell = ({ item, isPrimary }: { item: Item; isPrimary: boolean }): JSX.
                           : 'text-muted'
                 )}
             >
-                {item.item.changeFromPreviousPct > 0 ? '+' : ''}
+                {item.item.changeFromPreviousPct > 0 ? <span>+</span> : ''}
                 {item.item.changeFromPreviousPct.toFixed(1)}%
             </div>
         ) : null

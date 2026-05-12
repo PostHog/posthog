@@ -194,7 +194,9 @@ export function CouponRedemption({
 
                     {/* Step 2: Redeem coupon */}
                     <div className="bg-surface-secondary rounded-lg p-6">
-                        <h2 className="text-xl mb-4">{requiresBilling ? 'Step 2: ' : ''}Redeem your coupon</h2>
+                        <h2 className="text-xl mb-4">
+                            {requiresBilling ? <span>Step 2: </span> : ''}Redeem your coupon
+                        </h2>
 
                         {couponsOverviewLoading ? (
                             <div className="flex items-center gap-2">
@@ -208,9 +210,11 @@ export function CouponRedemption({
                                     <span>Coupon redeemed successfully!</span>
                                 </div>
                                 <p className="text-muted">
-                                    Your organization now has access to {config.name} benefits.
-                                    {claimedDetails?.expires_at &&
-                                        ` Valid until ${dayjs(claimedDetails.expires_at).format('LL')}.`}
+                                    <span>Your organization now has access to </span>
+                                    {config.name} <span>benefits.</span>
+                                    {claimedDetails?.expires_at && (
+                                        <span>{` Valid until ${dayjs(claimedDetails.expires_at).format('LL')}.`}</span>
+                                    )}
                                 </p>
                                 {renderSuccessActions ? (
                                     renderSuccessActions()
@@ -240,9 +244,11 @@ export function CouponRedemption({
                                     <span>You've already claimed this offer!</span>
                                 </div>
                                 <p className="text-muted">
-                                    Your organization has already claimed {config.name} coupon.
-                                    {alreadyClaimed.expires_at &&
-                                        ` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}
+                                    <span>Your organization has already claimed </span>
+                                    {config.name} <span>coupon.</span>
+                                    {alreadyClaimed.expires_at && (
+                                        <span>{` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}</span>
+                                    )}
                                 </p>
                                 {renderSuccessActions ? (
                                     renderSuccessActions()

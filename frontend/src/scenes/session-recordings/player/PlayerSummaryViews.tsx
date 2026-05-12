@@ -624,10 +624,10 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
                     {counter !== undefined && (
                         <span className="font-semibold">
                             ({counter}
-                            {outOf ? ` out of ${outOf}` : ''})
+                            {outOf ? <span>{` out of ${outOf}`}</span> : ''})
                         </span>
                     )}
-                    {name ? ':' : ''}
+                    {name ? <span>:</span> : ''}
                 </span>
                 <div className="flex items-center gap-1 ml-auto font-mono text-xs">
                     <LoadingTimer operation={operation} />

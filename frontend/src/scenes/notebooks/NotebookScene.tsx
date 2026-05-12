@@ -140,9 +140,11 @@ export function NotebookScene(): JSX.Element {
                             }
                         }}
                     >
-                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
-                            ? 'Close '
-                            : ''}
+                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible' ? (
+                            <span>Close </span>
+                        ) : (
+                            ''
+                        )}
                         Guide
                     </LemonButton>
                     <NotebookTableOfContentsButton type="secondary" size="small" />

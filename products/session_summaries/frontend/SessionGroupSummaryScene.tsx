@@ -193,7 +193,8 @@ function PatternCard({
                 <h3 className="text-base font-medium mb-0">{pattern.pattern_name}</h3>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted mb-2">
                     <span>
-                        {pattern.stats.sessions_affected} session{pattern.stats.sessions_affected > 1 ? 's' : ''}
+                        {pattern.stats.sessions_affected} session
+                        {pattern.stats.sessions_affected > 1 ? <span>s</span> : ''}
                     </span>
                     <span className="hidden sm:inline">·</span>
                     <span>{(pattern.stats.sessions_affected_ratio * 100).toFixed(0)}%</span>

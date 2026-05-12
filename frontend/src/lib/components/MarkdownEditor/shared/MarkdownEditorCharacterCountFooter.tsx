@@ -16,7 +16,7 @@ export function MarkdownEditorCharacterCountFooter({
             }`}
         >
             {currentLength}/{maxLength} characters
-            {isAtCharacterLimit ? ' (limit reached)' : ''}
+            {isAtCharacterLimit ? <span> (limit reached)</span> : ''}
         </div>
     )
 }

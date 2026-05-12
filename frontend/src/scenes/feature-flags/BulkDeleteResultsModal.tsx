@@ -148,7 +148,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                         <div className="flex items-center gap-2 text-success font-medium">
                             <IconCheck className="text-lg" />
                             <span>
-                                Deleted {deleted.length} flag{deleted.length !== 1 ? 's' : ''}
+                                Deleted {deleted.length} flag{deleted.length !== 1 ? <span>s</span> : ''}
                             </span>
                         </div>
                         <FlagResultsList flags={deleted} />
@@ -160,7 +160,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                         <div className="flex items-center gap-2 text-danger font-medium">
                             <IconX className="text-lg" />
                             <span>
-                                Failed to delete {errors.length} flag{errors.length !== 1 ? 's' : ''}
+                                Failed to delete {errors.length} flag{errors.length !== 1 ? <span>s</span> : ''}
                             </span>
                         </div>
                         <ul className="list-none pl-6 space-y-1">
@@ -228,7 +228,7 @@ function FlagResultsList({ flags }: { flags: DeletedFlagInfo[] }): JSX.Element {
                     <span className="text-muted-alt">
                         {' '}
                         — {stateLabels[flag.rollout_state] ?? 'unknown state'}
-                        {flag.active_variant ? ` (variant: "${flag.active_variant}")` : ''}
+                        {flag.active_variant ? <span>{` (variant: "${flag.active_variant}")`}</span> : ''}
                     </span>
                 </li>
             ))}

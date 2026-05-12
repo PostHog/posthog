@@ -82,7 +82,7 @@ export function MatchResultBanner({
     const issuesLink = (
         <Link to={`${window.location.origin}${issuesUrl}`} target="_blank" targetBlankIcon={false}>
             {matchResult.issueCount.toLocaleString()} issue
-            {matchResult.issueCount === 1 ? '' : 's'}
+            {matchResult.issueCount === 1 ? '' : <span>s</span>}
         </Link>
     )
 
@@ -95,13 +95,13 @@ export function MatchResultBanner({
                     ~{Math.round(matchResult.exceptionCount * samplingRate).toLocaleString()} of{' '}
                     <Link to={`${window.location.origin}${exceptionsUrl}`} target="_blank" targetBlankIcon={false}>
                         {matchResult.exceptionCount.toLocaleString()} matching exception
-                        {matchResult.exceptionCount === 1 ? '' : 's'}
+                        {matchResult.exceptionCount === 1 ? '' : <span>s</span>}
                     </Link>
                 </>
             ) : (
                 <Link to={`${window.location.origin}${exceptionsUrl}`} target="_blank" targetBlankIcon={false}>
                     {matchResult.exceptionCount.toLocaleString()} exception
-                    {matchResult.exceptionCount === 1 ? '' : 's'}
+                    {matchResult.exceptionCount === 1 ? '' : <span>s</span>}
                 </Link>
             )}{' '}
             {suffix(issuesLink, dateRangeLabel)}

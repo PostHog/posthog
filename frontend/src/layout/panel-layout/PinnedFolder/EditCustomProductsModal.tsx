@@ -45,7 +45,7 @@ export function EditCustomProductsModal(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <div>
                     <p className="text-sm text-muted">
-                        Select which products you want to see in your sidebar. You can change this anytime.
+                        <span>Select which products you want to see in your sidebar. You can change this anytime.</span>
                         {customProductsLoading && <Spinner />}
                     </p>
                 </div>

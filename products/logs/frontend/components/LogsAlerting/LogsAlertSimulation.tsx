@@ -207,8 +207,8 @@ function SimulationIncidents({ incidents, threshold }: { incidents: Incident[]; 
     if (incidents.length === 0) {
         return (
             <div className="text-center py-4 text-secondary text-sm border rounded">
-                No alerts — the alert would not have fired during this period.
-                {threshold > 0 && ' Consider lowering the threshold.'}
+                <span>No alerts — the alert would not have fired during this period.</span>
+                {threshold > 0 && <span> Consider lowering the threshold.</span>}
             </div>
         )
     }

@@ -278,7 +278,8 @@ function SkillViewDetails(): JSX.Element {
                     </LemonTag>
                 )}
                 <span className="text-secondary text-sm">
-                    This skill has {skill.version_count} published version{skill.version_count === 1 ? '' : 's'}.
+                    This skill has {skill.version_count} published version
+                    {skill.version_count === 1 ? '' : <span>s</span>}.
                 </span>
             </div>
 

@@ -101,7 +101,7 @@ export function SceneTextarea({
                     )
                 ) : (
                     <span className="text-tertiary font-normal">
-                        No {name} {optional ? '(optional)' : ''}
+                        No {name} {optional ? <span>(optional)</span> : ''}
                     </span>
                 )}
             </ButtonPrimitive>

@@ -90,7 +90,7 @@ function RelatedIssuesList({ issues }: RelatedIssuesListProps): JSX.Element {
     return (
         <div className="flex flex-col">
             <p className="text-muted text-sm mb-2">
-                {issues.length} error{issues.length !== 1 ? 's' : ''} found in this session
+                {issues.length} error{issues.length !== 1 ? <span>s</span> : ''} found in this session
             </p>
             {issues.map((issue) => (
                 <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />

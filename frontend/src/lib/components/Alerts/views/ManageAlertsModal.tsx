@@ -65,11 +65,13 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
 
     return (
         <div className="text-secondary pl-3">
-            {bounds?.lower != null &&
-                `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
-            {bounds?.lower != null && bounds?.upper != null ? ' · ' : ''}
-            {bounds?.upper != null &&
-                `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
+            {bounds?.lower != null && (
+                <span>{`Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}</span>
+            )}
+            {bounds?.lower != null && bounds?.upper != null ? <span> · </span> : ''}
+            {bounds?.upper != null && (
+                <span>{`High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}</span>
+            )}
         </div>
     )
 }

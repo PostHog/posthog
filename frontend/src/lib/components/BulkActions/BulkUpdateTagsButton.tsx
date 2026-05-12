@@ -81,7 +81,7 @@ export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkU
             overlay={
                 <div className="p-3 space-y-3 w-80">
                     <div className="font-medium text-sm">
-                        Update tags for {selectedIds.length} item{selectedIds.length !== 1 ? 's' : ''}
+                        Update tags for {selectedIds.length} item{selectedIds.length !== 1 ? <span>s</span> : ''}
                     </div>
                     <LemonSegmentedButton
                         value={tagAction}

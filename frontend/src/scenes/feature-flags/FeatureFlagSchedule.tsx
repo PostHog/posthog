@@ -251,7 +251,7 @@ function ChangeDescription({
                 <IconList className="text-muted" />
                 <span className="font-medium">Update variants:</span>
                 <LemonTag type="highlight">
-                    {variantCount} variant{variantCount !== 1 ? 's' : ''}
+                    {variantCount} variant{variantCount !== 1 ? <span>s</span> : ''}
                 </LemonTag>
             </div>
         )
@@ -1215,7 +1215,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                                 <b>Update variants:</b>
                             </span>
                             <LemonTag type="highlight">
-                                {variantCount} variant{variantCount !== 1 ? 's' : ''}
+                                {variantCount} variant{variantCount !== 1 ? <span>s</span> : ''}
                             </LemonTag>
                         </div>
                     )

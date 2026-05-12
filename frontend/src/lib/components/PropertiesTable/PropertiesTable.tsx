@@ -192,7 +192,7 @@ function ValueDisplay({
                                 icon={isTypeMismatched ? <IconWarning /> : undefined}
                             >
                                 {valueType}
-                                {isTypeMismatched && ' (mismatched)'}
+                                {isTypeMismatched && <span> (mismatched)</span>}
                             </LemonTag>
                         </Link>
                     </Tooltip>

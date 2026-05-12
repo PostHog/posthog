@@ -57,7 +57,7 @@ const SourceStatusMessage = ({
     return (
         <>
             <strong>
-                {length} source{length > 1 ? 's' : ''} {length > 1 ? pluralVerb : singularVerb} {message}
+                {length} source{length > 1 ? <span>s</span> : ''} {length > 1 ? pluralVerb : singularVerb} {message}
             </strong>
             .{' '}
         </>

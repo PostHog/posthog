@@ -311,7 +311,7 @@ function Section({
         <div style={{ marginTop: 10 }}>
             <strong>
                 {title}
-                {typeof count === 'number' ? ` (${count})` : ''}
+                {typeof count === 'number' ? <span>{` (${count})`}</span> : ''}
             </strong>
             <div>{children}</div>
         </div>

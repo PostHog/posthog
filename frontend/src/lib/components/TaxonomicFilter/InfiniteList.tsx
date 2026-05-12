@@ -136,7 +136,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                     <span>
                         {eventNames ? (
                             <>
-                                the event{eventNames.length > 1 ? 's' : ''}{' '}
+                                the event{eventNames.length > 1 ? <span>s</span> : ''}{' '}
                                 {eventNames.map((e, index) => (
                                     <>
                                         {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}

@@ -81,7 +81,7 @@ export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewPro
                             <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">
                                     {data.count ?? data.results.length} issue
-                                    {(data.count ?? data.results.length) === 1 ? '' : 's'}
+                                    {(data.count ?? data.results.length) === 1 ? '' : <span>s</span>}
                                 </span>
                             </div>
                             <DataTable<ErrorIssueData>

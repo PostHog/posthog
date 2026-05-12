@@ -80,7 +80,8 @@ export function PromptViewDetails(): JSX.Element {
                     </LemonTag>
                 )}
                 <span className="text-secondary text-sm">
-                    This prompt has {prompt.version_count} published version{prompt.version_count === 1 ? '' : 's'}.
+                    This prompt has {prompt.version_count} published version
+                    {prompt.version_count === 1 ? '' : <span>s</span>}.
                 </span>
             </div>
 

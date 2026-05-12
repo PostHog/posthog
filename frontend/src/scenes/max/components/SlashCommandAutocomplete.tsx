@@ -23,7 +23,7 @@ const convertSlashCommandToMenuItem = (
         <div>
             <div className="font-mono mt-0.5">
                 {command.name}
-                {command.arg && ` ${command.arg}`}
+                {command.arg && <span>{` ${command.arg}`}</span>}
             </div>
             <div className="text-muted text-xs">{command.description}</div>
         </div>
@@ -112,7 +112,7 @@ export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCo
 function NavigationHint({ isArgRequired }: { isArgRequired: boolean }): JSX.Element {
     return (
         <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-alt font-medium select-none">
-            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}
+            {MAX_SLASH_COMMANDS.length > 1 && <span>↑↓ to navigate • </span>}
             {!isArgRequired ? '⏎ to activate • → to select • Esc to close' : '⏎ or → to select • Esc to close'}
         </div>
     )

@@ -239,7 +239,7 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    Exclusive founder merch
+                                    <span>Exclusive founder merch</span>
                                     {isYC && <span className="text-[0.66em] align-super text-muted"> 2</span>}
                                 </h4>
                                 <p className="text-muted text-sm">

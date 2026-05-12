@@ -39,7 +39,7 @@ export function ExperimentsListView({ experiments }: ExperimentsListViewProps): 
                     <Spinner className="text-4xl" />
                 </div>
             ) : (
-                <div className="p-2">No {searchTerm.length ? 'matching ' : ''}experiments found.</div>
+                <div className="p-2">No {searchTerm.length ? <span>matching </span> : ''}experiments found.</div>
             )}
         </div>
     )

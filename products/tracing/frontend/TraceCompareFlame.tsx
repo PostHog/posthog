@@ -234,19 +234,19 @@ function FlameRow({ node, fraction, selfPath, onFocus }: FlameRowProps): JSX.Ele
             <br />
             count: {fmtCount(current)}
             <DeltaPct current={current?.count} previous={previous?.count} />
-            {previous ? ` (prev ${fmtCount(previous)})` : ''}
+            {previous ? <span>{` (prev ${fmtCount(previous)})`}</span> : ''}
             <br />
             p50: {fmtDur(current?.p50_duration_nano)}
             <DeltaPct current={current?.p50_duration_nano} previous={previous?.p50_duration_nano} higherIsWorse />
-            {previous ? ` (prev ${fmtDur(previous.p50_duration_nano)})` : ''}
+            {previous ? <span>{` (prev ${fmtDur(previous.p50_duration_nano)})`}</span> : ''}
             <br />
             p95: {fmtDur(current?.p95_duration_nano)}
             <DeltaPct current={current?.p95_duration_nano} previous={previous?.p95_duration_nano} higherIsWorse />
-            {previous ? ` (prev ${fmtDur(previous.p95_duration_nano)})` : ''}
+            {previous ? <span>{` (prev ${fmtDur(previous.p95_duration_nano)})`}</span> : ''}
             <br />
             total: {fmtDur(current?.total_duration_nano)}
             <DeltaPct current={current?.total_duration_nano} previous={previous?.total_duration_nano} higherIsWorse />
-            {previous ? ` (prev ${fmtDur(previous.total_duration_nano)})` : ''}
+            {previous ? <span>{` (prev ${fmtDur(previous.total_duration_nano)})`}</span> : ''}
             {current && current.error_count > 0 ? (
                 <>
                     <br />

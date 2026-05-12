@@ -63,7 +63,7 @@ export const RunningTimeNew = ({
                         <>
                             <span>
                                 ~{Math.ceil(remainingDays)} day
-                                {Math.ceil(remainingDays) !== 1 ? 's' : ''}
+                                {Math.ceil(remainingDays) !== 1 ? <span>s</span> : ''}
                             </span>
                             {showProgress && (
                                 <LemonProgressCircle

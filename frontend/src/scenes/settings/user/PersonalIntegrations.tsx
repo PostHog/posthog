@@ -67,7 +67,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                     ) : (
                         'Connected'
                     )}
-                    {integration.uses_shared_installation ? ' · Also used by this project' : ''}
+                    {integration.uses_shared_installation ? <span> · Also used by this project</span> : ''}
                 </div>
                 <div className="mt-1">
                     <GitHubRepoSummary

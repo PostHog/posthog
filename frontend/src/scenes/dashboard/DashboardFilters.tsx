@@ -133,7 +133,7 @@ export function DashboardAdvancedOptionsToggle(): JSX.Element {
             data-attr="dashboard-advanced-filters-toggle"
         >
             <span className="font-semibold">
-                Advanced options
+                <span>Advanced options</span>
                 {totalAdvancedFilters > 0 && <span className="ml-1 text-muted">({totalAdvancedFilters})</span>}
             </span>
         </LemonButton>

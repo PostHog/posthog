@@ -138,7 +138,7 @@ function ExceptionSection({ exception, index }: { exception: ExceptionData; inde
                         <div className="mt-1">
                             <div className="flex items-center gap-2 mb-1">
                                 <span className="text-xs text-muted-foreground">
-                                    {displayFrames.length} frame{displayFrames.length === 1 ? '' : 's'}
+                                    {displayFrames.length} frame{displayFrames.length === 1 ? '' : <span>s</span>}
                                 </span>
                                 {inAppCount > 0 && (
                                     <span className="text-xs text-muted-foreground">({inAppCount} in-app)</span>

@@ -180,8 +180,12 @@ function ConditionHeader({
             </div>
             <div className="flex items-center gap-2 shrink-0">
                 <span className="text-sm text-muted mr-2">
-                    ({rollout}%{group.variant && ` · ${group.variant}`}
-                    {countSummary !== null && ` · ${countSummary}`})
+                    <span>(</span>
+                    {rollout}
+                    <span>%</span>
+                    {group.variant && <span>{` · ${group.variant}`}</span>}
+                    {countSummary !== null && <span>{` · ${countSummary}`}</span>}
+                    <span>)</span>
                 </span>
                 <LemonMenu
                     items={[
@@ -899,7 +903,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         <span>{summary}</span>
                                     </div>
                                     <span className="text-muted">
-                                        ({rollout}%{group.variant && ` · ${group.variant}`})
+                                        <span>(</span>
+                                        {rollout}
+                                        <span>%</span>
+                                        {group.variant && <span>{` · ${group.variant}`}</span>}
+                                        <span>)</span>
                                     </span>
                                 </div>
                             </div>
@@ -1301,8 +1309,13 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
                                                     <span className="text-sm text-muted mr-2">
-                                                        ({draggedGroup.rollout_percentage ?? 100}%
-                                                        {draggedGroup.variant && ` · ${draggedGroup.variant}`})
+                                                        <span>(</span>
+                                                        {draggedGroup.rollout_percentage ?? 100}
+                                                        <span>%</span>
+                                                        {draggedGroup.variant && (
+                                                            <span>{` · ${draggedGroup.variant}`}</span>
+                                                        )}
+                                                        <span>)</span>
                                                     </span>
                                                 </div>
                                             </div>

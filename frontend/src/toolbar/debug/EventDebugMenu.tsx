@@ -356,7 +356,7 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
                 {isPaused && bufferedCount > 0 && (
                     <div className="text-xxs text-warning pb-1">
-                        Paused — {bufferedCount} new event{bufferedCount !== 1 ? 's' : ''} buffered
+                        Paused — {bufferedCount} new event{bufferedCount !== 1 ? <span>s</span> : ''} buffered
                     </div>
                 )}
             </ToolbarMenu.Header>

@@ -126,7 +126,7 @@ export function MemberSelect({
                     {selectedMemberAsUser ? (
                         <span>
                             {fullName(selectedMemberAsUser)}
-                            {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
+                            {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? <span>{` (you)`}</span> : ''}
                         </span>
                     ) : (
                         defaultLabel

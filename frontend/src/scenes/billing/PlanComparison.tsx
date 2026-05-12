@@ -38,10 +38,11 @@ export function PlanIcon({
             ) : feature.limit ? (
                 <>
                     <IconWarning className={clsx('text-warning mx-4 shrink-0', className)} />
-                    {feature.limit &&
-                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
+                    {feature.limit && (
+                        <span>{`${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
                             timeDenominator ? `/${timeDenominator}` : ''
-                        }`}
+                        }`}</span>
+                    )}
                     {feature.note}
                 </>
             ) : (
@@ -140,7 +141,10 @@ export const PlanComparison = ({
             </thead>
             <tbody>
                 <tr className="PlanTable__tr__border">
-                    <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
+                    <td className="font-bold">
+                        <span>Monthly </span>
+                        {product.tiered && <span>base </span>} <span>price</span>
+                    </td>
                     {plans?.map((plan) => {
                         const { prorationAmount, isProrated } = getProration({
                             timeRemainingInSeconds,
@@ -163,9 +167,11 @@ export const PlanComparison = ({
                                           : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-secondary font-normal italic mt-2">
-                                        Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
-                                        {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
-                                        thereafter.
+                                        <span>Pay ~$</span>
+                                        {prorationAmount} <span>today</span>
+                                        {isProrated && <span> (prorated)</span>} <span>and</span>{' '}
+                                        {isProrated && <span>{`$${parseInt(plan.unit_amount_usd || '0')} `}</span>}
+                                        <span>every month thereafter.</span>
                                     </p>
                                 )}
                             </td>

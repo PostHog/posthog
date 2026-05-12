@@ -166,8 +166,8 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                             onClick={() => setQuestionFiltersExpanded(!questionFiltersExpanded)}
                             active={questionFiltersExpanded || activeAnswerFiltersCount > 0}
                         >
-                            Filter by response
-                            {activeAnswerFiltersCount > 0 && ` (${activeAnswerFiltersCount})`}
+                            <span>Filter by response</span>
+                            {activeAnswerFiltersCount > 0 && <span>{` (${activeAnswerFiltersCount})`}</span>}
                         </LemonButton>
                     )}
                     <PropertyFilters

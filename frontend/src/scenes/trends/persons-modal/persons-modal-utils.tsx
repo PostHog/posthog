@@ -34,7 +34,7 @@ export const funnelTitle = (props: {
                     <PropertyKeyInfo value={props.label || ''} disablePopover type={TaxonomicFilterGroupType.Events} />
                 </>
             )}{' '}
-            {props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
+            {props?.breakdown_value ? <span>{`• ${props.breakdown_value}`}</span> : ''}
         </>
     )
 }

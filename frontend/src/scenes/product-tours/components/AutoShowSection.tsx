@@ -126,9 +126,11 @@ function EventTriggerContent({ id }: { id: string }): JSX.Element {
                                                         {hasPropertyFilters && (
                                                             <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
                                                                 {Object.keys(event.propertyFilters!).length} filter
-                                                                {Object.keys(event.propertyFilters!).length !== 1
-                                                                    ? 's'
-                                                                    : ''}
+                                                                {Object.keys(event.propertyFilters!).length !== 1 ? (
+                                                                    <span>s</span>
+                                                                ) : (
+                                                                    ''
+                                                                )}
                                                             </span>
                                                         )}
                                                     </div>

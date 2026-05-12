@@ -214,7 +214,7 @@ export function SignalGraph({
                                         </div>
                                         <div className="text-muted truncate text-xs">
                                             {signal.source_product}
-                                            {signal.weight !== undefined ? ` · w${signal.weight}` : ''}
+                                            {signal.weight !== undefined ? <span>{` · w${signal.weight}`}</span> : ''}
                                         </div>
                                     </div>
                                 </div>

@@ -33,7 +33,7 @@ export async function deleteActionWithWarning(action: ActionType, callback: (und
             description: (
                 <>
                     This action is referenced by <strong>{references.length}</strong> resource
-                    {references.length === 1 ? '' : 's'}. Deleting it may break them.
+                    {references.length === 1 ? '' : <span>s</span>}. Deleting it may break them.
                 </>
             ),
             primaryButton: {

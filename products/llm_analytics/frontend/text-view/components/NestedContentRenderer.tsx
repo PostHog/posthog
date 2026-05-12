@@ -130,7 +130,7 @@ export function NestedContentRenderer({
                                         title={isNestedExpanded ? 'Collapse' : 'Expand'}
                                     >
                                         {isNestedExpanded ? '[−]' : '[+]'} {hiddenTools.length} more tool
-                                        {hiddenTools.length > 1 ? 's' : ''}
+                                        {hiddenTools.length > 1 ? <span>s</span> : ''}
                                     </button>
                                     {isNestedExpanded && (
                                         <div className="ml-4 mt-2 mb-2">

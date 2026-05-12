@@ -253,18 +253,28 @@ function MetricComparisonResults({
                         <span className="text-muted">Direct significant:</span>
                         <LemonTag type={directSig.significant ? 'success' : 'default'}>
                             {directSig.significant ? 'Yes' : 'No'}
-                            {directSig.pValue != null ? ` (p=${directSig.pValue.toFixed(4)})` : ''}
-                            {directSig.chanceToWin != null ? ` (${(directSig.chanceToWin * 100).toFixed(1)}%)` : ''}
+                            {directSig.pValue != null ? <span>{` (p=${directSig.pValue.toFixed(4)})`}</span> : ''}
+                            {directSig.chanceToWin != null ? (
+                                <span>{` (${(directSig.chanceToWin * 100).toFixed(1)}%)`}</span>
+                            ) : (
+                                ''
+                            )}
                         </LemonTag>
                     </div>
                     <div className="flex items-center gap-1">
                         <span className="text-muted">Precomputed significant:</span>
                         <LemonTag type={precomputedSig.significant ? 'success' : 'default'}>
                             {precomputedSig.significant ? 'Yes' : 'No'}
-                            {precomputedSig.pValue != null ? ` (p=${precomputedSig.pValue.toFixed(4)})` : ''}
-                            {precomputedSig.chanceToWin != null
-                                ? ` (${(precomputedSig.chanceToWin * 100).toFixed(1)}%)`
-                                : ''}
+                            {precomputedSig.pValue != null ? (
+                                <span>{` (p=${precomputedSig.pValue.toFixed(4)})`}</span>
+                            ) : (
+                                ''
+                            )}
+                            {precomputedSig.chanceToWin != null ? (
+                                <span>{` (${(precomputedSig.chanceToWin * 100).toFixed(1)}%)`}</span>
+                            ) : (
+                                ''
+                            )}
                         </LemonTag>
                     </div>
                 </div>

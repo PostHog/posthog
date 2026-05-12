@@ -165,7 +165,7 @@ function GroupHeader({ node }: { node: SkillGroupNode }): JSX.Element {
         <div className="flex items-center gap-2">
             <span className="font-mono font-semibold">{node.prefix}</span>
             <span className="text-muted-alt text-xs">
-                {node.count} skill{node.count === 1 ? '' : 's'}
+                {node.count} skill{node.count === 1 ? '' : <span>s</span>}
             </span>
         </div>
     )
@@ -244,7 +244,7 @@ function GroupedSkillsView({
                     <div className="flex items-center gap-2 px-2">
                         <span className="font-semibold">Ungrouped</span>
                         <span className="text-muted-alt text-xs">
-                            {tree.ungrouped.length} skill{tree.ungrouped.length === 1 ? '' : 's'}
+                            {tree.ungrouped.length} skill{tree.ungrouped.length === 1 ? '' : <span>s</span>}
                         </span>
                     </div>
                     <SkillLeafTable skills={tree.ungrouped} columns={columns} />

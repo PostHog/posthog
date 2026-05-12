@@ -262,7 +262,7 @@ function WebhookDetailsSection({ webhookInfo }: { webhookInfo: WebhookInfo }): J
                 <div>
                     <p className="text-xs font-semibold text-muted uppercase mb-1">
                         Listening to {externalStatus.enabled_events.length} event
-                        {externalStatus.enabled_events.length !== 1 ? 's' : ''}
+                        {externalStatus.enabled_events.length !== 1 ? <span>s</span> : ''}
                     </p>
                     <div className="flex flex-wrap gap-1 mt-1">
                         {externalStatus.enabled_events.map((event) => (

@@ -1118,8 +1118,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         <div>
                             <span className="text-muted">
                                 {tableCountFormatter(incrementalTables.length)}
-                                {incrementalTables.length === 69 ? ' (nice)' : ''}
-                                {incrementalTables.length === 67 ? ' (nice but only for genz)' : ''}
+                                {incrementalTables.length === 69 ? <span> (nice)</span> : ''}
+                                {incrementalTables.length === 67 ? <span> (nice but only for genz)</span> : ''}
                             </span>{' '}
                             — Ideal. Syncs only changed rows using a field like{' '}
                             <span className="font-mono text-xs">updated_at</span>.

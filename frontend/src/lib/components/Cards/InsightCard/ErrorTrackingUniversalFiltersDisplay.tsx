@@ -80,8 +80,8 @@ function IssueCountSummary({ filters }: { filters: MaxErrorTrackingSearchRespons
     return (
         <div className="flex items-center gap-2">
             <LemonTag size="small" type="highlight">
-                {issueCount} {pluralize(issueCount, 'issue', 'issues', false)} found
-                {filters.has_more && ' (more available)'}
+                {issueCount} {pluralize(issueCount, 'issue', 'issues', false)} <span>found</span>
+                {filters.has_more && <span> (more available)</span>}
             </LemonTag>
         </div>
     )

@@ -86,7 +86,8 @@ export function CodeSeatsSection(): JSX.Element {
                     <h3 className="mb-1 text-lg font-semibold">Code seats</h3>
                     {isAdmin && (
                         <span className="text-muted text-sm">
-                            {activeCount} active{cancelingCount > 0 ? `, ${cancelingCount} canceling` : ''} &middot;{' '}
+                            {activeCount} active
+                            {cancelingCount > 0 ? <span>{`, ${cancelingCount} canceling`}</span> : ''} &middot;{' '}
                             <Tooltip title="Reflects the monthly rate, not prorated charges">
                                 ${monthlyTotal}/mo
                             </Tooltip>

@@ -120,8 +120,8 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">
-                                    {data.results.length} span{data.results.length === 1 ? '' : 's'}
-                                    {data.hasMore ? '+' : ''}
+                                    {data.results.length} span{data.results.length === 1 ? '' : <span>s</span>}
+                                    {data.hasMore ? <span>+</span> : ''}
                                 </span>
                             </div>
                             <DataTable<TraceSpanData>

@@ -216,7 +216,7 @@ const SupportResponseTimesTable = ({
                                 {plan.legacy_product && (
                                     <span className="text-muted text-xs font-normal"> (legacy)</span>
                                 )}
-                                {isBold && ' '}
+                                {isBold && <span> </span>}
                                 {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                             </span>
                         </div>

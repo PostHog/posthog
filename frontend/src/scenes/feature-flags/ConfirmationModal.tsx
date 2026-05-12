@@ -106,7 +106,7 @@ export function openConfirmationModal({
                             </p>
                             <p className="mb-0">
                                 This flag is referenced by {dependentFlags.length} other feature flag
-                                {dependentFlags.length === 1 ? '' : 's'}:{' '}
+                                {dependentFlags.length === 1 ? '' : <span>s</span>}:{' '}
                                 {dependentFlags.map((flag, index) => (
                                     <span key={flag.id}>
                                         {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}

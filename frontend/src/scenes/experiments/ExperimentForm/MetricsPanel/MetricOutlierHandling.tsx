@@ -20,9 +20,9 @@ export const MetricOutlierHandling = ({ metric }: MetricOutlierHandlingProps): J
         <div className="text-xs">
             <span className="text-muted">Outlier handling:</span>{' '}
             <span className="font-semibold">
-                {hasLower && `Lower ${metric.lower_bound_percentile}%`}
-                {hasLower && hasUpper && ', '}
-                {hasUpper && `Upper ${metric.upper_bound_percentile}%`}
+                {hasLower && <span>{`Lower ${metric.lower_bound_percentile}%`}</span>}
+                {hasLower && hasUpper && <span>, </span>}
+                {hasUpper && <span>{`Upper ${metric.upper_bound_percentile}%`}</span>}
             </span>
         </div>
     )

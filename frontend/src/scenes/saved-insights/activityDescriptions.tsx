@@ -69,7 +69,11 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    renamed {asNotification && 'the insight '}"{change?.before}" to{' '}
+                    <span>renamed </span>
+                    {asNotification && <span>the insight </span>}
+                    <span>"</span>
+                    {change?.before}
+                    <span>" to</span>{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
@@ -99,7 +103,7 @@ const insightActionsMapping: Record<
             description: [
                 <>
                     {describeChange}
-                    {asNotification && ' the insight '}
+                    {asNotification && <span> the insight </span>}
                 </>,
             ],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
@@ -109,8 +113,9 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the short id {asNotification && ' of the insight '}to{' '}
-                    <strong>"{change?.after as string}"</strong>
+                    <span>changed the short id </span>
+                    {asNotification && <span> of the insight </span>}
+                    <span>to</span> <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -119,7 +124,11 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    renamed {asNotification && ' the insight '}"{change?.before}" to{' '}
+                    <span>renamed </span>
+                    {asNotification && <span> the insight </span>}
+                    <span>"</span>
+                    {change?.before}
+                    <span>" to</span>{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
@@ -130,8 +139,9 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the description {asNotification && ' of the insight '}to{' '}
-                    <strong>"{change?.after as string}"</strong>
+                    <span>changed the description </span>
+                    {asNotification && <span> of the insight </span>}
+                    <span>to</span> <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -142,7 +152,9 @@ const insightActionsMapping: Record<
             description: [
                 <>
                     <div className="highlighted-activity">
-                        {isFavoriteAfter ? '' : 'un-'}favorited{asNotification && ' the insight '}
+                        {isFavoriteAfter ? '' : <span>un-</span>}
+                        <span>favorited</span>
+                        {asNotification && <span> the insight </span>}
                     </div>
                 </>,
             ],
@@ -190,8 +202,9 @@ const insightActionsMapping: Record<
             <SentenceList
                 prefix={
                     <>
-                        added {asNotification && ' the insight '}
-                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to
+                        <span>added </span>
+                        {asNotification && <span> the insight </span>}
+                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} <span>to</span>
                     </>
                 }
                 listParts={addedDashboards.map((d) => (
@@ -204,8 +217,9 @@ const insightActionsMapping: Record<
             <SentenceList
                 prefix={
                     <>
-                        removed {asNotification && ' the insight '}
-                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from
+                        <span>removed </span>
+                        {asNotification && <span> the insight </span>}
+                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} <span>from</span>
                     </>
                 }
                 listParts={removedDashboards.map((d) => (
@@ -328,7 +342,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         let extendedDescription: JSX.Element | undefined
         let changeSuffix: Description = (
             <>
-                on {asNotification && ' the insight '}
+                <span>on </span>
+                {asNotification && <span> the insight </span>}
                 {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
             </>
         )
