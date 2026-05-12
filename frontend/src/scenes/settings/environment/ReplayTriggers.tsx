@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
@@ -299,15 +299,8 @@ function MinimumDurationSetting(): JSX.Element | null {
                 </div>
                 <Tooltip
                     delayMs={200}
-                    title={
-                        <>
-                            The JS SDK has an in-memory queue. This means that for traditional web apps the minimum
-                            duration control is best effort.{' '}
-                            <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
-                                Read more in our docs
-                            </Link>
-                        </>
-                    }
+                    docLink="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations"
+                    title="The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration control is best effort."
                 >
                     Setting a minimum session duration will ensure that only sessions that last longer than that value
                     are collected. This helps you avoid collecting sessions that are too short to be useful.
