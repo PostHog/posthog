@@ -27,8 +27,9 @@ function nodeKey(serviceName: string, name: string): string {
     return `${serviceName}\u0000${name}`
 }
 
-function totalDuration(n: SpanTreeNode | null): number {
-    return n?.total_duration_nano ?? 0
+function nodeSize(n: SpanTreeNode | null): number {
+    // Layout metric: p50 latency. A node's typical own-time, not total wall time.
+    return n?.p50_duration_nano ?? 0
 }
 
 /**
@@ -119,7 +120,7 @@ interface FlameRowProps {
 
 function FlameRow({ node, fraction }: FlameRowProps): JSX.Element {
     const widthPct = Math.max(0, Math.min(100, fraction * 100))
-    const own = totalDuration(node.node)
+    const own = nodeSize(node.node)
     const color = deltaColor(node.node, node.previousNode)
 
     const current = node.node
@@ -187,7 +188,7 @@ interface ChildrenRowProps {
 function ChildrenRow({ parent, parentTotal }: ChildrenRowProps): JSX.Element {
     const childrenWithSize = parent.children.map((child) => ({
         child,
-        size: totalDuration(child.node),
+        size: nodeSize(child.node),
     }))
     const totalSize = childrenWithSize.reduce((acc, c) => acc + c.size, 0)
     // Normalization base: use the larger of parent's own total and the summed children
@@ -234,7 +235,7 @@ function GroupedCell({ items, fraction }: GroupedCellProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const widthPct = Math.max(0, Math.min(100, fraction * 100))
     // Inside the popover, redistribute the bundle's items to fill the full width.
-    const bundleTotal = items.reduce((acc, i) => acc + totalDuration(i.child.node), 0) || 1
+    const bundleTotal = items.reduce((acc, i) => acc + nodeSize(i.child.node), 0) || 1
     return (
         <LemonDropdown
             visible={open}
@@ -245,13 +246,13 @@ function GroupedCell({ items, fraction }: GroupedCellProps): JSX.Element {
                     <div className="flex w-full" style={{ minWidth: 480 }}>
                         {items
                             .slice()
-                            .sort((a, b) => totalDuration(b.child.node) - totalDuration(a.child.node))
+                            .sort((a, b) => nodeSize(b.child.node) - nodeSize(a.child.node))
                             .map((item) => (
                                 <FlameRow
                                     key={nodeKey(item.child.serviceName, item.child.name)}
                                     node={item.child}
                                     depth={0}
-                                    fraction={totalDuration(item.child.node) / bundleTotal}
+                                    fraction={nodeSize(item.child.node) / bundleTotal}
                                 />
                             ))}
                     </div>
@@ -335,10 +336,7 @@ export function TraceCompareFlame({ current, previous, loading }: TraceCompareFl
                 </span>
             </div>
             <div className="overflow-x-auto">
-                <ChildrenRow
-                    parent={tree}
-                    parentTotal={tree.children.reduce((sum, c) => sum + totalDuration(c.node), 0)}
-                />
+                <ChildrenRow parent={tree} parentTotal={tree.children.reduce((sum, c) => sum + nodeSize(c.node), 0)} />
             </div>
         </div>
     )
