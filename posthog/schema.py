@@ -727,6 +727,7 @@ class AssistantTool(StrEnum):
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
+    WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
 
 
 class AssistantToolCall(BaseModel):
