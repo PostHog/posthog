@@ -1,25 +1,26 @@
 # Devex semgrep rules
 
-Tracking-style rules: surface "not yet ideal" code as a list, without blocking master.
-Rules in this directory are run by the `semgrep-devex` job in `ci-security.yaml` in two passes:
+Devex / hygiene rules for the PostHog codebase. Run by the `semgrep-devex` job in `ci-security.yaml` in two passes:
 
-1. **Tracked warnings** — `semgrep --severity=WARNING` runs all `severity: WARNING` rules and prints findings. Does not fail CI. Each finding is one entry in the "still to migrate" backlog.
-2. **Graduated errors** — `semgrep --severity=ERROR --error` runs all `severity: ERROR` rules. Fails CI on any finding. This is the regression guard for migrations that have hit zero findings.
+1. **Warnings (informational)** — `semgrep --severity=WARNING` runs all `severity: WARNING` rules. Findings appear in the CI run output but the step does not fail. Use this mode when a rule has a non-zero backlog of existing violations — the list shows up in CI without blocking master while the codebase is cleaned up.
+2. **Errors (blocking)** — `semgrep --severity=ERROR --error` runs all `severity: ERROR` rules and fails CI on any finding. Use this mode for hard regression guards: patterns that should never appear, or migration-style rules whose backlog has been cleaned up.
 
-## Graduation flow
+## Picking a severity
 
-When the backlog for a rule hits zero, promote the rule from warning to error so the codebase stays clean:
+Pick the severity that matches the rule's intent:
+
+- **ERROR** when zero violations are expected — either because the pattern is genuinely new (regression guard) or because a previously-WARNING rule has been cleaned up.
+- **WARNING** when there's a known non-zero backlog that will be migrated over time.
+
+A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/devex-rules/`; only the severity changes. To flip a rule:
 
 1. Verify locally that `semgrep --config .semgrep/devex-rules/<rule>.yaml common/ ee/ frontend/ posthog/ products/` returns zero findings.
 2. Edit the rule file: change `severity: WARNING` to `severity: ERROR`.
-3. Update the rule's `message:` to drop the "tracked, not blocking" phrasing — it's now blocking.
-4. Land the change. Future regressions fail CI on `semgrep-devex`.
-
-The rule stays in `.semgrep/devex-rules/`; only the severity flips. That's intentional — the directory keeps tracking-or-recently-graduated rules together, and the severity field is the authoritative blocking signal.
+3. Update the rule's `message:` to drop any "informational, not blocking" phrasing — it's now blocking.
 
 ## Conventions for new rules
 
-- Start at `severity: WARNING`. Rules in this directory exist precisely because the codebase isn't at zero findings yet.
-- Include the migration playbook (or a pointer to a skill) in the rule's `message:` field. The rule fires in CI output; the message is what reviewers and authors see.
-- Keep the rule's `paths.include:` tight — flag only the locations that map to a real "should move" signal. False positives in a tracking rule still cost reviewer attention.
-- If a finding genuinely shouldn't move (legitimate central code), use `# nosemgrep: <rule-id>` inline — the same escape hatch the security rules use.
+- Decide severity by expected finding count: zero → ERROR; non-zero → WARNING.
+- Include the migration playbook (or a pointer to a skill) in the rule's `message:` field — that's what reviewers and authors see when the rule fires.
+- Scope with `paths.include:` rather than relying only on `paths.exclude:` — narrower scope means faster scans and clearer intent.
+- For legitimate exceptions, prefer `paths.exclude:` for categorical cases (whole dirs/files) and `# nosemgrep: <rule-id>` for case-by-case exemptions at the call site.

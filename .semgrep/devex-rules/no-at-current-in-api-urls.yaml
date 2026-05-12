@@ -16,12 +16,16 @@ rules:
           welcomeDialogLogic, lib/api.ts) and the toolbar still use `@current`
           intentionally — they're exempted via paths.exclude below.
 
-          This is a tracked warning, not a hard fail. Findings here are the
-          backlog of call sites still to migrate. Once that hits zero this
-          rule's severity flips to ERROR and regressions get blocked.
+          This rule is currently informational (WARNING severity). Findings
+          are the backlog of call sites still to migrate. Once the backlog
+          hits zero this rule's severity will be switched to ERROR so
+          regressions get blocked.
       languages: [typescript, javascript]
       severity: WARNING
       paths:
+          include:
+              - 'frontend/'
+              - 'products/*/frontend/'
           exclude:
               # tests and fixtures legitimately exercise the `@current` route
               - '**/*.test.ts'
