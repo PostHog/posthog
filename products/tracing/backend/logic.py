@@ -566,10 +566,6 @@ def run_attribute_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
-        # Skip the printer's automatic team-timezone conversion. Our `QueryDateRange`
-        # already resolves date_from/date_to in UTC explicitly (via `timezone_info=UTC`),
-        # and the underlying `trace_attributes.time_bucket` is UTC; reapplying the team
-        # tz on top would shift the filter by the team offset.
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
@@ -642,8 +638,6 @@ def run_attribute_values_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
-        # See the matching note in `run_attribute_names_query` — the date range
-        # is already UTC-anchored, so skip the printer's team-tz conversion.
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
