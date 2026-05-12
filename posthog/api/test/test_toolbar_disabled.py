@@ -9,11 +9,14 @@ ensure baseline behavior is unchanged.
 
 import json
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.oauth.toolbar_service import ToolbarOAuthError, assert_toolbar_enabled
@@ -157,30 +160,21 @@ class TestToolbarDisabledRefresh(APIBaseTest):
 class TestAssertToolbarEnabled(APIBaseTest):
     """Unit tests for the assert_toolbar_enabled helper."""
 
-    def test_passes_when_enabled(self):
-        self.team.toolbar_disabled = False
-        self.team.save()
-        assert_toolbar_enabled(self.team)  # no exception
-
-    def test_passes_when_null(self):
-        # null means default (False) per the model
-        self.team.toolbar_disabled = None
+    @parameterized.expand([("false", False), ("null", None)])
+    def test_passes_when_not_disabled(self, _label, value):
+        self.team.toolbar_disabled = value
         self.team.save()
         assert_toolbar_enabled(self.team)  # no exception
 
     def test_raises_when_disabled(self):
         self.team.toolbar_disabled = True
         self.team.save()
-        try:
+        with pytest.raises(ToolbarOAuthError) as exc_info:
             assert_toolbar_enabled(self.team)
-            raise AssertionError("Expected ToolbarOAuthError")
-        except ToolbarOAuthError as exc:
-            assert exc.code == "toolbar_disabled"
-            assert exc.status_code == 403
+        assert exc_info.value.code == "toolbar_disabled"
+        assert exc_info.value.status_code == 403
 
     def test_raises_on_none_team(self):
-        try:
+        with pytest.raises(ToolbarOAuthError) as exc_info:
             assert_toolbar_enabled(None)
-            raise AssertionError("Expected ToolbarOAuthError")
-        except ToolbarOAuthError as exc:
-            assert exc.code == "toolbar_disabled"
+        assert exc_info.value.code == "toolbar_disabled"

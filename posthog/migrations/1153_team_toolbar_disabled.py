@@ -8,6 +8,15 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="toolbar_disabled",
-            field=models.BooleanField(blank=True, default=False, null=True),
+            field=models.BooleanField(
+                blank=True,
+                default=False,
+                help_text=(
+                    "When true, the PostHog Toolbar is disabled for this environment. "
+                    "All toolbar OAuth endpoints refuse to issue or refresh tokens, "
+                    "and toolbar launch entry points in the UI are hidden."
+                ),
+                null=True,
+            ),
         ),
     ]
