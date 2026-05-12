@@ -432,6 +432,7 @@ def update_url_source(
 
     needs_recrawl = False
     update_fields: list[str] = ["updated_at"]
+    old_values: dict[str, object] = {}
 
     if name is not None and name != source.name:
         source.name = name
@@ -439,11 +440,13 @@ def update_url_source(
 
     if url is not None and url != source.source_url:
         normalized = _validate_url(url)
+        old_values["source_url"] = source.source_url
         source.source_url = normalized
         update_fields.append("source_url")
         needs_recrawl = True
 
     if crawl_mode is not None and crawl_mode != source.crawl_mode:
+        old_values["crawl_mode"] = source.crawl_mode
         source.crawl_mode = crawl_mode
         update_fields.append("crawl_mode")
         needs_recrawl = True
@@ -451,6 +454,7 @@ def update_url_source(
     if crawl_config is not None:
         merged = {**(source.crawl_config or {}), **crawl_config}
         if merged != source.crawl_config:
+            old_values["crawl_config"] = source.crawl_config
             source.crawl_config = merged
             update_fields.append("crawl_config")
             needs_recrawl = True
@@ -459,7 +463,15 @@ def update_url_source(
         source.save(update_fields=update_fields)
 
     if needs_recrawl:
-        return refresh_source(source_id=source.id, team_id=team_id)
+        try:
+            return refresh_source(source_id=source.id, team_id=team_id)
+        except SourceBusyError:
+            # Refresh never started — revert config so the source doesn't
+            # end up with a new URL but old content and no error signal.
+            for field, value in old_values.items():
+                setattr(source, field, value)
+            source.save(update_fields=[*list(old_values.keys()), "updated_at"])
+            raise
 
     return get_for_team(source.id, team_id) or source
 

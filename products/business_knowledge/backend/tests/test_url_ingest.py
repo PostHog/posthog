@@ -24,6 +24,7 @@ from products.business_knowledge.backend.logic import (
     SourceBusyError,
     create_url_source,
     refresh_source,
+    update_url_source,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
@@ -251,6 +252,49 @@ class TestCreateUrlSource(BaseTest):
             )
         # The fetch should never be called for the second create.
         assert mock_fetch.call_count == 1
+
+
+class TestUpdateUrlSource(BaseTest):
+    def _seed(self) -> KnowledgeSource:
+        with (
+            patch(
+                "products.business_knowledge.backend.logic.url_fetch.fetch_url",
+                return_value=url_fetch.FetchResult(
+                    status=200,
+                    body=_BASIC_HTML,
+                    content_type="text/html",
+                    etag='"v1"',
+                    final_url="https://docs.example.com/billing",
+                ),
+            ),
+            patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None)),
+        ):
+            return create_url_source(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                name="Billing",
+                url="https://docs.example.com/billing",
+            )
+
+    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    def test_busy_reverts_url_change(self, _ssrf: MagicMock, _fetch: MagicMock) -> None:
+        source = self._seed()
+        KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="Blocker",
+            source_type=SourceType.URL,
+            status=SourceStatus.PROCESSING,
+            source_url="https://blocker.example.com/",
+        )
+        with self.assertRaises(SourceBusyError):
+            update_url_source(
+                source_id=source.id,
+                team_id=self.team.id,
+                url="https://new.example.com/docs",
+            )
+        source.refresh_from_db()
+        assert source.source_url == "https://docs.example.com/billing"
 
 
 class TestRefreshSource(BaseTest):
