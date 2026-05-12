@@ -51,9 +51,8 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         const name = userNameForLogItem(logItem)
                         const isRejected = logItem.activity.startsWith('save_rejected_')
                         const isLastSaved = !isRejected && getFieldChange(logItem, 'version') === notebook?.version
-                        // Top of the chronological list = most recent save attempt (accepted or rejected),
-                        // which is what the editor is currently showing.
-                        const isCurrent = idx === 0
+                        // Top of page 1 = most recent attempt (what the editor is showing)
+                        const isCurrent = idx === 0 && pagination.currentPage === 1
                         const changedContent = getFieldChange(logItem, 'content')
                         // Current entry is also clickable
                         const isButton = !!changedContent
