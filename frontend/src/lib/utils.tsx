@@ -2149,8 +2149,11 @@ export function tryJsonParse(value: string, fallback?: any): any {
  *
  * @example
  * safeStringify({ id: BigInt(9007199254740993) }) // '{"id":"9007199254740993"}'
+ *
+ * @returns The JSON string, or `undefined` if `value` is `undefined`, a function, or a
+ * symbol — matching the runtime behaviour of `JSON.stringify`.
  */
-export function safeStringify(value: unknown): string {
+export function safeStringify(value: unknown): string | undefined {
     return JSON.stringify(value, (_key, val) => (typeof val === 'bigint' ? val.toString() : val))
 }
 
