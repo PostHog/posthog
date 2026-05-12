@@ -93,6 +93,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
     heatmaps_opt_in: true,
+    toolbar_opt_out: false,
     autocapture_exceptions_opt_in: false,
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],

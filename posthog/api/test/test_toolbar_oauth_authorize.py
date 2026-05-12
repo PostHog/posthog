@@ -52,6 +52,15 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         assert "authorized URLs" in content
         assert "/settings/project-toolbar#authorized-urls" in content
 
+    def test_disabled_toolbar_returns_error_page(self):
+        self.team.toolbar_opt_out = True
+        self.team.save()
+        response = self._get_authorize()
+        assert response.status_code == 403
+        content = response.content.decode()
+        assert "Toolbar disabled" in content
+        assert "/settings/environment-toolbar" in content
+
     def test_requires_authentication(self):
         self.client.logout()
         response = self._get_authorize()

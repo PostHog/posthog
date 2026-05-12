@@ -1227,6 +1227,20 @@ def toolbar_oauth_authorize(request):
     if not team:
         return HttpResponse("No project found", status=400)
 
+    if team.toolbar_opt_out:
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Toolbar disabled",
+                "error_message": "The toolbar has been disabled for this project.",
+                "error_detail": "An admin can re-enable the toolbar from the project settings.",
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
+            },
+            status_code=403,
+        )
+
     try:
         app_url = normalize_and_validate_app_url(team, redirect_url)
 
@@ -1476,6 +1490,26 @@ def redirect_to_site(request):
 
     if not app_url:
         return HttpResponse(status=404)
+
+    if team and team.toolbar_opt_out:
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        logger.warning(
+            "toolbar_disabled_for_team",
+            team_id=team.id,
+            app_url=app_url,
+        )
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Toolbar disabled",
+                "error_message": "The toolbar has been disabled for this project.",
+                "error_detail": ("An admin can re-enable the toolbar from the project settings."),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
+            },
+            status_code=403,
+        )
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()

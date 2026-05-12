@@ -1397,6 +1397,17 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_302_FOUND
 
+    def test_redirect_to_site_blocked_when_toolbar_opt_out(self):
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.toolbar_opt_out = True
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert b"Toolbar disabled" in response.content
+
     def test_redirect_user_to_site_with_experiments_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()

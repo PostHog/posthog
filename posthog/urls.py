@@ -160,6 +160,20 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     redirect_url = urlparse(request.GET["redirect"])
     is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
+    if not is_forum_login and current_team and current_team.toolbar_opt_out:
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Toolbar disabled",
+                "error_message": "The toolbar has been disabled for this project.",
+                "error_detail": "An admin can re-enable the toolbar from the project settings.",
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
+            },
+            status_code=403,
+        )
+
     if (
         not current_team
         or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)

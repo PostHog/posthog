@@ -203,6 +203,7 @@ TEAM_CONFIG_FIELDS = (
     "has_completed_onboarding_for",
     "surveys_opt_in",
     "heatmaps_opt_in",
+    "toolbar_opt_out",
     "flags_persistence_default",
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",

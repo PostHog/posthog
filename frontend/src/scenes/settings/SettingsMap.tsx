@@ -111,6 +111,7 @@ import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
+import { ToolbarSettings } from './environment/ToolbarSettings'
 import {
     TeamAuthorizedURLs,
     TeamBusinessModel,
@@ -315,6 +316,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.deadClicks,
                 component: <DeadClicksAutocaptureSettings />,
                 keywords: ['rage click', 'broken', 'unresponsive', 'frustration'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-toolbar',
+        title: 'Toolbar',
+        settings: [
+            {
+                id: 'toolbar-enabled',
+                title: 'Toolbar',
+                description:
+                    'Control whether team members can launch the PostHog toolbar on this project. When disabled, the toolbar will not be available on your authorized domains, even if individual users have it enabled in their profile.',
+                docsUrl: 'https://posthog.com/docs/toolbar',
+                component: <ToolbarSettings />,
+                keywords: ['toolbar', 'overlay', 'launch', 'inspect', 'heatmap'],
             },
         ],
     },

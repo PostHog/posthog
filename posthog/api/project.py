@@ -170,6 +170,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "has_completed_onboarding_for",  # Compat with TeamSerializer
             "surveys_opt_in",  # Compat with TeamSerializer
             "heatmaps_opt_in",  # Compat with TeamSerializer
+            "toolbar_opt_out",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
@@ -252,6 +253,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "toolbar_opt_out",
             "flags_persistence_default",
             "secret_api_token",
             "secret_api_token_backup",
@@ -293,6 +295,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "capture_performance_opt_in": {"help_text": "Enables capturing performance timing and network requests."},
             "capture_dead_clicks": {"help_text": "Enables capturing clicks that had no effect (rage-click detection)."},
             "heatmaps_opt_in": {"help_text": "Enables heatmap recording on pages that host posthog-js."},
+            "toolbar_opt_out": {
+                "help_text": (
+                    "Disables the PostHog toolbar for this project when true. "
+                    "When disabled, team members cannot launch the toolbar even if their user setting allows it."
+                )
+            },
             "surveys_opt_in": {"help_text": "Enables displaying surveys via posthog-js on allowed origins."},
             "session_recording_opt_in": {"help_text": "Enables session replay recording for this project."},
             "session_recording_sample_rate": {
