@@ -498,6 +498,7 @@ def run_service_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
