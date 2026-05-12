@@ -47,6 +47,7 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
+    assert_toolbar_enabled,
     build_authorization_url,
     build_toolbar_oauth_state,
     get_or_create_toolbar_oauth_application,
@@ -79,6 +80,7 @@ from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models.oauth import OAuthRefreshToken
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -1228,6 +1230,7 @@ def toolbar_oauth_authorize(request):
         return HttpResponse("No project found", status=400)
 
     try:
+        assert_toolbar_enabled(team)
         app_url = normalize_and_validate_app_url(team, redirect_url)
 
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
@@ -1260,6 +1263,19 @@ def toolbar_oauth_authorize(request):
                     ),
                     "error_code": "403",
                     "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+                },
+                status_code=exc.status_code,
+            )
+        if exc.code == "toolbar_disabled":
+            return render_template(
+                "toolbar_oauth_error.html",
+                request,
+                context={
+                    "error_title": "Toolbar disabled",
+                    "error_message": "The PostHog Toolbar has been disabled for this project.",
+                    "error_detail": ("A project admin can re-enable the toolbar from project settings."),
+                    "error_code": "403",
+                    "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
                 },
                 status_code=exc.status_code,
             )
@@ -1311,6 +1327,7 @@ def toolbar_oauth_callback(request):
         return HttpResponse("No project found", status=400)
 
     try:
+        assert_toolbar_enabled(team)
         state_payload = validate_and_consume_toolbar_oauth_state(
             signed_state=state,
             request_user=request.user,
@@ -1367,6 +1384,18 @@ class ToolbarOAuthRefreshView(APIView):
                 {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
             )
 
+        # Reject refresh early if the toolbar was disabled for the user's team since
+        # the token was issued. The endpoint is AllowAny, so we resolve the team via
+        # the refresh token's owning user. Missing rows are left to the OAuth server
+        # to handle so existing failure paths stay unchanged.
+        try:
+            refresh_token_row = OAuthRefreshToken.objects.select_related("user").filter(token=refresh_token).first()
+            if refresh_token_row and refresh_token_row.user:
+                assert_toolbar_enabled(refresh_token_row.user.team)
+        except ToolbarOAuthError as exc:
+            logger.warning("toolbar_oauth_refresh_failed", code=exc.code)
+            return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
         except ToolbarOAuthError as exc:
@@ -1389,6 +1418,11 @@ toolbar_oauth_refresh = ToolbarOAuthRefreshView.as_view()
 @session_auth_required
 def get_toolbar_preloaded_flags(request):
     """Retrieve cached feature flags for toolbar"""
+    try:
+        assert_toolbar_enabled(request.user.team)
+    except ToolbarOAuthError as exc:
+        return JsonResponse({"error": exc.detail, "code": exc.code}, status=exc.status_code)
+
     toolbar_flags_key = request.GET.get("key")
 
     if not toolbar_flags_key:
@@ -1434,6 +1468,11 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
+        try:
+            assert_toolbar_enabled(team)
+        except ToolbarOAuthError as exc:
+            return JsonResponse({"error": exc.detail, "code": exc.code}, status=exc.status_code)
+
         # Use Rust flags service
         result = get_flags_from_service(
             token=team.api_token,
@@ -1472,6 +1511,21 @@ def redirect_to_site(request):
     # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
+    try:
+        assert_toolbar_enabled(team)
+    except ToolbarOAuthError as exc:
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Toolbar disabled",
+                "error_message": "The PostHog Toolbar has been disabled for this project.",
+                "error_detail": "A project admin can re-enable the toolbar from project settings.",
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/environment-toolbar",
+            },
+            status_code=exc.status_code,
+        )
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:

@@ -18,6 +18,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -454,6 +455,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         removeUrl: sharedListeners.saveUrls,
         updateUrl: sharedListeners.saveUrls,
         launchAtUrl: ({ url }) => {
+            if (values.currentTeam?.toolbar_disabled) {
+                lemonToast.error('The toolbar is disabled for this environment.')
+                return
+            }
             void addProductIntent({
                 product_type: ProductKey.TOOLBAR,
                 intent_context: ProductIntentContext.TOOLBAR_LAUNCHED,

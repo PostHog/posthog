@@ -2,12 +2,17 @@ import './Site.scss'
 
 import { useValues } from 'kea'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SiteLogicProps, siteLogic } from './siteLogic'
 
@@ -21,6 +26,19 @@ export function Site({ url }: SiteLogicProps): JSX.Element {
     const { launchUrl } = useValues(
         authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS })
     )
+    const { currentTeam } = useValues(teamLogic)
+
+    if (currentTeam?.toolbar_disabled) {
+        return (
+            <div className="p-6">
+                <LemonBanner type="warning">
+                    The PostHog Toolbar is disabled for this environment, so the site preview cannot be loaded. A
+                    project admin can re-enable it from{' '}
+                    <Link to={urls.settings('environment-toolbar')}>project settings</Link>.
+                </LemonBanner>
+            </div>
+        )
+    }
 
     const decodedUrl = decodeURIComponent(url || '')
 

@@ -1,5 +1,7 @@
 import './ToolbarLaunch.scss'
 
+import { useValues } from 'kea'
+
 import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -8,6 +10,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,6 +24,8 @@ export const scene: SceneExport = {
 }
 
 export function ToolbarLaunch(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabled = !!currentTeam?.toolbar_disabled
     const features: FeatureHighlightProps[] = [
         {
             title: 'Heatmaps',
@@ -64,6 +69,13 @@ export function ToolbarLaunch(): JSX.Element {
                 }}
             />
 
+            {toolbarDisabled && (
+                <LemonBanner type="warning">
+                    The PostHog Toolbar is currently disabled for this environment. A project admin can re-enable it
+                    from <Link to={urls.settings('environment-toolbar')}>project settings</Link>. Authorized URLs remain
+                    editable below so they are ready when the toolbar is turned back on.
+                </LemonBanner>
+            )}
             <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
                 <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
                 <LemonBanner type="info">

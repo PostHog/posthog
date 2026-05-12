@@ -4,6 +4,7 @@ import { IconCursorClick, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonSlider, Tooltip } from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ScreenPosition, SurveyPosition } from '~/types'
 
@@ -31,6 +32,8 @@ function ElementEmptyState({ onClick }: { onClick: () => void }): JSX.Element {
 function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
     const { selectedStep: step } = useValues(productTourLogic({ id: tourId }))
     const { updateSelectedStep, openToolbarModal } = useActions(productTourLogic({ id: tourId }))
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabledReason = currentTeam?.toolbar_disabled ? 'Toolbar disabled for this environment' : undefined
 
     if (!step) {
         return null
@@ -185,6 +188,7 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
                             type="secondary"
                             icon={<IconCursorClick />}
                             onClick={() => openToolbarModal('edit')}
+                            disabledReason={toolbarDisabledReason}
                         >
                             {step.inferenceData ? 'Change' : 'Select element in Toolbar'}
                         </LemonButton>

@@ -12,6 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -48,6 +49,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         exportHeatmap,
         setContainerWidth,
     } = useActions(logic)
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabled = !!currentTeam?.toolbar_disabled
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
@@ -120,19 +123,23 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     type="info"
                     dismissKey={`heatmap-type-info:${id}:${type ?? 'unknown'}`}
                     className="mb-2"
-                    action={{
-                        size: 'small',
-                        type: 'secondary',
-                        children: 'Open in toolbar',
-                        to: displayUrl
-                            ? appEditorUrl(displayUrl, {
-                                  userIntent: 'heatmaps',
-                              })
-                            : undefined,
-                        targetBlank: true,
-                        'data-attr': 'heatmaps-open-in-toolbar',
-                        disabledReason: !displayUrl ? 'Select a URL first' : undefined,
-                    }}
+                    action={
+                        toolbarDisabled
+                            ? undefined
+                            : {
+                                  size: 'small',
+                                  type: 'secondary',
+                                  children: 'Open in toolbar',
+                                  to: displayUrl
+                                      ? appEditorUrl(displayUrl, {
+                                            userIntent: 'heatmaps',
+                                        })
+                                      : undefined,
+                                  targetBlank: true,
+                                  'data-attr': 'heatmaps-open-in-toolbar',
+                                  disabledReason: !displayUrl ? 'Select a URL first' : undefined,
+                              }
+                    }
                 >
                     You can also open your website using the toolbar and verify results there (useful for auth-protected
                     pages).

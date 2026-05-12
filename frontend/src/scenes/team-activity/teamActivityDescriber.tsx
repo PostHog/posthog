@@ -421,6 +421,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     autocapture_web_vitals_opt_in: createBooleanToggleHandler('web vitals autocapture'),
     autocapture_opt_out: createBooleanToggleHandler('autocapture', { verb: ['opted out of', 'opted in to'] }),
     heatmaps_opt_in: createBooleanToggleHandler('heatmaps'),
+    toolbar_disabled: createBooleanToggleHandler('PostHog Toolbar', { verb: ['disabled', 'enabled'] }),
     autocapture_web_vitals_allowed_metrics: (change) => {
         const after = change.after
         const metricsList = Array.isArray(after) ? after.join(', ') : 'CLS, FCP, INP, and LCP'

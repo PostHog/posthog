@@ -121,8 +121,12 @@ interface LaunchToolbarButtonProps {
     distinctId: string
 }
 
-function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
+function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
+
+    if (currentTeam?.toolbar_disabled) {
+        return null
+    }
 
     const handleLaunchToolbar = async (targetUrl: string): Promise<void> => {
         if (!currentTeam?.app_urls?.length) {

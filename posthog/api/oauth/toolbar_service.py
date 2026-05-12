@@ -90,6 +90,22 @@ class ToolbarOAuthError(Exception):
         super().__init__(detail)
 
 
+def assert_toolbar_enabled(team: Team | None) -> None:
+    """
+    Raise ToolbarOAuthError if the toolbar is disabled for this project.
+
+    Centralized so every toolbar entry point (authorize, callback, refresh,
+    preloaded-flags, and the legacy redirect_to_site) enforces the same rule.
+    Endpoints translate the error into their preferred response shape.
+    """
+    if team is None or team.toolbar_disabled:
+        raise ToolbarOAuthError(
+            "toolbar_disabled",
+            "Toolbar is disabled for this project.",
+            403,
+        )
+
+
 @dataclass
 class ToolbarOAuthState:
     nonce: str

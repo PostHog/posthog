@@ -119,6 +119,7 @@ import {
     TeamVariables,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { ToolbarSettings } from './environment/ToolbarSettings'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
@@ -669,6 +670,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.heatmaps,
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-toolbar',
+        title: 'Toolbar',
+        group: 'Products',
+        settings: [
+            {
+                id: 'toolbar-enabled',
+                title: 'PostHog Toolbar',
+                description:
+                    'Control whether the in-app PostHog Toolbar can be launched on this environment. Disable to block every OAuth and legacy access point and hide all toolbar launch buttons.',
+                docsUrl: 'https://posthog.com/docs/toolbar',
+                component: <ToolbarSettings />,
+                keywords: ['toolbar', 'inspect', 'heatmap', 'action', 'security', 'lockdown', 'kill switch', 'disable'],
             },
         ],
     },

@@ -433,6 +433,22 @@ class Team(UUIDTClassicModel):
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
+    # Toolbar — when True, every backend toolbar endpoint refuses and every frontend launch path is hidden.
+    toolbar_disabled = field_access_control(
+        models.BooleanField(
+            null=True,
+            blank=True,
+            default=False,
+            help_text=(
+                "When true, the PostHog Toolbar is disabled for this environment. "
+                "All toolbar OAuth endpoints refuse to issue or refresh tokens, "
+                "and toolbar launch entry points in the UI are hidden."
+            ),
+        ),
+        "project",
+        "admin",
+    )
+
     # Activity logs
     receive_org_level_activity_logs = field_access_control(
         models.BooleanField(null=True, blank=True, default=False), "project", "admin"

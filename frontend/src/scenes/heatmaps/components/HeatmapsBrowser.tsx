@@ -95,6 +95,8 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
     } = useValues(heatmapsBrowserLogic)
     const { setBrowserSearch, setDataUrl, setReplayIframeData, setReplayIframeDataURL, setDisplayUrl } =
         useActions(heatmapsBrowserLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabled = !!currentTeam?.toolbar_disabled
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -146,31 +148,33 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             }}
                                             className="truncate flex-1"
                                         />
-                                        <LemonButton
-                                            type="secondary"
-                                            icon={<IconOpenInNew />}
-                                            to={
-                                                displayUrl || dataUrl
-                                                    ? appEditorUrl(displayUrl || dataUrl || '', {
-                                                          userIntent: 'heatmaps',
-                                                      })
-                                                    : hasValidReplayIframeData && replayIframeData?.url
-                                                      ? appEditorUrl(replayIframeData?.url, {
-                                                            userIntent: 'heatmaps',
-                                                        })
-                                                      : undefined
-                                            }
-                                            targetBlank
-                                            disabledReason={
-                                                !displayUrl && !dataUrl && !hasValidReplayIframeData
-                                                    ? 'Select a URL first'
-                                                    : undefined
-                                            }
-                                            size="small"
-                                            data-attr="heatmaps-open-in-toolbar"
-                                        >
-                                            Open in toolbar
-                                        </LemonButton>
+                                        {!toolbarDisabled && (
+                                            <LemonButton
+                                                type="secondary"
+                                                icon={<IconOpenInNew />}
+                                                to={
+                                                    displayUrl || dataUrl
+                                                        ? appEditorUrl(displayUrl || dataUrl || '', {
+                                                              userIntent: 'heatmaps',
+                                                          })
+                                                        : hasValidReplayIframeData && replayIframeData?.url
+                                                          ? appEditorUrl(replayIframeData?.url, {
+                                                                userIntent: 'heatmaps',
+                                                            })
+                                                          : undefined
+                                                }
+                                                targetBlank
+                                                disabledReason={
+                                                    !displayUrl && !dataUrl && !hasValidReplayIframeData
+                                                        ? 'Select a URL first'
+                                                        : undefined
+                                                }
+                                                size="small"
+                                                data-attr="heatmaps-open-in-toolbar"
+                                            >
+                                                Open in toolbar
+                                            </LemonButton>
+                                        )}
                                     </div>
                                     {/* Show suggestions when there are options and user has typed something */}
                                     {!!(browserUrlSearchOptions?.length && browserSearchTerm?.length) && (

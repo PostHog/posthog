@@ -14,6 +14,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -129,6 +130,8 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
         openToolbarModal,
     } = useActions(productTourLogic({ id }))
     const { deleteProductTour } = useActions(productToursLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabledReason = currentTeam?.toolbar_disabled ? 'Toolbar disabled for this environment' : undefined
 
     const [tabKey, setTabKey] = useState(() => (router.values.searchParams.activity ? 'history' : 'overview'))
 
@@ -185,7 +188,12 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => openToolbarModal('preview')}
+                            disabledReason={toolbarDisabledReason}
+                        >
                             Preview
                         </LemonButton>
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>

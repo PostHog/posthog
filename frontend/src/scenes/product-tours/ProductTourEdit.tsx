@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -26,6 +27,8 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const { discardDraft, submitProductTourForm, setProductTourFormValue, openToolbarModal } = useActions(
         productTourLogic({ id })
     )
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabledReason = currentTeam?.toolbar_disabled ? 'Toolbar disabled for this environment' : undefined
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -53,7 +56,12 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 isEditing={isEditingProductTour}
                                 draftSaveStatus={draftSaveStatus}
                             />
-                            <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => openToolbarModal('preview')}
+                                disabledReason={toolbarDisabledReason}
+                            >
                                 Preview
                             </LemonButton>
                             <LemonButton
