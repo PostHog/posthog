@@ -124,6 +124,7 @@ body.PostHogHostedSurvey {
     line-height: 1.25;
     color: var(--ph-survey-text-primary-color, #111);
     text-wrap: balance;
+    letter-spacing: -0.015em;
 }
 
 .PostHogHostedSurvey .survey-question-description,
@@ -248,7 +249,8 @@ body.PostHogHostedSurvey {
     width: 1.1rem;
     height: 1.1rem;
     margin: 0;
-    appearance: none;
+    /* stylelint-disable-next-line property-no-vendor-prefix */
+    -webkit-appearance: none;
     appearance: none;
     cursor: pointer;
     background: #fff;
@@ -437,7 +439,8 @@ body.PostHogHostedSurvey {
     color: var(--ph-survey-page-text-subtle, #6b6b6b);
     text-decoration: none;
     background: var(--ph-survey-pill-background);
-    backdrop-filter: blur(8px);
+    /* stylelint-disable-next-line property-no-vendor-prefix */
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
     border-radius: 999px;
     box-shadow:
@@ -546,6 +549,7 @@ body.PostHogHostedSurvey {
 .PostHogHostedSurvey .survey-keyhint-label {
     font-weight: 400;
     color: var(--ph-survey-text-subtle-color, #6b6b6b);
+    letter-spacing: 0.01em;
 }
 
 @media (hover: hover) and (pointer: fine) {
