@@ -20,8 +20,8 @@ const ROW_HEIGHT_PX = 28
 const ROOT_KEY = '\u0000<ROOT>'
 /** Children whose normalized share is below this fraction get bundled into a "+N more" group. */
 const MIN_VISIBLE_FRACTION = 0.01
-/** Don't bother grouping if there are fewer children than this — they'll all fit. */
-const GROUP_THRESHOLD = 6
+/** Need at least this many tiny children to bother bundling — a single 0.5% bar isn't worth a popover. */
+const MIN_GROUPED_COUNT = 2
 
 function nodeKey(serviceName: string, name: string): string {
     return `${serviceName}\u0000${name}`
@@ -151,10 +151,10 @@ function FlameRow({ node, fraction }: FlameRowProps): JSX.Element {
     )
 
     return (
-        <div style={{ width: `${widthPct}%` }} className="flex flex-col">
+        <div style={{ width: `${widthPct}%` }} className="flex flex-col min-w-0 shrink-0">
             <Tooltip title={tooltipContent} delayMs={100} placement="top">
                 <div
-                    className="flex items-center px-2 overflow-hidden text-xs font-mono cursor-pointer border-r border-b border-bg-bg transition-[filter] hover:brightness-125"
+                    className="flex items-center px-2 overflow-hidden min-w-0 text-xs font-mono cursor-pointer border-r border-b border-bg-bg transition-[filter] hover:brightness-125"
                     style={{
                         height: ROW_HEIGHT_PX,
                         backgroundColor: color,
@@ -194,22 +194,20 @@ function ChildrenRow({ parent, parentTotal }: ChildrenRowProps): JSX.Element {
     // total — the latter wins under concurrency so siblings always fit inside 100%.
     const base = Math.max(parentTotal, totalSize, 1)
 
-    let visible: { child: TreeNode; fraction: number }[]
-    let grouped: { child: TreeNode; fraction: number }[]
-    if (parent.children.length < GROUP_THRESHOLD) {
-        visible = childrenWithSize.map(({ child, size }) => ({ child, fraction: size / base }))
-        grouped = []
-    } else {
-        visible = []
-        grouped = []
-        for (const { child, size } of childrenWithSize) {
-            const fraction = size / base
-            if (fraction >= MIN_VISIBLE_FRACTION) {
-                visible.push({ child, fraction })
-            } else {
-                grouped.push({ child, fraction })
-            }
+    const visible: { child: TreeNode; fraction: number }[] = []
+    const grouped: { child: TreeNode; fraction: number }[] = []
+    for (const { child, size } of childrenWithSize) {
+        const fraction = size / base
+        if (fraction >= MIN_VISIBLE_FRACTION) {
+            visible.push({ child, fraction })
+        } else {
+            grouped.push({ child, fraction })
         }
+    }
+    // If only one child is below the threshold, don't bother bundling it — show it inline.
+    if (grouped.length > 0 && grouped.length < MIN_GROUPED_COUNT) {
+        visible.push(...grouped)
+        grouped.length = 0
     }
 
     const visibleSum = visible.reduce((acc, v) => acc + v.fraction, 0)
@@ -261,8 +259,8 @@ function GroupedCell({ items, fraction }: GroupedCellProps): JSX.Element {
             }
         >
             <div
-                style={{ width: `${widthPct}%` }}
-                className="flex items-center justify-center text-xs cursor-pointer border-r border-b border-bg-bg bg-fill-tertiary hover:brightness-110"
+                style={{ width: `${widthPct}%`, height: ROW_HEIGHT_PX }}
+                className="flex items-center justify-center min-w-0 shrink-0 text-xs cursor-pointer border-r border-b border-bg-bg bg-fill-tertiary hover:brightness-110"
                 onClick={() => setOpen(!open)}
                 role="button"
                 tabIndex={0}
