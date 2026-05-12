@@ -29363,6 +29363,11 @@ export namespace Schemas {
       surveys_opt_in?: boolean | null;
       /** @nullable */
       heatmaps_opt_in?: boolean | null;
+      /**
+         * When true, the PostHog Toolbar is disabled for this environment. All toolbar OAuth endpoints refuse to issue or refresh tokens, and toolbar launch entry points in the UI are hidden.
+         * @nullable
+         */
+      toolbar_disabled?: boolean | null;
       /** @nullable */
       flags_persistence_default?: boolean | null;
       /** @nullable */
@@ -34374,6 +34379,11 @@ export namespace Schemas {
       surveys_opt_in?: boolean | null;
       /** @nullable */
       heatmaps_opt_in?: boolean | null;
+      /**
+         * When true, the PostHog Toolbar is disabled for this environment. All toolbar OAuth endpoints refuse to issue or refresh tokens, and toolbar launch entry points in the UI are hidden.
+         * @nullable
+         */
+      toolbar_disabled?: boolean | null;
       /** @nullable */
       flags_persistence_default?: boolean | null;
       /** @nullable */
