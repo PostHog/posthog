@@ -1586,17 +1586,17 @@ describe('Hog Executor', () => {
 
     describe('isPostHogIngestHost', () => {
         it.each([
-            ['https://posthog.com', true],
-            ['https://us.posthog.com/capture/', true],
-            ['https://eu.posthog.com/i/v0/e/', true],
-            ['https://app.posthog.com/decide/', true],
-            ['http://posthog.com/anything', true],
-            ['https://notposthog.com/capture/', false],
-            ['https://posthog.com.evil.example/capture/', false],
-            ['https://example.com/posthog.com/', false],
-            ['not a url', false],
-            ['', false],
-        ])('returns %s for %s', (url, expected) => {
+            [true, 'https://posthog.com'],
+            [true, 'https://us.posthog.com/capture/'],
+            [true, 'https://eu.posthog.com/i/v0/e/'],
+            [true, 'https://app.posthog.com/decide/'],
+            [true, 'http://posthog.com/anything'],
+            [false, 'https://notposthog.com/capture/'],
+            [false, 'https://posthog.com.evil.example/capture/'],
+            [false, 'https://example.com/posthog.com/'],
+            [false, 'not a url'],
+            [false, ''],
+        ])('returns %s for %s', (expected, url) => {
             expect(isPostHogIngestHost(url)).toBe(expected)
         })
     })
