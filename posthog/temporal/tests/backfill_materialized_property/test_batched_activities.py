@@ -8,10 +8,8 @@ from django.conf import settings
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.temporal.backfill_materialized_property.activities import (
     ActivateSlotsInputs,
-    AssignCompactionTargetsInputs,
     AssignPendingColumnsInputs,
     FailSlotsInputs,
-    FinalizeCompactionInputs,
     PopulateSlotAssignmentsInputs,
     RunBatchedMutationInputs,
     _build_dict_backed_update_command,
@@ -19,11 +17,9 @@ from posthog.temporal.backfill_materialized_property.activities import (
     _plan_column_assignments,
     _SlotBranch,
     activate_slots,
-    assign_compaction_targets,
     assign_pending_columns,
     compute_cycle_marker_int,
     fail_slots,
-    finalize_compaction,
     populate_slot_assignments,
     run_batched_mutation,
 )
@@ -307,70 +303,10 @@ class TestAssignPendingColumns:
         new_slot.refresh_from_db()
         assert new_slot.slot_index == 1
 
-    def test_refuses_to_allocate_when_free_pool_below_threshold(self, organization, activity_environment):
-        """Hard safety: allocating below the compaction threshold could starve compaction of
-        dense targets and brick PENDING allocation indefinitely."""
+    def test_reclaimed_slots_pass_through(self, organization, activity_environment):
+        """Slots already past the allocation point (BACKFILL with this run's run_id) flow
+        through normally so the mutation step re-runs idempotently against them."""
         from posthog.models import Team
-        from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
-        from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD
-
-        # Fill the pool to free_count = threshold - 1 across many small teams.
-        free_target = COMPACTION_FREE_COLUMN_THRESHOLD - 1
-        slots_needed = DMAT_STRING_COLUMN_COUNT - free_target
-        for i in range(slots_needed):
-            fill_team = Team.objects.create(organization=organization, name=f"fill_team_{i}")
-            prop_def = PropertyDefinition.objects.create(
-                team=fill_team,
-                name=f"fill_prop_{i}",
-                type=PropertyDefinition.Type.EVENT,
-            )
-            MaterializedColumnSlot.objects.create(
-                team=fill_team,
-                property_definition=prop_def,
-                slot_index=i,
-                state=MaterializedColumnSlotState.READY,
-            )
-
-        # Add a fresh team with a PENDING slot that should NOT be allocated this run.
-        pending_team = Team.objects.create(organization=organization, name="pending_team")
-        pending_slot = _make_pending_slot(pending_team, "browser")
-
-        result = activity_environment.run(
-            assign_pending_columns,
-            AssignPendingColumnsInputs(run_id="wf-test"),
-        )
-
-        assert result.assigned_slot_ids == []
-        assert result.assignments == []
-
-        # Slot stays PENDING with no slot_index — next cycle will pick it up after compaction
-        # has had a chance to free columns.
-        pending_slot.refresh_from_db()
-        assert pending_slot.state == MaterializedColumnSlotState.PENDING
-        assert pending_slot.slot_index is None
-
-    def test_reclaimed_slots_pass_through_even_below_threshold(self, organization, activity_environment):
-        """The threshold safety only blocks FRESH allocation — reclaimed slots are already
-        past the allocation point and blocking them would strand them."""
-        from posthog.models import Team
-        from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
-        from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD
-
-        free_target = COMPACTION_FREE_COLUMN_THRESHOLD - 1
-        slots_needed = DMAT_STRING_COLUMN_COUNT - free_target - 1  # leave room for the reclaimed slot's column.
-        for i in range(slots_needed):
-            fill_team = Team.objects.create(organization=organization, name=f"fill_team_{i}")
-            prop_def = PropertyDefinition.objects.create(
-                team=fill_team,
-                name=f"fill_prop_{i}",
-                type=PropertyDefinition.Type.EVENT,
-            )
-            MaterializedColumnSlot.objects.create(
-                team=fill_team,
-                property_definition=prop_def,
-                slot_index=i,
-                state=MaterializedColumnSlotState.READY,
-            )
 
         # Reclaimed slot — already in BACKFILL with run_id matching this run.
         reclaim_team = Team.objects.create(organization=organization, name="reclaim_team")
@@ -382,7 +318,7 @@ class TestAssignPendingColumns:
         reclaimed = MaterializedColumnSlot.objects.create(
             team=reclaim_team,
             property_definition=reclaim_prop,
-            slot_index=slots_needed,  # next free index
+            slot_index=3,
             state=MaterializedColumnSlotState.BACKFILL,
             backfill_temporal_run_id="wf-test",
         )
@@ -394,37 +330,7 @@ class TestAssignPendingColumns:
 
         # Reclaimed slot makes it into the assignment plan (mutation will re-run idempotently).
         assert str(reclaimed.id) in result.assigned_slot_ids
-        assert any(a.column_index == slots_needed for a in result.assignments)
-
-    def test_avoids_in_flight_compaction_targets_within_team(self, team, activity_environment):
-        """In-flight compaction targets count as in-use, so PENDING allocation can't collide
-        with compaction reservations across workflow runs.
-        """
-        existing_prop = PropertyDefinition.objects.create(
-            team=team,
-            name="being_compacted",
-            type=PropertyDefinition.Type.EVENT,
-        )
-        # Slot is READY on column 0 and is in-flight compacting to column 1.
-        MaterializedColumnSlot.objects.create(
-            team=team,
-            property_definition=existing_prop,
-            slot_index=0,
-            compaction_target_slot_index=1,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        new_slot = _make_pending_slot(team, "new_prop")
-
-        activity_environment.run(
-            assign_pending_columns,
-            AssignPendingColumnsInputs(run_id="wf-test"),
-        )
-
-        new_slot.refresh_from_db()
-        # Must NOT land on column 0 (already used by other slot's slot_index) or column 1
-        # (already used by other slot's compaction_target_slot_index). Greedy planner picks 2.
-        assert new_slot.slot_index == 2
+        assert any(a.column_index == 3 for a in result.assignments)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -539,8 +445,8 @@ class TestRunBatchedMutation:
 @pytest.mark.django_db(transaction=True)
 class TestPopulateSlotAssignments:
     """The activity reads READY+BACKFILL slots from Postgres and pushes them as a CH-side
-    table that the dmat_slot_assignments_dict reads from. Both PENDING and compaction
-    workflows call it after their assign_* step."""
+    table that the dmat_slot_assignments_dict reads from. The PENDING-allocation
+    workflow calls it after `assign_pending_columns`."""
 
     def _fake_cluster_with_hosts(self, host_count: int = 3, fail_on_host: int | None = None) -> MagicMock:
         """Build a MagicMock ClickhouseCluster whose `map_all_hosts(fn)` invokes `fn` once per
@@ -588,7 +494,6 @@ class TestPopulateSlotAssignments:
             team=team,
             property_definition=prop_b,
             slot_index=7,
-            compaction_target_slot_index=2,
             state=MaterializedColumnSlotState.READY,
         )
 
@@ -619,8 +524,8 @@ class TestPopulateSlotAssignments:
 
         result = activity_environment.run(populate_slot_assignments, PopulateSlotAssignmentsInputs())
 
-        # Three rows: (team, slot_index=3, browser), (team, slot_index=7, plan), (team, target=2, plan).
-        assert result.rows_written == 3
+        # Two rows: (team, slot_index=3, browser), (team, slot_index=7, plan).
+        assert result.rows_written == 2
 
         # 3 hosts populated + 3 hosts reloaded → 6 host-fn invocations total.
         # Each populate host sees [TRUNCATE, INSERT]; each reload host sees [RELOAD].
@@ -699,187 +604,3 @@ class TestPopulateSlotAssignments:
         assert first.rows_written == second.rows_written
         # Two activity invocations × (1 populate + 1 reload) per invocation × per-host execution
         # — what matters is each call dispatched the same operations.
-
-
-@pytest.mark.django_db(transaction=True)
-class TestAssignCompactionTargets:
-    """End-to-end exercises of the dedicated compaction activity (split out from PENDING)."""
-
-    def _fill_pool_close_to_threshold(self, organization) -> list[MaterializedColumnSlot]:
-        """Helper: fill the dmat_string pool to within COMPACTION_FREE_COLUMN_THRESHOLD of full
-        across many teams (so compaction has room to repack — multiple teams can share a column)."""
-        from posthog.models import Team
-        from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
-        from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD
-
-        free_target = COMPACTION_FREE_COLUMN_THRESHOLD - 1  # 1 fewer than the threshold → triggers
-        slots_needed = DMAT_STRING_COLUMN_COUNT - free_target
-        slots: list[MaterializedColumnSlot] = []
-        # Spread the load across many small teams (one slot each) so per-team uniqueness lets
-        # compaction repack everything into a small dense range.
-        for i in range(slots_needed):
-            team = Team.objects.create(organization=organization, name=f"fill_team_{i}")
-            prop_def = PropertyDefinition.objects.create(
-                team=team,
-                name=f"fill_prop_{i}",
-                type=PropertyDefinition.Type.EVENT,
-            )
-            slot = MaterializedColumnSlot.objects.create(
-                team=team,
-                property_definition=prop_def,
-                slot_index=i,
-                state=MaterializedColumnSlotState.READY,
-            )
-            slots.append(slot)
-        return slots
-
-    def test_compaction_triggers_when_free_columns_drop_below_threshold(self, organization, activity_environment):
-        ready_slots = self._fill_pool_close_to_threshold(organization)
-
-        result = activity_environment.run(
-            assign_compaction_targets,
-            AssignCompactionTargetsInputs(run_id="wf-test"),
-        )
-
-        # Compaction should have planned a target for every existing READY slot. Each team has
-        # only one slot here, so every team's slot can be packed into the small free range.
-        assert sorted(result.compacted_slot_ids) == sorted(str(s.id) for s in ready_slots)
-
-        # All compacted slots stay READY (uninterrupted reads) with a fresh, low-index target.
-        for slot in ready_slots:
-            slot.refresh_from_db()
-            assert slot.state == MaterializedColumnSlotState.READY
-            assert slot.compaction_target_slot_index is not None
-            assert slot.compaction_target_slot_index != slot.slot_index
-
-        # Targets cluster in the small free range (the just-freed-up low end of the pool),
-        # not scattered across the whole 0..99 range.
-        targets = sorted(
-            {s.compaction_target_slot_index for s in ready_slots if s.compaction_target_slot_index is not None}
-        )
-        # With many teams sharing each column, target span should be much smaller than slot count.
-        assert len(targets) <= max(5, len(ready_slots) // 10)
-
-    def test_compaction_does_not_trigger_when_pool_has_capacity(self, team, activity_environment):
-        # One ready slot, plenty of free columns.
-        prop_def = PropertyDefinition.objects.create(
-            team=team,
-            name="solo",
-            type=PropertyDefinition.Type.EVENT,
-        )
-        slot = MaterializedColumnSlot.objects.create(
-            team=team,
-            property_definition=prop_def,
-            slot_index=0,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        result = activity_environment.run(
-            assign_compaction_targets,
-            AssignCompactionTargetsInputs(run_id="wf-test"),
-        )
-
-        assert result.compacted_slot_ids == []
-        assert result.assignments == []
-        slot.refresh_from_db()
-        assert slot.compaction_target_slot_index is None
-
-    def test_does_not_touch_pending_slots(self, team, activity_environment):
-        """Compaction activity must never transition PENDING→BACKFILL — that's the PENDING
-        workflow's job. A PENDING slot in the table while compaction runs should stay
-        PENDING with no slot_index assigned, even if compaction would otherwise fire."""
-        pending = _make_pending_slot(team, "p")
-
-        activity_environment.run(
-            assign_compaction_targets,
-            AssignCompactionTargetsInputs(run_id="wf-test"),
-        )
-
-        pending.refresh_from_db()
-        assert pending.state == MaterializedColumnSlotState.PENDING
-        assert pending.slot_index is None
-
-    def test_resumes_in_flight_targets_without_re_planning(self, team, activity_environment):
-        """If a slot already has compaction_target_slot_index set (from a prior run that
-        crashed mid-mutation or mid-finalize), the activity must include it in the assignment
-        plan as-is so the mutation runner can drive it to completion. We do NOT re-plan or
-        clear the target — the mutation runner is idempotent and re-targeting would risk
-        plugin-server caches missing dual-writes during the cache refresh window.
-
-        When in-flight targets exist, the fresh-trigger path is also suppressed for this run
-        even if the threshold check would otherwise fire (the next firing handles fresh
-        compaction once in-flight ones are finalized)."""
-        prop_def = PropertyDefinition.objects.create(
-            team=team,
-            name="being_compacted",
-            type=PropertyDefinition.Type.EVENT,
-        )
-        in_flight = MaterializedColumnSlot.objects.create(
-            team=team,
-            property_definition=prop_def,
-            slot_index=42,
-            compaction_target_slot_index=3,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        result = activity_environment.run(
-            assign_compaction_targets,
-            AssignCompactionTargetsInputs(run_id="wf-different-run"),
-        )
-
-        assert str(in_flight.id) in result.compacted_slot_ids
-        # Assignment plan keeps the existing target column — not a re-planned one.
-        assert any(a.column_index == 3 for a in result.assignments), "expected resume of column 3"
-
-        # In-flight target stays exactly as it was — activity must not modify it on resume.
-        in_flight.refresh_from_db()
-        assert in_flight.compaction_target_slot_index == 3
-        assert in_flight.slot_index == 42
-
-    def test_finalize_compaction_swaps_slot_index_to_target(self, team, activity_environment):
-        prop_def = PropertyDefinition.objects.create(
-            team=team,
-            name="p",
-            type=PropertyDefinition.Type.EVENT,
-        )
-        slot = MaterializedColumnSlot.objects.create(
-            team=team,
-            property_definition=prop_def,
-            slot_index=42,
-            compaction_target_slot_index=3,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        swapped = activity_environment.run(
-            finalize_compaction,
-            FinalizeCompactionInputs(slot_ids=[str(slot.id)]),
-        )
-
-        assert swapped == 1
-        slot.refresh_from_db()
-        assert slot.slot_index == 3
-        assert slot.compaction_target_slot_index is None
-        # State stays READY throughout — HogQL just transparently switches columns.
-        assert slot.state == MaterializedColumnSlotState.READY
-
-    def test_finalize_compaction_skips_slots_with_no_target(self, team, activity_environment):
-        prop_def = PropertyDefinition.objects.create(
-            team=team,
-            name="p",
-            type=PropertyDefinition.Type.EVENT,
-        )
-        slot = MaterializedColumnSlot.objects.create(
-            team=team,
-            property_definition=prop_def,
-            slot_index=0,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        swapped = activity_environment.run(
-            finalize_compaction,
-            FinalizeCompactionInputs(slot_ids=[str(slot.id)]),
-        )
-
-        assert swapped == 0
-        slot.refresh_from_db()
-        assert slot.slot_index == 0
