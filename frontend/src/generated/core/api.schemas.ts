@@ -2844,6 +2844,16 @@ export interface TeamBasicApi {
     readonly is_demo: boolean
     readonly timezone: string
     readonly access_control: boolean
+    /**
+     * Human-readable label shown alongside the environment name (e.g. "Production"). Surfaced here so the project switcher can render it without an extra round-trip.
+     * @nullable
+     */
+    readonly environment_label: string | null
+    /**
+     * Color key paired with `environment_label`; the UI maps it to a themed badge.
+     * @nullable
+     */
+    readonly environment_color: string | null
 }
 
 /**

@@ -12981,6 +12981,30 @@ export namespace Schemas {
       hidden?: boolean | null;
     }
 
+    /**
+     * * `red` - Red
+    * `orange` - Orange
+    * `yellow` - Yellow
+    * `green` - Green
+    * `blue` - Blue
+    * `purple` - Purple
+    * `pink` - Pink
+    * `gray` - Gray
+     */
+    export type EnvironmentColorEnum = typeof EnvironmentColorEnum[keyof typeof EnvironmentColorEnum];
+
+
+    export const EnvironmentColorEnum = {
+      Red: 'red',
+      Orange: 'orange',
+      Yellow: 'yellow',
+      Green: 'green',
+      Blue: 'blue',
+      Purple: 'purple',
+      Pink: 'pink',
+      Gray: 'gray',
+    } as const;
+
     export interface ErrorResponse {
       /** Error message */
       error: string;
@@ -23704,6 +23728,16 @@ export namespace Schemas {
       readonly is_demo: boolean;
       readonly timezone: string;
       readonly access_control: boolean;
+      /**
+         * Human-readable label shown alongside the environment name (e.g. "Production"). Surfaced here so the project switcher can render it without an extra round-trip.
+         * @nullable
+         */
+      readonly environment_label: string | null;
+      /**
+         * Color key paired with `environment_label`; the UI maps it to a themed badge.
+         * @nullable
+         */
+      readonly environment_color: string | null;
     }
 
     export interface PaginatedTeamBasicList {
@@ -29513,6 +29547,23 @@ export namespace Schemas {
       conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
+      /**
+         * Human-readable label shown alongside this environment's name in navigation (for example "Production", "Staging"). Used to help users avoid acting in the wrong environment.
+         * @maxLength 30
+         * @nullable
+         */
+      environment_label?: string | null;
+      /** Color key paired with `environment_label`. Must be one of the predefined values; the UI maps each to a themed background and text color.
+
+      * `red` - Red
+      * `orange` - Orange
+      * `yellow` - Yellow
+      * `green` - Green
+      * `blue` - Blue
+      * `purple` - Purple
+      * `pink` - Pink
+      * `gray` - Gray */
+      environment_color?: EnvironmentColorEnum | BlankEnum | null;
       readonly effective_membership_level?: EffectiveMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
@@ -34538,6 +34589,23 @@ export namespace Schemas {
       conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
+      /**
+         * Human-readable label shown alongside this environment's name in navigation (for example "Production", "Staging"). Used to help users avoid acting in the wrong environment.
+         * @maxLength 30
+         * @nullable
+         */
+      environment_label?: string | null;
+      /** Color key paired with `environment_label`. Must be one of the predefined values; the UI maps each to a themed background and text color.
+
+      * `red` - Red
+      * `orange` - Orange
+      * `yellow` - Yellow
+      * `green` - Green
+      * `blue` - Blue
+      * `purple` - Purple
+      * `pink` - Pink
+      * `gray` - Gray */
+      environment_color?: EnvironmentColorEnum | BlankEnum | null;
       readonly effective_membership_level: EffectiveMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];
