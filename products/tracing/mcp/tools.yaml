@@ -109,3 +109,9 @@ tools:
         response:
             include:
                 - results
+    tracing-spans-aggregate-create:
+        operation: tracing_spans_aggregate_create
+        enabled: false
+    tracing-spans-tree-create:
+        operation: tracing_spans_tree_create
+        enabled: false

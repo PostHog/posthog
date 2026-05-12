@@ -22,6 +22,7 @@ from rest_framework.response import Response
 
 from posthog.schema import (
     CachedTraceSpansQueryResponse,
+    CompareFilter,
     DateRange,
     ProductKey,
     PropertyGroupFilter,
@@ -38,9 +39,11 @@ from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
+    run_aggregation_query,
     run_attribute_names_query,
     run_attribute_values_query,
     run_service_names_query,
+    run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 
@@ -184,6 +187,78 @@ class _TracingValuesQuerySerializer(serializers.Serializer):
     offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
 
 
+class _CompareFilterSerializer(serializers.Serializer):
+    compare = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, also fetch results for a comparison window and return them under `compare`.",
+    )
+    compare_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.",
+    )
+
+
+class _TracingAggregationQueryBodySerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the primary window. Defaults to last hour.",
+    )
+    compareFilter = _CompareFilterSerializer(
+        required=False,
+        help_text="Optional comparison-window configuration. When omitted, only the primary window is returned.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Filter by service names.",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters applied to spans in both windows.",
+    )
+
+
+class _TracingAggregationRequestSerializer(serializers.Serializer):
+    query = _TracingAggregationQueryBodySerializer(help_text="The span aggregation query to execute.")
+
+
+class _TracingTreeQueryBodySerializer(serializers.Serializer):
+    spanName = serializers.CharField(
+        required=True,
+        help_text=(
+            "Span name to scope the matched trace set. Required because the "
+            "(trace_id, parent_span_id) self-join is unsafe without bounding the matched traces."
+        ),
+    )
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the primary window. Defaults to last hour.",
+    )
+    compareFilter = _CompareFilterSerializer(
+        required=False,
+        help_text="Optional comparison-window configuration. When omitted, only the primary window is returned.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Filter by service names.",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Additional property filters applied to spans in both windows.",
+    )
+
+
+class _TracingTreeRequestSerializer(serializers.Serializer):
+    query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
+
+
 @extend_schema(tags=["tracing"])
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
@@ -298,6 +373,94 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_TracingAggregationRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="aggregate", required_scopes=["tracing:read"])
+    def aggregate(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        compare_filter: CompareFilter | None = None
+        compare_data = query_data.get("compareFilter")
+        if compare_data:
+            try:
+                compare_filter = self.get_model(compare_data, CompareFilter)
+            except (ValidationError, ValueError, ParseError):
+                compare_filter = None
+
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=date_range,
+            compare_filter=compare_filter,
+            filter_group=filter_group,
+            service_names=query_data.get("serviceNames", None),
+        )
+
+        return Response(
+            {
+                "results": [row.model_dump() for row in response.results],
+                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(request=_TracingTreeRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="tree", required_scopes=["tracing:read"])
+    def tree(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        span_name = query_data.get("spanName")
+        if not span_name or not isinstance(span_name, str):
+            return Response(
+                {"detail": "`spanName` is required for tree aggregation queries."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        compare_filter: CompareFilter | None = None
+        compare_data = query_data.get("compareFilter")
+        if compare_data:
+            try:
+                compare_filter = self.get_model(compare_data, CompareFilter)
+            except (ValidationError, ValueError, ParseError):
+                compare_filter = None
+
+        response = run_tree_query(
+            team=self.team,
+            date_range=date_range,
+            span_name=span_name,
+            compare_filter=compare_filter,
+            filter_group=filter_group,
+            service_names=query_data.get("serviceNames", None),
+        )
+
+        return Response(
+            {
+                "results": [row.model_dump() for row in response.results],
+                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(request=_TracingTraceRequestSerializer)
     @action(

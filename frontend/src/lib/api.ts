@@ -22,6 +22,7 @@ import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLog
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
+    AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
@@ -56,6 +57,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    SpanTreeNode,
     TileFilters,
     UserProductListItem,
 } from '~/queries/schema/schema-general'
@@ -2863,6 +2865,29 @@ const api = {
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async aggregate(query: {
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            filterGroup?: PropertyGroupFilter
+            compareFilter?: { compare?: boolean; compare_to?: string | null }
+        }): Promise<{
+            results: AggregatedSpanRow[]
+            compare?: AggregatedSpanRow[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('aggregate').create({ data: { query } })
+        },
+        async tree(query: {
+            spanName: string
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            filterGroup?: PropertyGroupFilter
+            compareFilter?: { compare?: boolean; compare_to?: string | null }
+        }): Promise<{
+            results: SpanTreeNode[]
+            compare?: SpanTreeNode[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('tree').create({ data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
             return new ApiRequest()
