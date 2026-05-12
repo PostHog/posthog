@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 
 from django.conf import settings
 
@@ -159,7 +160,12 @@ async def _probe_for_good_session(
     the underlying issue through normal aiohttp errors rather than hanging here.
     """
     probe_url = f"{base_url.rstrip('/')}/api/projects/{_PROBE_TEAM_ID}/recordings/{_PROBE_SESSION_ID}/blocks"
+    # _MAX_PROBES is guaranteed >= 1, so last_session is always assigned in the loop;
+    # the type stays Optional here to keep `if last_session is not None: close()` safe
+    # for the first iteration.
     last_session: aiohttp.ClientSession | None = None
+    last_error: BaseException | None = None
+    saw_html = False
     for _attempt in range(_MAX_PROBES):
         if last_session is not None:
             await last_session.close()
@@ -169,16 +175,33 @@ async def _probe_for_good_session(
                 ct = (resp.headers.get("content-type") or "").lower()
                 if "text/html" not in ct:
                     return last_session
-        except aiohttp.ClientError:
-            continue
+                saw_html = True
+        except aiohttp.ClientError as e:
+            last_error = e
+    if saw_html and last_error is None:
+        # All responses came back, just as HTML — the ultimate-express bug.
+        hint = (
+            "recording-api is returning HTML for router-mounted routes — "
+            "this usually points at the ultimate-express route-miss bug (see module docstring)"
+        )
+    elif last_error is not None and not saw_html:
+        # All probes failed to even connect. Probably a different problem entirely.
+        hint = "recording-api connection failures on every probe attempt — server may be down or unreachable"
+    else:
+        # Mixed signals — both ClientError and HTML 404s. Surface both.
+        hint = (
+            "recording-api probes failed with a mix of connection errors and HTML route-miss responses — "
+            "check server health AND see module docstring for the ultimate-express bug"
+        )
     logger.warning(
         "recording_api_client.probe_exhausted",
         attempts=_MAX_PROBES,
-        hint="recording-api is returning HTML for router-mounted routes — "
-        "this usually points at the ultimate-express route-miss bug (see module docstring)",
+        last_error=str(last_error) if last_error is not None else None,
+        saw_html=saw_html,
+        hint=hint,
     )
-    assert last_session is not None
-    return last_session
+    # _MAX_PROBES >= 1 so `last_session` was assigned at least once above.
+    return cast(aiohttp.ClientSession, last_session)
 
 
 @asynccontextmanager

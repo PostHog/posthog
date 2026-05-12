@@ -505,6 +505,8 @@ class TestProbeOnOpen:
             mock_logger.warning.assert_any_call(
                 "recording_api_client.probe_exhausted",
                 attempts=6,
+                last_error=None,
+                saw_html=True,
                 hint=(
                     "recording-api is returning HTML for router-mounted routes — "
                     "this usually points at the ultimate-express route-miss bug (see module docstring)"
@@ -513,6 +515,84 @@ class TestProbeOnOpen:
             # Every poisoned session except the last must be explicitly closed.
             for poisoned in sessions[:-1]:
                 poisoned.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_connection_errors_log_distinct_hint(self):
+        """All probes raise ClientError — log should mention the server, not ultimate-express."""
+
+        def session_that_raises():
+            session = AsyncMock(spec=aiohttp.ClientSession)
+            session.get = MagicMock(side_effect=aiohttp.ClientConnectionError("connection refused"))
+            session.close = AsyncMock(return_value=None)
+            return session
+
+        sessions = [session_that_raises() for _ in range(6)]
+
+        with (
+            patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
+            patch("posthog.session_recordings.recordings.recording_api_client.logger") as mock_logger,
+            patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                side_effect=sessions,
+            ),
+        ):
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
+
+            async with recording_api_client() as client:
+                assert client.session is sessions[-1]
+
+            # All earlier sessions should still be closed despite the get() raising.
+            for poisoned in sessions[:-1]:
+                poisoned.close.assert_awaited()
+
+            warning_calls = mock_logger.warning.call_args_list
+            assert any(
+                call.args == ("recording_api_client.probe_exhausted",)
+                and call.kwargs.get("saw_html") is False
+                and call.kwargs.get("last_error") == "connection refused"
+                and "server may be down or unreachable" in call.kwargs.get("hint", "")
+                for call in warning_calls
+            ), f"expected connection-failure warning, got: {warning_calls}"
+
+    @pytest.mark.asyncio
+    async def test_mixed_failures_log_combined_hint(self):
+        """A mix of HTML responses and ClientErrors — log should surface both possibilities."""
+        bad_html = _make_probe_response(status=404, content_type="text/html; charset=utf-8")
+
+        html_session = _make_session_yielding(bad_html)
+        err_session = AsyncMock(spec=aiohttp.ClientSession)
+        err_session.get = MagicMock(side_effect=aiohttp.ClientConnectionError("connection reset"))
+        err_session.close = AsyncMock(return_value=None)
+        # Pad to fill the 6 probe slots.
+        sessions = [html_session, err_session] + [_make_session_yielding(bad_html) for _ in range(4)]
+
+        with (
+            patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
+            patch("posthog.session_recordings.recordings.recording_api_client.logger") as mock_logger,
+            patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                side_effect=sessions,
+            ),
+        ):
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
+
+            async with recording_api_client():
+                pass
+
+            warning_calls = mock_logger.warning.call_args_list
+            assert any(
+                call.args == ("recording_api_client.probe_exhausted",)
+                and call.kwargs.get("saw_html") is True
+                and call.kwargs.get("last_error") == "connection reset"
+                and "mix of connection errors and HTML" in call.kwargs.get("hint", "")
+                for call in warning_calls
+            ), f"expected mixed-failure warning, got: {warning_calls}"
 
     @pytest.mark.asyncio
     async def test_disabled_skips_probe(self):
