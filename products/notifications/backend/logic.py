@@ -5,11 +5,15 @@ import posthoganalytics
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.notifications.backend.cache import invalidate_unread_count_for_users
 from products.notifications.backend.facade.contracts import NotificationData
-from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES, NotificationOnlyResourceType
+from products.notifications.backend.facade.enums import (
+    AC_RESOURCE_TYPES,
+    NotificationOnlyResourceType,
+    NotificationType,
+)
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -42,6 +46,25 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
         logger.exception("notifications.kafka_publish_failed", event_id=event.id)
 
 
+def _filter_by_user_preferences(
+    user_ids: list[int],
+    notification_type: NotificationType,
+    team_id: int,
+) -> list[int]:
+    if not user_ids:
+        return user_ids
+    rows = User.objects.filter(id__in=user_ids).values_list("id", "partial_notification_settings")
+    type_key = notification_type.value
+    team_key = str(team_id)
+
+    def _is_disabled(settings: dict | None) -> bool:
+        realtime = (settings or {}).get("realtime_notifications_disabled") or {}
+        type_map = realtime.get(type_key) or {}
+        return bool(type_map.get(team_key, False))
+
+    return [uid for uid, settings in rows if not _is_disabled(settings)]
+
+
 def create_notification(data: NotificationData) -> NotificationEvent | None:
     try:
         team = Team.objects.select_related("organization").get(id=data.team_id)
@@ -66,8 +89,19 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     if data.resource_type and str(data.resource_type) in AC_RESOURCE_TYPES:
         resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)
 
+    # Per-user pref filter must run AFTER AC — prefs cannot override access denials.
+    resolved_user_ids = _filter_by_user_preferences(
+        resolved_user_ids,
+        notification_type=data.notification_type,
+        team_id=data.team_id,
+    )
+
     if not resolved_user_ids:
-        logger.warning("notifications.no_recipients", target_type=data.target_type, target_id=data.target_id)
+        logger.warning(
+            "notifications.no_recipients",
+            target_type=data.target_type,
+            target_id=data.target_id,
+        )
         return None
 
     event = NotificationEvent.objects.create(

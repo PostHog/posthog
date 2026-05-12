@@ -12,7 +12,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -147,7 +147,7 @@ export function LLMSkillScene(): JSX.Element {
                 }
             />
 
-            <div className="flex flex-col gap-6 xl:flex-row">
+            <div className="flex flex-col gap-6 2xl:flex-row">
                 <div className="min-w-0 flex-1">
                     <SkillViewDetails />
                 </div>
@@ -226,7 +226,7 @@ export function LLMSkillScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col gap-6 xl:flex-row">
+                <div className="flex flex-col gap-6 2xl:flex-row">
                     <div className="min-w-0 flex-1">
                         <SkillEditForm
                             isHistoricalVersion={isHistoricalVersion}
@@ -364,9 +364,12 @@ function SkillViewDetails(): JSX.Element {
                             onToggleExpanded={toggleOutlineExpanded}
                         />
                         <div ref={markdownContainerRef}>
-                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                            <LemonMarkdownWithMermaid
+                                className="mt-1 rounded border bg-bg-light p-3"
+                                generateHeadingIds
+                            >
                                 {skill.body}
-                            </LemonMarkdown>
+                            </LemonMarkdownWithMermaid>
                         </div>
                     </>
                 )}
@@ -581,9 +584,9 @@ function SkillFileViewer({
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdown className="text-sm" generateHeadingIds>
+                        <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
                             {content}
-                        </LemonMarkdown>
+                        </LemonMarkdownWithMermaid>
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}
@@ -854,7 +857,7 @@ function SkillVersionSidebar({
     const { setCompareVersion } = useActions(llmSkillLogic)
 
     return (
-        <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
+        <aside className="w-full shrink-0 2xl:sticky 2xl:top-4 2xl:mt-3 2xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
                 <div className="mb-3 flex items-center justify-between">
                     <div>

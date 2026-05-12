@@ -7,13 +7,17 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 
 import stripe
 import requests
 import structlog
+from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -24,14 +28,19 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
+    ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
+    ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
+    ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     SLACK_INTEGRATION_KINDS,
+    AnthropicIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -55,7 +64,7 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
-from posthog.models.user_integration import user_github_integration_from_installation
+from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -65,8 +74,38 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
+
+GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
+GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
+
+GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION = "github_link_existing_orphan_installation"
+GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED = "github_link_existing_personal_github_required"
+PERSONAL_GITHUB_REQUIRED_MESSAGE = (
+    "You must connect your personal GitHub account (via Linked Accounts) before linking an existing "
+    "installation, to confirm you have access to the GitHub App installation."
+)
+GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def github_oauth_redirect_uri() -> str:
+    return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
+
+
+def validate_github_repository_name(repo: str) -> str:
+    """Validate repository paths accepted by GitHub integration endpoints."""
+    parts = repo.split("/")
+    if (
+        len(parts) != 2
+        or not GITHUB_REPOSITORY_NAME_RE.fullmatch(parts[0])
+        or not GITHUB_REPOSITORY_NAME_RE.fullmatch(parts[1])
+        or parts[0] in (".", "..")
+        or parts[1] in (".", "..")
+    ):
+        raise ValidationError("repo must be in owner/repo format")
+    return repo
 
 
 def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
@@ -357,6 +396,44 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             )
             return instance
 
+        elif validated_data["kind"] == "anthropic":
+            config = validated_data.get("config", {})
+            api_key = config.get("api_key")
+            workspace_label = config.get("workspace_label")
+            force = bool(config.get("force", False))
+
+            if not isinstance(api_key, str) or not api_key.strip():
+                raise ValidationError("An Anthropic API key must be provided")
+            api_key = api_key.strip()
+            # Reject control characters / whitespace inside the key — pasted
+            # tokens with trailing newlines silently break every Anthropic call.
+            if any(ch.isspace() or ord(ch) < 0x20 for ch in api_key):
+                raise ValidationError("Anthropic API key must not contain whitespace or control characters")
+
+            if workspace_label is not None:
+                if not isinstance(workspace_label, str):
+                    raise ValidationError("Workspace label must be a string")
+                workspace_label = workspace_label.strip()
+                if not workspace_label:
+                    workspace_label = None
+                elif len(workspace_label) > ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH:
+                    raise ValidationError(
+                        f"Workspace label must be {ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH} characters or fewer"
+                    )
+                elif workspace_label.startswith(ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX):
+                    raise ValidationError(
+                        f"Workspace label cannot start with '{ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX}'"
+                    )
+
+            instance = AnthropicIntegration.integration_from_key(
+                api_key=api_key,
+                team_id=team_id,
+                created_by=request.user,
+                workspace_label=workspace_label,
+                force=force,
+            )
+            return instance
+
         elif validated_data["kind"] == "twilio":
             config = validated_data.get("config", {})
             account_sid = config.get("account_sid")
@@ -534,11 +611,25 @@ class IntegrationViewSet(
         "channels",
         "github_repos",
         "github_branches",
+        "anthropic_managed_agents",
+        "anthropic_managed_agent_environments",
+        "anthropic_managed_agent_vaults",
     ]
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "refresh_github_repos",
+        "github_link_existing",
+        "github_oauth_authorize",
+    ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["kind"]
 
     def dangerously_get_permissions(self):
         if self.action == "refresh_github_repos":
@@ -565,18 +656,6 @@ class IntegrationViewSet(
                 capture_exception(e)
 
         super().perform_destroy(instance)
-
-    def safely_get_queryset(self, queryset):
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
-            self.request.successful_authenticator, OAuthAccessTokenAuthentication
-        ):
-            # GitHub and Slack integrations are exposed via API-key / OAuth. The serializer
-            # only returns id, kind, config, errors, and display metadata — access tokens stay
-            # in sensitive_config and are never serialized. The channels action's kind guard
-            # (see `channels` below) is the actual gate against running Slack-only code on a
-            # non-Slack integration.
-            return defer_repository_cache_fields(queryset.filter(kind__in=["github", *SLACK_INTEGRATION_KINDS]))
-        return queryset
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -848,6 +927,111 @@ class IntegrationViewSet(
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
+    @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
+    def anthropic_managed_agents(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._anthropic_managed_list_response(request, resource="agents")
+
+    @extend_schema(operation_id="integrations_anthropic_managed_agent_envs_retrieve")
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_environments")
+    def anthropic_managed_agent_environments(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._anthropic_managed_list_response(request, resource="environments")
+
+    @extend_schema(operation_id="integrations_anthropic_managed_agent_vaults_retrieve")
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_vaults")
+    def anthropic_managed_agent_vaults(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._anthropic_managed_list_response(request, resource="vaults")
+
+    def _anthropic_managed_list_response(self, request: Request, *, resource: str) -> Response:
+        instance = self._get_anthropic_integration_or_400()
+
+        try:
+            limit = int(request.query_params.get("limit", ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT))
+        except (TypeError, ValueError):
+            raise ValidationError("`limit` must be an integer")
+        after = request.query_params.get("after") or None
+        force_refresh = request.query_params.get("force_refresh", "false").lower() == "true"
+
+        # Cache only the default first page; paginated requests bypass the
+        # cache because the cursor reflects upstream state we shouldn't pin.
+        cache_eligible = not after and limit == ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+        cache_key = f"anthropic/{instance.id}/{resource}"
+        if cache_eligible and not force_refresh:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+
+        try:
+            anthropic = AnthropicIntegration(instance)
+            data, next_cursor = self._anthropic_resource_list(anthropic, resource=resource, after=after, limit=limit)
+        except AuthenticationError:
+            self._record_anthropic_auth_failure(instance, "Anthropic API key is no longer valid")
+            raise ValidationError("Anthropic API key is no longer valid. Please reconnect the integration.")
+        except PermissionDeniedError:
+            self._record_anthropic_auth_failure(instance, "Anthropic API key is missing required permissions")
+            raise ValidationError(
+                "Anthropic API key is missing required permissions. Please reconnect with a key that has access "
+                "to the Managed Agents beta."
+            )
+        except APIConnectionError:
+            logger.warning("anthropic_list_connection_error", resource=resource, exc_info=True)
+            raise ValidationError("Could not reach Anthropic. Please try again.")
+        except APIStatusError as e:
+            logger.warning("anthropic_list_status_error", resource=resource, status_code=e.status_code, exc_info=True)
+            raise ValidationError(f"Anthropic returned an error (HTTP {e.status_code}). Please try again.")
+
+        body: dict[str, Any] = {"next_cursor": next_cursor, "has_more": bool(next_cursor)}
+        if resource == "agents":
+            body["agents"] = [
+                {
+                    "id": agent["id"],
+                    "name": agent.get("name", agent["id"]),
+                    "version": agent.get("version"),
+                }
+                for agent in data
+                if "id" in agent
+            ]
+        elif resource == "environments":
+            body["environments"] = [
+                {"id": env["id"], "name": env.get("name", env["id"])} for env in data if "id" in env
+            ]
+        else:  # vaults
+            body["vaults"] = [
+                {"id": vault["id"], "display_name": vault.get("display_name", vault["id"])}
+                for vault in data
+                if "id" in vault
+            ]
+
+        if cache_eligible:
+            cache.set(cache_key, body, 60 * 5)  # 5 minutes — UI dropdown freshness window
+
+        return Response(body)
+
+    def _get_anthropic_integration_or_400(self) -> Integration:
+        instance = self.get_object()
+        if instance.kind != Integration.IntegrationKind.ANTHROPIC.value:
+            raise ValidationError(f"Integration {instance.id} is not an Anthropic integration (kind={instance.kind!r})")
+        return instance
+
+    @staticmethod
+    def _anthropic_resource_list(
+        anthropic: AnthropicIntegration, *, resource: str, after: str | None, limit: int
+    ) -> tuple[list[dict], str | None]:
+        if resource == "agents":
+            return anthropic.list_managed_agents(after=after, limit=limit)
+        if resource == "environments":
+            return anthropic.list_managed_agent_environments(after=after, limit=limit)
+        if resource == "vaults":
+            return anthropic.list_managed_agent_vaults(after=after, limit=limit)
+        raise ValueError(f"unknown anthropic managed-agents resource: {resource!r}")
+
+    @staticmethod
+    def _record_anthropic_auth_failure(instance: Integration, message: str) -> None:
+        if instance.errors != ERROR_TOKEN_REFRESH_FAILED:
+            instance.errors = ERROR_TOKEN_REFRESH_FAILED
+            instance.save(update_fields=["errors"])
+        logger.warning("anthropic_managed_list_auth_failure", integration_id=instance.id, message=message)
+
     @extend_schema(
         parameters=[GitHubReposQuerySerializer],
         responses={200: GitHubReposResponseSerializer},
@@ -860,15 +1044,173 @@ class IntegrationViewSet(
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
 
+    @action(methods=["POST"], detail=False, url_path="github/link_existing")
+    def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Reuse a GitHub installation already linked to a sibling team in the same organization."""
+        source_team_id = request.data.get("source_team_id")
+        installation_id_param = request.data.get("installation_id")
+
+        if installation_id_param and not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
+            raise ValidationError("Invalid installation_id")
+
+        # installation_id is stored in JSONB and historically written as either a
+        # string or a number, so match both representations.
+        installation_id_match = (
+            Q(config__installation_id=str(installation_id_param))
+            | Q(config__installation_id=int(installation_id_param))
+            if installation_id_param
+            else None
+        )
+
+        if source_team_id:
+            try:
+                source_team_id_int = int(source_team_id)
+            except (TypeError, ValueError):
+                raise ValidationError("source_team_id must be an integer")
+
+            if not self.organization.teams.filter(id=source_team_id_int).exists():
+                raise ValidationError("Source team not found in your organization")
+
+            qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
+            # When the source team has multiple GitHub installations linked, the
+            # caller must pass installation_id to disambiguate.
+            if installation_id_match is not None:
+                qs = qs.filter(installation_id_match)
+
+            source = qs.order_by("id").first()
+            if source is None:
+                raise ValidationError("Source team does not have a GitHub integration")
+        elif installation_id_param:
+            existing = (
+                Integration.objects.filter(
+                    team__organization_id=self.organization_id,
+                    kind="github",
+                )
+                .filter(installation_id_match)
+                .order_by("id")
+                .first()
+            )
+            if existing is None:
+                raise ValidationError(
+                    "No team in your organization has this GitHub installation linked",
+                    code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+                )
+            source = existing
+        else:
+            raise ValidationError("source_team_id or installation_id is required")
+
+        installation_id = (source.config or {}).get("installation_id")
+        if not installation_id:
+            raise ValidationError("Source integration is missing installation_id")
+
+        # Confirms the requesting user has access to the installation on GitHub itself,
+        # so cross-team admin access alone can't mint tokens for repos they can't see.
+        user_github_integration = (
+            UserIntegration.objects.filter(user=cast(User, request.user), kind="github").order_by("-created_at").first()
+        )
+        user_access_token = (
+            user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
+        )
+        if not user_access_token:
+            raise ValidationError(
+                PERSONAL_GITHUB_REQUIRED_MESSAGE,
+                code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+            )
+        try:
+            has_access = GitHubIntegration.verify_user_installation_access(str(installation_id), user_access_token)
+        except requests.RequestException:
+            logger.warning(
+                "github_link_existing: installation ownership check failed",
+                installation_id=installation_id,
+                user_id=request.user.id,
+                exc_info=True,
+            )
+            raise ValidationError("Failed to verify installation access")
+        if not has_access:
+            logger.warning(
+                "github_link_existing: user does not have access to installation",
+                installation_id=installation_id,
+                user_id=request.user.id,
+            )
+            raise ValidationError(
+                PERSONAL_GITHUB_REQUIRED_MESSAGE,
+                code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+            )
+
+        instance = GitHubIntegration.integration_from_installation_id(
+            str(installation_id), self.team_id, cast(User, request.user)
+        )
+
+        source_login = (source.config or {}).get("connecting_user_github_login")
+        if source_login and not (instance.config or {}).get("connecting_user_github_login"):
+            instance.config["connecting_user_github_login"] = source_login
+            instance.save(update_fields=["config"])
+
+        return Response(self.get_serializer(instance).data)
+
+    @action(methods=["POST"], detail=False, url_path="github/oauth_authorize")
+    def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""
+        installation_id = request.data.get("installation_id")
+        next_url = str(request.data.get("next") or "")
+        connect_from = request.data.get("connect_from") if request.data.get("connect_from") == "posthog_code" else None
+
+        if not installation_id:
+            raise ValidationError("installation_id is required")
+
+        if not re.fullmatch(r"\d{1,20}", str(installation_id)):
+            raise ValidationError("Invalid installation_id")
+
+        # Open-redirect guard for the success-redirect to `next`.
+        if next_url and not is_relative_url(next_url):
+            raise ValidationError("next must be a relative path starting with /")
+
+        client_id = settings.GITHUB_APP_CLIENT_ID
+        if not client_id:
+            raise ValidationError("GitHub App client ID is not configured")
+
+        token = get_random_string(48)
+        state_payload: dict[str, Any] = {
+            "user_id": request.user.id,
+            "team_id": self.team_id,
+            "installation_id": str(installation_id),
+            "flow": "team_oauth_authorize",
+            "next": next_url,
+        }
+        if connect_from:
+            state_payload["connect_from"] = connect_from
+
+        cache.set(
+            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
+            state_payload,
+            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        )
+
+        oauth_url = "https://github.com/login/oauth/authorize?" + urlencode(
+            {
+                "client_id": client_id,
+                "redirect_uri": github_oauth_redirect_uri(),
+                "state": urlencode({"token": token}),
+            }
+        )
+
+        return Response({"oauth_url": oauth_url})
+
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
     def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         repositories = github.sync_repository_cache(
             min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
         )
@@ -889,17 +1231,12 @@ class IntegrationViewSet(
         limit: int = params.validated_data["limit"]
         offset: int = params.validated_data["offset"]
 
-        parts = repo.split("/")
-        if (
-            len(parts) != 2
-            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
-            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
-            or parts[0] in (".", "..")
-            or parts[1] in (".", "..")
-        ):
-            raise ValidationError("repo must be in owner/repo format")
+        validate_github_repository_name(repo)
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,

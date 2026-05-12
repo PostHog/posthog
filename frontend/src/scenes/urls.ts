@@ -170,11 +170,20 @@ export const urls = {
         productKey,
         stepKey,
         sdk,
+        secondary,
+        from,
+        resumeStep,
     }: {
         campaign?: string
         productKey?: string
         stepKey?: OnboardingStepKey
         sdk?: SDKKey
+        /** Secondary product keys selected in this onboarding session (comma-joined in URL) */
+        secondary?: string[]
+        /** Product key the user navigated from (used for back navigation when diverted) */
+        from?: string
+        /** Step on the from-product to resume after a divert completes */
+        resumeStep?: OnboardingStepKey
     } = {}): string => {
         if (campaign) {
             return `/onboarding/coupons/${campaign}`
@@ -186,6 +195,15 @@ export const urls = {
         }
         if (sdk) {
             params.set('sdk', sdk)
+        }
+        if (secondary?.length) {
+            params.set('secondary', secondary.join(','))
+        }
+        if (from) {
+            params.set('from', from)
+        }
+        if (resumeStep) {
+            params.set('resumeStep', resumeStep)
         }
 
         const base = `/onboarding${productKey ? `/${productKey}` : ''}`

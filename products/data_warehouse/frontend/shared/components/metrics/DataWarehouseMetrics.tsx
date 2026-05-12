@@ -29,7 +29,7 @@ const DATA_WAREHOUSE_METRICS_INFO: Record<string, { name: string; description: s
     rows_synced: {
         name: 'Rows synced',
         description: 'Total number of rows imported from the source',
-        color: getColorVar('primary'),
+        color: getColorVar('success'),
     },
 }
 
@@ -58,6 +58,10 @@ export function DataWarehouseMetrics({ logicKey, sourceId, schemaId }: DataWareh
 
     const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
 
+    const metricLabels = Object.fromEntries(
+        DATA_WAREHOUSE_METRIC_KEYS.map((key) => [key, DATA_WAREHOUSE_METRICS_INFO[key].name])
+    )
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-row gap-2 flex-wrap justify-end">
@@ -79,7 +83,11 @@ export function DataWarehouseMetrics({ logicKey, sourceId, schemaId }: DataWareh
                     />
                 ))}
             </div>
-            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={appMetricsTrends}
+                loading={appMetricsTrendsLoading}
+                metricLabels={metricLabels}
+            />
         </div>
     )
 }

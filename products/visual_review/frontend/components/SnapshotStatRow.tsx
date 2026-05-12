@@ -1,3 +1,5 @@
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 export type StatPreset = 'all' | 'tolerated_drift' | 'currently_quarantined'
 
 const COLOR_BY_PRESET: Record<StatPreset, string> = {
@@ -11,7 +13,10 @@ const STATS: Array<{ value: StatPreset; label: string; description: string }> = 
     {
         value: 'tolerated_drift',
         label: 'Tolerated drift',
-        description: 'At least one tolerate in the last 30 days',
+        // We deliberately exclude AUTO_THRESHOLD tolerations (rendering noise
+        // the diff pipeline auto-accepts) so this slice represents real "we
+        // chose to accept this drift" decisions, not pixel jitter.
+        description: 'At least one human or agent tolerate in the last 30 days',
     },
     {
         value: 'currently_quarantined',
@@ -68,9 +73,15 @@ export function SnapshotStatRow({
                             )}
                             <span className="truncate">{s.label}</span>
                             {s.value === 'tolerated_drift' && frequentlyToleratedCount > 0 && (
-                                <span className="ml-auto bg-primary-3000-button-bg text-primary-3000 text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0">
-                                    {frequentlyToleratedCount} frequent
-                                </span>
+                                <Tooltip
+                                    title={`${frequentlyToleratedCount} snapshot${
+                                        frequentlyToleratedCount === 1 ? '' : 's'
+                                    } accepted ≥3 times in the last 90 days — these have the most trust debt`}
+                                >
+                                    <span className="ml-auto bg-primary-3000-button-bg text-primary-3000 text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0">
+                                        {frequentlyToleratedCount} frequent
+                                    </span>
+                                </Tooltip>
                             )}
                         </div>
                         <div className="text-[11px] text-muted leading-tight">{s.description}</div>

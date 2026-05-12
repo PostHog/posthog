@@ -14,8 +14,8 @@ export const aiErrorNormalizationCounter = new Counter({
 
 export const aiCostModalityExtractionCounter = new Counter({
     name: 'llma_ai_cost_modality_extraction_total',
-    help: 'AI cost modality token extraction outcomes',
-    labelNames: ['status'],
+    help: 'AI cost modality token extraction outcomes by source',
+    labelNames: ['status', 'source'],
 })
 
 export const aiCostTotalOutcomeCounter = new Counter({

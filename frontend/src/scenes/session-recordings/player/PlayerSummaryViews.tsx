@@ -90,9 +90,7 @@ const PHASE_ORDER = [
     'uploading_to_gemini',
     'analyzing_segments',
     'consolidating',
-    'generating_embeddings',
     'saving_summary',
-    'tagging',
     'cleanup',
 ] as const
 
@@ -103,9 +101,7 @@ const PHASE_LABELS: Record<(typeof PHASE_ORDER)[number], string> = {
     uploading_to_gemini: 'Uploading video for analysis',
     analyzing_segments: 'Analyzing video segments',
     consolidating: 'Consolidating analysis',
-    generating_embeddings: 'Generating embeddings',
     saving_summary: 'Saving summary',
-    tagging: 'Tagging session',
     cleanup: 'Cleaning up',
 }
 
@@ -149,9 +145,7 @@ const PHASE_TAU_S: Record<(typeof PHASE_ORDER)[number], number> = {
     uploading_to_gemini: 6,
     analyzing_segments: 30,
     consolidating: 8,
-    generating_embeddings: 4,
-    saving_summary: 2,
-    tagging: 4,
+    saving_summary: 6,
     cleanup: 2,
 }
 
@@ -478,7 +472,7 @@ function SessionSegmentView({
                 header={
                     <div className="py-2">
                         <div className="flex flex-row gap-2">
-                            <h3 className="mb-1">{segment.name}</h3>
+                            <h3 className="mb-1 select-text">{segment.name}</h3>
                             {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
                                 <div>
                                     {segmentOutcome.success ? null : (
@@ -493,7 +487,7 @@ function SessionSegmentView({
                         </div>
                         {segmentOutcome && (
                             <>
-                                <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
+                                <p className="text-sm font-normal mb-0 select-text">{segmentOutcome.summary}</p>
                             </>
                         )}
                         <SegmentMetaTable

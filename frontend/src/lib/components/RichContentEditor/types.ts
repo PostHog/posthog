@@ -35,6 +35,7 @@ export interface RichContentEditorType {
     chain: () => EditorCommands
     destroy: () => void
     getMarks: (type: string) => { id: string; pos: number }[]
+    getAttributes: (typeOrName: string) => Record<string, any>
     setMark: (id: string) => void
     getMentions: () => number[]
     isActive: (name: string, attributes?: {}) => boolean

@@ -88,23 +88,6 @@ class SlackCursorPaginator(BasePaginator):
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
-    if name == "$channels":
-        return {
-            "name": "$channels",
-            "table_name": "$channels",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "channels",
-                "path": "conversations.list",
-                "params": {
-                    "types": "public_channel,private_channel",
-                    "limit": 999,
-                    "exclude_archived": "false",
-                },
-            },
-            "table_format": "delta",
-        }
-
     if name == "$users":
         return {
             "name": "$users",
@@ -363,12 +346,19 @@ def slack_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     channel_id: str | None = None,
+    authed_user: str | None = None,
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     sort_mode: SortMode = "asc"
 
-    if endpoint in ENDPOINTS:
-        # Metadata endpoints ($channels, $users) — served via REST, no webhook support
+    if endpoint == "$channels":
+        # Bypass rest_api_resource: Slack's conversations.list pagination is buggy when
+        # public+private types are mixed, so we walk public and private separately and
+        # scope private channels to the installer (matches get_schemas behavior).
+        endpoint_config = ENDPOINTS[endpoint]
+        items = lambda: iter(_fetch_all_channels(access_token, authed_user))
+    elif endpoint in ENDPOINTS:
+        # $users — served via the generic REST framework
         endpoint_config = ENDPOINTS[endpoint]
         config: RESTAPIConfig = {
             "client": {

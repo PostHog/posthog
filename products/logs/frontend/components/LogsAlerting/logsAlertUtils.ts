@@ -1,33 +1,80 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
-export function withEnableNotificationGuard(
-    alert: LogsAlertConfigurationApi,
-    onConfirm: () => void,
-    onConfigureNotifications: () => void
+export type PreEnableFilters = {
+    severityLevels: string[]
+    serviceNames: string[]
+    filterGroup: UniversalFiltersGroup
+}
+
+export type PreEnableCheckResult =
+    | { ok: true }
+    | { blocked: true; reason: string }
+    | {
+          warning: {
+              title: string
+              description: string
+              confirmLabel: string
+          }
+      }
+
+export function runPreEnableChecks(alert: LogsAlertConfigurationApi, filters: PreEnableFilters): PreEnableCheckResult {
+    if (!hasAnyFilter(filters.severityLevels, filters.serviceNames, filters.filterGroup)) {
+        return { blocked: true, reason: 'Add at least one filter to enable' }
+    }
+    if ((alert.destination_types ?? []).length === 0) {
+        return {
+            warning: {
+                title: 'No notifications configured',
+                description:
+                    "This alert has no notification destinations. It will fire silently — you won't receive any alerts when conditions are met.",
+                confirmLabel: 'Enable anyway',
+            },
+        }
+    }
+    return { ok: true }
+}
+
+export function alertFiltersForPreEnableCheck(alert: LogsAlertConfigurationApi): PreEnableFilters {
+    const filters = (alert.filters ?? {}) as Record<string, unknown>
+    const filterGroupWrapper = filters.filterGroup as { values: UniversalFiltersGroup[] } | undefined
+    return {
+        severityLevels: (filters.severityLevels as string[] | undefined) ?? [],
+        serviceNames: (filters.serviceNames as string[] | undefined) ?? [],
+        filterGroup: filterGroupWrapper?.values?.[0] ?? { type: FilterLogicalOperator.And, values: [] },
+    }
+}
+
+export function dispatchPreEnableCheck(
+    result: PreEnableCheckResult,
+    callbacks: { onConfirm: () => void; onConfigureNotifications: () => void }
 ): void {
-    const isEnabling = !(alert.enabled ?? true)
-    if (isEnabling && (alert.destination_types ?? []).length === 0) {
+    if ('blocked' in result) {
+        lemonToast.error(result.reason)
+        return
+    }
+    if ('warning' in result) {
         LemonDialog.open({
-            title: 'No notifications configured',
-            description:
-                "This alert has no notification destinations. It will fire silently — you won't receive any alerts when conditions are met.",
+            title: result.warning.title,
+            description: result.warning.description,
             primaryButton: {
                 children: 'Configure notifications',
-                onClick: onConfigureNotifications,
+                onClick: callbacks.onConfigureNotifications,
+                'data-attr': 'logs-alert-warning-configure-notifications',
             },
             secondaryButton: {
-                children: 'Enable anyway',
-                onClick: onConfirm,
+                children: result.warning.confirmLabel,
+                onClick: callbacks.onConfirm,
+                'data-attr': 'logs-alert-warning-enable-anyway',
             },
         })
         return
     }
-    onConfirm()
+    callbacks.onConfirm()
 }
 
 export const SNOOZE_DURATIONS = [

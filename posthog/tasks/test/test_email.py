@@ -89,6 +89,31 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_invite_delegation_uses_dedicated_template_and_subject(self, MockEmailMessage: MagicMock) -> None:
+        """Delegation invites route to the delegation_invite template with a custom subject."""
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        user.first_name = "Admin"
+        user.save()
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="delegate@posthog.com",
+            is_setup_delegation=True,
+        )
+
+        send_invite(invite.id)
+
+        assert len(mocked_email_messages) == 1
+        # Subject is asked-to-set-up phrasing, not the generic invite subject
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert "setting up PostHog" in subject
+        assert "Admin" in subject
+        assert "invited you to join" not in subject
+        # Routed to the delegation template
+        assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
+
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

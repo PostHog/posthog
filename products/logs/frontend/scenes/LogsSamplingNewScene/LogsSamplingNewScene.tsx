@@ -28,7 +28,7 @@ export function LogsSamplingNewScene(): JSX.Element {
         <BindLogic logic={logsSamplingFormLogic} props={FORM_PROPS}>
             <SceneContent>
                 <SceneTitleSection
-                    name={samplingForm.name || 'New sampling rule'}
+                    name={samplingForm.name || 'New drop rule'}
                     resourceType={{ type: 'logs' }}
                     canEdit
                     onNameChange={(name) => setSamplingFormValue('name', name)}
@@ -43,7 +43,7 @@ export function LogsSamplingNewScene(): JSX.Element {
                             htmlType="submit"
                             loading={isSamplingFormSubmitting}
                         >
-                            Save rule
+                            Save drop rule
                         </LemonButton>
                     </Form>
                 </div>

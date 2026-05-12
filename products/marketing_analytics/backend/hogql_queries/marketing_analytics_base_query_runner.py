@@ -28,7 +28,10 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
-from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    DRILL_DOWN_LEVEL_CONFIG,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+)
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -120,6 +123,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             date_range=date_range,
             team=self.team,
             base_currency=self.team.base_currency or DEFAULT_CURRENCY,
+            drill_down_level=self.config.drill_down_level,
         )
         return MarketingSourceFactory(context=context)
 
@@ -184,6 +188,33 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+                # Emit the parent campaign hierarchy alongside the ad group fields so the
+                # outer query can show context columns (Campaign + Source + Ad group).
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD:
+                # Full hierarchy: Campaign + Source + Ad group + Ad.
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_id_field]),
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
@@ -502,8 +533,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
         ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
 
-        # Add unified conversion goal CTE if any
-        if conversion_aggregator:
+        # Add unified conversion goal CTE if any. Skip building it entirely at levels
+        # that exclude conversion goals (AD_GROUP / AD) — the main query never references
+        # the CTE there, but ClickHouse still scans the events table to materialize it.
+        # That events scan is the heaviest part of the query, so skipping it is a major
+        # win at hierarchy levels.
+        level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.config.drill_down_level, {})
+        if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
             # Check if this is an aggregated query (no GROUP BY)
             group_by_exprs = self._get_group_by_expressions()
             if not group_by_exprs:

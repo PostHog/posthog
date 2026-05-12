@@ -136,6 +136,38 @@ class UserBasicInfo:
 
 
 @dataclass(frozen=True)
+class DiffCluster:
+    """One connected region of differing pixels in a snapshot diff.
+
+    Wire shape — verbose key names for frontend consumption. Storage uses
+    a compact form (see `diff_metadata.DiffCluster`).
+    """
+
+    x: int
+    y: int
+    width: int
+    height: int
+    pixel_count: int
+    centroid_x: float
+    centroid_y: float
+
+
+@dataclass(frozen=True)
+class ClusterSummary:
+    """Spatial clustering of differing pixels for a snapshot.
+
+    `total` is the count before any per-snapshot cap (so the FE can show
+    "+N more" or pick a categorical label like 'Perceptible change' for highly
+    scattered diffs even when only the top-N items are shipped).
+    `truncated` is True when `len(items) < total`.
+    """
+
+    items: list[DiffCluster]
+    total: int
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -157,6 +189,17 @@ class Snapshot:
     reviewed_by: UserBasicInfo | None = None
     # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
     metadata: dict = field(default_factory=dict)
+    # Diff classification details — see ChangeKind enum and the diff
+    # pipeline. `change_kind` is the categorical signal the UI renders
+    # ('pixel' / 'structural'); `ssim_score` and `cluster_summary` are
+    # details available alongside. `size_mismatch` flags the case where
+    # baseline and current had different dimensions (composes with any
+    # change_kind — pixelhog padded the smaller image and ran metrics
+    # against the padded buffers).
+    ssim_score: float | None = None
+    change_kind: str = ""
+    cluster_summary: ClusterSummary | None = None
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -282,6 +325,14 @@ class SnapshotHistoryEntry:
     diff_percentage: float | None = None
     review_state: str = ""
     current_artifact: Artifact | None = None
+    # Diff classification — see ChangeKind enum. Lets the history view
+    # render categorical chips ('Perceptible change' / 'Size changed') instead
+    # of conflating SSIM dissimilarity with pixel diff %. `cluster_summary`
+    # deliberately omitted here — bbox overlays don't apply to a
+    # list-of-history-rows view; load the full snapshot for those.
+    ssim_score: float | None = None
+    change_kind: str = ""
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -303,18 +354,11 @@ class Repo:
 # side and ships ~600 KB gzipped at the cap.
 BASELINE_OVERVIEW_MAX_ENTRIES = 5000
 
-# How many historical days of per-day result counts feed the overview sparkline.
-BASELINE_SPARKLINE_DAYS = 30
-
-
-@dataclass(frozen=True)
-class BaselineSparklineDay:
-    """One day's bucketed run-result counts for an identifier."""
-
-    clean: int
-    tolerated: int
-    changed: int
-    quarantined: int
+# Number of most-recent default-branch completed runs that feed the
+# `recent_drift_avg` smoothing window. Bounded by run count rather than time
+# so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
+# to wash out a single jittery render while staying responsive on real changes.
+BASELINE_DRIFT_RECENT_RUN_COUNT = 10
 
 
 @dataclass(frozen=True)
@@ -336,11 +380,16 @@ class BaselineEntry:
     tolerate_count_90d: int
     is_quarantined: bool
     last_run_at: datetime
-    # Average diff_percentage across runs in the last 30 days that produced
-    # a non-zero diff. Drives the severity sort on the Tolerated and
-    # Quarantined slices. None when there's no signal yet.
-    recent_diff_avg: float | None
-    sparkline: list[BaselineSparklineDay]
+    # Lifetime count of YAML baseline flips on master/main for this identifier.
+    # Counts RunSnapshots with `result IN (CHANGED, REMOVED)` — the rows that
+    # represent an actual baseline-update event (subsequent runs see UNCHANGED
+    # against the new baseline). Drives the "most-changed" sort.
+    baseline_change_count: int
+    # AVG(diff_percentage) over the last N completed default-branch runs (see
+    # `BASELINE_DRIFT_RECENT_RUN_COUNT`), filtered to runs that produced a
+    # non-zero diff. Drives the drift-severity sort. None when no signal in
+    # the window.
+    recent_drift_avg: float | None
 
 
 @dataclass(frozen=True)

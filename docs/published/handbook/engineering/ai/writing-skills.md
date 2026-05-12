@@ -55,6 +55,24 @@ and describe the desired outcome for the customer.
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
 
+### When to write a skill
+
+The decision flow:
+
+1. **Ask PostHog Code or Claude Code to do X.** If it works on its own, you don't need a skill.
+2. **If it can't do X, fix the tool prompts first.**
+   Tool names, descriptions, and schemas are the cheapest lever — most "the agent doesn't know how to do X" problems are really "the tool description doesn't explain how to do X."
+   See [Adding tools to the MCP server](/handbook/engineering/ai/implementing-mcp-tools).
+3. **If improving tool prompts doesn't unlock the task — or the agent burns significant tokens figuring out which work to do — write a skill.**
+
+Additional signals that a skill is the right answer even when tool prompts are already solid:
+
+- **Complex inputs or outputs.** LLM analytics, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
+- **The guidance naturally splits into entry point plus references.**
+  SQL skills are the canonical example — a top-level workflow with optional schemas, query patterns, and function indexes loaded on demand. If your guidance has that shape, structure it as a skill with `references/`.
+
+Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
+
 ### Referencing MCP tools in skills
 
 When a skill references an MCP tool, use the `posthog:` namespace prefix

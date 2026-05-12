@@ -6,7 +6,11 @@ import uuid
 import logging
 from dataclasses import dataclass
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, run_prompt
+from products.tasks.backend.services.custom_prompt_internals import (
+    CustomPromptSandboxContext,
+    create_task_and_trigger,
+    poll_for_turn,
+)
 
 from .config import AgentArtifacts, SandboxedEvalCase
 
@@ -31,13 +35,13 @@ async def run_eval_case(
     logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
     try:
-        last_message, full_log = await run_prompt(
-            case.prompt,
-            context,
-            step_name=case.name,
-            verbose=True,
-            output_fn=lambda msg: logger.info("agent: %s", msg),
+        # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
+        # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
+        task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+        last_message, full_log_opt, _, _ = await poll_for_turn(
+            task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg)
         )
+        full_log = full_log_opt or ""
 
         duration = time.monotonic() - start
         logger.info(

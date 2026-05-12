@@ -49,7 +49,7 @@ this directly.
 JS error on a Safari release, mobile crash on a specific OS, regional CDN issue.
 
 - Breakdown on `$browser`, `$browser_version`, `$os`, `$device_type`, `$geoip_country_code`.
-- Cross-check with `posthog:error-tracking-issues-list`.
+- Cross-check with `posthog:query-error-tracking-issues-list`.
 
 ## Rate limit / upstream outage
 

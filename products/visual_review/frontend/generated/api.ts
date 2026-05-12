@@ -36,13 +36,12 @@ import type {
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
+    VisualReviewRunsListParams,
+    VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
     VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
 
-/**
- * List all projects for the team.
- */
 export const getVisualReviewReposListUrl = (projectId: string, params?: VisualReviewReposListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -59,6 +58,9 @@ export const getVisualReviewReposListUrl = (projectId: string, params?: VisualRe
         : `/api/projects/${projectId}/visual_review/repos/`
 }
 
+/**
+ * List all projects for the team.
+ */
 export const visualReviewReposList = async (
     projectId: string,
     params?: VisualReviewReposListParams,
@@ -70,13 +72,13 @@ export const visualReviewReposList = async (
     })
 }
 
-/**
- * Create a new repo.
- */
 export const getVisualReviewReposCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/visual_review/repos/`
 }
 
+/**
+ * Create a new repo.
+ */
 export const visualReviewReposCreate = async (
     projectId: string,
     createRepoInputApi: CreateRepoInputApi,
@@ -90,13 +92,13 @@ export const visualReviewReposCreate = async (
     })
 }
 
-/**
- * Get a repo by ID.
- */
 export const getVisualReviewReposRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${id}/`
 }
 
+/**
+ * Get a repo by ID.
+ */
 export const visualReviewReposRetrieve = async (
     projectId: string,
     id: string,
@@ -108,17 +110,17 @@ export const visualReviewReposRetrieve = async (
     })
 }
 
-/**
- * Update a repo's settings.
- */
 export const getVisualReviewReposPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${id}/`
 }
 
+/**
+ * Update a repo's settings.
+ */
 export const visualReviewReposPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUpdateRepoRequestInputApi: PatchedUpdateRepoRequestInputApi,
+    patchedUpdateRepoRequestInputApi?: PatchedUpdateRepoRequestInputApi,
     options?: RequestInit
 ): Promise<RepoApi> => {
     return apiMutator<RepoApi>(getVisualReviewReposPartialUpdateUrl(projectId, id), {
@@ -129,13 +131,13 @@ export const visualReviewReposPartialUpdate = async (
     })
 }
 
-/**
- * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 5000 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
- */
 export const getVisualReviewReposBaselinesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${id}/baselines/`
 }
 
+/**
+ * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 5000 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
+ */
 export const visualReviewReposBaselinesRetrieve = async (
     projectId: string,
     id: string,
@@ -147,9 +149,6 @@ export const visualReviewReposBaselinesRetrieve = async (
     })
 }
 
-/**
- * List quarantined identifiers. Without filter: active only. With identifier: full history.
- */
 export const getVisualReviewReposQuarantineListUrl = (
     projectId: string,
     id: string,
@@ -170,6 +169,9 @@ export const getVisualReviewReposQuarantineListUrl = (
         : `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/`
 }
 
+/**
+ * List quarantined identifiers. Without filter: active only. With identifier: full history.
+ */
 export const visualReviewReposQuarantineList = async (
     projectId: string,
     id: string,
@@ -185,13 +187,13 @@ export const visualReviewReposQuarantineList = async (
     )
 }
 
-/**
- * Quarantine a snapshot identifier for a specific run type.
- */
 export const getVisualReviewReposQuarantineCreateUrl = (projectId: string, id: string, runType: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/`
 }
 
+/**
+ * Quarantine a snapshot identifier for a specific run type.
+ */
 export const visualReviewReposQuarantineCreate = async (
     projectId: string,
     id: string,
@@ -207,13 +209,13 @@ export const visualReviewReposQuarantineCreate = async (
     })
 }
 
-/**
- * Expire all active quarantine entries for an identifier.
- */
 export const getVisualReviewReposQuarantineExpireCreateUrl = (projectId: string, id: string, runType: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/expire/`
 }
 
+/**
+ * Expire all active quarantine entries for an identifier.
+ */
 export const visualReviewReposQuarantineExpireCreate = async (
     projectId: string,
     id: string,
@@ -229,13 +231,13 @@ export const visualReviewReposQuarantineExpireCreate = async (
     })
 }
 
-/**
- * Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching.
- */
 export const getVisualReviewReposThumbnailsRetrieveUrl = (projectId: string, id: string, identifier: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
 }
 
+/**
+ * Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching.
+ */
 export const visualReviewReposThumbnailsRetrieve = async (
     projectId: string,
     id: string,
@@ -248,9 +250,6 @@ export const visualReviewReposThumbnailsRetrieve = async (
     })
 }
 
-/**
- * List runs in this repo, optionally filtered by review state.
- */
 export const getVisualReviewReposRunsListUrl = (
     projectId: string,
     repoId: string,
@@ -271,6 +270,9 @@ export const getVisualReviewReposRunsListUrl = (
         : `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/`
 }
 
+/**
+ * List runs in this repo, optionally filtered by review state.
+ */
 export const visualReviewReposRunsList = async (
     projectId: string,
     repoId: string,
@@ -283,13 +285,13 @@ export const visualReviewReposRunsList = async (
     })
 }
 
-/**
- * Review state counts for runs in this repo.
- */
 export const getVisualReviewReposRunsCountsRetrieveUrl = (projectId: string, repoId: string) => {
     return `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/counts/`
 }
 
+/**
+ * Review state counts for runs in this repo.
+ */
 export const visualReviewReposRunsCountsRetrieve = async (
     projectId: string,
     repoId: string,
@@ -301,9 +303,6 @@ export const visualReviewReposRunsCountsRetrieve = async (
     })
 }
 
-/**
- * Deduped baseline timeline for a snapshot identity. Newest first.
- */
 export const getVisualReviewReposSnapshotsListUrl = (
     projectId: string,
     repoId: string,
@@ -326,6 +325,9 @@ export const getVisualReviewReposSnapshotsListUrl = (
         : `/api/projects/${projectId}/visual_review/repos/${repoId}/snapshots/${runType}/${identifier}/`
 }
 
+/**
+ * Deduped baseline timeline for a snapshot identity. Newest first.
+ */
 export const visualReviewReposSnapshotsList = async (
     projectId: string,
     repoId: string,
@@ -343,13 +345,43 @@ export const visualReviewReposSnapshotsList = async (
     )
 }
 
+export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/`
+}
+
 /**
- * Create a new run from a CI manifest.
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
  */
+export const visualReviewRunsList = async (
+    projectId: string,
+    params?: VisualReviewRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedRunListApi> => {
+    return apiMutator<PaginatedRunListApi>(getVisualReviewRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisualReviewRunsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/visual_review/runs/`
 }
 
+/**
+ * Create a new run from a CI manifest.
+ */
 export const visualReviewRunsCreate = async (
     projectId: string,
     createRunInputApi: CreateRunInputApi,
@@ -363,13 +395,13 @@ export const visualReviewRunsCreate = async (
     })
 }
 
-/**
- * Get run status and summary.
- */
 export const getVisualReviewRunsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/`
 }
 
+/**
+ * Get run status and summary.
+ */
 export const visualReviewRunsRetrieve = async (
     projectId: string,
     id: string,
@@ -381,13 +413,13 @@ export const visualReviewRunsRetrieve = async (
     })
 }
 
-/**
- * Add a batch of snapshots to a pending run (shard-based flow).
- */
 export const getVisualReviewRunsAddSnapshotsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/add-snapshots/`
 }
 
+/**
+ * Add a batch of snapshots to a pending run (shard-based flow).
+ */
 export const visualReviewRunsAddSnapshotsCreate = async (
     projectId: string,
     id: string,
@@ -402,20 +434,20 @@ export const visualReviewRunsAddSnapshotsCreate = async (
     })
 }
 
+export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/approve/`
+}
+
 /**
  * Approve visual changes for snapshots in this run.
 
 With approve_all=true, approves all changed+new snapshots and returns
 signed baseline YAML. With specific snapshots, approves only those.
  */
-export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/runs/${id}/approve/`
-}
-
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
     id: string,
-    approveRunRequestInputApi: ApproveRunRequestInputApi,
+    approveRunRequestInputApi?: ApproveRunRequestInputApi,
     options?: RequestInit
 ): Promise<AutoApproveResultApi> => {
     return apiMutator<AutoApproveResultApi>(getVisualReviewRunsApproveCreateUrl(projectId, id), {
@@ -426,13 +458,13 @@ export const visualReviewRunsApproveCreate = async (
     })
 }
 
-/**
- * Complete a run: detect removals, verify uploads, trigger diff processing.
- */
 export const getVisualReviewRunsCompleteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/complete/`
 }
 
+/**
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
+ */
 export const visualReviewRunsCompleteCreate = async (
     projectId: string,
     id: string,
@@ -444,13 +476,13 @@ export const visualReviewRunsCompleteCreate = async (
     })
 }
 
-/**
- * Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
- */
 export const getVisualReviewRunsRecomputeCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/recompute/`
 }
 
+/**
+ * Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+ */
 export const visualReviewRunsRecomputeCreate = async (
     projectId: string,
     id: string,
@@ -462,9 +494,44 @@ export const visualReviewRunsRecomputeCreate = async (
     })
 }
 
+export const getVisualReviewRunsSnapshotHistoryListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsSnapshotHistoryListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/${id}/snapshot-history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/${id}/snapshot-history/`
+}
+
 /**
- * Get all snapshots for a run with diff results.
+ * Recent change history for a snapshot identifier across runs.
  */
+export const visualReviewRunsSnapshotHistoryList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsSnapshotHistoryListParams,
+    options?: RequestInit
+): Promise<PaginatedSnapshotHistoryEntryListApi> => {
+    return apiMutator<PaginatedSnapshotHistoryEntryListApi>(
+        getVisualReviewRunsSnapshotHistoryListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getVisualReviewRunsSnapshotsListUrl = (
     projectId: string,
     id: string,
@@ -485,6 +552,9 @@ export const getVisualReviewRunsSnapshotsListUrl = (
         : `/api/projects/${projectId}/visual_review/runs/${id}/snapshots/`
 }
 
+/**
+ * Get all snapshots for a run with diff results.
+ */
 export const visualReviewRunsSnapshotsList = async (
     projectId: string,
     id: string,
@@ -497,13 +567,13 @@ export const visualReviewRunsSnapshotsList = async (
     })
 }
 
-/**
- * Mark a changed snapshot as a known tolerated alternate.
- */
 export const getVisualReviewRunsTolerateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/tolerate/`
 }
 
+/**
+ * Mark a changed snapshot as a known tolerated alternate.
+ */
 export const visualReviewRunsTolerateCreate = async (
     projectId: string,
     id: string,
@@ -518,9 +588,6 @@ export const visualReviewRunsTolerateCreate = async (
     })
 }
 
-/**
- * List known tolerated hashes for a snapshot identifier.
- */
 export const getVisualReviewRunsToleratedHashesListUrl = (
     projectId: string,
     id: string,
@@ -541,6 +608,9 @@ export const getVisualReviewRunsToleratedHashesListUrl = (
         : `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/`
 }
 
+/**
+ * List known tolerated hashes for a snapshot identifier.
+ */
 export const visualReviewRunsToleratedHashesList = async (
     projectId: string,
     id: string,
@@ -554,4 +624,21 @@ export const visualReviewRunsToleratedHashesList = async (
             method: 'GET',
         }
     )
+}
+
+export const getVisualReviewRunsCountsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/counts/`
+}
+
+/**
+ * Review state counts for the runs list.
+ */
+export const visualReviewRunsCountsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewStateCountsApi> => {
+    return apiMutator<ReviewStateCountsApi>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

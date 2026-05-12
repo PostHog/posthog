@@ -219,6 +219,8 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -301,6 +303,8 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -328,6 +332,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     );
     let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -682,6 +687,8 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -762,6 +769,8 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -789,6 +798,7 @@ async fn test_evaluate_feature_flags_details() {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     );
     assert_eq!(
@@ -809,6 +819,7 @@ async fn test_evaluate_feature_flags_details() {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     );
 }
@@ -911,6 +922,8 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -990,6 +1003,8 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1181,6 +1196,7 @@ async fn test_fetch_and_filter_flags() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1208,6 +1224,7 @@ async fn test_fetch_and_filter_flags() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1220,6 +1237,7 @@ async fn test_fetch_and_filter_flags() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1242,6 +1260,7 @@ async fn test_fetch_and_filter_flags() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1322,6 +1341,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1386,6 +1406,7 @@ async fn test_fetch_and_filter_shares_prepared_arcs_across_requests() {
         &HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .expect("first fetch");
@@ -1394,6 +1415,7 @@ async fn test_fetch_and_filter_shares_prepared_arcs_across_requests() {
         team.id,
         &query_params,
         &HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1587,6 +1609,8 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1615,6 +1639,8 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1704,6 +1730,8 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     // Test with realtime cohort evaluation ENABLED
@@ -1738,6 +1766,8 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();

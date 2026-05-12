@@ -2,10 +2,19 @@ use crate::api::errors::FlagError;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
+use crate::properties::property_matching::match_property;
+use crate::properties::property_models::OperatorType;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
 use uuid::Uuid;
+
+fn format_operator_explanation(key: &str, op_label: &str, value: &Option<Value>) -> String {
+    match value {
+        Some(v) => format!("Property '{}' {} {}", key, op_label, v),
+        None => format!("Property '{}' {} (empty)", key, op_label),
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FlagsResponseCode {
@@ -97,9 +106,20 @@ pub struct FlagsQueryParams {
     /// e.g. https://us.posthog.com/flags?v=2&config=true
     #[serde(default, deserialize_with = "deserialize_optional_bool")]
     pub config: Option<bool>,
+    /// Optional boolean indicating whether to include detailed condition analysis in the response
+    /// When true, returns detailed information about why each condition matched or didn't match
+    /// e.g. https://us.posthog.com/flags?v=2&detailed_analysis=true
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub detailed_analysis: Option<bool>,
+    /// Optional boolean indicating whether to only use person properties from the request payload
+    /// When true, ignores person properties from the database and only uses properties from person_properties field
+    /// Useful for historical evaluation at specific timestamps
+    /// e.g. https://us.posthog.com/flags?v=2&only_use_override_person_properties=true
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub only_use_override_person_properties: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
@@ -175,7 +195,7 @@ impl ConfigResponse {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
     /// Whether any errors occurred while evaluating feature flags.
@@ -350,7 +370,37 @@ pub struct FlagsOptionsResponse {
     pub status: FlagsResponseCode,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct PropertyAnalysis {
+    pub key: String,
+    pub operator: String,
+    pub value: Value,
+    pub r#type: String,
+    pub actual_value: Option<Value>,
+    pub matched: bool,
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct ConditionAnalysis {
+    pub index: i32,
+    pub properties: Vec<PropertyAnalysis>,
+    pub rollout_percentage: f64,
+    pub variant: Option<String>,
+    /// True when this condition was the one that won (i.e. determined the
+    /// flag's enabled/variant outcome). Use this to find the winning condition
+    /// in a list — it is guaranteed to be set on at most one condition per flag.
+    pub matched: bool,
+    /// True when every property in this condition evaluated to true,
+    /// regardless of whether this condition was the eventual winner. A later
+    /// condition may have won, an earlier one may have short-circuited the
+    /// evaluation, or rollout may have excluded this condition entirely.
+    pub properties_matched: bool,
+    pub rollout_excluded: bool,
+    pub explanation: String,
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
@@ -359,6 +409,9 @@ pub struct FlagDetails {
     pub failed: bool,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
+    /// Optional detailed condition analysis, only included when requested
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<ConditionAnalysis>>,
 }
 
 impl FlagDetails {
@@ -397,12 +450,27 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
+    fn create_with_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        detailed_analysis: bool,
+        property_values: Option<&HashMap<String, Value>>,
+    ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
+        Self::create_with_analysis(flag, flag_match, false, None)
+    }
+
+    fn create_with_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        detailed_analysis: bool,
+        property_values: Option<&HashMap<String, Value>>,
+    ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
@@ -418,6 +486,15 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: flag_match.payload.clone(),
+            },
+            conditions: if detailed_analysis {
+                Some(Self::build_condition_analysis(
+                    flag,
+                    flag_match,
+                    property_values,
+                ))
+            } else {
+                None
             },
         }
     }
@@ -439,6 +516,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     }
 
@@ -467,6 +545,189 @@ impl FromFeatureAndMatch for FlagDetails {
                 Some("Flag cannot be evaluated due to missing dependency".to_string())
             }
         }
+    }
+}
+
+impl FlagDetails {
+    fn build_condition_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        property_values: Option<&HashMap<String, Value>>,
+    ) -> Vec<ConditionAnalysis> {
+        let mut analyses = Vec::new();
+
+        // Analyze each property group (condition)
+        for (index, group) in flag.filters.groups.iter().enumerate() {
+            let mut property_analyses = Vec::new();
+            let mut condition_matched = false;
+
+            // Determine if this condition matched based on overall flag result and condition index
+            // Only mark as matched if the flag itself matched AND this is the matching condition
+            if flag_match.matches {
+                if let Some(condition_index) = flag_match.condition_index {
+                    condition_matched = index == condition_index;
+                } else if matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch) {
+                    // Fallback: assume first condition matched if we have a condition match but no index
+                    condition_matched = index == 0;
+                }
+            }
+            // If flag_match.matches is false, condition_matched remains false for all conditions
+
+            // Analyze properties within this group
+            if let Some(properties) = &group.properties {
+                for property in properties {
+                    let operator_str = match property.operator {
+                        Some(op) => format!("{:?}", op).to_lowercase(),
+                        None => "exact".to_string(),
+                    };
+
+                    let type_str = match property.prop_type {
+                        crate::properties::property_models::PropertyType::Person => "person",
+                        crate::properties::property_models::PropertyType::Group => "group",
+                        crate::properties::property_models::PropertyType::Cohort => "cohort",
+                        crate::properties::property_models::PropertyType::Flag => "flag",
+                    }
+                    .to_string();
+
+                    // Generate explanation placeholder - will be updated after we know if property matched
+                    let explanation_placeholder = match property.operator {
+                        Some(OperatorType::IsSet) => ("is set", "is not set"),
+                        Some(OperatorType::IsNotSet) => ("is not set", "is set"),
+                        Some(OperatorType::Exact) => ("equals", "does not equal"),
+                        Some(OperatorType::IsNot) => ("does not equal", "equals"),
+                        Some(OperatorType::Icontains) => ("contains", "does not contain"),
+                        Some(OperatorType::NotIcontains) => ("does not contain", "contains"),
+                        Some(OperatorType::Gt) => (">", "<="),
+                        Some(OperatorType::Lt) => ("<", ">="),
+                        Some(OperatorType::Gte) => (">=", "<"),
+                        Some(OperatorType::Lte) => ("<=", ">"),
+                        Some(OperatorType::In) => ("is in", "is not in"),
+                        Some(OperatorType::NotIn) => ("is not in", "is in"),
+                        Some(OperatorType::Regex) => ("matches regex", "does not match regex"),
+                        Some(OperatorType::NotRegex) => ("does not match regex", "matches regex"),
+                        _ => (operator_str.as_str(), "does not match"),
+                    };
+
+                    let (property_matched, actual_value) = if let Some(props) = property_values {
+                        let actual = props.get(&property.key).cloned();
+                        let matched = match_property(property, props, false).unwrap_or(false);
+                        (matched, actual)
+                    } else {
+                        // No properties available, fall back to condition-level match
+                        (condition_matched, None)
+                    };
+
+                    // Generate the correct explanation based on whether the property matched
+                    let explanation = if property_matched {
+                        match property.operator {
+                            Some(OperatorType::IsSet) | Some(OperatorType::IsNotSet) => {
+                                format!("Property '{}' {}", property.key, explanation_placeholder.0)
+                            }
+                            _ => format_operator_explanation(
+                                &property.key,
+                                explanation_placeholder.0,
+                                &property.value,
+                            ),
+                        }
+                    } else {
+                        match property.operator {
+                            Some(OperatorType::IsSet) | Some(OperatorType::IsNotSet) => {
+                                format!("Property '{}' {}", property.key, explanation_placeholder.1)
+                            }
+                            _ => format_operator_explanation(
+                                &property.key,
+                                explanation_placeholder.1,
+                                &property.value,
+                            ),
+                        }
+                    };
+
+                    let property_analysis = PropertyAnalysis {
+                        key: property.key.clone(),
+                        operator: operator_str,
+                        value: property.value.clone().unwrap_or(serde_json::Value::Null),
+                        r#type: type_str,
+                        actual_value,
+                        matched: property_matched,
+                        explanation,
+                    };
+                    property_analyses.push(property_analysis);
+                }
+            }
+
+            // Determine rollout status and properties match status
+            let rollout_percentage = group.rollout_percentage.unwrap_or(100.0);
+            let is_zero_rollout = rollout_percentage == 0.0;
+
+            // Check if this condition has properties that would need to be evaluated
+            let has_properties = group
+                .properties
+                .as_ref()
+                .map(|props| !props.is_empty())
+                .unwrap_or(false);
+
+            // Determine if all properties in this condition actually matched
+            let all_properties_matched = if has_properties {
+                property_analyses.iter().all(|prop| prop.matched)
+            } else {
+                // If no properties, consider it a match (rollout-only condition)
+                true
+            };
+
+            // Key insight: Use the overall match reason to determine what happened
+            // If reason is OutOfRolloutBound, it means properties matched but rollout failed
+            let properties_matched_but_rollout_failed =
+                matches!(flag_match.reason, FeatureFlagMatchReason::OutOfRolloutBound);
+
+            // Determine if this specific condition was the one that got excluded by rollout
+            let this_condition_rollout_excluded = if properties_matched_but_rollout_failed {
+                // If overall reason is OutOfRolloutBound, check if this condition has matching index
+                if let Some(match_condition_index) = flag_match.condition_index {
+                    // This condition was the one that matched properties but failed rollout
+                    index == match_condition_index && is_zero_rollout
+                } else {
+                    // No specific condition index, so could be this one if it has zero rollout
+                    is_zero_rollout && all_properties_matched
+                }
+            } else {
+                // Overall reason is not OutOfRolloutBound, so use simple zero rollout check
+                is_zero_rollout && all_properties_matched
+            };
+
+            let explanation = if this_condition_rollout_excluded {
+                format!(
+                    "Condition {} matched properties but was excluded by {}% rollout",
+                    index, rollout_percentage
+                )
+            } else if all_properties_matched && condition_matched {
+                format!(
+                    "Condition {} matched and passed {}% rollout",
+                    index, rollout_percentage
+                )
+            } else if all_properties_matched && !condition_matched {
+                format!(
+                    "Condition {} matched properties but was not evaluated due to an earlier condition matching",
+                    index
+                )
+            } else {
+                format!("Condition {} did not match properties", index)
+            };
+
+            let analysis = ConditionAnalysis {
+                index: index as i32,
+                properties: property_analyses,
+                rollout_percentage,
+                variant: group.variant.clone(),
+                matched: condition_matched,
+                properties_matched: all_properties_matched,
+                rollout_excluded: this_condition_rollout_excluded,
+                explanation,
+            };
+
+            analyses.push(analysis);
+        }
+
+        analyses
     }
 }
 
@@ -733,6 +994,7 @@ mod tests {
                     description: None,
                     payload: Some(json!({"key": "value"})),
                 },
+                conditions: None,
             },
         );
 
@@ -755,6 +1017,7 @@ mod tests {
                     description: None,
                     payload: None,
                 },
+                conditions: None,
             },
         );
 
@@ -777,6 +1040,7 @@ mod tests {
                     description: None,
                     payload: Some(Value::Null),
                 },
+                conditions: None,
             },
         );
 
@@ -867,5 +1131,96 @@ mod tests {
         let evaluated_at = obj.get("evaluatedAt").unwrap().as_i64().unwrap();
         assert!(evaluated_at >= before);
         assert!(evaluated_at <= after);
+    }
+
+    #[test]
+    fn test_condition_analysis_properties_matched_can_diverge_from_matched() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // Create a flag with two conditions using JSON parsing (same pattern as other tests):
+        // Condition 0: properties match but rollout_percentage = 0 (no match)
+        // Condition 1: properties match and rollout_percentage = 100 (match)
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "test-flag",
+                "key": "test-flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "test@example.com",
+                                    "type": "person"
+                                }
+                            ],
+                            "rollout_percentage": 0
+                        },
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "test@example.com",
+                                    "type": "person"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Create a flag match where condition 1 matched (index 1)
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(1),
+            payload: None,
+        };
+
+        // Create property values that would match both conditions
+        let mut property_values = HashMap::new();
+        property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
+
+        // Build condition analysis
+        let analysis =
+            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values));
+
+        // Verify we have analysis for both conditions
+        assert_eq!(analysis.len(), 2);
+
+        // Condition 0: properties matched but overall condition did not match (rollout = 0%)
+        assert!(
+            analysis[0].properties_matched,
+            "Condition 0 should have properties_matched=true"
+        );
+        assert!(
+            !analysis[0].matched,
+            "Condition 0 should have matched=false due to 0% rollout"
+        );
+        assert_eq!(analysis[0].index, 0);
+        assert!(
+            analysis[0].rollout_excluded,
+            "Condition 0 should be rollout_excluded"
+        );
+
+        // Condition 1: properties matched and overall condition matched
+        assert!(
+            analysis[1].properties_matched,
+            "Condition 1 should have properties_matched=true"
+        );
+        assert!(analysis[1].matched, "Condition 1 should have matched=true");
+        assert_eq!(analysis[1].index, 1);
+        assert!(
+            !analysis[1].rollout_excluded,
+            "Condition 1 should not be rollout_excluded"
+        );
     }
 }

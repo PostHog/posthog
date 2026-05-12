@@ -146,3 +146,4 @@ When you have known `$session_id` values (e.g., from `$exception` events or othe
 - Only include property filters directly relevant to the user's question.
 - Default time range is last 3 days. Adjust based on the user's needs.
 - For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.
+- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.

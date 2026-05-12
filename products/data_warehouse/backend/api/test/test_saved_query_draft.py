@@ -1,6 +1,6 @@
 from posthog.test.base import APIBaseTest
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
@@ -159,3 +159,27 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         self.assertIsNotNone(draft_obj.saved_query)
         assert draft_obj.saved_query is not None
         self.assertEqual(draft_obj.saved_query.id, saved_query.id)
+
+    def test_cannot_create_draft_pointing_at_other_teams_saved_query(self):
+        """Regression: POST must not accept a saved_query_id from a different team."""
+        other_org = Organization.objects.create(name="Other Org (IDOR test)")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        foreign_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="confidential_query",
+            team=other_team,
+            query={"kind": "HogQLQuery", "query": "select 1"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 2"},
+                "saved_query_id": str(foreign_saved_query.id),
+            },
+        )
+
+        # The serializer scopes the saved_query lookup by team_id, so the foreign
+        # id is unknown — DRF returns 400.
+        self.assertEqual(response.status_code, 400, response.content)
+        # And no draft should have been created bound to the foreign saved_query.
+        assert not DataWarehouseSavedQueryDraft.objects.filter(saved_query_id=foreign_saved_query.id).exists()

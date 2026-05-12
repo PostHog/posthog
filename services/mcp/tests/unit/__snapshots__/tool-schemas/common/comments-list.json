@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "completed": {
+            "description": "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n* `any` - any\n* `open` - open\n* `completed` - completed",
+            "enum": ["any", "open", "completed"],
+            "type": "string"
+        },
         "cursor": {
             "description": "The pagination cursor value.",
             "type": "string"
@@ -8,6 +13,11 @@
         "item_id": {
             "description": "Filter by the ID of the resource being commented on.",
             "minLength": 1,
+            "type": "string"
+        },
+        "kind": {
+            "description": "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n* `any` - any\n* `comment` - comment\n* `task` - task",
+            "enum": ["any", "comment", "task"],
             "type": "string"
         },
         "scope": {

@@ -10,21 +10,23 @@ import { urls } from 'scenes/urls'
 
 import { ApiSection } from './ApiSection'
 import { EmailSection } from './EmailSection'
+import { GithubSection } from './GithubSection'
 import { SlackSection } from './SlackSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { TeamsSection } from './TeamsSection'
 import { WidgetSection } from './WidgetSection'
 
-type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'api'
+type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'github' | 'api'
 
 const DEFAULT_CHANNEL_TAB: ChannelTabKey = 'widget'
 
 export function ChannelsSection(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { slackConnected, emailConnected, teamsConnected } = useValues(supportSettingsLogic)
+    const { slackConnected, emailConnected, teamsConnected, githubConnected } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { hashParams, searchParams } = useValues(router)
     const teamsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]
+    const githubEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]
 
     const widgetEnabled = !!currentTeam?.conversations_settings?.widget_enabled
     const activeTab = (hashParams.channel as ChannelTabKey | undefined) ?? DEFAULT_CHANNEL_TAB
@@ -84,6 +86,16 @@ export function ChannelsSection(): JSX.Element {
                         </span>
                     ),
                     content: <TeamsSection />,
+                },
+                githubEnabled && {
+                    key: 'github' as const,
+                    label: (
+                        <span className="flex items-center gap-1.5">
+                            GitHub
+                            {channelTag(githubConnected)}
+                        </span>
+                    ),
+                    content: <GithubSection />,
                 },
                 {
                     key: 'api' as const,

@@ -33,10 +33,11 @@ const isNativeProtocol = (url: string): boolean => {
     }
 }
 
+type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
+
 const oauthAuthorize = async (
-    values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] },
-    onNativeRedirectComplete?: () => void
-): Promise<void> => {
+    values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] }
+): Promise<OAuthAuthorizeResult | null> => {
     try {
         const response = await api.create('/oauth/authorize/', {
             client_id: router.values.searchParams['client_id'],
@@ -56,21 +57,17 @@ const oauthAuthorize = async (
         })
 
         if (response.redirect_to) {
-            const isNative = isNativeProtocol(response.redirect_to)
-            location.href = response.redirect_to
-
-            if (isNative && onNativeRedirectComplete) {
-                // Small delay to ensure redirect is initiated before showing success
-                setTimeout(() => onNativeRedirectComplete(), 100)
+            return {
+                redirectTo: response.redirect_to,
+                isNative: isNativeProtocol(response.redirect_to),
             }
         }
+        return null
     } catch (error: any) {
         const detail = error?.detail || error?.message || 'Something went wrong while authorizing the application'
         lemonToast.error(detail)
         throw error
     }
-
-    return
 }
 
 export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
@@ -88,6 +85,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
+        setRedirecting: (redirectUrl: string) => ({ redirectUrl }),
         setSelectedOrganization: (organizationId: string, preferredTeamId?: number) => ({
             organizationId,
             preferredTeamId,
@@ -131,13 +129,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         cancel: async () => {
             actions.setCanceling(true)
             try {
-                await oauthAuthorize({
+                const result = await oauthAuthorize({
                     scoped_organizations: values.oauthAuthorization.scoped_organizations,
                     scoped_teams: values.oauthAuthorization.scoped_teams,
                     access_type: values.oauthAuthorization.access_type,
                     allow: false,
                     scopes: values.scopes,
                 })
+                if (result) {
+                    location.href = result.redirectTo
+                }
             } finally {
                 actions.setCanceling(false)
             }
@@ -235,6 +236,18 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setAuthorizationComplete: (_, { complete }) => complete,
             },
         ],
+        isRedirecting: [
+            false,
+            {
+                setRedirecting: () => true,
+            },
+        ],
+        redirectUrl: [
+            '',
+            {
+                setRedirecting: (_, { redirectUrl }) => redirectUrl,
+            },
+        ],
         selectedOrganization: [
             null as string | null,
             {
@@ -314,14 +327,25 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
                 const scopes = oauthAuthorizeLogic.values.scopes
-                await oauthAuthorize(
-                    {
-                        ...values,
-                        allow: true,
-                        scopes,
-                    },
-                    () => actions.setAuthorizationComplete(true)
-                )
+                const result = await oauthAuthorize({
+                    ...values,
+                    allow: true,
+                    scopes,
+                })
+                if (!result) {
+                    return
+                }
+                // Swap the form for a "Redirecting…" view so the user sees progress
+                // while the browser navigates — for HTTP loopback redirects (Cursor,
+                // Claude Code, etc.) the browser may sit waiting for the local
+                // listener to respond, which makes the original screen feel hung.
+                actions.setRedirecting(result.redirectTo)
+                location.href = result.redirectTo
+                if (result.isNative) {
+                    // Native protocol handlers (vscode://, cursor://, etc.) don't
+                    // navigate the browser away; show success after a brief delay.
+                    setTimeout(() => actions.setAuthorizationComplete(true), 100)
+                }
             },
         },
     })),

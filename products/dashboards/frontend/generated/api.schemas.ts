@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -92,11 +88,11 @@ export interface DashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    dashboard_filters?: unknown | null
+    dashboard_filters?: unknown
     /** @nullable */
     tags?: string[] | null
-    tiles?: unknown | null
-    variables?: unknown | null
+    tiles?: unknown
+    variables?: unknown
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -109,7 +105,7 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
@@ -190,8 +186,8 @@ export interface DashboardBasicApi {
     tags?: unknown[]
     /** Controls who can edit the dashboard.
 
-* `21` - Everyone in the project can edit
-* `37` - Only those invited to this dashboard can edit */
+  * `21` - Everyone in the project can edit
+  * `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: RestrictionLevelEnumApi
     readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -220,17 +216,17 @@ export type DashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type DashboardApiVariables = { [key: string]: unknown } | null | null
+export type DashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -328,7 +324,7 @@ export interface SharingConfigurationApi {
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
-    settings?: unknown | null
+    settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
 }
@@ -338,17 +334,17 @@ export type PatchedDashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type PatchedDashboardApiVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 
@@ -481,9 +477,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -576,6 +572,10 @@ export type DashboardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof DashboardsListFormat]
@@ -597,7 +597,15 @@ export const DashboardsCreateFormat = {
 } as const
 
 export type DashboardsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsRetrieveFormat
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsRetrieveFormat = (typeof DashboardsRetrieveFormat)[keyof typeof DashboardsRetrieveFormat]
@@ -690,6 +698,10 @@ export const DashboardsReorderTilesCreateFormat = {
 } as const
 
 export type DashboardsRunInsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsRunInsightsRetrieveFormat
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -699,6 +711,10 @@ export type DashboardsRunInsightsRetrieveParams = {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsRunInsightsRetrieveFormat =
@@ -739,7 +755,19 @@ export const DashboardsSnapshotCreateFormat = {
 } as const
 
 export type DashboardsStreamTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsStreamTilesRetrieveFormat
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: DashboardsStreamTilesRetrieveLayoutSize
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsStreamTilesRetrieveFormat =
@@ -748,6 +776,14 @@ export type DashboardsStreamTilesRetrieveFormat =
 export const DashboardsStreamTilesRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsStreamTilesRetrieveLayoutSize =
+    (typeof DashboardsStreamTilesRetrieveLayoutSize)[keyof typeof DashboardsStreamTilesRetrieveLayoutSize]
+
+export const DashboardsStreamTilesRetrieveLayoutSize = {
+    Sm: 'sm',
+    Xs: 'xs',
 } as const
 
 export type DashboardsBulkUpdateTagsCreateParams = {

@@ -18,7 +18,7 @@ axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
-quick_cache = { workspace = true, features = ["stats"] }
+quick_cache = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
@@ -34,6 +34,8 @@ regex.workspace = true
 
 [dev-dependencies]
 tokio-stream = { version = "0.1", features = ["net"] }
+metrics-util = { workspace = true }
+rstest = "0.26"
 
 [lints]
 workspace = true

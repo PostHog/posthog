@@ -1,6 +1,6 @@
 ---
 name: configuring-experiment-rollout
-description: "Guides rollout configuration for experiments: variant splits, overall rollout percentage, and the critical disambiguation when a user mentions a specific percentage. Covers both initial setup and mid-experiment changes.\nTRIGGER when: user mentions a rollout percentage, asks about variant splits, wants to change distribution on a running experiment, or asks 'who sees what variant?'\nDO NOT TRIGGER when: user is asking about metrics, analytics, or experiment results."
+description: Configures the rollout shape of a PostHog experiment — the variant split (50/50, 80/20, A/B/C ratios), the overall rollout percentage that gates how many users enter the experiment, and the disambiguation when a percentage like "roll out to 25%" could mean either. Use when the user mentions a rollout percentage, variant split, or traffic distribution; gives a ratio like 60/40, 70/30, or 80/20; asks "who sees the test variant?"; wants to increase, decrease, or change the rollout or split on a draft or running experiment; weighs equal vs uneven splits; or proposes a mid-experiment split change (often an anti-pattern that needs reset or end-and-restart).
 ---
 
 # Configuring experiment rollout

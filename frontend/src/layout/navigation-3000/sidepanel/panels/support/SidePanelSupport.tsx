@@ -78,14 +78,29 @@ const StatusPageAlert = (): JSX.Element | null => {
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
-//const SUPPORT_MESSAGE_OVERRIDE_BODY =
-//    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
+const SUPPORT_MESSAGE_OVERRIDE_BODY =
+    "Many of our support engineers are attending an offsite (from 11th to 15th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be catching up from the 18th and back to full speed shortly after!"
 
 //Support Christmas messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
-const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
+
+const SupportMessageOverride = (): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE]) {
+        return null
+    }
+
+    return (
+        <div className="border bg-surface-primary p-2 rounded gap-2 mb-3">
+            <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
+            <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
+        </div>
+    )
+}
 
 // Table shown to free users on Help panel, instead of email button
 // Support response times are pulled dynamically from billing plans (product.features) where available
@@ -253,8 +268,6 @@ function SupportFormBlock({
     onCancel: () => void
     billing: BillingType | null | undefined
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <Section title="Email an engineer">
             <SupportForm />
@@ -282,19 +295,10 @@ function SupportFormBlock({
 
             <br />
 
-            {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                <div className="border bg-surface-primary p-2 rounded gap-2">
-                    <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
-                    <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
-                </div>
-            ) : (
-                <>
-                    <div className="mb-2">
-                        <strong>Support is open Monday - Friday</strong>
-                    </div>
-                    <SupportResponseTimesTable billing={billing} isCompact={true} />
-                </>
-            )}
+            <div className="mb-2">
+                <strong>Support is open Monday - Friday</strong>
+            </div>
+            <SupportResponseTimesTable billing={billing} isCompact={true} />
         </Section>
     )
 }
@@ -375,6 +379,7 @@ export function SidePanelSupport(): JSX.Element {
                             {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
                                 <Section title="Contact us">
                                     <StatusPageAlert />
+                                    <SupportMessageOverride />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <SidePanelTickets />
                                 </Section>
@@ -383,6 +388,7 @@ export function SidePanelSupport(): JSX.Element {
                             {showEmailSupport && isBillingLoaded && !useProductSupportSidePanel && (
                                 <Section title="Contact us">
                                     <StatusPageAlert />
+                                    <SupportMessageOverride />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"

@@ -10,6 +10,7 @@ from . import (
     email,
     exporter,
     feature_flags,
+    health_checks,
     heatmap_screenshot,
     hog_flows,
     hog_functions,
@@ -25,7 +26,6 @@ from . import (
     tasks,
     team_access_cache_tasks,
     usage_report,
-    user_identify,
     verify_persons_data_in_sync,
     warehouse,
 )
@@ -40,6 +40,7 @@ __all__ = [
     "email",
     "exporter",
     "feature_flags",
+    "health_checks",
     "heatmap_screenshot",
     "hog_flows",
     "hog_functions",
@@ -55,7 +56,6 @@ __all__ = [
     "tasks",
     "team_access_cache_tasks",
     "usage_report",
-    "user_identify",
     "verify_persons_data_in_sync",
     "warehouse",
 ]
