@@ -268,9 +268,13 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Update insight view timestamps.
-Expects: {"insight_ids": [1, 2, 3, ...]}
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
  */
-export const InsightsViewedCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const insightsViewedCreateBodyInsightIdsMax = 2500
+
+export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
+    insight_ids: zod
+        .array(zod.number())
+        .max(insightsViewedCreateBodyInsightIdsMax)
+        .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
+})

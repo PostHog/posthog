@@ -130,6 +130,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                     view.managed_viewset_kind !== null ? (
                                         <>
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         You cannot edit the definition for a view that belongs to a
@@ -303,6 +304,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                     view.managed_viewset_kind !== null ? (
                                         <>
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         You cannot edit the definition for a view that belongs to a
