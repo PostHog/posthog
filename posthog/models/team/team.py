@@ -867,6 +867,46 @@ class Team(UUIDTClassicModel):
 
         push_vercel_secrets.delay(self.id)
 
+    def set_token_and_save(self, *, new_token: str, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        new_token = new_token.strip()
+        if not new_token:
+            raise ValueError("New API token must be non-empty.")
+        if len(new_token) > 200:
+            raise ValueError("New API token exceeds 200 characters.")
+        if new_token == self.api_token:
+            raise ValueError("New API token is identical to the current token.")
+
+        old_token = self.api_token
+        self.api_token = new_token
+        self.save()
+        set_team_in_cache(old_token, None)
+        set_team_in_cache(self.api_token, self)
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="changed",
+                        field="api_token",
+                        before=old_token,
+                        after=self.api_token,
+                    )
+                ],
+            ),
+        )
+
+        self._notify_vercel_of_token_rotation()
+
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 

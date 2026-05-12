@@ -1,11 +1,15 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.core_event import CoreEvent
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
@@ -268,3 +272,77 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+
+
+class TestTeamSetTokenAndSave(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.api_token = "phc_old_token_value"
+        self.team.save()
+
+    @parameterized.expand(
+        [
+            ("empty", "", "non-empty"),
+            ("whitespace_only", "   ", "non-empty"),
+            ("too_long", "a" * 201, "200 characters"),
+            ("identical", "phc_old_token_value", "identical"),
+        ]
+    )
+    def test_set_token_and_save_validation_rejects_invalid(self, _name: str, new_token: str, message_fragment: str):
+        with self.assertRaises(ValueError) as ctx:
+            self.team.set_token_and_save(
+                new_token=new_token,
+                user=self.user,
+                is_impersonated_session=False,
+            )
+        assert message_fragment in str(ctx.exception)
+        self.team.refresh_from_db()
+        assert self.team.api_token == "phc_old_token_value"
+
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    @patch("posthog.models.team.team.set_team_in_cache")
+    def test_set_token_and_save_success_runs_full_side_effect_chain(self, mock_set_cache, mock_push_vercel) -> None:
+        self.team.set_token_and_save(
+            new_token="phc_new_token_value",
+            user=self.user,
+            is_impersonated_session=False,
+        )
+
+        self.team.refresh_from_db()
+        assert self.team.api_token == "phc_new_token_value"
+
+        cache_calls = [call.args for call in mock_set_cache.call_args_list]
+        assert ("phc_old_token_value", None) in cache_calls
+        assert any(args[0] == "phc_new_token_value" and args[1] is self.team for args in cache_calls)
+
+        mock_push_vercel.assert_called_once_with(self.team.id)
+
+        log_entry = ActivityLog.objects.get(scope="Team", item_id=str(self.team.pk), activity="updated")
+        change = log_entry.detail["changes"][0]
+        assert change["field"] == "api_token"
+        assert change["before"] == "phc_old_token_value"
+        assert change["after"] == "phc_new_token_value"
+
+    def test_set_token_and_save_rejects_token_already_taken_by_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, api_token="phc_already_taken")
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.team.set_token_and_save(
+                new_token="phc_already_taken",
+                user=self.user,
+                is_impersonated_session=False,
+            )
+
+        other_team.refresh_from_db()
+        assert other_team.api_token == "phc_already_taken"
+        self.team.refresh_from_db()
+        assert self.team.api_token == "phc_old_token_value"
+
+    def test_set_token_and_save_strips_whitespace(self) -> None:
+        self.team.set_token_and_save(
+            new_token="  phc_trimmed  ",
+            user=self.user,
+            is_impersonated_session=False,
+        )
+        self.team.refresh_from_db()
+        assert self.team.api_token == "phc_trimmed"
