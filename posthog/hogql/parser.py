@@ -133,7 +133,7 @@ _LITERAL_DETECTION_MIN_LEN = 32
 # adds no measurable speedup and they'd churn cache slots that longer,
 # higher-value entries could use. Cap the upper end too, to bound memory
 # from user-controlled inputs. Explicit `cache_origin=BUILTIN` bypasses
-# both bounds (trusted opt-in).
+# only the upper bound (trusted opt-in for large queries).
 _MIN_CACHEABLE_STATEMENT_LEN = 40
 _MAX_CACHEABLE_STATEMENT_LEN = 64 * 1024
 
@@ -226,8 +226,8 @@ def _parse_cached(
     # Coerce so a stringly-typed call validates and a typo raises.
     cache_origin = CacheOrigin(cache_origin)
 
-    if cache_origin != CacheOrigin.BUILTIN and not (
-        _MIN_CACHEABLE_STATEMENT_LEN <= len(statement) <= _MAX_CACHEABLE_STATEMENT_LEN
+    if len(statement) < _MIN_CACHEABLE_STATEMENT_LEN or (
+        cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN
     ):
         _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="skip", rule=rule).inc()
         return _invoke_parser(backend, rule, statement, start)

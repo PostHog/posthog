@@ -140,8 +140,9 @@ class TestParserCache(BaseTest):
         # `parse_expr` short identifier-only inputs route to user cache via
         # the interning guard; use explicit BUILTIN to test start-arg keying
         # in isolation.
-        parse_expr("1 + 1", start=0, cache_origin=CacheOrigin.BUILTIN)
-        parse_expr("1 + 1", start=1, cache_origin=CacheOrigin.BUILTIN)
+        expr = "1 + 1 -- start-arg keying test, long enough to cache"
+        parse_expr(expr, start=0, cache_origin=CacheOrigin.BUILTIN)
+        parse_expr(expr, start=1, cache_origin=CacheOrigin.BUILTIN)
         self.assertEqual(_builtin_parse_cache.currsize, 2)
 
     def test_looks_like_code_literal_finds_function_literal(self):
@@ -172,23 +173,20 @@ class TestParserCache(BaseTest):
         self.assertEqual(_builtin_parse_cache.currsize, 0)
         self.assertEqual(_user_parse_cache.currsize, 0)
 
-    @parameterized.expand([(CacheOrigin.AUTO,), (CacheOrigin.USER,)])
-    def test_undersized_query_skips_user_and_auto_caches(self, origin):
+    @parameterized.expand([(CacheOrigin.AUTO,), (CacheOrigin.USER,), (CacheOrigin.BUILTIN,)])
+    def test_undersized_query_skips_cache(self, origin):
+        # Short queries skip caching regardless of origin — even explicit
+        # BUILTIN doesn't bypass the minimum, since the speedup isn't worth
+        # the slot.
         sql = "SELECT 1"
         assert len(sql) < _MIN_CACHEABLE_STATEMENT_LEN
         parse_select(sql, cache_origin=origin)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
         self.assertEqual(_user_parse_cache.currsize, 0)
 
-    def test_undersized_query_still_caches_under_explicit_builtin(self):
-        # Explicit BUILTIN bypasses the size bounds.
-        sql = "SELECT 1"
-        assert len(sql) < _MIN_CACHEABLE_STATEMENT_LEN
-        parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
-        self.assertEqual(_builtin_parse_cache.currsize, 1)
-
     def test_oversized_query_still_caches_under_explicit_builtin(self):
-        # Explicit BUILTIN bypasses the size bounds.
+        # Explicit BUILTIN bypasses the upper bound (trusted opt-in for
+        # large queries).
         padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
         sql = f"SELECT 1 -- {padding}"
         parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
