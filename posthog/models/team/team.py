@@ -1093,6 +1093,10 @@ def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
 
 @mutable_receiver(post_save, sender=Team)
 def reevaluate_authorized_urls_health(sender, instance: Team, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "app_urls" not in update_fields:
+        return
+
     from posthog.tasks.health_checks import evaluate_health_check_for_team
 
     team_id = instance.id

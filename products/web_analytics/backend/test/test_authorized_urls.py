@@ -2,17 +2,18 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.models.health_issue import HealthIssue
+from posthog.tasks.health_checks import evaluate_health_check_for_team
 
 from products.web_analytics.backend.temporal.health_checks.authorized_urls import AuthorizedUrlsCheck
 
 
-class TestAuthorizedUrlsCheckEvaluateForTeam(BaseTest):
+class TestAuthorizedUrlsEvaluation(BaseTest):
     def test_creates_issue_when_team_has_no_app_urls(self):
         self.team.app_urls = []
         self.team.save()
         HealthIssue.objects.filter(team_id=self.team.id, kind=AuthorizedUrlsCheck.kind).delete()
 
-        AuthorizedUrlsCheck().evaluate_for_team(self.team.id)
+        evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
         issues = HealthIssue.objects.filter(
             team_id=self.team.id,
@@ -20,13 +21,12 @@ class TestAuthorizedUrlsCheckEvaluateForTeam(BaseTest):
             status=HealthIssue.Status.ACTIVE,
         )
         self.assertEqual(issues.count(), 1)
-        issue = issues.get()
-        self.assertEqual(issue.severity, HealthIssue.Severity.WARNING)
+        self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
 
     def test_resolves_active_issue_when_team_has_app_urls(self):
         self.team.app_urls = []
         self.team.save()
-        AuthorizedUrlsCheck().evaluate_for_team(self.team.id)
+        evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
         self.assertEqual(
             HealthIssue.objects.filter(
                 team_id=self.team.id, kind=AuthorizedUrlsCheck.kind, status=HealthIssue.Status.ACTIVE
@@ -36,7 +36,7 @@ class TestAuthorizedUrlsCheckEvaluateForTeam(BaseTest):
 
         self.team.app_urls = ["https://example.com"]
         self.team.save()
-        AuthorizedUrlsCheck().evaluate_for_team(self.team.id)
+        evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
         self.assertEqual(
             HealthIssue.objects.filter(
@@ -55,8 +55,8 @@ class TestAuthorizedUrlsCheckEvaluateForTeam(BaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
 
-        AuthorizedUrlsCheck().evaluate_for_team(self.team.id)
-        AuthorizedUrlsCheck().evaluate_for_team(self.team.id)
+        evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
+        evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
         self.assertEqual(
             HealthIssue.objects.filter(team_id=self.team.id, kind=AuthorizedUrlsCheck.kind).count(),
@@ -80,3 +80,19 @@ class TestAuthorizedUrlsSignal(BaseTest):
             self.team.save()
 
         mock_task.delay.assert_not_called()
+
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team")
+    def test_task_not_dispatched_when_app_urls_not_in_update_fields(self, mock_task):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.name = "renamed"
+            self.team.save(update_fields=["name"])
+
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team")
+    def test_task_dispatched_when_app_urls_in_update_fields(self, mock_task):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.app_urls = ["https://example.com"]
+            self.team.save(update_fields=["app_urls"])
+
+        mock_task.delay.assert_called_with("authorized_urls", self.team.id)
