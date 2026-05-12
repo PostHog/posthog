@@ -5,7 +5,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarProps, ToolbarUserIntent } from '~/types'
+import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
@@ -21,16 +21,7 @@ import {
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
 
-const VALID_USER_INTENTS: ReadonlySet<ToolbarUserIntent> = new Set([
-    'add-action',
-    'edit-action',
-    'heatmaps',
-    'add-experiment',
-    'edit-experiment',
-    'add-product-tour',
-    'edit-product-tour',
-    'preview-product-tour',
-])
+const VALID_USER_INTENTS: ReadonlySet<ToolbarUserIntent> = new Set(TOOLBAR_USER_INTENTS)
 
 const asUserIntent = (v: unknown): ToolbarUserIntent | null => {
     const s = asNonEmptyString(v)

@@ -15,10 +15,8 @@ describe('utils', () => {
             { input: [], expected: null },
             { input: ['a'], expected: null },
         ]
-        testCases.forEach(({ input, expected }) => {
-            it(`${JSON.stringify(input)} -> ${JSON.stringify(expected)}`, () => {
-                expect(asNonEmptyString(input)).toBe(expected)
-            })
+        it.each(testCases)('$input -> $expected', ({ input, expected }) => {
+            expect(asNonEmptyString(input)).toBe(expected)
         })
     })
 

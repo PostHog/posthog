@@ -22,20 +22,16 @@ export function sanitizeExperimentHTML(html: string | undefined | null): string 
 
 // url() is the only meaningful exfil channel on inline styles (background-image,
 // cursor, mask-image, list-style-image, border-image). Houdini paint() and the
-// image-set/cross-fade families also resolve to URL fetches. @import and expression()
-// are unreachable from inline `style=""` attributes but kept as belt-and-suspenders.
-const CSS_FETCH_FUNCTIONS = /url\s*\(|image-set\s*\(|cross-fade\s*\(|paint\s*\(|expression\s*\(/i
+// image-set / cross-fade / -webkit-image-set families also resolve to URL fetches.
+const CSS_FETCH_FUNCTIONS = /url\s*\(|image-set\s*\(|-webkit-image-set\s*\(|cross-fade\s*\(|paint\s*\(|expression\s*\(/i
 
 export function sanitizeExperimentStyle(css: string | undefined | null): string {
     if (!css) {
         return ''
     }
-    if (!CSS_FETCH_FUNCTIONS.test(css)) {
-        return css
-    }
-    // Risky pattern in the raw input. Rebuild from only declarations the browser parsed
-    // AND that don't match the filter — anything the parser couldn't classify is dropped,
-    // so newer fetching syntaxes the runtime doesn't recognize fail closed.
+    // Always normalize through CSSOM and test the parsed value. A raw-string check
+    // would miss CSS character escapes like `ur\l(...)` and vendor-prefixed wrappers
+    // that don't embed `url(` — the browser resolves both into a real url() fetch.
     const probe = document.createElement('div')
     probe.setAttribute('style', css)
     const safe = document.createElement('div')
@@ -74,5 +70,19 @@ export function htmlSanitizationWouldStrip(html: string | undefined | null): boo
 }
 
 export function styleSanitizationWouldStrip(css: string | undefined | null): boolean {
-    return !!css && CSS_FETCH_FUNCTIONS.test(css)
+    if (!css) {
+        return false
+    }
+    // Compare property counts on the normalized form so CSS escapes / vendor wrappers
+    // are correctly flagged. Whitespace-only and string-shape differences don't trip it.
+    const probe = document.createElement('div')
+    probe.setAttribute('style', css)
+    const before = probe.style.length
+    let after = 0
+    for (let i = 0; i < probe.style.length; i++) {
+        if (!CSS_FETCH_FUNCTIONS.test(probe.style.getPropertyValue(probe.style[i]))) {
+            after++
+        }
+    }
+    return after < before
 }

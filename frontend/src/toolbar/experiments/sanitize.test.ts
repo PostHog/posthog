@@ -65,6 +65,9 @@ describe('experiment sanitize', () => {
             'background: cross-fade(url(a) 50%, url(b) 50%)',
             'background: paint(myPainter)',
             'background-image: expression(alert(1))',
+            // CSS character escapes: `\l` is a literal `l`, so the parser resolves to url().
+            'background-image: ur\\l(https://evil/)',
+            'background-image: u\\72l(https://evil/)',
         ])('drops fetching-function declaration: %s', (input) => {
             const out = sanitizeExperimentStyle(input)
             expect(out).not.toMatch(/url\(/i)
@@ -98,6 +101,7 @@ describe('experiment sanitize', () => {
     describe('setSanitizedHTML', () => {
         it('writes sanitized markup to innerHTML', () => {
             const el = document.createElement('div')
+            // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
             setSanitizedHTML(el, '<p>hi<script>alert(1)</script></p>')
             expect(el.innerHTML).toBe('<p>hi</p>')
         })
