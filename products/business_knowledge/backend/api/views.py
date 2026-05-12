@@ -111,8 +111,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except (logic.UrlFetchFailedError, logic.EmptyContentError):
-            raise exceptions.ValidationError({"url": "Could not fetch the URL."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
         return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
@@ -134,8 +132,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except (logic.UrlFetchFailedError, logic.EmptyContentError):
-            raise exceptions.ValidationError({"url": "Crawl failed — could not fetch any pages."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
         return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
