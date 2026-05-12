@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
+from django.utils.dateparse import parse_datetime
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast, Coalesce
 from django.http import StreamingHttpResponse
@@ -78,6 +79,11 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.dashboards.backend.version_history import (
+    VersionNotFound,
+    apply_dashboard_revert,
+    list_dashboard_versions,
+)
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
@@ -163,6 +169,36 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
 class CopyDashboardTileRequestSerializer(serializers.Serializer):
     fromDashboardId = serializers.IntegerField(help_text="Dashboard id the tile currently belongs to.")
     tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
+
+
+class DashboardRevertRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(
+        help_text="The activity log entry id to revert this dashboard to. Obtain it from the versions list endpoint.",
+    )
+
+
+class DashboardVersionUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="User id.")
+    first_name = serializers.CharField(help_text="User first name.", allow_blank=True)
+    last_name = serializers.CharField(help_text="User last name.", allow_blank=True)
+    email = serializers.EmailField(help_text="User email.")
+
+
+class DashboardVersionListItemSerializer(serializers.Serializer):
+    version_id = serializers.CharField(help_text="Version identifier (the underlying activity log entry id).")
+    created_at = serializers.DateTimeField(help_text="When the version was recorded.")
+    activity = serializers.CharField(help_text="Activity type, e.g. created/updated/deleted/restored.")
+    user = DashboardVersionUserSerializer(
+        allow_null=True,
+        help_text="The user that made the change. Null when the change was made by the system or an unknown actor.",
+    )
+    is_system = serializers.BooleanField(help_text="True when the change was performed by a system process.")
+    was_impersonated = serializers.BooleanField(help_text="True when the change was made via staff impersonation.")
+    client = serializers.CharField(
+        allow_null=True,
+        help_text="The value of the x-posthog-client header captured when the activity was logged.",
+    )
+    detail = serializers.JSONField(help_text="Detail payload including before/after diffs.")
 
 
 class CanEditDashboard(BasePermission):
@@ -1578,6 +1614,80 @@ class DashboardsViewSet(
 
         DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
 
+        return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                description="Maximum number of versions to return (default 50, max 200).",
+            ),
+            OpenApiParameter(
+                "before",
+                OpenApiTypes.DATETIME,
+                description="Return versions older than this ISO timestamp (for paging).",
+            ),
+        ],
+        responses={200: DashboardVersionListItemSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True, url_path="versions", required_scopes=["dashboard:read"])
+    def versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List recorded versions of this dashboard, newest first.
+
+        Each version corresponds to an activity log entry capturing who made the change,
+        when, and what fields changed (before/after).
+        """
+        dashboard = self.get_object()
+
+        try:
+            limit = int(request.query_params.get("limit", "50"))
+        except ValueError:
+            raise exceptions.ValidationError({"limit": "Must be an integer."})
+
+        before_param = request.query_params.get("before")
+        before_dt = None
+        if before_param:
+            before_dt = parse_datetime(before_param)
+            if before_dt is None:
+                raise exceptions.ValidationError({"before": "Must be an ISO 8601 datetime."})
+
+        entries = list_dashboard_versions(
+            dashboard_id=dashboard.id,
+            team_id=self.team_id,
+            limit=limit,
+            before=before_dt,
+        )
+        return Response(DashboardVersionListItemSerializer(entries, many=True).data)
+
+    @extend_schema(request=DashboardRevertRequestSerializer, responses={200: DashboardSerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="revert_to_version",
+        required_scopes=["dashboard:write"],
+    )
+    def revert_to_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Revert this dashboard to the state recorded at the given version id.
+
+        Reconstructable scalar fields (name, description, filters, variables, etc.) are
+        restored. Tiles and tags are managed through other endpoints and are not affected
+        by a revert.
+        """
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+
+        serializer = DashboardRevertRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        version_id = serializer.validated_data["version_id"]
+
+        try:
+            apply_dashboard_revert(dashboard, activity_log_id=version_id, team_id=self.team_id)
+        except VersionNotFound as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+
+        dashboard.refresh_from_db()
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
     @extend_schema(

@@ -14,6 +14,7 @@ import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
+import { DashboardVersionHistoryModal } from './DashboardVersionHistoryModal'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
 
@@ -67,6 +68,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                     <DashboardInsightColorsModal />
                 </>
             )}
+            <DashboardVersionHistoryModal dashboardId={dashboard.id} canEdit={canEditDashboard} />
             {user?.is_staff && <DashboardTemplateEditor />}
             <TerraformExportModal
                 isOpen={terraformModalOpen}

@@ -2459,6 +2459,30 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     quick_filter_ids?: string[] | null
 }
 
+export interface DashboardVersionChange {
+    type: ActivityScope | string
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'copied'
+    field?: string
+    before?: unknown
+    after?: unknown
+}
+
+export interface DashboardVersionListItem {
+    version_id: string
+    created_at: string
+    /** e.g. 'created', 'updated', 'deleted', 'restored' */
+    activity: string
+    user: { id: number; first_name: string; last_name: string; email: string } | null
+    is_system: boolean
+    was_impersonated: boolean
+    client: string | null
+    detail: {
+        changes?: DashboardVersionChange[] | null
+        name?: string | null
+        [key: string]: unknown
+    } | null
+}
+
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
     ONBOARDING = 'onboarding',

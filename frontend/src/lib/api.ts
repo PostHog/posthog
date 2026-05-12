@@ -89,6 +89,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DashboardVersionListItem,
     DataColorThemeModel,
     DataModelingDAG,
     DataModelingEdge,
@@ -3425,6 +3426,24 @@ const api = {
             }).catch(onError)
 
             return () => abortController.abort()
+        },
+
+        async listVersions(
+            id: DashboardType['id'],
+            params: { limit?: number; before?: string } = {}
+        ): Promise<DashboardVersionListItem[]> {
+            return new ApiRequest()
+                .dashboardsDetail(id)
+                .withAction('versions')
+                .withQueryString(toParams(params))
+                .get()
+        },
+
+        async revertToVersion(id: DashboardType['id'], versionId: string): Promise<DashboardType> {
+            return new ApiRequest()
+                .dashboardsDetail(id)
+                .withAction('revert_to_version')
+                .create({ data: { version_id: versionId } })
         },
     },
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
+import { IconClock, IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -37,6 +37,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterF
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
+import { dashboardVersionHistoryLogic } from './dashboardVersionHistoryLogic'
 import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
 
@@ -169,6 +170,8 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </>
                 )}
 
+                {dashboard && <DashboardVersionHistoryMenuItem dashboardId={dashboard.id} />}
+
                 {dashboard && (
                     <ButtonPrimitive
                         onClick={() => setTerraformModalOpen(true)}
@@ -240,5 +243,20 @@ export function DashboardScenePanel(): JSX.Element | null {
             )}
             <DashboardTemplateModal />
         </ScenePanel>
+    )
+}
+
+function DashboardVersionHistoryMenuItem({ dashboardId }: { dashboardId: number }): JSX.Element {
+    const { openVersionHistory } = useActions(dashboardVersionHistoryLogic({ dashboardId }))
+    return (
+        <ButtonPrimitive
+            onClick={openVersionHistory}
+            menuItem
+            data-attr={`${RESOURCE_TYPE}-version-history`}
+            tooltip="See who edited this dashboard and revert to an earlier version"
+        >
+            <IconClock />
+            Version history
+        </ButtonPrimitive>
     )
 }
