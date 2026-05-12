@@ -6357,6 +6357,8 @@ export interface DataTableNodeApi {
     showAbsoluteTime?: boolean | null
     /** Show the kebab menu at the end of the row */
     showActions?: boolean | null
+    /** Show a toggle to automatically refresh new rows on a fixed interval */
+    showAutoLoad?: boolean | null
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean | null
     /** Show count of total and filtered results */
