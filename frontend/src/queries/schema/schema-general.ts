@@ -1229,6 +1229,8 @@ interface DataTableNodeViewProps {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show a toggle to automatically refresh new rows on a fixed interval */
+    showAutoLoad?: boolean
     /** Show count of total and filtered results */
     showCount?: boolean
     /** Show the time it takes to run a query */

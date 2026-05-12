@@ -13046,6 +13046,10 @@
                     "description": "Show the kebab menu at the end of the row",
                     "type": "boolean"
                 },
+                "showAutoLoad": {
+                    "description": "Show a toggle to automatically refresh new rows on a fixed interval",
+                    "type": "boolean"
+                },
                 "showColumnConfigurator": {
                     "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
@@ -34454,6 +34458,10 @@
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
+                    "type": "boolean"
+                },
+                "showAutoLoad": {
+                    "description": "Show a toggle to automatically refresh new rows on a fixed interval",
                     "type": "boolean"
                 },
                 "showColumnConfigurator": {

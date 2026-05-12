@@ -20,6 +20,7 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -216,6 +217,7 @@ export function DataTable({
         showPropertyFilter,
         showHogQLEditor,
         showReload,
+        showAutoLoad,
         showCount,
         showExport,
         showElapsedTime,
@@ -800,6 +802,7 @@ export function DataTable({
     const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
+        showAutoLoad ? <AutoLoad key="auto-load" /> : null,
         showCount && sourceFeatures.has(QueryFeature.showCount) ? <DataTableCount key="count" /> : null,
         shouldShowCount && showElapsedTime ? <LemonDivider vertical={true} key="divider" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,

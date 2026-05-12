@@ -8101,6 +8101,10 @@ class SavedInsightNode(BaseModel):
         ),
     )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
+    showAutoLoad: bool | None = Field(
+        default=None,
+        description="Show a toggle to automatically refresh new rows on a fixed interval",
+    )
     showColumnConfigurator: bool | None = Field(
         default=None,
         description="Show a button to configure the table's columns if possible",
@@ -23036,6 +23040,10 @@ class DataTableNode(BaseModel):
         ),
     )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
+    showAutoLoad: bool | None = Field(
+        default=None,
+        description="Show a toggle to automatically refresh new rows on a fixed interval",
+    )
     showColumnConfigurator: bool | None = Field(
         default=None,
         description="Show a button to configure the table's columns if possible",

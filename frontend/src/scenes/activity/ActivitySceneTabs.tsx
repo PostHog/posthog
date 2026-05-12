@@ -27,16 +27,6 @@ export const activityTabs = [
         ),
         link: urls.activity(ActivityTab.ExploreSessions),
     },
-    {
-        key: ActivityTab.LiveEvents,
-        label: (
-            <span className="flex items-center gap-1">
-                {iconForType(sceneConfigurations[Scene.LiveEvents].iconType)}
-                Live
-            </span>
-        ),
-        link: urls.activity(ActivityTab.LiveEvents),
-    },
 ]
 
 export const ActivitySceneTabs = ({ activeKey }: { activeKey: ActivityTab }): JSX.Element => {

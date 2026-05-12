@@ -15,6 +15,7 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     propertiesViaUrl: true,
     showSavedQueries: true,
     showPersistentColumnConfigurator: true,
+    showAutoLoad: true,
 })
 
 export function applyTestAccountFilter<T extends DataTableNode>(
