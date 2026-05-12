@@ -158,6 +158,8 @@ export interface ErrorTrackingSpikeDetectionConfig {
 export interface ErrorTrackingSettings {
     project_rate_limit_value: number | null
     project_rate_limit_bucket_size_minutes: number | null
+    per_issue_rate_limit_value: number | null
+    per_issue_rate_limit_bucket_size_minutes: number | null
 }
 
 export interface ErrorTrackingSpikeEventIssue {

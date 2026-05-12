@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { Link } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { FUNNEL_STEP_COUNT_LIMIT } from '~/scenes/insights/EditorFilters/FunnelsQuerySteps'
@@ -28,7 +27,7 @@ export function LegacyFunnelAttributionSelect({
             <div className="flex">
                 <span>Attribution type</span>
                 <Tooltip
-                    closeDelayMs={200}
+                    docLink="https://posthog.com/docs/product-analytics/funnels#attribution-types"
                     title={
                         <div className="deprecated-space-y-2">
                             <div>
@@ -49,12 +48,6 @@ export function LegacyFunnelAttributionSelect({
                                 </li>
                                 <li>Specific step: only the property value seen at the selected step is chosen.</li>
                             </ul>
-                            <div>
-                                Read more in the{' '}
-                                <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
-                                    documentation.
-                                </Link>
-                            </div>
                         </div>
                     }
                 >

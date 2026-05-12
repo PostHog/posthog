@@ -72,6 +72,9 @@ export const openURLFor = (c: CommentType): string | null => {
     return commentURL ? `${commentURL}#panel=discussion` : null
 }
 
+export type CommentKindFilter = 'any' | 'comment' | 'task'
+export type CommentCompletedFilter = 'any' | 'open' | 'completed'
+
 export const commentsLogic = kea<commentsLogicType>([
     path(['scenes', 'data-management', 'comments', 'commentsLogic']),
     connect(() => ({
@@ -81,7 +84,11 @@ export const commentsLogic = kea<commentsLogicType>([
         setScope: (scope: ActivityScope | null) => ({ scope }),
         setFilterCreatedBy: (createdBy: string | null) => ({ createdBy }),
         setSearchText: (searchText: string) => ({ searchText }),
+        setKind: (kind: CommentKindFilter) => ({ kind }),
+        setCompletedFilter: (completed: CommentCompletedFilter) => ({ completed }),
         deleteComment: (id: string) => ({ id }),
+        completeComment: (comment: CommentType) => ({ comment }),
+        reopenComment: (comment: CommentType) => ({ comment }),
         loadComments: true,
     }),
     loaders(({ values }) => ({
@@ -104,6 +111,14 @@ export const commentsLogic = kea<commentsLogicType>([
                         params.search = values.searchText.trim()
                     }
 
+                    if (values.kind !== 'any') {
+                        params.kind = values.kind
+                    }
+
+                    if (values.completedFilter !== 'any') {
+                        params.completed = values.completedFilter
+                    }
+
                     const response = await api.comments.list(params)
                     breakpoint()
                     return response.results || []
@@ -113,6 +128,14 @@ export const commentsLogic = kea<commentsLogicType>([
                     await api.comments.delete(id)
                     return values.comments.filter((c) => c.id !== id)
                 },
+                completeComment: async ({ comment }: { comment: CommentType }) => {
+                    const updated = await api.comments.complete(comment.id)
+                    return values.comments.map((c) => (c.id === updated.id ? updated : c))
+                },
+                reopenComment: async ({ comment }: { comment: CommentType }) => {
+                    const updated = await api.comments.reopen(comment.id)
+                    return values.comments.map((c) => (c.id === updated.id ? updated : c))
+                },
             },
         ],
     })),
@@ -120,12 +143,21 @@ export const commentsLogic = kea<commentsLogicType>([
         scope: [null as ActivityScope | null, { setScope: (_, { scope }) => scope }],
         filterCreatedBy: [null as string | null, { setFilterCreatedBy: (_, { createdBy }) => createdBy }],
         searchText: ['', { setSearchText: (_, { searchText }) => searchText }],
+        kind: ['any' as CommentKindFilter, { setKind: (_, { kind }) => kind }],
+        completedFilter: [
+            'any' as CommentCompletedFilter,
+            {
+                setCompletedFilter: (_, { completed }) => completed,
+                // The Status select hides when Kind isn't 'task'; reset so it can't keep filtering.
+                setKind: (state, { kind }) => (kind === 'task' ? state : 'any'),
+            },
+        ],
     })),
     selectors(() => ({
         hasAnySearch: [
-            (s) => [s.searchText, s.scope, s.filterCreatedBy],
-            (searchText, scope, filterCreatedBy) => {
-                return !!searchText || !!scope || !!filterCreatedBy
+            (s) => [s.searchText, s.scope, s.filterCreatedBy, s.kind, s.completedFilter],
+            (searchText, scope, filterCreatedBy, kind, completedFilter) => {
+                return !!searchText || !!scope || !!filterCreatedBy || kind !== 'any' || completedFilter !== 'any'
             },
         ],
         shouldShowEmptyState: [
@@ -139,6 +171,8 @@ export const commentsLogic = kea<commentsLogicType>([
         setScope: actions.loadComments,
         setFilterCreatedBy: actions.loadComments,
         setSearchText: actions.loadComments,
+        setKind: actions.loadComments,
+        setCompletedFilter: actions.loadComments,
         deleteCommentSuccess: () => {
             lemonToast.success('Comment deleted')
         },
@@ -146,5 +180,16 @@ export const commentsLogic = kea<commentsLogicType>([
             posthog.captureException(e, { action: 'data management scene deleting comment' })
             lemonToast.error('Could not delete comment, refresh and try again')
         },
+        completeCommentFailure: (e) => {
+            posthog.captureException(e, { action: 'data management scene completing comment' })
+            lemonToast.error('Could not mark task complete, refresh and try again')
+        },
+        reopenCommentFailure: (e) => {
+            posthog.captureException(e, { action: 'data management scene reopening comment' })
+            lemonToast.error('Could not reopen task, refresh and try again')
+        },
+        // Re-fetch so the active Kind/Status filter drops any rows that no longer match.
+        completeCommentSuccess: actions.loadComments,
+        reopenCommentSuccess: actions.loadComments,
     })),
 ])

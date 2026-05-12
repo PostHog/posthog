@@ -11,6 +11,7 @@ import {
     ActionsRetrieveParams,
 } from '@/generated/actions/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -71,7 +72,9 @@ const actionDelete = (): ToolBase<typeof ActionDeleteSchema, Schemas.Action> => 
     },
 })
 
-const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
+const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ActionsRetrieveParams.shape['id']),
+})
 
 const actionGet = (): ToolBase<typeof ActionGetSchema, WithPostHogUrl<Schemas.Action>> =>
     withUiApp('action', {

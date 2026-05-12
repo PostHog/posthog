@@ -248,6 +248,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
+        # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
+        # uneven-split check on data collected under the original split. The warning is
+        # also unactionable post-stop — both CTAs only help while running.
+        if self.query.end_date is not None:
+            return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
         _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)

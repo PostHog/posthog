@@ -45,10 +45,6 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: string
     ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: number
     ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: boolean
-    /** Token bucket capacity (events per key burst). */
-    ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE: number
-    /** Token bucket replenish rate (events per second). */
-    ERROR_TRACKING_RATE_LIMITER_REFILL_RATE: number
     /** TTL in seconds for the Redis bucket key. */
     ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
 
@@ -78,8 +74,6 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: '',
         ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: 6379,
         ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: false,
-        ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE: 100_000,
-        ERROR_TRACKING_RATE_LIMITER_REFILL_RATE: 1_000,
         ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,

@@ -106,6 +106,8 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     TraceSpansQuery = 'TraceSpansQuery',
+    TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
+    TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -230,6 +232,8 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -329,6 +333,8 @@ export type QuerySchema =
 
     // Tracing
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -387,6 +393,8 @@ export type AnyResponseType =
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
     | TraceSpansQueryResponse
+    | TraceSpansAggregationQueryResponse
+    | TraceSpansTreeQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1239,6 +1247,10 @@ interface DataTableNodeViewProps {
     showSavedFilters?: boolean
     /** Show table views feature for this table (requires uniqueKey) */
     showTableViews?: boolean
+    /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start,
+     *  session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed
+     *  in the column header menu only on EventsQuery / ActorsQuery sources. */
+    showAbsoluteTime?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -1643,9 +1655,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
-    /** @description The type of property to aggregate on (event or person). Defaults to event.
+    /** @description The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
      * @default event */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
     /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
 
@@ -3035,6 +3047,82 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
+export interface AggregatedSpanRow {
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+}
+
+export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
+    kind: NodeKind.TraceSpansAggregationQuery
+    dateRange: DateRange
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
+    results: AggregatedSpanRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AggregatedSpanRow[]
+}
+
+export type CachedTraceSpansAggregationQueryResponse = CachedQueryResponse<TraceSpansAggregationQueryResponse>
+
+/**
+ * One node in an aggregated span call tree. The `(service_name, name)` pair identifies
+ * the node; `(parent_service, parent_name)` links it to its parent. Spans without a
+ * matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.
+ */
+export interface SpanTreeNode {
+    parent_service: string
+    parent_name: string
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+    /**
+     * Average nanoseconds from the parent span's start to this span's start. Zero for
+     * root spans. Used to order children left-to-right by typical start time in the
+     * flame graph.
+     */
+    avg_start_offset_nano: number
+}
+
+export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
+    kind: NodeKind.TraceSpansTreeQuery
+    dateRange: DateRange
+    /**
+     * Span name to scope the matched trace set. Required because the
+     * `(trace_id, parent_span_id)` self-join is prohibitive without bounding the
+     * matched traces — at high name cardinality the query becomes unsafe to run.
+     */
+    spanName: string
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase {
+    results: SpanTreeNode[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: SpanTreeNode[]
+}
+
+export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3387,7 +3475,7 @@ export interface ExperimentApiMetric {
 }
 
 export interface ExperimentVariant {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -3398,7 +3486,7 @@ export interface ExperimentVariant {
 }
 
 export interface ExperimentParameters {
-    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
@@ -5221,6 +5309,10 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Source = 'source',
     ReportedConversion = 'reported_conversion',
     ReportedConversionValue = 'reported_conversion_value',
+    AdGroupId = 'ad_group_id',
+    AdGroupName = 'ad_group_name',
+    AdId = 'ad_id',
+    AdName = 'ad_name',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -5254,6 +5346,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         required: false,
         isCurrency: true,
     },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupName]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdName]: { type: ['string'], required: false, isCurrency: false },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -5297,6 +5393,8 @@ export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
     Source = 'source',
     Campaign = 'campaign',
+    AdGroup = 'ad_group',
+    Ad = 'ad',
     Medium = 'medium',
     Content = 'content',
     Term = 'term',
@@ -5306,6 +5404,10 @@ export enum MarketingAnalyticsBaseColumns {
     Id = 'ID',
     Campaign = 'Campaign',
     Source = 'Source',
+    AdGroup = 'Ad group',
+    AdGroupId = 'Ad group ID',
+    Ad = 'Ad',
+    AdId = 'Ad ID',
     Cost = 'Cost',
     Clicks = 'Clicks',
     Impressions = 'Impressions',
@@ -5320,8 +5422,29 @@ export enum MarketingAnalyticsBaseColumns {
 export type MarketingAnalyticsDrillDownConfig = {
     columnAlias: string
     excludedBaseColumns: MarketingAnalyticsBaseColumns[]
+    // When true, this level can't be attributed to events — drop conversion goal columns.
+    // Used for ad-group / ad levels where events can't be mapped to a specific ad.
+    excludesConversionGoals?: boolean
 }
 
+// Hierarchy columns are emitted only at AD_GROUP / AD levels — at every other level
+// the runtime auto-excludes them via `getEffectiveExcludedColumns`. Keep this mirrored
+// with backend `HIERARCHY_BASE_COLUMNS` (products/marketing_analytics/backend/hogql_queries/constants.py).
+export const HIERARCHY_BASE_COLUMNS: ReadonlySet<MarketingAnalyticsBaseColumns> = new Set([
+    MarketingAnalyticsBaseColumns.AdGroup,
+    MarketingAnalyticsBaseColumns.AdGroupId,
+    MarketingAnalyticsBaseColumns.Ad,
+    MarketingAnalyticsBaseColumns.AdId,
+])
+
+export const HIERARCHY_DRILL_DOWN_LEVELS: ReadonlySet<MarketingAnalyticsDrillDownLevel> = new Set([
+    MarketingAnalyticsDrillDownLevel.AdGroup,
+    MarketingAnalyticsDrillDownLevel.Ad,
+])
+
+// Centralized drill-down level configuration. Hierarchy columns (ad_group / ad) are
+// auto-excluded by the runtime at non-hierarchy levels — see HIERARCHY_BASE_COLUMNS —
+// so they don't need to appear in `excludedBaseColumns` for CHANNEL/SOURCE/CAMPAIGN/UTM.
 export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsDrillDownConfig
@@ -5344,7 +5467,27 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     },
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
+        // Empty user-config preserves master's natural enum order at CAMPAIGN —
+        // hierarchy columns are auto-excluded by the runtime.
         excludedBaseColumns: [],
+    },
+    [MarketingAnalyticsDrillDownLevel.AdGroup]: {
+        // Show Campaign + Source as parent context, plus Ad group + ID. Hide Id (campaign id),
+        // Ad / AdId since they don't apply at this level.
+        columnAlias: MarketingAnalyticsBaseColumns.AdGroup,
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
+        ],
+        excludesConversionGoals: true,
+    },
+    [MarketingAnalyticsDrillDownLevel.Ad]: {
+        // Full hierarchy: Campaign + Source + Ad group + Ad + Ad ID. Hide campaign Id and
+        // Ad group ID to keep the table readable.
+        columnAlias: MarketingAnalyticsBaseColumns.Ad,
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.AdGroupId],
+        excludesConversionGoals: true,
     },
     [MarketingAnalyticsDrillDownLevel.Medium]: {
         columnAlias: 'Medium',
@@ -5358,6 +5501,19 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
         columnAlias: 'Term',
         excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
     },
+}
+
+/** Combine the level's user-facing excluded set with the hierarchy auto-exclusion.
+ * Mirror of backend `get_effective_excluded_columns`. */
+export function getEffectiveExcludedColumns(
+    level: MarketingAnalyticsDrillDownLevel
+): Set<MarketingAnalyticsBaseColumns> {
+    const userExcluded = new Set(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[level].excludedBaseColumns)
+    if (HIERARCHY_DRILL_DOWN_LEVELS.has(level)) {
+        return userExcluded
+    }
+    HIERARCHY_BASE_COLUMNS.forEach((col) => userExcluded.add(col))
+    return userExcluded
 }
 
 export enum MarketingAnalyticsConstants {
@@ -5909,6 +6065,10 @@ export interface MarketingIntegrationConfigType {
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+export enum DashboardAutoRefreshInterval {
+    SECONDS = 1800,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'

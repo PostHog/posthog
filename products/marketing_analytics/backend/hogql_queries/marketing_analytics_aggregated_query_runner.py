@@ -15,7 +15,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from .constants import BASE_COLUMN_MAPPING, UNIFIED_CONVERSION_GOALS_CTE_ALIAS, to_marketing_analytics_data
+from .constants import (
+    BASE_COLUMN_MAPPING,
+    HIERARCHY_BASE_COLUMNS,
+    HIERARCHY_DRILL_DOWN_LEVELS,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    to_marketing_analytics_data,
+)
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
 
@@ -31,7 +37,19 @@ class MarketingAnalyticsAggregatedQueryRunner(
     def _build_main_select_query(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> ast.SelectQuery:
-        """Build the main SELECT query for aggregated totals."""
+        """Build the main SELECT query for aggregated totals.
+
+        At AD_GROUP / AD the campaign_costs CTE has a different schema (hierarchy
+        columns added), the join keys are off (match_key is empty), and conversion
+        goals are gated out anyway — the aggregated overview makes no sense. Fail
+        loudly so a misconfigured tile doesn't silently return zeros.
+        """
+        if self.config.drill_down_level in HIERARCHY_DRILL_DOWN_LEVELS:
+            raise ValueError(
+                f"MarketingAnalyticsAggregatedQuery does not support drill-down level "
+                f"'{self.config.drill_down_level.value}'. Aggregated totals are only meaningful at "
+                f"channel/source/campaign/utm levels."
+            )
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
         if conversion_aggregator:
@@ -75,21 +93,26 @@ class MarketingAnalyticsAggregatedQueryRunner(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
         """Build column mappings excluding Campaign and Source columns for aggregated queries"""
-        # Start with base columns but exclude Campaign, Source, ID (strings) and rate metrics
-        all_columns: dict[str, ast.Expr] = {
-            str(k): v
-            for k, v in BASE_COLUMN_MAPPING.items()
-            if k
-            not in (
-                MarketingAnalyticsBaseColumns.ID,
-                MarketingAnalyticsBaseColumns.CAMPAIGN,
-                MarketingAnalyticsBaseColumns.SOURCE,
-                MarketingAnalyticsBaseColumns.CPC,
-                MarketingAnalyticsBaseColumns.CTR,
-                MarketingAnalyticsBaseColumns.REPORTED_ROAS,
-                MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
-            )
-        }
+        # Start with base columns but exclude:
+        # - string dimensions (ID / Campaign / Source) — not numeric so can't be summed
+        # - hierarchy dimensions (HIERARCHY_BASE_COLUMNS) — same reason, also not relevant
+        #   here since the aggregated runner is only used at non-hierarchy levels (it
+        #   raises at AD_GROUP / AD via _build_main_select_query)
+        # - rate metrics (CPC / CTR / ROAS / cost-per) — would need recomputation from
+        #   summed totals, not a direct sum
+        non_summable_dimensions = (
+            MarketingAnalyticsBaseColumns.ID,
+            MarketingAnalyticsBaseColumns.CAMPAIGN,
+            MarketingAnalyticsBaseColumns.SOURCE,
+        )
+        rate_metrics = (
+            MarketingAnalyticsBaseColumns.CPC,
+            MarketingAnalyticsBaseColumns.CTR,
+            MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+            MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
+        )
+        excluded = frozenset(non_summable_dimensions) | HIERARCHY_BASE_COLUMNS | frozenset(rate_metrics)
+        all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items() if k not in excluded}
 
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:

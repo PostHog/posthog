@@ -12,7 +12,6 @@ import time as _time
 import shutil
 import platform
 import importlib
-import importlib.util
 from collections import defaultdict
 from typing import Any
 
@@ -21,7 +20,8 @@ import click
 from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
-from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
+from hogli.lazy_commands import add_commands_dir_to_path, add_repo_root_to_path, resolve_click_command
+from hogli.manifest import REPO_ROOT, get_category_for_command, get_manifest, get_services_for_command, load_manifest
 from hogli.validate import auto_update_manifest, find_missing_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
@@ -34,6 +34,26 @@ class CategorizedGroup(click.Group):
     tracking (timing, exit code) using ``ctx.meta`` for state instead of a
     module-level singleton.
     """
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        command = super().get_command(ctx, cmd_name)
+        if command is not None:
+            return command
+
+        config = get_manifest().get_command_config(cmd_name)
+        if not config or "click" not in config:
+            return None
+
+        return resolve_click_command(cmd_name, config["click"])
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        manifest_obj = get_manifest()
+        commands = {name for name in super().list_commands(ctx) if not manifest_obj.is_command_hidden(name)}
+        for cmd_name in manifest_obj.get_all_commands():
+            config = manifest_obj.get_command_config(cmd_name)
+            if config and "click" in config and not manifest_obj.is_command_hidden(cmd_name):
+                commands.add(cmd_name)
+        return sorted(commands)
 
     def invoke(self, ctx: click.Context) -> Any:
         ctx.meta["hogli.start_time"] = _time.monotonic()
@@ -64,14 +84,18 @@ class CategorizedGroup(click.Group):
         category_key_to_title = {cat.get("key"): cat.get("title") for cat in categories_list}
 
         # Set of commands that extend others (will be rendered under their parent)
-        child_commands = {child for parent in self.commands for child in manifest_obj.get_children_for_command(parent)}
+        child_commands = {
+            child
+            for parent in manifest_obj.get_all_commands()
+            for child in manifest_obj.get_children_for_command(parent)
+        }
 
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+        grouped_command_names: set[str] = set()
         for cmd_name, cmd in self.commands.items():
             # Skip hidden commands (they're still callable, just not shown in help)
-            hogli_config = getattr(cmd, "hogli_config", {})
-            if hogli_config.get("hidden", False):
+            if manifest_obj.is_command_hidden(cmd_name):
                 continue
 
             # Skip child commands - they'll be rendered under their parent
@@ -86,6 +110,21 @@ class CategorizedGroup(click.Group):
                 (key for key, title in category_key_to_title.items() if title == category_title), "commands"
             )
             grouped[(category_key, category_title)].append((cmd_name, help_text))
+            grouped_command_names.add(cmd_name)
+
+        for cmd_name in manifest_obj.get_all_commands():
+            config = manifest_obj.get_command_config(cmd_name)
+            if not config or "click" not in config or manifest_obj.is_command_hidden(cmd_name):
+                continue
+            if cmd_name in grouped_command_names or cmd_name in child_commands:
+                continue
+
+            category_title = get_category_for_command(cmd_name)
+            category_key = next(
+                (key for key, title in category_key_to_title.items() if title == category_title), "commands"
+            )
+            grouped[(category_key, category_title)].append((cmd_name, config.get("description", "")))
+            grouped_command_names.add(cmd_name)
 
         # Build category order from the list
         category_order = {idx: cat.get("key") for idx, cat in enumerate(categories_list)}
@@ -212,10 +251,13 @@ def concepts() -> None:
 def _register_script_commands() -> None:
     """Dynamically register commands from hogli.yaml.
 
-    Supports three types of entries:
-    1. bin_script: Delegate to a shell script (in config.scripts_dir, default: bin/)
-    2. steps: Compose multiple hogli commands in sequence
-    3. cmd: Execute a direct shell command
+    Supports four eagerly registered entry types:
+    1. ``steps:`` — compose multiple hogli commands in sequence.
+    2. ``cmd:`` — execute a direct shell command.
+    3. ``hogli:`` — wrap another hogli command with extra args.
+    4. ``bin_script:`` — delegate to a shell script in ``config.scripts_dir``.
+
+    ``click:`` entries are resolved lazily by ``CategorizedGroup.get_command``.
     """
     manifest = get_manifest()
     scripts_dir = manifest.scripts_dir
@@ -228,105 +270,56 @@ def _register_script_commands() -> None:
             if not isinstance(config, dict):
                 continue
 
-            # Determine command type
-            bin_script = config.get("bin_script")
             steps = config.get("steps")
             cmd = config.get("cmd")
             hogli = config.get("hogli")
+            bin_script = config.get("bin_script")
 
-            if not (bin_script or steps or cmd or hogli):
+            if "click" in config:
                 continue
 
-            # Handle composition (steps field)
             if steps:
-                command = CompositeCommand(cli_name, config)
-                command.register(cli)
+                CompositeCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle direct commands (cmd field)
             if cmd:
-                command = DirectCommand(cli_name, config)
-                command.register(cli)
+                DirectCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle hogli wrapper commands (hogli field)
             if hogli:
-                command = HogliCommand(cli_name, config)
-                command.register(cli)
+                HogliCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle bin_script delegation
             if bin_script:
                 script_path = scripts_dir / bin_script
-                if not script_path.exists():
-                    continue
-
-                command = BinScriptCommand(cli_name, config, script_path)
-                command.register(cli)
+                if script_path.exists():
+                    BinScriptCommand(cli_name, config, script_path).register(cli)
 
 
-# Register all script commands from manifest before app runs
-_register_script_commands()
+def _load_boot_modules() -> None:
+    """Import modules listed in ``config.boot_modules`` once at startup.
 
-
-def _import_custom_commands() -> None:
-    """Import custom commands from configured commands_dir.
-
-    Looks for commands in:
-    1. config.commands_dir in hogli.yaml (e.g., tools/hogli-commands/hogli_commands)
-    2. Default: hogli/ folder next to hogli.yaml
+    Boot modules register precheck handlers, telemetry property hooks, and
+    post-command hooks against ``hogli.hooks``. They run eagerly so the hooks
+    are populated before the first command dispatches. They must be cheap to
+    import — keep heavy work behind lazy imports inside handler bodies. Any
+    import failure aborts hogli, so these are validated implicitly by every
+    test that invokes the CLI.
     """
     manifest = get_manifest()
-    commands_dir = manifest.commands_dir
+    add_repo_root_to_path(REPO_ROOT)
+    add_commands_dir_to_path(manifest.commands_dir)
 
-    if not commands_dir:
-        return
-
-    # Skip if the commands package or any of its submodules is already in sys.modules.
-    # Submodules are what carry `@cli.command` decorators, so re-importing would create
-    # a second module object and duplicate registrations against different module
-    # identities, which breaks test patches that target one path or the other.
-    # NOTE: commands_dir should NOT be named "hogli" to avoid clobbering the hogli package
-    package_name = commands_dir.name
-    for mod_name in sys.modules:
-        if mod_name == package_name or mod_name.startswith(package_name + "."):
-            return
-
-    # Add commands dir to path so imports work
-    parent_dir = str(commands_dir.parent)
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-
-    try:
-        importlib.import_module(package_name)
-        return
-    except ModuleNotFoundError:
-        # The package itself isn't importable via sys.path - fall back to file-spec load.
-        # Narrower than ImportError so that a broken import *inside* the package
-        # (e.g. a typo in one of its modules) still surfaces instead of being swallowed.
-        pass
-
-    # Fallback: manual load via file spec when the package isn't on sys.path in the normal sense
-    init_file = commands_dir / "__init__.py"
-    commands_file = commands_dir / "commands.py"
-
-    if init_file.exists():
-        spec = importlib.util.spec_from_file_location(
-            package_name, init_file, submodule_search_locations=[str(commands_dir)]
-        )
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[package_name] = module
-            spec.loader.exec_module(module)
-    elif commands_file.exists():
-        spec = importlib.util.spec_from_file_location(f"{package_name}.commands", commands_file)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+    for module_path in manifest.config.get("boot_modules", []):
+        if module_path not in sys.modules:
+            importlib.import_module(module_path)
 
 
-# Import custom commands from configured location
-_import_custom_commands()
+# Register all script commands from manifest, then trigger boot modules so
+# any framework-extension hooks (prechecks, telemetry props, post-command
+# hints) are registered before the first command runs.
+_register_script_commands()
+_load_boot_modules()
 
 
 def _env_properties(command: str | None = None) -> dict[str, Any]:

@@ -27,6 +27,7 @@ import {
     useSyncedAttributes,
 } from './utils'
 import { KNOWN_NODES } from '../utils'
+import { SharedNodeErrorBoundary, UnsupportedNodePlaceholder, isNodeSupportedInSharedNotebook } from './sharedNodeSupport'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
@@ -71,7 +72,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeIds, containerSize, notebook, mode } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook, mode, isShared } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -227,7 +228,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const hogqlSqlIsStale = hogqlSqlHasExecution && !hogqlSqlIsFresh
 
     const defaultMenuItems: LemonMenuItems = [
-        !NON_COPYABLE_NODES.includes(nodeType)
+        // Copy round-trips the node attrs through HTML for paste into another notebook — doesn't
+        // make sense for an anonymous shared viewer who has no editor to paste into.
+        !NON_COPYABLE_NODES.includes(nodeType) && !isShared
             ? {
                   label: 'Copy',
                   onClick: () => copyToClipboard(),
@@ -303,7 +306,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
 
                                             <div className="flex deprecated-space-x-1">
-                                                {parsedHref && (
+                                                {parsedHref && !isShared && (
                                                     <LemonButton
                                                         size="small"
                                                         icon={<IconLink />}
@@ -381,6 +384,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         </div>
 
                                         {Settings &&
+                                        !isShared &&
                                         editingNodeIds[nodeId] &&
                                         (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
@@ -476,6 +480,9 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        // Hooks must run unconditionally on every render — keep all hook calls above any early
+        // return so the shared-notebook placeholder fast-path doesn't violate the rules of hooks.
+        const { isShared } = useValues(notebookLogic)
         const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {
@@ -494,10 +501,24 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             // oxlint-disable-next-line exhaustive-deps
         }, [props.node.attrs.nodeId])
 
+        // when in shared mode, do not render any nodes that we know are unsupported
+        if (isShared && !isNodeSupportedInSharedNotebook(wrapperProps.nodeType)) {
+            return <UnsupportedNodePlaceholder />
+        }
+
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
             ...props,
             attributes,
             updateAttributes,
+        }
+
+        if (isShared) {
+            // the error boundary renders the placeholder when there is an error instead of showing a bunch of random errors to the user
+            return (
+                <SharedNodeErrorBoundary>
+                    <MemoizedNodeWrapper Component={Component} {...nodeProps} {...wrapperProps} />
+                </SharedNodeErrorBoundary>
+            )
         }
 
         return <MemoizedNodeWrapper Component={Component} {...nodeProps} {...wrapperProps} />

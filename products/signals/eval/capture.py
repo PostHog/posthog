@@ -55,6 +55,7 @@ def capture_evaluation(
             "$ai_evaluation_result": 1.0 if passed else 0.0,
             "$ai_status": metric.status,
             "$ai_dataset_id": dataset_id,
+            "$ai_trace_id": str(uuid.uuid4()),
         }
 
         if metric.description:

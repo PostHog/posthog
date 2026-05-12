@@ -43,6 +43,15 @@ tools:
                 - errors
                 - created_at
                 - created_by
+    integrations-anthropic-managed-agent-envs-retrieve:
+        operation: integrations_anthropic_managed_agent_envs_retrieve
+        enabled: false
+    integrations-anthropic-managed-agent-vaults-retrieve:
+        operation: integrations_anthropic_managed_agent_vaults_retrieve
+        enabled: false
+    integrations-anthropic-managed-agents-retrieve:
+        operation: integrations_anthropic_managed_agents_retrieve
+        enabled: false
     integrations-authorize-retrieve:
         operation: integrations_authorize_retrieve
         enabled: false

@@ -1,0 +1,97 @@
+rules:
+    - id: celery-task-team-scope-audit
+      patterns:
+          # Match tasks declared with or without parens. Semgrep matches the decorator
+          # regardless of other decorators stacked around it.
+          - pattern-either:
+                - pattern-inside: |
+                      @shared_task(...)
+                      def $FUNC(...):
+                          ...
+                - pattern-inside: |
+                      @shared_task
+                      def $FUNC(...):
+                          ...
+          - pattern-either:
+                # Read-shaped
+                - pattern: $MODEL.objects.all()
+                - pattern: $MODEL.objects.filter(...)
+                - pattern: $MODEL.objects.get(...)
+                - pattern: $MODEL.objects.exclude(...)
+                - pattern: $MODEL.objects.first()
+                - pattern: $MODEL.objects.last()
+                - pattern: $MODEL.objects.count()
+                - pattern: $MODEL.objects.exists()
+                - pattern: $MODEL.objects.values(...)
+                - pattern: $MODEL.objects.values_list(...)
+                - pattern: $MODEL.objects.aggregate(...)
+                - pattern: $MODEL.objects.in_bulk(...)
+                - pattern: $MODEL.objects.iterator(...)
+                # Mutating — top-level (.filter().delete() is incidentally caught by the filter pattern)
+                - pattern: $MODEL.objects.create(...)
+                - pattern: $MODEL.objects.update(...)
+                - pattern: $MODEL.objects.delete()
+                - pattern: $MODEL.objects.bulk_create(...)
+                - pattern: $MODEL.objects.bulk_update(...)
+                - pattern: $MODEL.objects.update_or_create(...)
+                - pattern: $MODEL.objects.get_or_create(...)
+                # Async variants
+                - pattern: $MODEL.objects.aget(...)
+                - pattern: $MODEL.objects.aupdate(...)
+                - pattern: $MODEL.objects.acount()
+                - pattern: $MODEL.objects.aexists()
+                - pattern: $MODEL.objects.aiterator(...)
+                # Raw SQL via the manager
+                - pattern: $MODEL.objects.raw(...)
+          - pattern-not-inside: |
+                @with_team_scope(...)
+                def $FUNC(...):
+                    ...
+          # Tasks that legitimately need to bypass the audit (model still uses
+          # RootTeamManager, task is genuinely cross-team, etc.) tag themselves
+          # with @skip_team_scope_audit. The marker is a no-op at runtime; its
+          # only purpose is to silence this rule for the marked function.
+          - pattern-not-inside: |
+                @skip_team_scope_audit
+                def $FUNC(...):
+                    ...
+          - pattern-not: $MODEL.objects.unscoped()
+          - pattern-not: $MODEL.objects.unscoped().$METHOD(...)
+      message: |
+          Celery task accesses model without explicit team scoping.
+
+          Background tasks don't have request context, so automatic team scoping
+          won't work. Either:
+          1. Add @with_team_scope() decorator if the task should be team-scoped
+          2. Use .unscoped() if intentionally querying across teams
+
+          Example with decorator:
+              @shared_task
+              @with_team_scope()
+              def my_task(team_id: int):
+                  FeatureFlag.objects.all()  # Scoped to team_id
+
+          Example with unscoped:
+              @shared_task
+              def my_task():
+                  FeatureFlag.objects.unscoped().all()  # Explicitly cross-team
+      languages: [python]
+      severity: WARNING
+      paths:
+          # Default-on: rule runs across the whole codebase. Pre-existing tasks
+          # that query models still using RootTeamManager (or default Manager)
+          # are tagged with @skip_team_scope_audit, which is a no-op at runtime
+          # and silences this rule. New tasks must either use @with_team_scope,
+          # use .unscoped(), or explicitly skip with @skip_team_scope_audit —
+          # forcing a deliberate decision per task. See README for guidance.
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'
+      metadata:
+          category: security
+          subcategory:
+              - audit
+          technology:
+              - django
+              - celery

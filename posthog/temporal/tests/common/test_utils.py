@@ -78,7 +78,7 @@ def test_make_sync_retryable_with_exponential_backoff_raises_if_not_retryable():
     assert counter == 1
 
 
-CLOSE_OLD_CONNECTIONS_TARGET = "posthog.temporal.common.utils.close_old_connections"
+CLOSE_OLD_CONNECTIONS_TARGET = "posthog.temporal.common.utils._close_initialized_connections"
 
 
 @pytest.mark.parametrize(

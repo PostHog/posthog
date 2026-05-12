@@ -69,10 +69,10 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         ],
     },
     "migrations": {
+        # `migrations/` substring is load-bearing — also catches rust
+        # *_migrations/ dirs applied by sqlx at deploy.
         "paths": [
             "migrations/",
-            "migrate",
-            "backfill",
             "schema_change",
         ],
     },
@@ -375,9 +375,10 @@ def test_only(categories: dict[str, int]) -> bool:
 # ── Deny / allow detection ───────────────────────────────────────
 
 
-def detect_deny_categories(files: list[str], subject: str) -> list[str]:
+def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
     hits: set[str] = set()
-    paths_lower = [f.lower() for f in files]
+    ignored_files_lower = {f.lower() for f in ignored_files or set()}
+    paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
     subject_lower = subject.lower()
 
     for category, scopes in DENY_PATTERNS.items():

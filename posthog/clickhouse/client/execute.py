@@ -112,9 +112,31 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
     },
 }
 
+_KILL_SWITCH_SEVERITY: dict[KillSwitchLevel, int] = {
+    KillSwitchLevel.OFF: 0,
+    KillSwitchLevel.LIGHT: 1,
+    KillSwitchLevel.FULL: 2,
+}
+
 
 def get_kill_switch_level() -> KillSwitchLevel:
     return _get_kill_switch_level(round(time.time() / 60))
+
+
+def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
+    """
+    Per-team kill switch override.
+
+    Returns FULL or LIGHT if `team_id` is in the corresponding admin-managed list,
+    else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
+    that want the combined effect should take the more severe of the two levels.
+    """
+    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in full_teams:
+        return KillSwitchLevel.FULL
+    if team_id in light_teams:
+        return KillSwitchLevel.LIGHT
+    return KillSwitchLevel.OFF
 
 
 def get_hedged_app_queries_enabled() -> bool:
@@ -137,6 +159,45 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel(value)
     except ValueError:
         return KillSwitchLevel.OFF
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        full_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS") or [])
+    except Exception:
+        # During an incident, silently falling back to "no override" would hide why the
+        # per-team kill switch isn't taking effect. Log so operators can see the failure.
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_FULL_TEAMS; per-team kill switch disabled for full")
+        full_teams = frozenset()
+    try:
+        light_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS") or [])
+    except Exception:
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
+        light_teams = frozenset()
+    return full_teams, light_teams
+
+
+def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
+    """
+    Effective kill switch level: the more severe of the global level and any
+    per-team override. If `team_id` is None, returns the global level unchanged.
+
+    Examples:
+        - global=light, team=full -> full
+        - global=full,  team=light -> full
+        - global=off,   team=light -> light
+        - global=light, team=off   -> light
+    """
+    level = get_kill_switch_level()
+    if team_id is None:
+        return level
+    team_level = get_team_kill_switch_level(team_id)
+    if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
+        return team_level
+    return level
 
 
 @lru_cache(maxsize=1)
@@ -283,7 +344,7 @@ def sync_execute(
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
 
-    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
+    kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})

@@ -2939,6 +2939,7 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
 
 class TestSignupResendInvite(APIBaseTest):
     def setUp(self):
+        cache.clear()
         super().setUp()
         self.client.logout()
 
@@ -2987,3 +2988,32 @@ class TestSignupResendInvite(APIBaseTest):
         # Status reflects that an invite exists, but no email goes out.
         self.assertEqual(response.json(), {"sent": True})
         mock_send.assert_not_called()
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_throttles_per_email_after_five_requests(self, _mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        for i in range(6):
+            response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+            if i < 5:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
+                )
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_throttle_is_per_email_not_global(self, _mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        self._create_invite("bob@acme.com")
+        # Exhaust alice's bucket
+        for _ in range(5):
+            self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        alice_blocked = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        self.assertEqual(alice_blocked.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Bob still has a fresh bucket
+        bob_ok = self.client.post("/api/signup/resend-invite", {"email": "bob@acme.com"})
+        self.assertEqual(bob_ok.status_code, status.HTTP_200_OK)

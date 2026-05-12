@@ -39,6 +39,11 @@ export const CONFIDENCE_LEVEL_OPTIONS = [
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
 export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
 
+// CUPED lookback window (days)
+export const DEFAULT_LOOKBACK_DAYS = 14
+export const MIN_LOOKBACK_DAYS = 1
+export const MAX_LOOKBACK_DAYS = 30
+
 // Autorefresh constants
 export const EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES = 5
 export const EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800 // 30 min
