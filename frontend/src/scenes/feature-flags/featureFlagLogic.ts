@@ -28,7 +28,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual, slugify } from 'lib/utils'
+import { objectsEqual, safeStringify, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -1338,7 +1338,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // If we've got a cached flag and the filters have changed, we've updated the release conditions
                         if (
                             cachedFlag &&
-                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
+                            safeStringify(cachedFlag?.filters) !== safeStringify(values.featureFlag.filters)
                         ) {
                             globalSetupLogic
                                 .findMounted()

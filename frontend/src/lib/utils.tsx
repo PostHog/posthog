@@ -77,7 +77,7 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
         }
-        val = typeof val === 'object' ? JSON.stringify(val) : val
+        val = typeof val === 'object' ? safeStringify(val) : val
         return encodeURIComponent(val)
     }
 
@@ -2132,6 +2132,19 @@ export function tryJsonParse(value: string, fallback?: any): any {
     } catch {
         return fallback
     }
+}
+
+/**
+ * A BigInt-safe replacement for JSON.stringify.
+ * JavaScript's built-in JSON.stringify throws "Do not know how to serialize a BigInt"
+ * when a BigInt value is encountered. This function converts BigInt values to their
+ * string representation instead, preventing the error while preserving the numeric value.
+ *
+ * @example
+ * safeStringify({ id: BigInt(9007199254740993) }) // '{"id":"9007199254740993"}'
+ */
+export function safeStringify(value: unknown): string {
+    return JSON.stringify(value, (_key, val) => (typeof val === 'bigint' ? val.toString() : val))
 }
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
