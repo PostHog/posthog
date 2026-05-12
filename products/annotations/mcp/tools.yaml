@@ -54,6 +54,9 @@ tools:
         description: >
             Retrieve a single annotation by ID from the current project. Use this when you already know the annotation
             ID and want complete details.
+        param_overrides:
+            id:
+                cast: string-int
     annotations-list:
         operation: annotations_list
         enabled: true

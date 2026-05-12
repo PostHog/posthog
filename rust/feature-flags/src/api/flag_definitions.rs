@@ -4,11 +4,10 @@ use crate::{
         errors::{ClientFacingError, FlagError},
     },
     flags::{
-        flag_analytics::{increment_request_count, is_billable_flag_key},
-        flag_request::FlagRequestType,
+        flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
         flag_service::FlagService,
     },
-    handler::{billing::record_billing_increment_timing, types::Library},
+    handler::{billing::record_billing_increment, types::Library},
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
@@ -30,7 +29,6 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -237,26 +235,14 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        let start = Instant::now();
-        let result = increment_request_count(
+        record_billing_increment(
             state.redis_client.clone(),
+            state.billing_aggregator.as_ref(),
             team.id,
-            1,
             FlagRequestType::FlagDefinitions,
-            Some(library),
+            library,
         )
         .await;
-        let elapsed_ms = start.elapsed().as_millis() as u64;
-
-        record_billing_increment_timing(&result, elapsed_ms);
-
-        if let Err(e) = result {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
     }
 
     Ok(ok_response_with_etag(

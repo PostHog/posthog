@@ -833,7 +833,7 @@ describe('lib/utils', () => {
             ).toEqual('CartScreen')
         })
 
-        it('falls back to event name when the promoted property is missing', () => {
+        it('falls back to event name when the primary property is missing', () => {
             // Old behaviour fell back to $current_url for $pageview without $pathname; the new
             // single-property contract returns the event name instead so the change is explicit
             // and consistent with $screen / $feature_flag_called.

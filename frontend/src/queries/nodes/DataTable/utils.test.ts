@@ -6,6 +6,8 @@ import {
     extractExpressionComment,
     getColumnsForQuery,
     getDefaultDataTablePersonColumns,
+    orderByForSelectKey,
+    removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -25,6 +27,12 @@ describe('DataTable utils', () => {
         // Backtick aliases with spaces
         ['properties.$city AS `City Name`', 'City Name'],
         ['toUpper(x) as `My Display Name`', 'My Display Name'],
+        // Double-quoted aliases (HogQL grammar treats double quotes as quoted identifier delimiters)
+        [`properties.$city AS "City Name"`, 'City Name'],
+        [
+            `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s') as "Absolute Time"`,
+            'Absolute Time',
+        ],
         // Complex expressions
         ["coalesce(properties.$city, 'Unknown') AS City", 'City'],
         ['arrayJoin(properties.$active_feature_flags) AS flag', 'flag'],
@@ -159,6 +167,65 @@ describe('DataTable utils', () => {
             }
 
             expect(getColumnsForQuery(result)).toEqual(['*', 'event', 'timestamp'])
+        })
+    })
+
+    describe('removeAsAlias', () => {
+        it.each([
+            // No alias — return as-is
+            ['timestamp', 'timestamp'],
+            ['event', 'event'],
+            ['properties.$lib', 'properties.$lib'],
+            ['coalesce(a, b)', 'coalesce(a, b)'],
+            // Bare-word alias
+            ['properties.$browser AS Browser', 'properties.$browser'],
+            ['properties.$browser as browser', 'properties.$browser'],
+            // Backtick alias
+            ['properties.$city AS `City Name`', 'properties.$city'],
+            // Double-quoted alias (the reported user case)
+            [
+                `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s') as "Absolute Time"`,
+                `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s')`,
+            ],
+            // AS followed by trailing comment
+            ['x AS foo -- bar', 'x'],
+            // AS inside string literal — only outermost trailing AS stripped
+            [`replaceAll(x, ' as ', '_') AS cleaned`, `replaceAll(x, ' as ', '_')`],
+            // Empty / falsy
+            ['', ''],
+        ])('removeAsAlias(%p) = %p', (input, expected) => {
+            expect(removeAsAlias(input)).toBe(expected)
+        })
+    })
+
+    describe('orderByForSelectKey', () => {
+        const userExpression = `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s') as "Absolute Time"`
+        const userExpressionBare = `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s')`
+
+        it.each<[string, string, readonly string[], string]>([
+            // Direct match against a raw select entry (bare identifier path)
+            [
+                'direct match — bare identifier in select',
+                'properties.$lib',
+                ['*', 'event', 'properties.$lib', 'timestamp'],
+                'properties.$lib',
+            ],
+            // Key is the resolved alias name — look up by extractAsAlias and return the bare expression (the reported bug)
+            [
+                'alias lookup — double-quoted alias resolves to underlying expression',
+                'Absolute Time',
+                ['*', 'event', userExpression, 'timestamp'],
+                userExpressionBare,
+            ],
+            // Backtick-aliased expression
+            ['alias lookup — backtick alias', 'City Name', ['properties.$city AS `City Name`'], 'properties.$city'],
+            // Fallback — no match in select, return the key with any AS stripped
+            ['fallback — empty select returns key as-is', 'event', [], 'event'],
+            ['fallback — empty select returns alias-name key as-is', 'Absolute Time', [], 'Absolute Time'],
+            // Direct match for a bare identifier present in select (no AS clause to strip)
+            ['direct match — bare timestamp', 'timestamp', ['timestamp', 'event'], 'timestamp'],
+        ])('%s', (_label, key, select, expected) => {
+            expect(orderByForSelectKey(key, select)).toBe(expected)
         })
     })
 })

@@ -1,0 +1,98 @@
+{
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": "01984695-c93f-0000-a115-d4fa40b8a100",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "abc",
+                "first_name": "Ric",
+                "last_name": "",
+                "email": "ric@example.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "Empty state copy reads weird here — needs a rewrite.",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2026-04-18T11:54:38.276511Z",
+            "item_id": "019da00c-489a-763b-a27a-b7b8bfb4abc5",
+            "item_context": {
+                "time_in_recording": "2026-04-18T11:25:32.000Z"
+            },
+            "scope": "Replay",
+            "source_comment": null,
+            "is_task": true,
+            "completed_at": null,
+            "completed_by": null
+        },
+        {
+            "id": "01984695-c93f-0000-a115-d4fa40b8a101",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "abc",
+                "first_name": "Ric",
+                "last_name": "",
+                "email": "ric@example.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "Submit button doesn't show loading state on slow networks.",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2026-04-17T09:12:00.000Z",
+            "item_id": "019d9912-aaaa-bbbb-cccc-ddddeeeeffff",
+            "item_context": {
+                "time_in_recording": "2026-04-17T09:14:08.000Z"
+            },
+            "scope": "Replay",
+            "source_comment": null,
+            "is_task": true,
+            "completed_at": "2026-04-19T15:00:00.000Z",
+            "completed_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "abc",
+                "first_name": "Ric",
+                "last_name": "",
+                "email": "ric@example.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            }
+        },
+        {
+            "id": "01984695-c93f-0000-a115-d4fa40b8a102",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "abc",
+                "first_name": "Ric",
+                "last_name": "",
+                "email": "ric@example.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "Looks good, ship it.",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2026-04-15T10:00:00.000Z",
+            "item_id": "6",
+            "item_context": null,
+            "scope": "Insight",
+            "source_comment": null,
+            "is_task": false,
+            "completed_at": null,
+            "completed_by": null
+        }
+    ]
+}

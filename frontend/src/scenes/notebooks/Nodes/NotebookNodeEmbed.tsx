@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -149,14 +148,3 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
         },
     },
 })
-
-export function buildNodeEmbed(): JSONContent {
-    return {
-        type: NotebookNodeType.Embed,
-        attrs: {
-            __init: {
-                showSettings: true,
-            },
-        },
-    }
-}

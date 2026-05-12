@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -108,7 +104,7 @@ export interface EnterpriseEventDefinitionApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -159,7 +155,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action?: boolean
     readonly action_id?: number
     readonly is_calculating?: boolean
@@ -191,9 +187,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -233,7 +229,7 @@ export interface EventDefinitionRecordApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -243,13 +239,13 @@ export interface EventDefinitionRecordApi {
 }
 
 /**
- * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+ * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
  */
-export type PromotedPropertiesResponseApiPromotedProperties = { [key: string]: string }
+export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: string }
 
-export interface PromotedPropertiesResponseApi {
-    /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
-    promoted_properties: PromotedPropertiesResponseApiPromotedProperties
+export interface PrimaryPropertiesResponseApi {
+    /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
+    primary_properties: PrimaryPropertiesResponseApiPrimaryProperties
 }
 
 export type EventDefinitionsListParams = {
@@ -270,9 +266,9 @@ export type EventDefinitionsByNameRetrieveParams = {
     name: string
 }
 
-export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
     /**
-     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
      */
     names?: string[]
 }

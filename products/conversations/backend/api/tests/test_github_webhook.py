@@ -48,7 +48,7 @@ WEBHOOK_SECRET = "test-webhook-secret"
 
 
 class TestDispatchGithubEvent(BaseTest):
-    """Tests for dispatch_github_event called directly (as github_pr_webhook does)."""
+    """Tests for dispatch_github_event called directly (as github_webhook does)."""
 
     def setUp(self):
         super().setUp()

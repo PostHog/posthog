@@ -145,6 +145,7 @@ jobs:
                   project: ${{ matrix.project }}
                   context: ./rust/
                   file: ${{ matrix.dockerfile }}
+                  target: ${{ matrix.target || '' }}
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}

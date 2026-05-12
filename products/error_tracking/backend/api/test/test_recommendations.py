@@ -52,6 +52,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def _list(self):
         return self.client.get(f"/api/environments/{self.team.id}/error_tracking/recommendations/")
 
+    def _poll(self):
+        return self.client.get(f"/api/environments/{self.team.id}/error_tracking/recommendations/?poll=true")
+
     def _dismiss(self, rec_id):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/dismiss/")
 
@@ -331,4 +334,65 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._refresh(rec_id)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_long_running.assert_called_once()
+
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_long_running):
+        response = self._list()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        statuses = {r["type"]: r["status"] for r in response.json()["results"]}
+        self.assertEqual(statuses, {"alerts": "ready", "long_running_issues": "ready"})
+        # Each recommendation row should have been computed exactly once via the celery task path.
+        self.assertEqual(mock_alerts.call_count, 1)
+        self.assertEqual(mock_long_running.call_count, 1)
+
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_poll_does_not_kick_off_new_computations(self, mock_alerts, mock_long_running):
+        self._list()
+        mock_alerts.reset_mock()
+        mock_long_running.reset_mock()
+
+        response = self._poll()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_alerts.assert_not_called()
+        mock_long_running.assert_not_called()
+
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_stuck_computing_rows_are_re_kicked(self, mock_alerts, mock_long_running):
+        # Simulate a worker that died mid-compute for long_running: row stays in
+        # "computing" with a stale status_changed_at and never reaches "ready".
+        long_running = ErrorTrackingRecommendation.objects.create(
+            team=self.team,
+            type="long_running_issues",
+            status=ErrorTrackingRecommendation.Status.COMPUTING,
+            status_changed_at=timezone.now() - timedelta(minutes=10),
+        )
+
+        self._list()
+
+        long_running.refresh_from_db()
+        self.assertEqual(long_running.status, ErrorTrackingRecommendation.Status.READY)
         mock_long_running.assert_called_once()

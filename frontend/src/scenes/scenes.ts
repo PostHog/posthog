@@ -198,7 +198,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiments',
         activityScope: ActivityScope.EXPERIMENT,
         description:
-            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
         iconType: 'experiment',
     },
     [Scene.Activity]: {
@@ -723,6 +723,9 @@ export const redirects: Record<
 
     '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
     '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
+
+    // Redirect old path-based /configuration URLs to query param format
+    '/functions/:id/configuration': ({ id }) => urls.hogFunction(id, 'configuration'),
 
     ...productRedirects,
 }

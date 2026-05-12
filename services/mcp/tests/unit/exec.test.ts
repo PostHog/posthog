@@ -3,16 +3,21 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
+import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { buildInstructionsV2 } from '@/lib/instructions'
+import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
-import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
-import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import { getToolsFromContext } from '@/tools'
 import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type Tool,
+    type ZodObjectAny,
+} from '@/tools/types'
 
 function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObjectAny> {
     return {
@@ -44,41 +49,78 @@ describe('exec tool', () => {
     describe('call command', () => {
         it('returns TOON-formatted output by default', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             // TOON format uses "key: value" style, not JSON
             expect(result).toContain('id: 1')
             expect(result).toContain('name: test')
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
 
-        it('returns raw JSON with --json flag', async () => {
+        it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command: 'call --json mock-tool {}' })
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('returns JSON for tool with outputFormat json even without flag', async () => {
+        it('returns JSON for tool with outputFormat json even without --json flag', async () => {
             const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })
             const exec = createExec([tool])
-            const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('returns JSON when both --json flag and outputFormat json are present', async () => {
+        it('returns JSON when both --json flag and tool meta outputFormat=json are present', async () => {
             const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })
             const exec = createExec([tool])
-            const result = await exec.handler(mockContext, { command: 'call --json mock-tool {}' })
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('throws usage error for call --json with no tool name', async () => {
-            const exec = createExec()
-            await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
-            )
+        it('returns ONLY the formatted table when result has __formatted_results_override and mode is optimized', async () => {
+            const tool = makeMockTool({
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).toBe('Date|count\n2026-05-07|6')
+            // Raw fields and the override key itself must not leak into optimized output
+            expect(result).not.toContain('_posthogUrl')
+            expect(result).not.toContain('results')
+            expect(result).not.toContain('__formatted_results_override')
+        })
+
+        it('still TOON-encodes when __formatted_results_override is absent', async () => {
+            const tool = makeMockTool({
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
+            expect(result).toContain('_posthogUrl')
+            expect(result).toContain('results')
+        })
+
+        it('returns raw JSON (with override key) when --json flag is passed even if override is present', async () => {
+            const tool = makeMockTool({
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3] }],
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed.results).toEqual([{ data: [1, 2, 3] }])
+            expect(parsed[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('Date|count\n2026-05-07|6')
         })
 
         it('throws usage error for bare call', async () => {
@@ -88,17 +130,11 @@ describe('exec tool', () => {
             )
         })
 
-        it('does not treat --json in JSON body as the flag', async () => {
-            const tool = makeMockTool({
-                schema: z.object({ tag: z.string() }),
-                handler: async (_ctx, params) => params,
-            })
-            const exec = createExec([tool])
-            const result = await exec.handler(mockContext, {
-                command: 'call mock-tool {"tag": "--json"}',
-            })
-            // Without the flag, output is TOON-formatted
-            expect(result).toContain('tag:')
+        it('throws usage error for call --json with no tool name', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
+                'Usage: call [--json] <tool_name> <json_input>'
+            )
         })
 
         it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog-code', async () => {
@@ -106,7 +142,7 @@ describe('exec tool', () => {
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
             const exec = createExec([tool], 'posthog-code')
-            const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as {
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
                 structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
                 _meta: { ui: { resourceUri: string }; [key: string]: unknown }
@@ -140,14 +176,14 @@ describe('exec tool', () => {
                     _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 })
                 const exec = createExec([tool], consumer)
-                const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+                const result = await exec.handler(mockContext, { command: 'call mock-tool' })
                 expect(typeof result).toBe('string')
             }
         )
 
         it('does not attach UI meta or structuredContent for tools without a UI app', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             // Plain text fallback — no CallToolResult shape leaks out
             expect(typeof result).toBe('string')
         })
@@ -165,12 +201,47 @@ describe('exec tool', () => {
                 undefined,
                 tracker
             )
-            await exec.handler(mockContext, { command: 'call --json mock-tool {}' })
+            await exec.handler(mockContext, { command: 'call --json mock-tool' })
             expect(calls).toHaveLength(1)
             expect(calls[0]!.toolName).toBe('mock-tool')
             expect(calls[0]!.properties.success).toBe(true)
             expect(calls[0]!.properties.output_format).toBe('json')
             expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+        })
+
+        it('passes inline JSON arguments to the inner tool', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, {
+                command: 'call --json mock-tool {"name":"foo","tags":["a","b"]}',
+            })
+            expect(JSON.parse(result as string)).toEqual({ name: 'foo', tags: ['a', 'b'] })
+        })
+
+        it('preserves quote-heavy and multi-line content in inline JSON', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string(), content: z.string() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const content = '# Title\n\nLine with "double quotes", \'single quotes\', and `backticks` — also unicode ☃.'
+            const payload = JSON.stringify({ name: 'skill', content })
+            const result = await exec.handler(mockContext, {
+                command: `call --json mock-tool ${payload}`,
+            })
+            expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
+        })
+
+        it('throws a descriptive error when the inline JSON body is malformed', async () => {
+            const exec = createExec()
+            await expect(
+                exec.handler(mockContext, {
+                    command: 'call mock-tool {not-json}',
+                })
+            ).rejects.toThrow(/Invalid JSON input:/)
         })
 
         it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {
@@ -191,11 +262,59 @@ describe('exec tool', () => {
                 undefined,
                 tracker
             )
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow('boom')
+            await expect(exec.handler(mockContext, { command: 'call mock-tool' })).rejects.toThrow('boom')
             expect(calls).toHaveLength(1)
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
             expect(calls[0]!.properties.output_format).toBe('text')
+        })
+    })
+
+    describe('info command', () => {
+        it('returns YAML for the top shape with the input schema embedded as JSON', async () => {
+            const tool = makeMockTool({ schema: z.object({ name: z.string().describe('Person name') }) })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
+            expect(typeof result).toBe('string')
+            // YAML lines for the top shape
+            expect(result).toContain('name: mock-tool')
+            expect(result).toContain('title: Mock tool')
+            // The whole envelope is not JSON
+            expect(() => JSON.parse(result)).toThrow()
+            // inputSchema is dumped as a JSON string within the YAML — parse the
+            // envelope as YAML, then JSON.parse the inputSchema value.
+            const envelope = parseYaml(result) as { inputSchema: string }
+            expect(typeof envelope.inputSchema).toBe('string')
+            const parsedSchema = JSON.parse(envelope.inputSchema)
+            expect(parsedSchema.type).toBe('object')
+            expect(parsedSchema.properties.name.description).toBe('Person name')
+        })
+
+        it('returns JSON when --json flag is passed in command', async () => {
+            const exec = createExec()
+            const result = (await exec.handler(mockContext, {
+                command: 'info --json mock-tool',
+            })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.name).toBe('mock-tool')
+            expect(parsed.title).toBe('Mock tool')
+            expect(parsed.description).toBe('A mock tool for testing')
+            // In JSON mode, inputSchema is a real object, not a JSON string
+            expect(typeof parsed.inputSchema).toBe('object')
+        })
+
+        it('throws usage error for bare info', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
+        })
+
+        it('throws usage error for info --json with no tool name', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info --json' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
         })
     })
 
@@ -240,6 +359,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
             }
         }
 
@@ -263,23 +383,26 @@ describe('exec tool', () => {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     }
                 })
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                undefined,
-                undefined,
-                toolInfos,
-                queryToolInfos
+            const formatter = new InstructionsFormatter()
+            const commandReference = formatter.buildExecCommandReference(
+                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
+                { stripEnvContext: false }
             )
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
+            const execTool = createExecTool(
+                v2Tools,
+                context,
+                formatter.buildExecToolDescription(),
+                commandReference,
+                undefined
+            )
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
 
         // Snapshots the full exec tool definition built from the real v2 tool set:
-        // description (CLI_PROXY_TOOL), annotations, and input schema including the
-        // `command` field description — which embeds the generated `tool_domains`
-        // block. Because `buildToolDomainsBlock` relies on tool-name conventions
+        // description (the `exec-tool-blurb` subprompt), annotations, and input schema
+        // including the `command` field description — which embeds the generated
+        // `tool_domains` block. Because `buildToolDomainsBlock` relies on tool-name conventions
         // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
         // canary for any drift in naming or in the domain-extraction logic.
         //
@@ -306,15 +429,18 @@ describe('exec tool', () => {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     }
                 })
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                undefined,
-                undefined,
-                toolInfos,
-                queryToolInfos
+            const formatter = new InstructionsFormatter()
+            const commandReference = formatter.buildExecCommandReference(
+                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
+                { stripEnvContext: false }
             )
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
+            const execTool = createExecTool(
+                v2Tools,
+                context,
+                formatter.buildExecToolDescription(),
+                commandReference,
+                undefined
+            )
 
             const snapshot = {
                 name: execTool.name,

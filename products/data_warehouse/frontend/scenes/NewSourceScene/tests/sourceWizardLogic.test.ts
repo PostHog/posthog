@@ -1,11 +1,99 @@
+import type { SourceConfig } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
 import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
     mergeRestoredSourceFormValues,
+    shouldHydrateSourceFromUrl,
+    sourceWizardLogic,
 } from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    it('keeps wizard state isolated by tab id', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const availableSources = { Postgres: postgresSource }
+        const firstTabLogic = sourceWizardLogic({ availableSources, tabId: 'first-tab' })
+        const secondTabLogic = sourceWizardLogic({ availableSources, tabId: 'second-tab' })
+        const unmountFirstTabLogic = firstTabLogic.mount()
+        const unmountSecondTabLogic = secondTabLogic.mount()
+
+        try {
+            firstTabLogic.actions.selectConnector(postgresSource)
+            firstTabLogic.actions.setStep(2)
+            firstTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'first.example.com')
+            secondTabLogic.actions.setStep(3)
+            secondTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'second.example.com')
+
+            expect(firstTabLogic.values.selectedConnector?.name).toEqual('Postgres')
+            expect(firstTabLogic.values.currentStep).toEqual(2)
+            expect(firstTabLogic.values.sourceConnectionDetails.payload.host).toEqual('first.example.com')
+            expect(secondTabLogic.values.selectedConnector).toBeNull()
+            expect(secondTabLogic.values.currentStep).toEqual(3)
+            expect(secondTabLogic.values.sourceConnectionDetails.payload.host).toEqual('second.example.com')
+        } finally {
+            unmountFirstTabLogic()
+            unmountSecondTabLogic()
+        }
+    })
+
+    it('preserves wizard state while attached to the mounted scene tab', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const availableSources = { Postgres: postgresSource }
+        const attachedLogic = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+        const unmountAttached = attachedLogic.mount()
+        const firstMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+        const unmountFirst = firstMount.mount()
+
+        try {
+            firstMount.actions.selectConnector(postgresSource)
+            firstMount.actions.setStep(2)
+            firstMount.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'kept.example.com')
+            unmountFirst()
+
+            const secondMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+            const unmountSecond = secondMount.mount()
+
+            try {
+                expect(secondMount.values.selectedConnector?.name).toEqual('Postgres')
+                expect(secondMount.values.currentStep).toEqual(2)
+                expect(secondMount.values.sourceConnectionDetails.payload.host).toEqual('kept.example.com')
+            } finally {
+                unmountSecond()
+            }
+        } finally {
+            unmountAttached()
+        }
+    })
+
+    it('does not hydrate the same source URL again after the wizard has started', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
+        expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
+        expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
     describe('getDatabaseSchemaPayload', () => {
         it('includes the selected access method for schema discovery', () => {
             expect(

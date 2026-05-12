@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import click
-from hogli.cli import cli
 
 
-@cli.command(name="quickstart", help="Show getting started with PostHog development")
+@click.command(name="quickstart", help="Show getting started with PostHog development")
 def quickstart() -> None:
     """Display essential commands for getting up and running."""
     click.echo("")

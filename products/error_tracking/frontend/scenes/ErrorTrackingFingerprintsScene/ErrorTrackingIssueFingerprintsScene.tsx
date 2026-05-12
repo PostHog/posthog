@@ -12,7 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'
@@ -159,6 +159,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
                 ],
                 orderBy: ['timestamp ASC'],
                 limit: 1,
+                tags: { productKey: ProductKey.ERROR_TRACKING },
             }
             const response = await api.query(query)
             if (response.results.length > 0) {

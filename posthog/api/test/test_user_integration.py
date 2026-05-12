@@ -592,7 +592,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
 
 class TestGetGithubLoginPrecedence(APIBaseTest):
-    """User.get_github_login() precedence: UserIntegration > UserSocialAuth > team Integration."""
+    """User.get_github_login() precedence: UserIntegration > UserSocialAuth > team-level GitHub Integration."""
 
     def test_returns_none_when_no_source_present(self):
         self.assertIsNone(self.user.get_github_login())

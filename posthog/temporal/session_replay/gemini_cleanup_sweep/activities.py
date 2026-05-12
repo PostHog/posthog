@@ -6,24 +6,29 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import sync_to_async
-from google.genai import (
-    Client as RawGenAIClient,
-    types,
-)
+from google.genai import Client as RawGenAIClient
+from google.genai.errors import APIError
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
-    AGE_THRESHOLD,
     DELETE_CONCURRENCY,
     DESCRIBE_CONCURRENCY,
-    LIST_PAGE_SIZE,
     MAX_FILES_PER_SWEEP,
-    display_name_prefix_for,
+    SWEEP_MIN_AGE,
 )
-from posthog.temporal.session_replay.gemini_cleanup_sweep.types import CleanupSweepInputs, CleanupSweepResult
+from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import (
+    index_size,
+    iter_tracked_files,
+    untrack_uploaded_file,
+)
+from posthog.temporal.session_replay.gemini_cleanup_sweep.types import (
+    CleanupSweepInputs,
+    CleanupSweepResult,
+    TrackedFile,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -36,43 +41,6 @@ _TERMINAL_STATUSES = frozenset(
         WorkflowExecutionStatus.TIMED_OUT,
     }
 )
-
-
-def _list_candidates(
-    raw_client: RawGenAIClient, cutoff: datetime, deployment: str
-) -> tuple[int, int, int, int, list[tuple[str, str]], bool]:
-    """Returns ``(listed, age_skipped, prefix_skipped, no_name_skipped, candidates, hit_cap)``.
-
-    Sync because ``Pager`` is sync; call via ``sync_to_async``.
-    """
-    full_prefix = display_name_prefix_for(deployment)
-    deployment_prefix = f"{deployment}:"
-    listed = 0
-    age_skipped = 0
-    prefix_skipped = 0
-    no_name_skipped = 0
-    candidates: list[tuple[str, str]] = []
-    hit_cap = False
-
-    pager = raw_client.files.list(config=types.ListFilesConfig(page_size=LIST_PAGE_SIZE))
-    for f in pager:
-        listed += 1
-        if f.create_time is None or f.create_time > cutoff:
-            age_skipped += 1
-            continue
-        if not f.display_name or not f.display_name.startswith(full_prefix):
-            prefix_skipped += 1
-            continue
-        if not f.name:
-            # Owned by us per display_name, but unusable — surface separately for ops.
-            no_name_skipped += 1
-            continue
-        workflow_id = f.display_name[len(deployment_prefix) :]
-        candidates.append((f.name, workflow_id))
-        if len(candidates) >= MAX_FILES_PER_SWEEP:
-            hit_cap = True
-            break
-    return listed, age_skipped, prefix_skipped, no_name_skipped, candidates, hit_cap
 
 
 async def _classify_workflow(temporal: Client, workflow_id: str) -> str:
@@ -93,72 +61,101 @@ async def _classify_workflow(temporal: Client, workflow_id: str) -> str:
 
 @activity.defn
 async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSweepResult:
-    """Reclaims orphaned Gemini files. Failures are counted, never raised."""
-    if not settings.CLOUD_DEPLOYMENT:
-        raise RuntimeError("cleanup sweep requires CLOUD_DEPLOYMENT to be set")
+    """Reclaims orphaned Gemini files. Failures counted, never raised."""
     raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
     temporal = await async_connect()
-    cutoff = datetime.now(UTC) - AGE_THRESHOLD
+    cutoff = datetime.now(UTC) - SWEEP_MIN_AGE
 
-    listed, age_skipped, prefix_skipped, no_name_skipped, candidates, hit_cap = await sync_to_async(
-        _list_candidates, thread_sensitive=False
-    )(raw_client, cutoff, settings.CLOUD_DEPLOYMENT)
-    activity.heartbeat({"phase": "listed", "listed": listed, "candidates": len(candidates)})
+    total_tracked = await index_size()
+    hit_max_files_cap = total_tracked > MAX_FILES_PER_SWEEP
+
+    scanned = 0
+    skipped_too_young = 0
+    skipped_invalid_value = 0
+    candidates: list[TrackedFile] = []
+    async for tracked in iter_tracked_files(limit=MAX_FILES_PER_SWEEP):
+        scanned += 1
+        if tracked is None:
+            skipped_invalid_value += 1
+            continue
+        if tracked.uploaded_at > cutoff:
+            skipped_too_young += 1
+            continue
+        candidates.append(tracked)
+    activity.heartbeat({"phase": "scanned", "scanned": scanned, "candidates": len(candidates)})
 
     describe_sem = asyncio.Semaphore(DESCRIBE_CONCURRENCY)
 
-    async def _classify_with_sem(file_name: str, workflow_id: str) -> tuple[str, str]:
+    async def _classify(tracked: TrackedFile) -> tuple[TrackedFile, str]:
         async with describe_sem:
-            outcome = await _classify_workflow(temporal, workflow_id)
-            return file_name, outcome
+            outcome = await _classify_workflow(temporal, tracked.workflow_id)
+            return tracked, outcome
 
-    classifications = await asyncio.gather(
-        *(_classify_with_sem(fn, wid) for fn, wid in candidates),
-    )
+    classifications = await asyncio.gather(*(_classify(t) for t in candidates))
     activity.heartbeat({"phase": "classified", "classified": len(classifications)})
 
-    to_delete = [fn for fn, outcome in classifications if outcome == "delete"]
+    to_delete = [t for t, outcome in classifications if outcome == "delete"]
     skipped_running = sum(1 for _, outcome in classifications if outcome == "running")
-    skipped_error = sum(1 for _, outcome in classifications if outcome == "error")
+    skipped_temporal_error = sum(1 for _, outcome in classifications if outcome == "error")
 
     base_result = CleanupSweepResult(
-        listed=listed,
-        skipped_too_young=age_skipped,
-        skipped_unrecognized_prefix=prefix_skipped,
-        skipped_no_name=no_name_skipped,
+        scanned=scanned,
+        skipped_too_young=skipped_too_young,
+        skipped_invalid_value=skipped_invalid_value,
         skipped_running=skipped_running,
-        skipped_temporal_error=skipped_error,
-        hit_max_files_cap=hit_cap,
+        skipped_temporal_error=skipped_temporal_error,
+        hit_max_files_cap=hit_max_files_cap,
     )
 
     delete_sem = asyncio.Semaphore(DELETE_CONCURRENCY)
 
-    async def _delete(file_name: str) -> bool:
+    async def _delete(tracked: TrackedFile) -> bool:
         async with delete_sem:
             try:
-                await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=file_name)
-                return True
-            except Exception:
+                await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=tracked.gemini_file_name)
+            except APIError as e:
+                if e.code == 404:
+                    # File already gone (e.g., a previous untrack failed). Drop the key so we
+                    # don't keep retrying a doomed delete.
+                    logger.info(
+                        "cleanup_sweep.delete_already_gone",
+                        gemini_file_name=tracked.gemini_file_name,
+                        workflow_id=tracked.workflow_id,
+                        signals_type="cleanup-sweep",
+                    )
+                    await untrack_uploaded_file(tracked.gemini_file_name)
+                    return True
                 logger.exception(
                     "cleanup_sweep.delete_failed",
-                    gemini_file_name=file_name,
+                    gemini_file_name=tracked.gemini_file_name,
+                    workflow_id=tracked.workflow_id,
                     signals_type="cleanup-sweep",
                 )
                 return False
+            except Exception:
+                # Key kept for next-cycle retry; 48h TTL backstops.
+                logger.exception(
+                    "cleanup_sweep.delete_failed",
+                    gemini_file_name=tracked.gemini_file_name,
+                    workflow_id=tracked.workflow_id,
+                    signals_type="cleanup-sweep",
+                )
+                return False
+            await untrack_uploaded_file(tracked.gemini_file_name)
+            return True
 
-    delete_results = await asyncio.gather(*(_delete(fn) for fn in to_delete))
+    delete_results = await asyncio.gather(*(_delete(t) for t in to_delete))
     deleted = sum(1 for r in delete_results if r)
     delete_failed = sum(1 for r in delete_results if not r)
 
     result = replace(base_result, deleted=deleted, delete_failed=delete_failed)
     logger.info(
         "cleanup_sweep.cycle_complete",
-        listed=result.listed,
+        scanned=result.scanned,
         deleted=result.deleted,
         skipped_running=result.skipped_running,
         skipped_too_young=result.skipped_too_young,
-        skipped_unrecognized_prefix=result.skipped_unrecognized_prefix,
-        skipped_no_name=result.skipped_no_name,
+        skipped_invalid_value=result.skipped_invalid_value,
         skipped_temporal_error=result.skipped_temporal_error,
         delete_failed=result.delete_failed,
         hit_max_files_cap=result.hit_max_files_cap,

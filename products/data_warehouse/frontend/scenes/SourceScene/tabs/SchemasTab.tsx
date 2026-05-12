@@ -239,6 +239,7 @@ function ManagedSchemaTable({
             dataSource={schemas}
             loading={initialLoad}
             disableTableWhileLoading={false}
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
             columns={[
                 {
                     title: 'Schema',

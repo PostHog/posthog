@@ -54,10 +54,12 @@ describe('initMcpCatObservability', () => {
                 projectName: 'Project 101',
             }),
             getClientUserAgent: vi.fn().mockResolvedValue('test-agent/1.0'),
-            getVersion: vi.fn().mockResolvedValue(2),
+            getMcpVersion: vi.fn().mockResolvedValue(2),
             getOAuthClientName: vi.fn().mockResolvedValue('PostHog Code'),
             getReadOnly: vi.fn().mockResolvedValue(true),
             getTransport: vi.fn().mockResolvedValue('streamable-http'),
+            getMcpConsumer: vi.fn().mockResolvedValue('posthog-code'),
+            getMcpMode: vi.fn().mockResolvedValue('cli'),
             ...overrides,
         }
     }
@@ -186,6 +188,8 @@ describe('initMcpCatObservability', () => {
                 mcp_oauth_client_name: 'PostHog Code',
                 read_only: true,
                 mcp_transport: 'streamable-http',
+                mcp_consumer: 'posthog-code',
+                mcp_mode: 'cli',
                 $groups: {
                     organization: 'org-789',
                     project: 'proj-uuid-101',
@@ -212,13 +216,15 @@ describe('initMcpCatObservability', () => {
                 mcp_oauth_client_name: 'PostHog Code',
                 read_only: true,
                 mcp_transport: 'streamable-http',
+                mcp_consumer: 'posthog-code',
+                mcp_mode: 'cli',
                 $groups: { organization: 'org-789' },
             },
         },
         {
             name: 'no analytics context omits $groups entirely',
             overrides: {
-                getVersion: vi.fn().mockResolvedValue(undefined),
+                getMcpVersion: vi.fn().mockResolvedValue(undefined),
                 getClientUserAgent: vi.fn().mockResolvedValue(undefined),
                 getMcpClientName: vi.fn().mockResolvedValue(undefined),
                 getMcpClientVersion: vi.fn().mockResolvedValue(undefined),
@@ -228,6 +234,8 @@ describe('initMcpCatObservability', () => {
                 getOAuthClientName: vi.fn().mockResolvedValue(undefined),
                 getReadOnly: vi.fn().mockResolvedValue(undefined),
                 getTransport: vi.fn().mockResolvedValue(undefined),
+                getMcpConsumer: vi.fn().mockResolvedValue(undefined),
+                getMcpMode: vi.fn().mockResolvedValue(undefined),
             },
             expected: {
                 ai_product: 'mcp',
@@ -244,6 +252,8 @@ describe('initMcpCatObservability', () => {
                 mcp_oauth_client_name: undefined,
                 read_only: undefined,
                 mcp_transport: undefined,
+                mcp_consumer: undefined,
+                mcp_mode: undefined,
             },
         },
     ])('eventProperties: $name', async ({ overrides, expected }) => {

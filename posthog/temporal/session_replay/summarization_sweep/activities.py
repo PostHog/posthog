@@ -14,6 +14,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRI
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
+    EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
     SCHEDULE_TYPE,
     STUCK_RASTERIZE_THRESHOLD,
@@ -22,6 +23,7 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
 from posthog.temporal.session_replay.summarization_sweep.session_candidates import (
     coerce_sample_rate,
     fetch_recent_session_ids,
+    filter_session_ids_with_events,
 )
 from posthog.temporal.session_replay.summarization_sweep.types import (
     DeleteTeamScheduleInput,
@@ -120,6 +122,15 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         extra_summary_context=None,
     )
     sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)]
+    # Recording-only sessions never write a summary row, so summaries_exist can't dedup them.
+    if sessions_to_summarize:
+        sessions_with_events = await database_sync_to_async_pool(filter_session_ids_with_events)(
+            team=team,
+            session_ids=sessions_to_summarize,
+            lookback_minutes=inputs.lookback_minutes,
+            max_execution_time_seconds=EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS,
+        )
+        sessions_to_summarize = [sid for sid in sessions_to_summarize if sid in sessions_with_events]
     stuck = await _stuck_session_ids(inputs.team_id, sessions_to_summarize)
     sessions_to_summarize = [sid for sid in sessions_to_summarize if sid not in stuck]
 

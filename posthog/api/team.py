@@ -16,6 +16,8 @@ from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
+from pydantic import TypeAdapter
+from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -44,7 +46,11 @@ from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEval
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
+from posthog.models.product_intent.product_intent import (
+    ProductIntentSerializer,
+    cached_product_intents_for_team,
+    enqueue_product_activation_calc_debounced,
+)
 from posthog.models.project import Project
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
@@ -69,6 +75,7 @@ from posthog.session_recordings.data_retention import (
     retention_violates_entitlement,
     validate_retention_period,
 )
+from posthog.types import AnyPropertyFilter
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -380,6 +387,21 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
+test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
+
+
+def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    if not getattr(settings, "TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED", False):
+        return cast(list[dict[str, object]], value)
+
+    try:
+        test_account_filters_adapter.validate_python(value)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
+
+    return cast(list[dict[str, object]], value)
+
+
 _default_theme_id_cache: int | None = None
 
 
@@ -552,10 +574,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     @tracer.start_as_current_span("team_serializer.product_intents")
     def get_product_intents(self, obj):
-        calculate_product_activation.delay(obj.id, only_calc_if_days_since_last_checked=1)
-        return ProductIntent.objects.filter(team=obj).values(
-            "product_type", "created_at", "onboarding_completed_at", "updated_at"
-        )
+        # Debounce-then-enqueue rather than .delay() on every render. The helper
+        # checks a cache key first and skips the broker round-trip entirely if
+        # we've already enqueued for this team in the last 24h. 99% of renders
+        # become a cache hit; the remaining ones still enqueue exactly as before.
+        enqueue_product_activation_calc_debounced(obj.id)
+        return cached_product_intents_for_team(obj.id)
 
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
@@ -573,6 +597,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     )
     def get_available_setup_task_ids(self, obj) -> list[str]:
         return [e.value for e in SetupTaskId]
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):

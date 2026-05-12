@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -101,11 +103,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
         )
-        pat = (
-            PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
-            .order_by("-created_at")
-            .first()
-        )
+        pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).order_by("-created_at").first()
         assert pat is not None
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
@@ -117,7 +115,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        initial_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        initial_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
         assert initial_pat is not None
 
         self._post_signed_with_bearer(
@@ -125,7 +123,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             token=token,
         )
         assert PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
-        assert PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").count() == 2
+        assert PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).count() == 2
 
     @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
     def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):
@@ -136,3 +134,35 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
         )
         assert res.status_code == 500
         assert res.json()["error"]["code"] == "credential_rotation_failed"
+
+    def test_rotate_with_label_prefix_uses_prefix_for_pat(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            data={"label_prefix": "Acme Co"},
+            token=token,
+        )
+        assert res.status_code == 200
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.label.startswith("Acme Co - ")
+
+    @parameterized.expand(
+        [
+            ("too_long", "a" * 26),
+            ("control_char_newline", "Bad\nLabel"),
+            ("bidi_override", "Bad‮Label"),
+            ("non_string", 123),
+        ]
+    )
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_rotate_invalid_label_prefix_returns_400_and_captures_event(self, _name, label_prefix, mock_capture_event):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            data={"label_prefix": label_prefix},
+            token=token,
+        )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_label_prefix"
+        mock_capture_event.assert_any_call("credential_rotation", "error", error_code="invalid_label_prefix")
