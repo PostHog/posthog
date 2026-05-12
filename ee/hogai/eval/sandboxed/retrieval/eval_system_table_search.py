@@ -35,6 +35,7 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.retrieval.scorers import InfoCalledBeforeTool, WarehouseSchemaBeforeSql
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
+from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 
 
 @pytest.mark.django_db
@@ -42,8 +43,13 @@ async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_cl
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="system_table_search_insights_rename",
-            prompt="rename the MAU insight to have a single 'MAU - ' prefix",
+            # Seeded via ``seed_insight_noise`` so the agent has a concrete
+            # insight to target — the original "rename the MAU insight" wording
+            # caused the agent to thrash for 15+ SQL calls when no MAU insight
+            # existed, and the schema-first discipline slipped along the way.
+            prompt=("rename the insight 'Monthly Active Users (Hedgebox)' to have a 'MAU - ' prefix"),
             expected={"warehouse_schema_before_sql": {}},
+            setup=seed_insight_noise,
         ),
         SandboxedEvalCase(
             name="system_table_search_insights_find",
