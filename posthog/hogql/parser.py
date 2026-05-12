@@ -155,6 +155,15 @@ _PARSE_CACHE_MAXSIZE = Gauge(
     labelnames=["cache"],
     multiprocess_mode="livemax",
 )
+# Bucket boundaries align with the cache size bounds (40 and 4096) so the
+# fraction of statements below the min or above the max is directly
+# readable from the histogram.
+_PARSE_STATEMENT_LENGTH = Histogram(
+    "hogql_parse_statement_length_chars",
+    "Length of HogQL statements passed to the parser, in characters",
+    labelnames=["rule"],
+    buckets=(16, 32, 40, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 32768, 131072, 524288),
+)
 
 
 def _looks_like_code_literal(s: str) -> bool:
@@ -226,6 +235,8 @@ def _parse_cached(
     """
     # Coerce so a stringly-typed call validates and a typo raises.
     cache_origin = CacheOrigin(cache_origin)
+
+    _PARSE_STATEMENT_LENGTH.labels(rule=rule).observe(len(statement))
 
     if len(statement) < _MIN_CACHEABLE_STATEMENT_LEN or (
         cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN
