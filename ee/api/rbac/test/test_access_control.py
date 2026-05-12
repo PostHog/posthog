@@ -1816,6 +1816,35 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert ff["effective_access_level"] is None
         assert ff["inherited_access_level"] is None
 
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
+        """When the organization does not have the ROLE_BASED_ACCESS feature, role-based
+        overrides must not influence a member's effective resource access level. The member
+        should fall back to the resource default."""
+        # Remove the ROLE_BASED_ACCESS feature, keep ADVANCED_PERMISSIONS
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        # Make user2 a regular member so org-admin highest-access doesn't mask the bug
+        self.user2_membership.level = OrganizationMembership.Level.MEMBER
+        self.user2_membership.save()
+
+        # Default dashboard access for the project is 'viewer'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # A role-based override grants 'manager' on dashboards
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+        # user2 is in that role
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+
+        res = self.client.get("/api/projects/@current/access_control_members")
+        member_data = self._find_member(res.json()["results"], self.user2_membership.id)
+        dashboard = member_data["resources"]["dashboard"]
+        # Without ROLE_BASED_ACCESS, the role override must be ignored
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
         from ee.models.rbac.access_control import AccessControl
