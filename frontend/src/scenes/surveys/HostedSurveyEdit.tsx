@@ -254,7 +254,7 @@ function HostedSurveyQuestionPreview({
                         <fieldset>
                             <legend className="sr-only">{question.question}</legend>
                             <div className="multiple-choice-options">
-                                {question.choices.map((choice) => {
+                                {question.choices.map((choice, choiceIndex) => {
                                     const values = Array.isArray(response) ? response : []
                                     const checked =
                                         question.type === SurveyQuestionType.SingleChoice
@@ -262,7 +262,7 @@ function HostedSurveyQuestionPreview({
                                             : values.includes(choice)
 
                                     return (
-                                        <label key={choice}>
+                                        <label key={choiceIndex}>
                                             <span className="response-choice">
                                                 <input
                                                     type={
@@ -347,6 +347,7 @@ function HostedSurveyQuestionPreview({
 
 function HostedSurveyConfirmationPreview({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
     const appearance = survey.appearance ?? {}
+    const closeButtonText = appearance.thankYouMessageCloseButtonText
 
     return (
         <div className="thank-you-message">
@@ -360,6 +361,13 @@ function HostedSurveyConfirmationPreview({ survey }: { survey: Survey | NewSurve
                 ) : (
                     <p className="thank-you-message-body">{appearance.thankYouMessageDescription}</p>
                 )
+            ) : null}
+            {closeButtonText ? (
+                <div className="bottom-section">
+                    <button type="button" className="form-submit" disabled>
+                        {closeButtonText}
+                    </button>
+                </div>
             ) : null}
         </div>
     )
