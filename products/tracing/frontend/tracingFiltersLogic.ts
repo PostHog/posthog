@@ -19,6 +19,9 @@ export interface TracingFilters {
     serviceNames: string[]
     filterGroup: UniversalFiltersGroup
     orderBy: TracingOrderBy
+    compareMode: boolean
+    /** Relative offset such as `-1h`, `-1d`. When null, the comparison window is the immediately previous period of equal length. */
+    compareTo: string | null
 }
 
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
@@ -29,6 +32,8 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
         setServiceNames: (serviceNames: string[]) => ({ serviceNames }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setOrderBy: (orderBy: TracingOrderBy) => ({ orderBy }),
+        setCompareMode: (compareMode: boolean) => ({ compareMode }),
+        setCompareTo: (compareTo: string | null) => ({ compareTo }),
         setFilters: (filters: Partial<TracingFilters>) => ({ filters }),
     }),
 
@@ -63,16 +68,32 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 setFilters: (state, { filters }) => (filters.orderBy as TracingOrderBy) ?? state,
             },
         ],
+        compareMode: [
+            false as boolean,
+            {
+                setCompareMode: (_, { compareMode }) => compareMode,
+                setFilters: (state, { filters }) => filters.compareMode ?? state,
+            },
+        ],
+        compareTo: [
+            null as string | null,
+            {
+                setCompareTo: (_, { compareTo }) => compareTo,
+                setFilters: (state, { filters }) => filters.compareTo ?? state,
+            },
+        ],
     }),
 
     selectors({
         filters: [
-            (s) => [s.dateRange, s.serviceNames, s.filterGroup, s.orderBy],
-            (dateRange, serviceNames, filterGroup, orderBy): TracingFilters => ({
+            (s) => [s.dateRange, s.serviceNames, s.filterGroup, s.orderBy, s.compareMode, s.compareTo],
+            (dateRange, serviceNames, filterGroup, orderBy, compareMode, compareTo): TracingFilters => ({
                 dateRange,
                 serviceNames,
                 filterGroup,
                 orderBy,
+                compareMode,
+                compareTo,
             }),
         ],
         utcDateRange: [

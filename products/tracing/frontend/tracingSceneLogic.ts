@@ -28,6 +28,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'totalSpansMatchingFilters',
                 'traceSpans',
                 'traceSpansLoading',
+                'aggregation',
+                'aggregationLoading',
             ],
             tracingFiltersLogic,
             ['filters', 'utcDateRange'],
@@ -36,7 +38,15 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             tracingDataLogic,
             ['runQuery', 'fetchNextPage', 'loadTraceSpans'],
             tracingFiltersLogic,
-            ['setDateRange', 'setServiceNames', 'setFilterGroup', 'setOrderBy', 'setFilters'],
+            [
+                'setDateRange',
+                'setServiceNames',
+                'setFilterGroup',
+                'setOrderBy',
+                'setCompareMode',
+                'setCompareTo',
+                'setFilters',
+            ],
         ],
     }),
 
@@ -95,6 +105,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
         setOrderBy: () => {
             actions.syncUrlAndRunQuery()
+        },
+        setCompareMode: () => {
+            actions.runQuery()
+        },
+        setCompareTo: () => {
+            actions.runQuery()
         },
         setFilters: () => {
             actions.syncUrlAndRunQuery()

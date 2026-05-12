@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import type { tracingDataLogicType } from './tracingDataLogicType'
@@ -47,8 +48,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         clearSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressAggregation: (controller: AbortController | null) => ({ controller }),
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
         setSparklineAbortController: (controller: AbortController | null) => ({ controller }),
+        setAggregationAbortController: (controller: AbortController | null) => ({ controller }),
         setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
         setNextCursor: (cursor: string | null) => ({ cursor }),
     }),
@@ -61,6 +64,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         sparklineAbortController: [
             null as AbortController | null,
             { setSparklineAbortController: (_, { controller }) => controller },
+        ],
+        aggregationAbortController: [
+            null as AbortController | null,
+            { setAggregationAbortController: (_, { controller }) => controller },
         ],
         hasRunQuery: [
             false as boolean,
@@ -86,6 +93,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchSparkline: () => true,
                 fetchSparklineSuccess: () => false,
                 fetchSparklineFailure: () => false,
+            },
+        ],
+        aggregationLoading: [
+            false as boolean,
+            {
+                fetchAggregation: () => true,
+                fetchAggregationSuccess: () => false,
+                fetchAggregationFailure: () => false,
             },
         ],
         hasMoreToLoad: [
@@ -164,6 +179,31 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                     })
                     return response.results as Span[]
+                },
+            },
+        ],
+        aggregation: [
+            { current: [] as AggregatedSpanRow[], previous: null as AggregatedSpanRow[] | null },
+            {
+                fetchAggregation: async () => {
+                    const controller = new AbortController()
+                    actions.cancelInProgressAggregation(controller)
+
+                    const response = await api.tracing.aggregate({
+                        dateRange: values.utcDateRange,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        compareFilter: {
+                            compare: values.filters.compareMode,
+                            compare_to: values.filters.compareTo ?? undefined,
+                        },
+                    })
+
+                    actions.setAggregationAbortController(null)
+                    return {
+                        current: response.results ?? [],
+                        previous: response.compare ?? null,
+                    }
                 },
             },
         ],
@@ -254,8 +294,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     listeners(({ actions, values }) => ({
         runQuery: () => {
             actions.clearSpans()
-            actions.fetchSpans()
             actions.fetchSparkline()
+            if (values.filters.compareMode) {
+                actions.fetchAggregation()
+            } else {
+                actions.fetchSpans()
+            }
         },
         cancelInProgressSpans: ({ controller }) => {
             if (values.spansAbortController !== null) {
@@ -269,6 +313,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setSparklineAbortController(controller)
         },
+        cancelInProgressAggregation: ({ controller }) => {
+            if (values.aggregationAbortController !== null) {
+                values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setAggregationAbortController(controller)
+        },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
@@ -277,6 +327,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchSparklineFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 // Sparkline failures are non-critical, don't show toast
+            }
+        },
+        fetchAggregationFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load span aggregation: ${error}`)
             }
         },
     })),
@@ -288,6 +343,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             if (values.sparklineAbortController) {
                 values.sparklineAbortController.abort('unmounting component')
+            }
+            if (values.aggregationAbortController) {
+                values.aggregationAbortController.abort('unmounting component')
             }
         },
     })),

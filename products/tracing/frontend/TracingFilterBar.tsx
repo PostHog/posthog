@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -82,8 +82,9 @@ export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic)
     const { runQuery } = useActions(tracingDataLogic)
     const { filters, utcDateRange } = useValues(tracingFiltersLogic)
-    const { setDateRange, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic)
-    const { dateRange, serviceNames, filterGroup } = filters
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode, setCompareTo } =
+        useActions(tracingFiltersLogic)
+    const { dateRange, serviceNames, filterGroup, compareMode } = filters
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
@@ -145,6 +146,18 @@ export function TracingFilterBar(): JSX.Element {
                                 }}
                             />
                         </div>
+                        <LemonSwitch
+                            label="Compare"
+                            checked={compareMode}
+                            onChange={(checked) => {
+                                setCompareMode(checked)
+                                if (!checked) {
+                                    setCompareTo(null)
+                                }
+                            }}
+                            bordered
+                            size="small"
+                        />
                         <LemonButton
                             size="small"
                             icon={<IconRefresh />}

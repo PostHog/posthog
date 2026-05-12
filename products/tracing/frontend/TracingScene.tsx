@@ -10,6 +10,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { TraceCompareTable } from './TraceCompareTable'
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingSceneLogic } from './tracingSceneLogic'
@@ -91,8 +92,12 @@ export default function TracingScene(): JSX.Element {
         totalSpansMatchingFilters,
         modalSpans,
         isLoadingFullTrace,
+        aggregation,
+        aggregationLoading,
+        filters,
     } = useValues(tracingSceneLogic)
     const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
+    const compareMode = filters.compareMode
 
     return (
         <SceneContent>
@@ -116,23 +121,31 @@ export default function TracingScene(): JSX.Element {
                     {totalSpansMatchingFilters.toLocaleString()} spans matching filters
                 </div>
             )}
-            <LemonTable
-                columns={columns}
-                dataSource={rootSpans}
-                loading={spansLoading}
-                rowKey="uuid"
-                emptyState="No spans found"
-                onRow={(span) => ({
-                    onClick: () => {
-                        // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                        // element; react-modal then scrolls it back into view when restoring focus
-                        // on close. Blur so the restore target is <body>, which doesn't scroll.
-                        ;(document.activeElement as HTMLElement | null)?.blur?.()
-                        openTraceModal(span.trace_id)
-                    },
-                    className: 'cursor-pointer',
-                })}
-            />
+            {compareMode ? (
+                <TraceCompareTable
+                    current={aggregation.current}
+                    previous={aggregation.previous}
+                    loading={aggregationLoading}
+                />
+            ) : (
+                <LemonTable
+                    columns={columns}
+                    dataSource={rootSpans}
+                    loading={spansLoading}
+                    rowKey="uuid"
+                    emptyState="No spans found"
+                    onRow={(span) => ({
+                        onClick: () => {
+                            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                            // element; react-modal then scrolls it back into view when restoring focus
+                            // on close. Blur so the restore target is <body>, which doesn't scroll.
+                            ;(document.activeElement as HTMLElement | null)?.blur?.()
+                            openTraceModal(span.trace_id)
+                        },
+                        className: 'cursor-pointer',
+                    })}
+                />
+            )}
             <LemonModal
                 title={`Trace ${selectedTraceId}`}
                 isOpen={isTraceModalOpen}
