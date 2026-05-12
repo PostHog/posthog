@@ -189,7 +189,12 @@ export default function TracingScene(): JSX.Element {
                 onClose={closeCompareFlame}
                 width="90vw"
             >
-                <TraceCompareFlame current={spanTree.current} previous={spanTree.previous} loading={spanTreeLoading} />
+                <TraceCompareFlame
+                    current={spanTree.current}
+                    previous={spanTree.previous}
+                    loading={spanTreeLoading}
+                    initialSpanName={compareFlameSpanName}
+                />
             </LemonModal>
         </SceneContent>
     )
