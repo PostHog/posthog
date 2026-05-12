@@ -1091,6 +1091,22 @@ def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
 
 
+@mutable_receiver(post_save, sender=Team)
+def reevaluate_authorized_urls_health_on_team_save(sender, instance: Team, **kwargs):
+    # Trigger the authorized_urls health check so the issue is created/resolved
+    # immediately on app_urls changes, instead of waiting for the daily batch.
+    # Task import is deferred to dispatch time to avoid pulling the dags/temporal
+    # health-check chain during Django app boot (it calls django.setup() and re-enters).
+    team_id = instance.id
+
+    def _dispatch():
+        from posthog.tasks.health_checks import evaluate_health_check_for_team
+
+        evaluate_health_check_for_team.delay("authorized_urls", team_id)
+
+    transaction.on_commit(_dispatch)
+
+
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
     available_product_features: Optional[list[dict[str, str]]] = (
         Team.objects.select_related("organization")

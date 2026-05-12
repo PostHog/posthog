@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
-from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
+from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, BatchResult, HealthCheckResult
+from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS
 
 
@@ -67,3 +68,8 @@ class HealthCheck:
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         raise NotImplementedError
+
+    def evaluate_for_team(self, team_id: int) -> BatchResult:
+        # Synchronously run this check for a single team and reconcile its active issues.
+        # Used for event-driven evaluation so changes show up before the next scheduled run.
+        return _process_batch_detection(team_ids=[team_id], kind=self.kind, detect_fn=self.detect)
