@@ -343,6 +343,7 @@ class TestRecordingApiClientContextManager:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
             mock_settings.INTERNAL_API_SECRET = ""
             mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = False
 
             with patch(
                 "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
@@ -374,6 +375,7 @@ class TestRecordingApiClientContextManager:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
             mock_settings.INTERNAL_API_SECRET = ""
             mock_settings.DEBUG = False
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = False
 
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -390,6 +392,7 @@ class TestRecordingApiClientContextManager:
         with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
             mock_settings.INTERNAL_API_SECRET = "test-secret"
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = False
 
             with patch(
                 "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
@@ -404,3 +407,131 @@ class TestRecordingApiClientContextManager:
 
                 call_kwargs = mock_client_session.call_args[1]
                 assert call_kwargs["headers"] == {"X-Internal-Api-Secret": "test-secret"}
+
+
+def _make_probe_response(*, status: int, content_type: str) -> AsyncMock:
+    """Build a context-manager-shaped aiohttp response mock for probe assertions."""
+    resp = AsyncMock()
+    resp.status = status
+    resp.headers = {"content-type": content_type}
+    resp.__aenter__ = AsyncMock(return_value=resp)
+    resp.__aexit__ = AsyncMock(return_value=None)
+    return resp
+
+
+def _make_session_yielding(response_mock: AsyncMock) -> AsyncMock:
+    """Build a session mock whose get() returns the configured response."""
+    session = AsyncMock(spec=aiohttp.ClientSession)
+    session.get = MagicMock(return_value=response_mock)
+    session.close = AsyncMock(return_value=None)
+    return session
+
+
+class TestProbeOnOpen:
+    """The probe loop sidesteps an ultimate-express route-miss bug on cold TCP
+    connections. See module docstring on `recording_api_client.py`."""
+
+    @pytest.mark.asyncio
+    async def test_returns_session_on_first_json_response(self):
+        good = _make_probe_response(status=200, content_type="application/json; charset=utf-8")
+        session = _make_session_yielding(good)
+
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
+
+            with patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                return_value=session,
+            ) as mock_client_session:
+                async with recording_api_client() as client:
+                    assert client.session is session
+
+                mock_client_session.assert_called_once()
+                session.get.assert_called_once()
+                probe_url = session.get.call_args[0][0]
+                # Probes hit a router-mounted path so they can detect the bug.
+                assert "/api/projects/" in probe_url
+                assert "/recordings/" in probe_url
+                assert probe_url.endswith("/blocks")
+
+    @pytest.mark.asyncio
+    async def test_retries_when_first_response_is_html(self):
+        bad = _make_probe_response(status=404, content_type="text/html; charset=utf-8")
+        good = _make_probe_response(status=200, content_type="application/json; charset=utf-8")
+
+        bad_session = _make_session_yielding(bad)
+        good_session = _make_session_yielding(good)
+
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
+
+            with patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                side_effect=[bad_session, good_session],
+            ):
+                async with recording_api_client() as client:
+                    assert client.session is good_session
+
+                bad_session.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_back_after_max_probes(self):
+        bad = _make_probe_response(status=404, content_type="text/html; charset=utf-8")
+        sessions = [_make_session_yielding(bad) for _ in range(6)]
+
+        with (
+            patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
+            patch("posthog.session_recordings.recordings.recording_api_client.logger") as mock_logger,
+            patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                side_effect=sessions,
+            ),
+        ):
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
+
+            async with recording_api_client() as client:
+                # Last session is yielded — caller still gets a usable client.
+                assert client.session is sessions[-1]
+
+            mock_logger.warning.assert_any_call(
+                "recording_api_client.probe_exhausted",
+                attempts=6,
+                hint=(
+                    "recording-api is returning HTML for router-mounted routes — "
+                    "this usually points at the ultimate-express route-miss bug (see module docstring)"
+                ),
+            )
+            # Every poisoned session except the last must be explicitly closed.
+            for poisoned in sessions[:-1]:
+                poisoned.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_disabled_skips_probe(self):
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = False
+
+            with patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
+            ) as mock_client_session:
+                session = AsyncMock()
+                session.close = AsyncMock(return_value=None)
+                mock_client_session.return_value = session
+
+                async with recording_api_client():
+                    pass
+
+                # No probe → exactly one session created, get() never called.
+                mock_client_session.assert_called_once()
+                session.get.assert_not_called()
