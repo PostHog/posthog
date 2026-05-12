@@ -300,7 +300,7 @@ class TestCustomerIOSourcePipelineDispatch:
 
 
 class TestCustomerIOWebhookTableTransformer:
-    def test_lifts_data_fields_and_preserves_event_id_and_timestamp(self):
+    def test_lifts_data_fields_and_preserves_event_id_timestamp_and_metric(self):
         table = table_from_py_list(
             [
                 {
@@ -323,12 +323,12 @@ class TestCustomerIOWebhookTableTransformer:
         assert len(rows) == 1
         assert rows[0]["event_id"] == "evt-1"
         assert rows[0]["timestamp"] == 1777655416
+        assert rows[0]["metric"] == "sent"
         assert rows[0]["recipient"] == "rebcore01@gmail.com"
         assert rows[0]["subject"] == "We don't want (all of) your money"
         assert rows[0]["journey_id"] == "32KE4CT86V53208000000000CF70"
-        # Parent-level fields outside event_id/timestamp are intentionally dropped.
+        # `object_type` is implicit in the schema name (e.g. `email_events`) and dropped.
         assert "object_type" not in rows[0]
-        assert "metric" not in rows[0]
 
     def test_handles_data_as_json_string(self):
         # Defensive: if an upstream change serializes `data` as a JSON string instead
@@ -337,6 +337,7 @@ class TestCustomerIOWebhookTableTransformer:
             {
                 "event_id": ["evt-2"],
                 "timestamp": [1777655416],
+                "metric": ["opened"],
                 "data": ['{"recipient": "a@example.com"}'],
             }
         )
@@ -344,7 +345,9 @@ class TestCustomerIOWebhookTableTransformer:
         result = _webhook_table_transformer(table)
         rows = result.to_pylist()
 
-        assert rows == [{"event_id": "evt-2", "timestamp": 1777655416, "recipient": "a@example.com"}]
+        assert rows == [
+            {"event_id": "evt-2", "timestamp": 1777655416, "metric": "opened", "recipient": "a@example.com"}
+        ]
 
     def test_skips_rows_with_null_data(self):
         # A null `data` field would produce a row with no lifted columns — skip it
@@ -353,6 +356,7 @@ class TestCustomerIOWebhookTableTransformer:
             {
                 "event_id": ["evt-3", "evt-4"],
                 "timestamp": [1, 2],
+                "metric": ["sent", "clicked"],
                 "data": [None, {"recipient": "b@example.com"}],
             }
         )
@@ -360,7 +364,7 @@ class TestCustomerIOWebhookTableTransformer:
         result = _webhook_table_transformer(table)
         rows = result.to_pylist()
 
-        assert rows == [{"event_id": "evt-4", "timestamp": 2, "recipient": "b@example.com"}]
+        assert rows == [{"event_id": "evt-4", "timestamp": 2, "metric": "clicked", "recipient": "b@example.com"}]
 
     def test_returns_empty_when_data_column_missing(self):
         table = pa.table({"event_id": ["evt-5"], "timestamp": [1]})

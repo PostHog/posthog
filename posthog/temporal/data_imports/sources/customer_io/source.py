@@ -56,9 +56,10 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     timestamp_col = (
         table.column("timestamp").to_pylist() if "timestamp" in table.column_names else [None] * table.num_rows
     )
+    metric_col = table.column("metric").to_pylist() if "metric" in table.column_names else [None] * table.num_rows
 
     rows: list[dict[str, Any]] = []
-    for data, event_id, timestamp in zip(data_col, event_id_col, timestamp_col):
+    for data, event_id, timestamp, metric in zip(data_col, event_id_col, timestamp_col, metric_col):
         if data is None:
             continue
         # `data` typically arrives as a nested dict (pyarrow struct), but defensively
@@ -66,6 +67,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         row = orjson.loads(data) if isinstance(data, (str, bytes)) else dict(data)
         row["event_id"] = event_id
         row["timestamp"] = timestamp
+        row["metric"] = metric
         rows.append(row)
 
     return table_from_py_list(rows)
