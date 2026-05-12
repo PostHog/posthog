@@ -1351,6 +1351,16 @@ export interface ProjectBackwardCompatApi {
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
+    /**
+     * @maxLength 30
+     * @nullable
+     */
+    environment_label?: string | null
+    /**
+     * @maxLength 20
+     * @nullable
+     */
+    environment_color?: string | null
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2147,6 +2157,16 @@ export interface PatchedProjectBackwardCompatApi {
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
+    /**
+     * @maxLength 30
+     * @nullable
+     */
+    environment_label?: string | null
+    /**
+     * @maxLength 20
+     * @nullable
+     */
+    environment_color?: string | null
 }
 
 /**

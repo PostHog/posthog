@@ -226,6 +226,12 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.proactive_tasks_enabled !== undefined) {
             body['proactive_tasks_enabled'] = params.proactive_tasks_enabled
         }
+        if (params.environment_label !== undefined) {
+            body['environment_label'] = params.environment_label
+        }
+        if (params.environment_color !== undefined) {
+            body['environment_color'] = params.environment_color
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,

@@ -211,6 +211,10 @@ export const organizationsProjectsCreateBodySessionRecordingTriggerMatchTypeConf
 
 export const organizationsProjectsCreateBodyRecordingDomainsItemMax = 200
 
+export const organizationsProjectsCreateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsCreateBodyEnvironmentColorMax = 20
+
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -377,6 +381,8 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod.string().max(organizationsProjectsCreateBodyEnvironmentLabelMax).nullish(),
+        environment_color: zod.string().max(organizationsProjectsCreateBodyEnvironmentColorMax).nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -402,6 +408,10 @@ export const organizationsProjectsUpdateBodySessionRecordingMinimumDurationMilli
 export const organizationsProjectsUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -569,6 +579,8 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod.string().max(organizationsProjectsUpdateBodyEnvironmentLabelMax).nullish(),
+        environment_color: zod.string().max(organizationsProjectsUpdateBodyEnvironmentColorMax).nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -594,6 +606,10 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurati
 export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsPartialUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -763,6 +779,8 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod.string().max(organizationsProjectsPartialUpdateBodyEnvironmentLabelMax).nullish(),
+        environment_color: zod.string().max(organizationsProjectsPartialUpdateBodyEnvironmentColorMax).nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -788,6 +806,10 @@ export const organizationsProjectsAddProductIntentPartialUpdateBodySessionRecord
 export const organizationsProjectsAddProductIntentPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsAddProductIntentPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -969,6 +991,14 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -994,6 +1024,10 @@ export const organizationsProjectsChangeOrganizationCreateBodySessionRecordingMi
 export const organizationsProjectsChangeOrganizationCreateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsChangeOrganizationCreateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsChangeOrganizationCreateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsChangeOrganizationCreateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1167,6 +1201,14 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsChangeOrganizationCreateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsChangeOrganizationCreateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1191,6 +1233,10 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodySess
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1385,6 +1431,14 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1410,6 +1464,10 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodySessio
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1599,6 +1657,14 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1623,6 +1689,10 @@ export const organizationsProjectsGenerateConversationsPublicTokenCreateBodySess
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1817,6 +1887,14 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1842,6 +1920,10 @@ export const organizationsProjectsResetTokenPartialUpdateBodySessionRecordingMin
 export const organizationsProjectsResetTokenPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsResetTokenPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsResetTokenPartialUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsResetTokenPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -2011,6 +2093,14 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsResetTokenPartialUpdateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsResetTokenPartialUpdateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -2036,6 +2126,10 @@ export const organizationsProjectsRotateSecretTokenPartialUpdateBodySessionRecor
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentLabelMax = 30
+
+export const organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -2217,6 +2311,14 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        environment_label: zod
+            .string()
+            .max(organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentLabelMax)
+            .nullish(),
+        environment_color: zod
+            .string()
+            .max(organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentColorMax)
+            .nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
