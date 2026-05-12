@@ -244,6 +244,28 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
     },
 })
 
+const InsightRevertSchema = InsightsRevertCreateParams.omit({ project_id: true })
+    .extend(InsightsRevertCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, InsightsRevertCreateParams.shape['id']) })
+
+const insightRevert = (): ToolBase<typeof InsightRevertSchema, WithPostHogUrl<Schemas.RevertInsightResponse>> => ({
+    name: 'insight-revert',
+    schema: InsightRevertSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightRevertSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.activity_log_id !== undefined) {
+            body['activity_log_id'] = params.activity_log_id
+        }
+        const result = await context.api.request<Schemas.RevertInsightResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/revert/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/insights/${params.id}`)
+    },
+})
+
 const InsightUpdateSchema = InsightsPartialUpdateParams.omit({ project_id: true })
     .extend(
         InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
@@ -295,28 +317,6 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
             'types',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
-    },
-})
-
-const InsightRevertSchema = InsightsRevertCreateParams.omit({ project_id: true })
-    .extend(InsightsRevertCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, InsightsRevertCreateParams.shape['id']) })
-
-const insightRevert = (): ToolBase<typeof InsightRevertSchema, WithPostHogUrl<Schemas.RevertInsightResponse>> => ({
-    name: 'insight-revert',
-    schema: InsightRevertSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightRevertSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.activity_log_id !== undefined) {
-            body['activity_log_id'] = params.activity_log_id
-        }
-        const result = await context.api.request<Schemas.RevertInsightResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/revert/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/insights/${params.id}`)
     },
 })
 
@@ -513,8 +513,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
-    'insight-update': insightUpdate,
     'insight-revert': insightRevert,
+    'insight-update': insightUpdate,
     'insights-activity-retrieve': insightsActivityRetrieve,
     'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,
