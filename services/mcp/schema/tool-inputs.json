@@ -962,6 +962,44 @@
             },
             "required": ["projectId"]
         },
+        "LivestreamReadSchema": {
+            "type": "object",
+            "properties": {
+                "event_types": {
+                    "description": "Filter to only events with these names (e.g. [\"$pageview\", \"user_signed_up\"]). Omit to receive every event.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "distinct_id": {
+                    "description": "Filter to only events from this distinct ID. Useful for verifying a specific user/session.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Exact-match property filters as a map of property → expected string value (e.g. {\"$current_url\": \"https://example.com/checkout\"}). Multiple entries are AND-combined.",
+                    "type": "object",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "limit": {
+                    "description": "Maximum number of events to collect before returning. Defaults to 50, capped at 200.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 200
+                },
+                "wait_seconds": {
+                    "description": "How long (in seconds) to listen for events before returning what was collected. Defaults to 10, capped at 30.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 30
+                }
+            }
+        },
         "OrganizationSetActiveSchema": {
             "type": "object",
             "properties": {
