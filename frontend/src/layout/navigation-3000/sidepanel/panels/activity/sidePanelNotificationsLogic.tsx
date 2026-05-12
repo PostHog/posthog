@@ -296,7 +296,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             if (!values.isInitialLoadComplete) {
                                 return
                             }
-                            if ((notification as Record<string, unknown>).silent) {
+                            if ((notification as unknown as Record<string, unknown>).silent) {
                                 actions.silentPushReceived(notification as unknown as Record<string, unknown>)
                                 return
                             }
