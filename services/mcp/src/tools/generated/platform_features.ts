@@ -69,6 +69,7 @@ const activityLogList = (): ToolBase<
                     'detail.name',
                     'detail.short_id',
                     'detail.type',
+                    'detail.changes',
                     'created_at',
                 ])
             ),

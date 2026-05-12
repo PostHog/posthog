@@ -289,6 +289,20 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Revert this dashboard to a previous state captured in the activity log. Pass `activity_log_id` to target a specific entry, or omit it to undo the most recent revertable change — the natural meaning of 'revert this dashboard'. The chosen entry id is echoed back as `activity_log_id` so callers can confirm what was reverted. Each captured field is reset to its `before` value; foreign keys, m2m relations (tags, insights), and immutable metadata are skipped and listed in `skipped_fields`. Saving the dashboard records a new `updated` activity log entry, so reverts are themselves auditable and can be reverted in turn.
+ */
+export const DashboardsRevertCreateBody = /* @__PURE__ */ zod
+    .object({
+        activity_log_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Optional UUID of the ActivityLog entry to revert. If omitted, the endpoint picks the most recent revertable entry for this resource — the natural meaning of 'undo my last change'. The chosen entry's id is returned in `activity_log_id` so callers can confirm what was reverted. Use activity-log-list or advanced-activity-logs-list to inspect candidates when a specific past state needs to be restored."
+            ),
+    })
+    .describe('Shared request body for resource-level `\/revert\/` endpoints.')
+
+/**
  * Snapshot the current dashboard state (from cache) for AI analysis.
 Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
  */

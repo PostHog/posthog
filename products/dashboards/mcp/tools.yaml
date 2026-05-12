@@ -195,14 +195,13 @@ tools:
         enrich_url: '{id}'
         title: Revert dashboard to a previous state
         description: >
-            Revert a dashboard to a previous state captured in the activity log. The typical case — "undo my
-            last change" — needs only the dashboard id: omit `activity_log_id` and the endpoint picks the
-            most recent revertable entry, returning its id in the response so you can tell the user exactly
-            what was undone. To restore an older state, first call activity-log-list (or
-            advanced-activity-logs-list with scope=Dashboard and item_ids={dashboard_id}) to inspect entries,
-            then pass the chosen `activity_log_id`. Each captured field is reset to its `before` value;
-            foreign keys (created_by, data_color_theme), m2m relations (tags, insights), and immutable
-            metadata (creation_mode) are skipped and returned in `skipped_fields`. Saving the dashboard
+            Revert a dashboard to a previous state captured in the activity log. The typical case — "undo my last
+            change" — needs only the dashboard id: omit `activity_log_id` and the endpoint picks the most recent
+            revertable entry, returning its id in the response so you can tell the user exactly what was undone. To
+            restore an older state, first call activity-log-list (or advanced-activity-logs-list with scope=Dashboard
+            and item_ids={dashboard_id}) to inspect entries, then pass the chosen `activity_log_id`. Each captured field
+            is reset to its `before` value; foreign keys (created_by, data_color_theme), m2m relations (tags, insights),
+            and immutable metadata (creation_mode) are skipped and returned in `skipped_fields`. Saving the dashboard
             records a new activity log entry, so the revert is itself auditable and reversible.
         param_overrides:
             id:

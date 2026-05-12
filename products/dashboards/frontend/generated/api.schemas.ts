@@ -431,6 +431,28 @@ export interface ReorderTilesRequestApi {
 }
 
 /**
+ * Shared request body for resource-level `/revert/` endpoints.
+ */
+export interface RevertActivityLogRequestApi {
+    /**
+     * Optional UUID of the ActivityLog entry to revert. If omitted, the endpoint picks the most recent revertable entry for this resource — the natural meaning of 'undo my last change'. The chosen entry's id is returned in `activity_log_id` so callers can confirm what was reverted. Use activity-log-list or advanced-activity-logs-list to inspect candidates when a specific past state needs to be restored.
+     * @nullable
+     */
+    activity_log_id?: string | null
+}
+
+export interface RevertDashboardResponseApi {
+    /** The dashboard after the revert has been applied. */
+    dashboard: DashboardApi
+    /** ID of the activity log entry that was reverted. When the caller passed an explicit id, this echoes it; when omitted, this is the most recent revertable entry the endpoint picked. */
+    activity_log_id: string
+    /** Fields that were reset to their `before` value from the activity log entry. */
+    applied_fields: string[]
+    /** Fields recorded in the activity log entry that this endpoint will not revert — typically relations (created_by, data_color_theme, tags), m2m fields (insights), or immutable metadata like creation_mode. Use these to decide whether the revert is sufficient or whether you also need to make manual changes. */
+    skipped_fields: string[]
+}
+
+/**
  * InsightSerializer restricted to identifiers + result only.
  */
 export interface InsightResultApi {
@@ -693,6 +715,18 @@ export type DashboardsReorderTilesCreateFormat =
     (typeof DashboardsReorderTilesCreateFormat)[keyof typeof DashboardsReorderTilesCreateFormat]
 
 export const DashboardsReorderTilesCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRevertCreateParams = {
+    format?: DashboardsRevertCreateFormat
+}
+
+export type DashboardsRevertCreateFormat =
+    (typeof DashboardsRevertCreateFormat)[keyof typeof DashboardsRevertCreateFormat]
+
+export const DashboardsRevertCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

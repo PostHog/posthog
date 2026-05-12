@@ -210,6 +210,20 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Revert this insight to a previous state captured in the activity log. Pass `activity_log_id` to target a specific entry, or omit it to undo the most recent revertable change — the natural meaning of 'revert this insight'. The chosen entry id is echoed back as `activity_log_id` so callers can confirm what was reverted. Each captured field is reset to its `before` value; foreign keys, m2m relations (dashboards, tags), derived fields (filters_hash, query_metadata), and UI state (saved, favorited) are skipped and listed in `skipped_fields`. Saving the insight records a new `updated` activity log entry, so reverts are themselves auditable and can be reverted in turn.
+ */
+export const InsightsRevertCreateBody = /* @__PURE__ */ zod
+    .object({
+        activity_log_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Optional UUID of the ActivityLog entry to revert. If omitted, the endpoint picks the most recent revertable entry for this resource — the natural meaning of 'undo my last change'. The chosen entry's id is returned in `activity_log_id` so callers can confirm what was reverted. Use activity-log-list or advanced-activity-logs-list to inspect candidates when a specific past state needs to be restored."
+            ),
+    })
+    .describe('Shared request body for resource-level `\/revert\/` endpoints.')
+
+/**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
 
 The QueryCoalescingMiddleware attaches cached response data to

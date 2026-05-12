@@ -13,6 +13,8 @@ import {
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
     InsightsRetrieveQueryParams,
+    InsightsRevertCreateBody,
+    InsightsRevertCreateParams,
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { castStringToInt } from '@/tools/cast-helpers'
@@ -296,6 +298,28 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
     },
 })
 
+const InsightRevertSchema = InsightsRevertCreateParams.omit({ project_id: true })
+    .extend(InsightsRevertCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, InsightsRevertCreateParams.shape['id']) })
+
+const insightRevert = (): ToolBase<typeof InsightRevertSchema, WithPostHogUrl<Schemas.RevertInsightResponse>> => ({
+    name: 'insight-revert',
+    schema: InsightRevertSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightRevertSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.activity_log_id !== undefined) {
+            body['activity_log_id'] = params.activity_log_id
+        }
+        const result = await context.api.request<Schemas.RevertInsightResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/revert/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/insights/${result.id}`)
+    },
+})
+
 const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
     InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
 )
@@ -490,6 +514,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-delete': insightDelete,
     'insight-get': insightGet,
     'insight-update': insightUpdate,
+    'insight-revert': insightRevert,
     'insights-activity-retrieve': insightsActivityRetrieve,
     'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,

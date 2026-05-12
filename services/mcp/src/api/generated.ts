@@ -32807,6 +32807,39 @@ export namespace Schemas {
       password: string;
     }
 
+    /**
+     * Shared request body for resource-level `/revert/` endpoints.
+     */
+    export interface RevertActivityLogRequest {
+      /**
+         * Optional UUID of the ActivityLog entry to revert. If omitted, the endpoint picks the most recent revertable entry for this resource — the natural meaning of 'undo my last change'. The chosen entry's id is returned in `activity_log_id` so callers can confirm what was reverted. Use activity-log-list or advanced-activity-logs-list to inspect candidates when a specific past state needs to be restored.
+         * @nullable
+         */
+      activity_log_id?: string | null;
+    }
+
+    export interface RevertDashboardResponse {
+      /** The dashboard after the revert has been applied. */
+      dashboard: Dashboard;
+      /** ID of the activity log entry that was reverted. When the caller passed an explicit id, this echoes it; when omitted, this is the most recent revertable entry the endpoint picked. */
+      activity_log_id: string;
+      /** Fields that were reset to their `before` value from the activity log entry. */
+      applied_fields: string[];
+      /** Fields recorded in the activity log entry that this endpoint will not revert — typically relations (created_by, data_color_theme, tags), m2m fields (insights), or immutable metadata like creation_mode. Use these to decide whether the revert is sufficient or whether you also need to make manual changes. */
+      skipped_fields: string[];
+    }
+
+    export interface RevertInsightResponse {
+      /** The insight after the revert has been applied. */
+      insight: Insight;
+      /** ID of the activity log entry that was reverted. When the caller passed an explicit id, this echoes it; when omitted, this is the most recent revertable entry the endpoint picked. */
+      activity_log_id: string;
+      /** Fields that were reset to their `before` value from the activity log entry. */
+      applied_fields: string[];
+      /** Fields recorded in the activity log entry that this endpoint will not revert — typically relations (created_by, dashboards, tags), derived fields (filters_hash, query_metadata), or UI state (saved, favorited). */
+      skipped_fields: string[];
+    }
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
@@ -35779,6 +35812,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsRevertCreateParams = {
+    format?: EnvironmentsDashboardsRevertCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsRevertCreateFormat = typeof EnvironmentsDashboardsRevertCreateFormat[keyof typeof EnvironmentsDashboardsRevertCreateFormat];
+
+
+    export const EnvironmentsDashboardsRevertCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
@@ -37031,6 +37076,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsInsightsAnalyzeRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsRevertCreateParams = {
+    format?: EnvironmentsInsightsRevertCreateFormat;
+    };
+
+    export type EnvironmentsInsightsRevertCreateFormat = typeof EnvironmentsInsightsRevertCreateFormat[keyof typeof EnvironmentsInsightsRevertCreateFormat];
+
+
+    export const EnvironmentsInsightsRevertCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -40449,6 +40506,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsRevertCreateParams = {
+    format?: DashboardsRevertCreateFormat;
+    };
+
+    export type DashboardsRevertCreateFormat = typeof DashboardsRevertCreateFormat[keyof typeof DashboardsRevertCreateFormat];
+
+
+    export const DashboardsRevertCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsRunInsightsRetrieveParams = {
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
@@ -42006,6 +42075,18 @@ export namespace Schemas {
 
 
     export const InsightsAnalyzeRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsRevertCreateParams = {
+    format?: InsightsRevertCreateFormat;
+    };
+
+    export type InsightsRevertCreateFormat = typeof InsightsRevertCreateFormat[keyof typeof InsightsRevertCreateFormat];
+
+
+    export const InsightsRevertCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

@@ -30,6 +30,7 @@ import type {
     InsightsMyLastViewedRetrieveParams,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
+    InsightsRevertCreateParams,
     InsightsSuggestionsCreateParams,
     InsightsSuggestionsRetrieveParams,
     InsightsTrendingRetrieveParams,
@@ -42,6 +43,8 @@ import type {
     PatchedColumnConfigurationApi,
     PatchedElementApi,
     PatchedInsightApi,
+    RevertActivityLogRequestApi,
+    RevertInsightResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -595,6 +598,40 @@ export const insightsAnalyzeRetrieve = async (
     return apiMutator<void>(getInsightsAnalyzeRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightsRevertCreateUrl = (projectId: string, id: number, params?: InsightsRevertCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${id}/revert/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${id}/revert/`
+}
+
+/**
+ * Revert this insight to a previous state captured in the activity log. Pass `activity_log_id` to target a specific entry, or omit it to undo the most recent revertable change — the natural meaning of 'revert this insight'. The chosen entry id is echoed back as `activity_log_id` so callers can confirm what was reverted. Each captured field is reset to its `before` value; foreign keys, m2m relations (dashboards, tags), derived fields (filters_hash, query_metadata), and UI state (saved, favorited) are skipped and listed in `skipped_fields`. Saving the insight records a new `updated` activity log entry, so reverts are themselves auditable and can be reverted in turn.
+ */
+export const insightsRevertCreate = async (
+    projectId: string,
+    id: number,
+    revertActivityLogRequestApi?: RevertActivityLogRequestApi,
+    params?: InsightsRevertCreateParams,
+    options?: RequestInit
+): Promise<RevertInsightResponseApi> => {
+    return apiMutator<RevertInsightResponseApi>(getInsightsRevertCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(revertActivityLogRequestApi),
     })
 }
 

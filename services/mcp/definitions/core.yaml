@@ -185,6 +185,9 @@ tools:
     dashboards-retrieve:
         operation: dashboards_retrieve
         enabled: false
+    dashboards-revert-create:
+        operation: dashboards_revert_create
+        enabled: false
     dashboards-run-insights-retrieve:
         operation: dashboards_run_insights_retrieve
         enabled: false

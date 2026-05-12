@@ -12,6 +12,8 @@ import {
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
     DashboardsRetrieveQueryParams,
+    DashboardsRevertCreateBody,
+    DashboardsRevertCreateParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
 } from '@/generated/dashboards/api'
@@ -260,6 +262,31 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
+const DashboardRevertSchema = DashboardsRevertCreateParams.omit({ project_id: true })
+    .extend(DashboardsRevertCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsRevertCreateParams.shape['id']) })
+
+const dashboardRevert = (): ToolBase<
+    typeof DashboardRevertSchema,
+    WithPostHogUrl<Schemas.RevertDashboardResponse>
+> => ({
+    name: 'dashboard-revert',
+    schema: DashboardRevertSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardRevertSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.activity_log_id !== undefined) {
+            body['activity_log_id'] = params.activity_log_id
+        }
+        const result = await context.api.request<Schemas.RevertDashboardResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/revert/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+    },
+})
+
 const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
     .extend(DashboardsPartialUpdateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
@@ -390,6 +417,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
+    'dashboard-revert': dashboardRevert,
     'dashboard-update': dashboardUpdate,
     'dashboards-get-all': dashboardsGetAll,
 }

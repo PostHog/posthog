@@ -29,6 +29,7 @@ import type {
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRevertCreateParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
@@ -41,6 +42,8 @@ import type {
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
     ReorderTilesRequestApi,
+    RevertActivityLogRequestApi,
+    RevertDashboardResponseApi,
     RunInsightsResponseApi,
     SharingConfigurationApi,
 } from './api.schemas'
@@ -586,6 +589,40 @@ export const dashboardsReorderTilesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(reorderTilesRequestApi),
+    })
+}
+
+export const getDashboardsRevertCreateUrl = (projectId: string, id: number, params?: DashboardsRevertCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/revert/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/revert/`
+}
+
+/**
+ * Revert this dashboard to a previous state captured in the activity log. Pass `activity_log_id` to target a specific entry, or omit it to undo the most recent revertable change — the natural meaning of 'revert this dashboard'. The chosen entry id is echoed back as `activity_log_id` so callers can confirm what was reverted. Each captured field is reset to its `before` value; foreign keys, m2m relations (tags, insights), and immutable metadata are skipped and listed in `skipped_fields`. Saving the dashboard records a new `updated` activity log entry, so reverts are themselves auditable and can be reverted in turn.
+ */
+export const dashboardsRevertCreate = async (
+    projectId: string,
+    id: number,
+    revertActivityLogRequestApi?: RevertActivityLogRequestApi,
+    params?: DashboardsRevertCreateParams,
+    options?: RequestInit
+): Promise<RevertDashboardResponseApi> => {
+    return apiMutator<RevertDashboardResponseApi>(getDashboardsRevertCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(revertActivityLogRequestApi),
     })
 }
 

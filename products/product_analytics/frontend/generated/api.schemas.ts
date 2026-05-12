@@ -6990,6 +6990,28 @@ export interface ActivityLogPaginatedResponseApi {
 }
 
 /**
+ * Shared request body for resource-level `/revert/` endpoints.
+ */
+export interface RevertActivityLogRequestApi {
+    /**
+     * Optional UUID of the ActivityLog entry to revert. If omitted, the endpoint picks the most recent revertable entry for this resource — the natural meaning of 'undo my last change'. The chosen entry's id is returned in `activity_log_id` so callers can confirm what was reverted. Use activity-log-list or advanced-activity-logs-list to inspect candidates when a specific past state needs to be restored.
+     * @nullable
+     */
+    activity_log_id?: string | null
+}
+
+export interface RevertInsightResponseApi {
+    /** The insight after the revert has been applied. */
+    insight: InsightApi
+    /** ID of the activity log entry that was reverted. When the caller passed an explicit id, this echoes it; when omitted, this is the most recent revertable entry the endpoint picked. */
+    activity_log_id: string
+    /** Fields that were reset to their `before` value from the activity log entry. */
+    applied_fields: string[]
+    /** Fields recorded in the activity log entry that this endpoint will not revert — typically relations (created_by, dashboards, tags), derived fields (filters_hash, query_metadata), or UI state (saved, favorited). */
+    skipped_fields: string[]
+}
+
+/**
  * * `add` - add
  * `remove` - remove
  * `set` - set
@@ -7359,6 +7381,17 @@ export type InsightsAnalyzeRetrieveFormat =
     (typeof InsightsAnalyzeRetrieveFormat)[keyof typeof InsightsAnalyzeRetrieveFormat]
 
 export const InsightsAnalyzeRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsRevertCreateParams = {
+    format?: InsightsRevertCreateFormat
+}
+
+export type InsightsRevertCreateFormat = (typeof InsightsRevertCreateFormat)[keyof typeof InsightsRevertCreateFormat]
+
+export const InsightsRevertCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
