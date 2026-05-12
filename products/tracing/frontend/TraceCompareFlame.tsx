@@ -122,37 +122,36 @@ function FlameRow({ node, depth, parentDurationNano }: FlameRowProps): JSX.Eleme
     const current = node.node
     const previous = node.previousNode
 
+    const fmtCount = (n: SpanTreeNode | null): string => (n ? humanFriendlyNumber(n.count) : '—')
+    const fmtDur = (v: number | undefined): string => (v === undefined ? '—' : formatDuration(v))
     const tooltipContent = (
-        <div className="text-xs leading-snug">
-            <div className="font-mono font-bold">{node.name}</div>
-            <div className="text-muted">{node.serviceName}</div>
-            <div className="mt-1">
-                <div>count: {current ? humanFriendlyNumber(current.count) : '—'}</div>
-                {previous && <div className="text-muted text-2xs">prev: {humanFriendlyNumber(previous.count)}</div>}
-            </div>
-            <div className="mt-1">
-                <div>p50: {current ? formatDuration(current.p50_duration_nano) : '—'}</div>
-                {previous && (
-                    <div className="text-muted text-2xs">prev: {formatDuration(previous.p50_duration_nano)}</div>
-                )}
-            </div>
-            <div className="mt-1">
-                <div>p95: {current ? formatDuration(current.p95_duration_nano) : '—'}</div>
-                {previous && (
-                    <div className="text-muted text-2xs">prev: {formatDuration(previous.p95_duration_nano)}</div>
-                )}
-            </div>
-            {current && current.error_count > 0 && (
-                <div className="mt-1 text-danger">errors: {humanFriendlyNumber(current.error_count)}</div>
-            )}
-        </div>
+        <span>
+            <strong>{node.name}</strong>
+            <br />
+            {node.serviceName}
+            <br />
+            count: {fmtCount(current)}
+            {previous ? ` (prev ${fmtCount(previous)})` : ''}
+            <br />
+            p50: {fmtDur(current?.p50_duration_nano)}
+            {previous ? ` (prev ${fmtDur(previous.p50_duration_nano)})` : ''}
+            <br />
+            p95: {fmtDur(current?.p95_duration_nano)}
+            {previous ? ` (prev ${fmtDur(previous.p95_duration_nano)})` : ''}
+            {current && current.error_count > 0 ? (
+                <>
+                    <br />
+                    errors: {humanFriendlyNumber(current.error_count)}
+                </>
+            ) : null}
+        </span>
     )
 
     return (
         <div style={{ width: `${widthPct}%` }} className="flex flex-col">
             <Tooltip title={tooltipContent} delayMs={100} placement="top">
                 <div
-                    className="flex items-center px-2 overflow-hidden text-xs font-mono cursor-help border-r border-b border-bg-bg transition-[filter] hover:brightness-125"
+                    className="flex items-center px-2 overflow-hidden text-xs font-mono border-r border-b border-bg-bg transition-[filter] hover:brightness-125"
                     style={{
                         height: ROW_HEIGHT_PX,
                         backgroundColor: color,
