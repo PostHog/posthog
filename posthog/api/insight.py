@@ -29,7 +29,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import relations, request, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -103,7 +103,6 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.activity_logging.revert import (
     RevertActivityLogRequestSerializer,
     apply_revert_to_instance,
-    is_activity_log_revert_enabled,
     lookup_revertable_activity_log_entry,
 )
 from posthog.models.alert import AlertConfiguration
@@ -2255,10 +2254,6 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["POST"], detail=True, required_scopes=["insight:write"])
     def revert(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        # 404 (not 403) when the experimental flag is off — the endpoint should look
-        # like it doesn't exist to anyone outside the rollout.
-        if not is_activity_log_revert_enabled(cast(User, request.user), self.team):
-            raise NotFound()
         # get_object() runs through AccessControlViewSetMixin, which enforces edit
         # access on the insight. Combined with `insight:write`, this gates the write.
         insight = self.get_object()

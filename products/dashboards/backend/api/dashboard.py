@@ -62,7 +62,6 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.activity_logging.revert import (
     RevertActivityLogRequestSerializer,
     apply_revert_to_instance,
-    is_activity_log_revert_enabled,
     lookup_revertable_activity_log_entry,
 )
 from posthog.models.alert import AlertConfiguration
@@ -1644,10 +1643,6 @@ class DashboardsViewSet(
     )
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
     def revert(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # 404 (not 403) when the experimental flag is off — the endpoint should look
-        # like it doesn't exist to anyone outside the rollout.
-        if not is_activity_log_revert_enabled(cast(User, request.user), self.team):
-            raise exceptions.NotFound()
         # get_object() enforces CanEditDashboard.has_object_permission, which checks
         # the dashboard's restriction_level and the user's edit privilege. Combined with
         # the `dashboard:write` required scope, this gates write access to the dashboard.
