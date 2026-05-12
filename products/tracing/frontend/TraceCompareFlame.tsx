@@ -122,14 +122,20 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
         record(row, false)
     }
 
-    function build(key: string, serviceName: string, name: string): TreeNode {
+    // Cycle guard: the backend's name-grouped edges can describe a cycle
+    // (e.g. <ROOT> → A → B → A when traces are crafted recursively). Without this,
+    // `build` would recurse indefinitely and freeze the browser tab. We skip any
+    // child key that already appears on the current build path.
+    function build(key: string, serviceName: string, name: string, ancestors: Set<string>): TreeNode {
         const entry = allNodes.get(key) ?? { currentRows: [], previousRows: [] }
-        const childKeys = Array.from(childrenByParent.get(key) ?? [])
+        const nextAncestors = new Set(ancestors)
+        nextAncestors.add(key)
+        const childKeys = Array.from(childrenByParent.get(key) ?? []).filter((k) => !ancestors.has(k))
         const children = childKeys
             .map((childKey) => {
                 const childEntry = allNodes.get(childKey)!
                 const ref = childEntry.currentRows[0] ?? childEntry.previousRows[0]!
-                return build(childKey, ref.service_name, ref.name)
+                return build(childKey, ref.service_name, ref.name, nextAncestors)
             })
             // Order children by typical start offset (left = earlier).
             .sort((a, b) => (a.node?.avg_start_offset_nano ?? 0) - (b.node?.avg_start_offset_nano ?? 0))
@@ -142,7 +148,7 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
         }
     }
 
-    return build(ROOT_KEY, '', '<ROOT>')
+    return build(ROOT_KEY, '', '<ROOT>', new Set())
 }
 
 interface DeltaPctProps {

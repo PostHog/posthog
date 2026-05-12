@@ -172,14 +172,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await api.tracing.listSpans({
-                        dateRange: values.utcDateRange,
-                        orderBy: values.filters.orderBy,
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        prefetchSpans: PREFETCH_SPANS,
-                        limit: DEFAULT_PAGE_SIZE,
-                    })
+                    const response = await api.tracing.listSpans(
+                        {
+                            dateRange: values.utcDateRange,
+                            orderBy: values.filters.orderBy,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            prefetchSpans: PREFETCH_SPANS,
+                            limit: DEFAULT_PAGE_SIZE,
+                        },
+                        controller.signal
+                    )
 
                     actions.setSpansAbortController(null)
                     actions.setHasMoreToLoad(!!response.hasMore)
@@ -194,14 +198,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await api.tracing.listSpans({
-                        dateRange: values.utcDateRange,
-                        orderBy: values.filters.orderBy,
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        limit: DEFAULT_PAGE_SIZE,
-                        after: values.nextCursor,
-                    })
+                    const response = await api.tracing.listSpans(
+                        {
+                            dateRange: values.utcDateRange,
+                            orderBy: values.filters.orderBy,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            limit: DEFAULT_PAGE_SIZE,
+                            after: values.nextCursor,
+                        },
+                        controller.signal
+                    )
 
                     actions.setSpansAbortController(null)
                     actions.setHasMoreToLoad(!!response.hasMore)
@@ -249,19 +257,23 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const currentEndMs = snapshot?.currentEndMs ?? values.currentWindowMs.endMs
                     const previousStartMs = snapshot?.previousStartMs ?? values.previousWindowMs.startMs
 
-                    const response = await api.tracing.tree({
-                        spanName: params.spanName,
-                        dateRange: {
-                            date_from: new Date(currentStartMs).toISOString(),
-                            date_to: new Date(currentEndMs).toISOString(),
+                    const response = await api.tracing.tree(
+                        {
+                            spanName: params.spanName,
+                            dateRange: {
+                                date_from: new Date(currentStartMs).toISOString(),
+                                date_to: new Date(currentEndMs).toISOString(),
+                            },
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            compareFilter: {
+                                compare: values.filters.compareMode,
+                                compare_to: new Date(previousStartMs).toISOString(),
+                            },
                         },
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        compareFilter: {
-                            compare: values.filters.compareMode,
-                            compare_to: new Date(previousStartMs).toISOString(),
-                        },
-                    })
+                        controller.signal
+                    )
 
                     actions.setSpanTreeAbortController(null)
                     return {
@@ -292,18 +304,22 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     }
                     actions.setLastAggregationWindow(window)
 
-                    const response = await api.tracing.aggregate({
-                        dateRange: {
-                            date_from: new Date(window.currentStartMs).toISOString(),
-                            date_to: new Date(window.currentEndMs).toISOString(),
+                    const response = await api.tracing.aggregate(
+                        {
+                            dateRange: {
+                                date_from: new Date(window.currentStartMs).toISOString(),
+                                date_to: new Date(window.currentEndMs).toISOString(),
+                            },
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            compareFilter: {
+                                compare: values.filters.compareMode,
+                                compare_to: new Date(window.previousStartMs).toISOString(),
+                            },
                         },
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        compareFilter: {
-                            compare: values.filters.compareMode,
-                            compare_to: new Date(window.previousStartMs).toISOString(),
-                        },
-                    })
+                        controller.signal
+                    )
 
                     actions.setAggregationAbortController(null)
                     return {
@@ -320,11 +336,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await api.tracing.sparkline({
-                        dateRange: values.utcDateRange,
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                    })
+                    const response = await api.tracing.sparkline(
+                        {
+                            dateRange: values.utcDateRange,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        },
+                        controller.signal
+                    )
 
                     actions.setSparklineAbortController(null)
                     return response.results

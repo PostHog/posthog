@@ -69,8 +69,14 @@ function Delta({ current, previous, higherIsWorse, format }: DeltaProps): JSX.El
     }
     const pct = previous === 0 ? null : (diff / previous) * 100
     const sign = diff > 0 ? '+' : ''
-    const worse = higherIsWorse ? diff > 0 : diff < 0
-    const colorClass = worse ? 'text-danger' : 'text-success'
+    // When `higherIsWorse` is undefined the metric is informational (e.g. count) and the
+    // delta is shown without a good/bad value judgement — neutral muted text.
+    const colorClass =
+        higherIsWorse === undefined
+            ? 'text-muted'
+            : (higherIsWorse ? diff > 0 : diff < 0)
+              ? 'text-danger'
+              : 'text-success'
     const label =
         pct === null ? `${sign}${format ? format(diff) : humanFriendlyNumber(diff)}` : `${sign}${pct.toFixed(1)}%`
     return (
