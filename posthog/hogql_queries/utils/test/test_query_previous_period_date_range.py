@@ -26,11 +26,16 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         # `self._team.timezone_info`, so a `timezone_info=UTC` override on the constructor
         # was silently ignored. With the fix it should resolve the date range in the
         # explicitly-passed timezone.
+        #
+        # `date_from="-2d"` is day-based, so the midnight-of-day anchor differs between
+        # US/Pacific (08-24 00:00 Pacific = 08-24 07:00 UTC) and UTC (08-24 00:00 UTC).
+        # A fixed-hour input like "-48h" would not exercise this — same delta either way.
         self.team.timezone = "US/Pacific"
         self.team.save()
 
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="-48h")
+        date_range = DateRange(date_from="-2d")
+
         with_override = QueryPreviousPeriodDateRange(
             team=self.team,
             date_range=date_range,
@@ -38,6 +43,15 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
             now=now,
             timezone_info=ZoneInfo("UTC"),
         )
+        without_override = QueryPreviousPeriodDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.DAY,
+            now=now,
+        )
+        # The override must actually change the result — otherwise the test wouldn't
+        # notice a regression of the fix.
+        self.assertNotEqual(with_override.date_from(), without_override.date_from())
 
         # Same setup with team on UTC and no override — should match the override result.
         self.team.timezone = "UTC"
