@@ -374,7 +374,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 if (productTab === ProductTab.BOT_ANALYTICS) {
                     return null
                 }
-                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null
+                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ? rawSelectedHost : null
             },
         ],
         liveFilters: [
@@ -383,13 +383,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 rawLiveFilters: WebAnalyticsPropertyFilter[],
                 featureFlags: FeatureFlagsSet
             ): WebAnalyticsPropertyFilter[] => {
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS]) {
-                    return rawLiveFilters
-                }
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER]) {
-                    return rawLiveFilters.filter((f) => f.key === '$host')
-                }
-                return []
+                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ? rawLiveFilters : []
             },
         ],
         hasActiveFilters: [
@@ -454,9 +448,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     dateTo: handoff,
                     filters: values.liveFilters,
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
-                    filtersEnabled:
-                        !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ||
-                        !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER],
+                    filtersEnabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS],
                 })
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()

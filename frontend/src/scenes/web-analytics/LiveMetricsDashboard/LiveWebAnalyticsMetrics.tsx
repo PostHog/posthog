@@ -77,28 +77,19 @@ const LiveDashboardFilterRow = (): JSX.Element | null => {
     const { countryFilter, referrerFilter, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
     const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter } = useActions(webAnalyticsLogic)
 
-    const showDomainFilter = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER]
     const showLiveFilters = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS]
 
-    if (!showDomainFilter && !showLiveFilters) {
+    if (!showLiveFilters) {
         return null
     }
 
-    if (!showLiveFilters) {
-        return (
-            <div className="mb-4">
-                <WebAnalyticsDomainSelector />
-            </div>
-        )
-    }
-
     const referrerSuggestions = topReferrers.map((r: { referrer: string }) => r.referrer).filter(Boolean)
-    const hasDomainFilter = showDomainFilter && !!validatedDomainFilter && validatedDomainFilter !== 'all'
+    const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const hasFilters = !!(countryFilter || referrerFilter || deviceTypeFilter || hasDomainFilter)
 
     return (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-            {showDomainFilter && <WebAnalyticsDomainSelector />}
+            <WebAnalyticsDomainSelector />
             <WebAnalyticsLiveCountrySelector />
             <WebAnalyticsLiveDeviceToggle />
             <WebAnalyticsLiveReferrerSelector suggestions={referrerSuggestions} />
