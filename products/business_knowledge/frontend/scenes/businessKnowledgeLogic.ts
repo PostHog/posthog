@@ -14,10 +14,11 @@ import {
     refreshSource,
     updateSource,
 } from '../api'
-import type { KnowledgeSourceDTOApi } from '../generated/api.schemas'
+import type { CreateUrlSourcePayload, UpdateSourcePayload } from '../api'
+import type { KnowledgeSourceApi } from '../generated/api.schemas'
 import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
 
-export type KnowledgeSource = KnowledgeSourceDTOApi
+export type KnowledgeSource = KnowledgeSourceApi
 export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
 
 export interface TextSourceFormValues {
@@ -189,17 +190,17 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             } as UrlSourceFormValues,
             errors: validateUrl,
             submit: async (values: UrlSourceFormValues) => {
-                const payload: Record<string, unknown> = {
+                const payload: CreateUrlSourcePayload = {
                     name: values.name,
                     url: values.url,
                     source_type: 'url',
                     crawl_mode: values.crawl_mode,
-                }
-                if (values.crawl_mode !== 'single') {
-                    payload.include_globs = splitGlobs(values.include_globs)
-                    payload.exclude_globs = splitGlobs(values.exclude_globs)
-                    payload.max_pages = values.max_pages
-                    payload.max_depth = values.max_depth
+                    ...(values.crawl_mode !== 'single' && {
+                        include_globs: splitGlobs(values.include_globs),
+                        exclude_globs: splitGlobs(values.exclude_globs),
+                        max_pages: values.max_pages,
+                        max_depth: values.max_depth,
+                    }),
                 }
                 try {
                     const created = await createUrlSource(payload)
@@ -278,10 +279,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     return
                 }
                 const isText = current.source_type === 'text'
-                const payload: Record<string, string> = { name }
-                if (isText) {
-                    payload.text = text
-                }
+                const payload: UpdateSourcePayload = { name, ...(isText && { text }) }
                 try {
                     const updated = await updateSource(current.id, payload)
                     const msg = isText
@@ -318,16 +316,16 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 if (!current) {
                     return
                 }
-                const payload: Record<string, unknown> = {
+                const payload: UpdateSourcePayload = {
                     name: vals.name,
                     url: vals.url,
                     crawl_mode: vals.crawl_mode,
-                }
-                if (vals.crawl_mode !== 'single') {
-                    payload.include_globs = splitGlobs(vals.include_globs)
-                    payload.exclude_globs = splitGlobs(vals.exclude_globs)
-                    payload.max_pages = vals.max_pages
-                    payload.max_depth = vals.max_depth
+                    ...(vals.crawl_mode !== 'single' && {
+                        include_globs: splitGlobs(vals.include_globs),
+                        exclude_globs: splitGlobs(vals.exclude_globs),
+                        max_pages: vals.max_pages,
+                        max_depth: vals.max_depth,
+                    }),
                 }
                 try {
                     const updated = await updateSource(current.id, payload)

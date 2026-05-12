@@ -14,7 +14,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             activityScope: 'KnowledgeSource',
             description:
-                'Upload text your AI support agent can cite when answering customer tickets. URLs and files come in later stages.',
+                'Upload text, public URLs, or files your AI support agent can cite when answering customer tickets.',
         },
     },
     routes: {

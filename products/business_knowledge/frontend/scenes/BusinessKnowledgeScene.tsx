@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconBook, IconPencil, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonModal, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -55,9 +55,8 @@ function CrawlModeHelp(): JSX.Element {
     )
 }
 
-function CrawlConfigFields(): JSX.Element | null {
-    const { urlSource } = useValues(businessKnowledgeLogic)
-    if (urlSource.crawl_mode === 'single') {
+function CrawlConfigFields({ crawlMode }: { crawlMode: string }): JSX.Element | null {
+    if (crawlMode === 'single') {
         return null
     }
     return (
@@ -80,7 +79,7 @@ function CrawlConfigFields(): JSX.Element | null {
                 <LemonField name="max_pages" label="Max pages" className="flex-1">
                     <LemonInput type="number" min={1} max={500} />
                 </LemonField>
-                {urlSource.crawl_mode === 'same_origin' && (
+                {crawlMode === 'same_origin' && (
                     <LemonField name="max_depth" label="Max depth" className="flex-1">
                         <LemonInput type="number" min={0} max={5} />
                     </LemonField>
@@ -126,6 +125,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
         isFileSourceSubmitting,
         isEditSourceSubmitting,
         isEditUrlSourceSubmitting,
+        urlSource,
         editUrlSource,
         refreshingIds,
     } = useValues(businessKnowledgeLogic)
@@ -262,9 +262,16 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                     tooltip="Delete"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        if (window.confirm(`Delete "${row.name}"? Chunks will be removed.`)) {
-                                            deleteSource(row.id)
-                                        }
+                                        LemonDialog.open({
+                                            title: `Delete "${row.name}"?`,
+                                            description: 'Chunks will be removed.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteSource(row.id),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
                                     }}
                                 />
                             </div>
@@ -365,7 +372,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                         />
                                     </LemonField>
                                     <CrawlModeHelp />
-                                    <CrawlConfigFields />
+                                    <CrawlConfigFields crawlMode={urlSource.crawl_mode} />
                                 </Form>
                             ),
                         },
@@ -447,26 +454,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                 ]}
                             />
                         </LemonField>
-                        {editUrlSource.crawl_mode !== 'single' && (
-                            <>
-                                <LemonField name="include_globs" label="Include globs">
-                                    <LemonTextArea minRows={2} placeholder={'/docs/*\n/blog/*'} />
-                                </LemonField>
-                                <LemonField name="exclude_globs" label="Exclude globs">
-                                    <LemonTextArea minRows={2} placeholder="/docs/private/*" />
-                                </LemonField>
-                                <div className="flex gap-4">
-                                    <LemonField name="max_pages" label="Max pages" className="flex-1">
-                                        <LemonInput type="number" min={1} max={500} />
-                                    </LemonField>
-                                    {editUrlSource.crawl_mode === 'same_origin' && (
-                                        <LemonField name="max_depth" label="Max depth" className="flex-1">
-                                            <LemonInput type="number" min={0} max={5} />
-                                        </LemonField>
-                                    )}
-                                </div>
-                            </>
-                        )}
+                        <CrawlConfigFields crawlMode={editUrlSource.crawl_mode} />
                         <p className="text-xs text-muted">
                             Changing the URL or crawl settings will trigger a re-crawl.
                         </p>
