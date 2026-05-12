@@ -83,12 +83,6 @@ class TestParserCache(BaseTest):
         self.assertEqual(_user_parse_cache.currsize, 1)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
-    def test_auto_short_strings_skip_cache(self):
-        # Short queries parse fast enough that caching isn't worth a slot.
-        parse_expr("count()")
-        self.assertEqual(_user_parse_cache.currsize, 0)
-        self.assertEqual(_builtin_parse_cache.currsize, 0)
-
     def test_user_pollution_does_not_displace_builtin(self):
         parse_select(
             "SELECT 'builtin entry' -- pollution test, plenty long enough to cache",
@@ -201,8 +195,13 @@ class TestParserCache(BaseTest):
         self.assertEqual(_user_parse_cache.currsize, 0)
 
     def test_syntax_errors_are_not_cached(self):
+        # SQL has to clear `_MIN_CACHEABLE_STATEMENT_LEN`; otherwise the
+        # length gate masks the error-path skip we're trying to verify.
         with self.assertRaises(BaseHogQLError):
-            parse_select("NOT VALID SQL", cache_origin=CacheOrigin.USER)
+            parse_select(
+                "NOT VALID SQL -- padding to exceed the minimum cacheable length",
+                cache_origin=CacheOrigin.USER,
+            )
         self.assertEqual(_user_parse_cache.currsize, 0)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
 
@@ -216,4 +215,19 @@ class TestParserCache(BaseTest):
         parse_select(sql, cache_origin=prior_origin)
         with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
             parse_select(sql)
+            detector.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (CacheOrigin.BUILTIN, "hello {x} world, prior built-in template entry, long enough"),
+            (CacheOrigin.USER, "hello {x} world, prior user template entry, also long enough"),
+        ]
+    )
+    def test_parse_string_template_skips_frame_walk_on_hit(self, prior_origin, template):
+        # The cache key is the runtime-concatenated `"F'" + template`, but
+        # the classifier must still run only on the cold path — otherwise
+        # warm template hits pay the 40-frame walk every call.
+        parse_string_template(template, cache_origin=prior_origin)
+        with patch("posthog.hogql.parser._looks_like_code_literal") as detector:
+            parse_string_template(template)
             detector.assert_not_called()

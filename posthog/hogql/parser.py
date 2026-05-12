@@ -208,10 +208,11 @@ _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
     fn = RULE_TO_PARSE_FUNCTION[backend][rule]
     # Histogram wraps only the parse so `parse_*_seconds` stays a parser-perf
-    # signal regardless of cache hit rate. Only `expr` takes a `start` arg.
+    # signal regardless of cache hit rate. Only `expr` takes a `start` arg;
+    # `PROGRAM` is the only rule without a histogram.
     histogram = RULE_TO_HISTOGRAM.get(rule)
     if histogram is None:
-        return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
+        return fn(statement)
     with histogram.labels(backend=backend).time():
         return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
 
@@ -223,12 +224,17 @@ def _parse_cached(
     cache_origin: CacheOrigin,
     *,
     start: int | None = None,
+    classify_input: str | None = None,
 ) -> Any:
     """Look up a parsed AST, parsing on miss.
 
     ``AUTO`` consults both caches before classifying via frame walk, so the
     walk is on the cold path only. Explicit ``BUILTIN``/``USER`` only
     consult their own cache.
+
+    ``classify_input`` lets callers key the cache on a derived string while
+    classifying on the original (e.g. ``parse_string_template`` keys on
+    ``"F'" + string`` but the frame literal it wants to match is ``string``).
 
     Returns a deepcopy on hit so the resolver/printer can mutate freely.
     The miss path returns the fresh parse directly and stores the deepcopy.
@@ -257,7 +263,11 @@ def _parse_cached(
         if hit_origin is not None:
             _PARSE_CACHE_EVENTS.labels(origin=hit_origin, result="hit", rule=rule).inc()
             return copy.deepcopy(cached)
-        cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(statement) else CacheOrigin.USER
+        cache_origin = (
+            CacheOrigin.BUILTIN
+            if _looks_like_code_literal(classify_input if classify_input is not None else statement)
+            else CacheOrigin.USER
+        )
     else:
         cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
         with _PARSE_CACHE_LOCK:
@@ -299,12 +309,17 @@ def parse_string_template(
     """Parse a full template string without start/end quotes"""
     if timings is None:
         timings = HogQLTimings()
-    # Classify on the raw `string`; the `"F'" +` concat below is a fresh
-    # runtime string and would never match a frame literal.
-    if cache_origin == CacheOrigin.AUTO:
-        cache_origin = CacheOrigin.BUILTIN if _looks_like_code_literal(string) else CacheOrigin.USER
+    # The cache is keyed on `"F'" + string` (a runtime concat that never
+    # matches a frame literal), so pass the raw `string` as the classify
+    # target — that keeps the frame walk on the cold path here too.
     with timings.measure(f"parse_full_template_string_{backend}"):
-        node = _parse_cached(ParseRule.FULL_TEMPLATE_STRING, "F'" + string, backend, cache_origin)
+        node = _parse_cached(
+            ParseRule.FULL_TEMPLATE_STRING,
+            "F'" + string,
+            backend,
+            cache_origin,
+            classify_input=string,
+        )
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
