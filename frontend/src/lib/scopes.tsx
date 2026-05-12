@@ -41,7 +41,15 @@ export const API_SCOPES: APIScope[] = [
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
-    { key: 'file_system', objectName: 'File system', objectPlural: 'file system items' },
+    {
+        key: 'file_system',
+        objectName: 'File system',
+        objectPlural: 'file system items',
+        // Read-only for now: the file-system delete path cascades into the backing
+        // object (dashboard, insight, cohort, feature flag, hog function, ...), so a
+        // `file_system:write` token would bypass the more specific resource scopes.
+        disabledActions: ['write'],
+    },
     { key: 'file_system_shortcut', objectName: 'File system shortcut', objectPlural: 'file system shortcuts' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
