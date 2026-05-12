@@ -11,6 +11,7 @@ export enum SignalSourceProduct {
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
     ENDPOINTS = 'endpoints',
+    POSTHOG_AI = 'posthog_ai',
 }
 
 export enum SignalSourceType {
@@ -24,6 +25,7 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    QUESTION_DRIFT = 'question_drift',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -259,6 +261,31 @@ export interface EndpointExecutionFailedSignalInput {
     extra: EndpointExecutionFailedSignalExtra
 }
 
+// PostHog AI watched-question drift (Max conversation forks)
+
+export interface PostHogAIQuestionDriftSignalExtra {
+    tracked_question_id: string
+    source_conversation_id: string
+    forked_conversation_id: string
+    source_human_message_id: string
+    source_visualization_message_id: string
+    query_kind: string
+    cadence: 'daily' | 'weekly' | 'monthly'
+    severity: 'minor' | 'moderate' | 'significant'
+    baseline_captured_at: string
+    judge_summary: string
+    repository: string | null
+}
+
+export interface PostHogAIQuestionDriftSignalInput {
+    source_type: 'question_drift'
+    source_product: 'posthog_ai'
+    source_id: string
+    description: string
+    weight: number
+    extra: PostHogAIQuestionDriftSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -297,3 +324,4 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | PostHogAIQuestionDriftSignalInput

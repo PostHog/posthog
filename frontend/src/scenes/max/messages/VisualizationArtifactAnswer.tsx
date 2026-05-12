@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
 
-import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
+import { IconBell, IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import {
@@ -11,7 +11,9 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -28,8 +30,9 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageStatus } from '../maxLogic'
+import { MessageStatus, maxLogic } from '../maxLogic'
 import { visualizationTypeToQuery } from '../utils'
+import { watchThisAnswerModalLogic } from '../watched/watchThisAnswerModalLogic'
 import { MessageTemplate } from './MessageTemplate'
 
 interface VisualizationArtifactAnswerProps {
@@ -39,6 +42,8 @@ interface VisualizationArtifactAnswerProps {
     isEditingInsight: boolean
     activeTabId?: string | null
     activeSceneId?: string | null
+    /** The preceding HumanMessage id, threaded from the message group so "Watch this answer" can anchor on it. */
+    precedingHumanMessageId?: string
 }
 
 function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
@@ -76,8 +81,16 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
     isEditingInsight,
     activeTabId,
     activeSceneId,
+    precedingHumanMessageId,
 }: VisualizationArtifactAnswerProps): JSX.Element | null {
     const isSavedInsight = message.source === ArtifactSource.Insight
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { conversationId } = useValues(maxLogic)
+    const { openModal } = useActions(watchThisAnswerModalLogic)
+    const canWatch =
+        Boolean(featureFlags[FEATURE_FLAGS.MAX_WATCH_THIS_ANSWER]) &&
+        Boolean(precedingHumanMessageId) &&
+        Boolean(conversationId)
 
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
@@ -158,6 +171,24 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                             icon={<IconOpenInNew />}
                             size="xsmall"
                             tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}
+                        />
+                    )}
+                    {canWatch && (
+                        <LemonButton
+                            icon={<IconBell />}
+                            size="xsmall"
+                            tooltip="Watch this answer — get a signal when it materially changes"
+                            onClick={() =>
+                                openModal({
+                                    conversationId: conversationId as string,
+                                    humanMessageId: precedingHumanMessageId as string,
+                                    visualizationMessageId: message.id,
+                                    title:
+                                        (typeof content === 'object' && content && 'name' in content
+                                            ? (content as { name?: string }).name || ''
+                                            : '') || 'Watched question',
+                                })
+                            }
                         />
                     )}
                     <LemonButton

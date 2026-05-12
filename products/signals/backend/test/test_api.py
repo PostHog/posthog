@@ -63,6 +63,20 @@ GITHUB_ISSUE_EXTRA = {
     "state": "open",
 }
 
+POSTHOG_AI_QUESTION_DRIFT_EXTRA = {
+    "tracked_question_id": "11111111-1111-1111-1111-111111111111",
+    "source_conversation_id": "22222222-2222-2222-2222-222222222222",
+    "forked_conversation_id": "33333333-3333-3333-3333-333333333333",
+    "source_human_message_id": "44444444-4444-4444-4444-444444444444",
+    "source_visualization_message_id": "55555555-5555-5555-5555-555555555555",
+    "query_kind": "AssistantTrendsQuery",
+    "cadence": "weekly",
+    "severity": "significant",
+    "baseline_captured_at": "2026-04-02T00:00:00Z",
+    "judge_summary": "Activation rate fell 30% week-over-week.",
+    "repository": "posthog/posthog",
+}
+
 
 @pytest.mark.asyncio
 class TestEmitSignalValidation:
@@ -73,8 +87,9 @@ class TestEmitSignalValidation:
             ("llm_analytics", "evaluation", EVALUATION_EXTRA),
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
+            ("posthog_ai", "question_drift", POSTHOG_AI_QUESTION_DRIFT_EXTRA),
         ],
-        ids=["session_problem", "evaluation", "ticket", "issue"],
+        ids=["session_problem", "evaluation", "ticket", "issue", "posthog_ai_question_drift"],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()

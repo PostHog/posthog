@@ -106,7 +106,7 @@ from products.messaging.backend.api.message_preferences import MessagePreference
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
-from products.posthog_ai.backend.api import MCPToolsViewSet
+from products.posthog_ai.backend.api import MCPToolsViewSet, TrackedQuestionViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
@@ -1570,6 +1570,13 @@ environments_router.register(
     r"mcp_tools",
     MCPToolsViewSet,
     "environment_mcp_tools",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"posthog_ai/watched_questions",
+    TrackedQuestionViewSet,
+    "environment_watched_questions",
     ["team_id"],
 )
 

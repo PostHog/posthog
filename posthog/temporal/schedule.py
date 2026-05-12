@@ -74,6 +74,7 @@ from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
 )
+from posthog.temporal.watched_questions.schedule import create_schedule_due_watched_questions_schedule
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
@@ -605,6 +606,7 @@ schedules = [
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
+    create_schedule_due_watched_questions_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:

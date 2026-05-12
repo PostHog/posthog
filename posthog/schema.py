@@ -3670,6 +3670,47 @@ class PinterestAdsTableExclusions(StrEnum):
     ANALYTICS = "analytics"
 
 
+class PostHogAIQuestionDriftCadence(StrEnum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+class PostHogAIQuestionDriftSeverity(StrEnum):
+    MINOR = "minor"
+    MODERATE = "moderate"
+    SIGNIFICANT = "significant"
+
+
+class PostHogAIQuestionDriftSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline_captured_at: str
+    cadence: PostHogAIQuestionDriftCadence
+    forked_conversation_id: str
+    judge_summary: str
+    query_kind: str
+    repository: str | None = None
+    severity: PostHogAIQuestionDriftSeverity
+    source_conversation_id: str
+    source_human_message_id: str
+    source_visualization_message_id: str
+    tracked_question_id: str
+
+
+class PostHogAIQuestionDriftSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PostHogAIQuestionDriftSignalExtra
+    source_id: str
+    source_product: Literal["posthog_ai"] = "posthog_ai"
+    source_type: Literal["question_drift"] = "question_drift"
+    weight: float
+
+
 class PinterestAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
@@ -8362,6 +8403,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | PostHogAIQuestionDriftSignalInput
     ]
 ):
     root: (
@@ -8374,6 +8416,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | PostHogAIQuestionDriftSignalInput
     )
 
 

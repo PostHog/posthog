@@ -30,6 +30,8 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflowInputs,
     process_slack_conversation_activity,
 )
+from posthog.temporal.watched_questions.activities import WATCHED_QUESTION_ACTIVITIES
+from posthog.temporal.watched_questions.workflows import WATCHED_QUESTION_WORKFLOWS
 
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
@@ -54,6 +56,7 @@ AI_WORKFLOWS = [
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackTerminateTaskWorkflow,
     AnomalyInvestigationWorkflow,
+    *WATCHED_QUESTION_WORKFLOWS,
 ]
 
 AI_ACTIVITIES = [
@@ -79,6 +82,7 @@ AI_ACTIVITIES = [
     post_posthog_code_internal_error_activity,
     process_posthog_code_terminate_task_activity,
     investigate_anomaly_activity,
+    *WATCHED_QUESTION_ACTIVITIES,
 ]
 
 __all__ = [

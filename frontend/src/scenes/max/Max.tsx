@@ -4,6 +4,7 @@ import React from 'react'
 import {
     IconArrowLeft,
     IconChevronLeft,
+    IconEye,
     IconExpand45,
     IconOpenSidebar,
     IconPlus,
@@ -12,7 +13,9 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -39,6 +42,9 @@ import { Intro } from './Intro'
 import { maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { Thread } from './Thread'
+import { watchedQuestionsLogic } from './watched/watchedQuestionsLogic'
+import { WatchedQuestionsPanel } from './watched/WatchedQuestionsPanel'
+import { WatchThisAnswerModal } from './watched/WatchThisAnswerModal'
 
 export const scene: SceneExport = {
     component: Max,
@@ -92,6 +98,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { togglePanel } = useActions(watchedQuestionsLogic)
+    const showWatchedQuestionsAffordance = Boolean(featureFlags[FEATURE_FLAGS.MAX_WATCH_THIS_ANSWER])
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -193,6 +202,16 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>
                 )}
+                {showWatchedQuestionsAffordance && (
+                    <ButtonPrimitive
+                        onClick={() => togglePanel()}
+                        tooltip="Watched questions"
+                        tooltipPlacement="bottom-end"
+                        iconOnly
+                    >
+                        <IconEye className="text-tertiary size-3 group-hover:text-primary z-10" />
+                    </ButtonPrimitive>
+                )}
                 <Link
                     buttonProps={{
                         iconOnly: true,
@@ -217,6 +236,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 {header}
                 {content}
             </SidePanelContentContainer>
+            <WatchedQuestionsPanel />
+            <WatchThisAnswerModal />
         </>
     ) : (
         <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
@@ -240,6 +261,16 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 Copy link to chat
                             </LemonButton>
                         ) : undefined}
+                        {showWatchedQuestionsAffordance ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconEye />}
+                                onClick={() => togglePanel()}
+                            >
+                                Watched questions
+                            </LemonButton>
+                        ) : undefined}
                         {tabId ? (
                             <LemonButton
                                 size="small"
@@ -257,6 +288,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 }
             />
             <div className="grow flex flex-col">{content}</div>
+            <WatchedQuestionsPanel />
+            <WatchThisAnswerModal />
         </SceneContent>
     )
 })
