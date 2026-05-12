@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,9 +53,9 @@ function newLens(): ReplayLens {
         model: DEFAULT_MODEL,
         emits_signals: false,
         lens_version: 1,
-        last_swept_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_swept_at: dayjs().toISOString(),
+        created_at: dayjs().toISOString(),
+        updated_at: dayjs().toISOString(),
         created_by: null,
         lens_type: 'monitor',
         lens_config: { prompt: '' },

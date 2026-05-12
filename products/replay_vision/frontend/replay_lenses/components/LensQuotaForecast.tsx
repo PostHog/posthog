@@ -25,7 +25,7 @@ export function LensQuotaForecast({ lensId }: Props): JSX.Element | null {
                 <span className="text-sm font-medium">Quota impact</span>
                 <span className="text-sm tabular-nums">{samplingPercent.toFixed(samplingPercent < 1 ? 2 : 1)}%</span>
             </div>
-            <LemonProgress percent={Math.round(samplingRatio * 100)} bgColor="bg-primary" />
+            <LemonProgress percent={Math.round(samplingRatio * 100)} />
             <div className="text-xs text-muted">
                 {oneInN === null ? (
                     <span className="text-danger">Sampling is 0%. This lens will not produce any observations.</span>
