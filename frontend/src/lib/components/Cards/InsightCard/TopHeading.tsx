@@ -32,12 +32,16 @@ export function TopHeading({
     hasTileOverrides,
     resolvedDateRange,
     showInsightType = true,
+    dateFromOverride,
+    dateToOverride,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    dateFromOverride?: string | null
+    dateToOverride?: string | null
 }): JSX.Element {
     const insightType = getInsightType(query)
 
@@ -48,6 +52,12 @@ export function TopHeading({
             date_from = queryDateRange.date_from
             date_to = queryDateRange.date_to
         }
+    }
+    if (dateFromOverride !== undefined) {
+        date_from = dateFromOverride
+    }
+    if (dateToOverride !== undefined) {
+        date_to = dateToOverride
     }
 
     let dateText: string | null = null
