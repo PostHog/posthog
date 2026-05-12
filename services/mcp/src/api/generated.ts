@@ -8483,6 +8483,11 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
+    export interface DashboardRevertRequest {
+      /** The activity log entry id to revert this dashboard to. Obtain it from the versions list endpoint. */
+      version_id: string;
+    }
+
     /**
      * * `team` - Only team
     * `global` - Global
@@ -8559,6 +8564,39 @@ export namespace Schemas {
     export interface DashboardTileResult {
       id?: number;
       insight: InsightResult;
+    }
+
+    export interface DashboardVersionUser {
+      /** User id. */
+      id: number;
+      /** User first name. */
+      first_name: string;
+      /** User last name. */
+      last_name: string;
+      /** User email. */
+      email: string;
+    }
+
+    export interface DashboardVersionListItem {
+      /** Version identifier (the underlying activity log entry id). */
+      version_id: string;
+      /** When the version was recorded. */
+      created_at: string;
+      /** Activity type, e.g. created/updated/deleted/restored. */
+      activity: string;
+      /** The user that made the change. Null when the change was made by the system or an unknown actor. */
+      user: DashboardVersionUser | null;
+      /** True when the change was performed by a system process. */
+      is_system: boolean;
+      /** True when the change was made via staff impersonation. */
+      was_impersonated: boolean;
+      /**
+         * The value of the x-posthog-client header captured when the activity was logged.
+         * @nullable
+         */
+      client: string | null;
+      /** Detail payload including before/after diffs. */
+      detail: unknown;
     }
 
     export interface DataColorTheme {
@@ -20942,6 +20980,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
+    }
+
+    export interface PaginatedDashboardVersionListItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DashboardVersionListItem[];
     }
 
     export interface PaginatedDataColorThemeList {
@@ -35779,6 +35826,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsRevertToVersionCreateParams = {
+    format?: EnvironmentsDashboardsRevertToVersionCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsRevertToVersionCreateFormat = typeof EnvironmentsDashboardsRevertToVersionCreateFormat[keyof typeof EnvironmentsDashboardsRevertToVersionCreateFormat];
+
+
+    export const EnvironmentsDashboardsRevertToVersionCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
@@ -35866,6 +35925,30 @@ export namespace Schemas {
     export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type EnvironmentsDashboardsVersionsListParams = {
+    /**
+     * Return versions older than this ISO timestamp (for paging).
+     */
+    before?: string;
+    format?: EnvironmentsDashboardsVersionsListFormat;
+    /**
+     * Maximum number of versions to return (default 50, max 200).
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsDashboardsVersionsListFormat = typeof EnvironmentsDashboardsVersionsListFormat[keyof typeof EnvironmentsDashboardsVersionsListFormat];
+
+
+    export const EnvironmentsDashboardsVersionsListFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
@@ -40449,6 +40532,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsRevertToVersionCreateParams = {
+    format?: DashboardsRevertToVersionCreateFormat;
+    };
+
+    export type DashboardsRevertToVersionCreateFormat = typeof DashboardsRevertToVersionCreateFormat[keyof typeof DashboardsRevertToVersionCreateFormat];
+
+
+    export const DashboardsRevertToVersionCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsRunInsightsRetrieveParams = {
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
@@ -40536,6 +40631,30 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type DashboardsVersionsListParams = {
+    /**
+     * Return versions older than this ISO timestamp (for paging).
+     */
+    before?: string;
+    format?: DashboardsVersionsListFormat;
+    /**
+     * Maximum number of versions to return (default 50, max 200).
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DashboardsVersionsListFormat = typeof DashboardsVersionsListFormat[keyof typeof DashboardsVersionsListFormat];
+
+
+    export const DashboardsVersionsListFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type DashboardsBulkUpdateTagsCreateParams = {

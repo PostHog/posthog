@@ -185,6 +185,9 @@ tools:
     dashboards-retrieve:
         operation: dashboards_retrieve
         enabled: false
+    dashboards-revert-to-version-create:
+        operation: dashboards_revert_to_version_create
+        enabled: false
     dashboards-run-insights-retrieve:
         operation: dashboards_run_insights_retrieve
         enabled: false
@@ -208,6 +211,9 @@ tools:
         enabled: false
     dashboards-update:
         operation: dashboards_update
+        enabled: false
+    dashboards-versions-list:
+        operation: dashboards_versions_list
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update

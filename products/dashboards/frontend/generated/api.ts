@@ -15,6 +15,7 @@ import type {
     CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardRevertRequestApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardsAnalyzeRefreshResultCreateParams,
@@ -29,14 +30,17 @@ import type {
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRevertToVersionCreateParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
+    DashboardsVersionsListParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
+    PaginatedDashboardVersionListItemListApi,
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
@@ -589,6 +593,48 @@ export const dashboardsReorderTilesCreate = async (
     })
 }
 
+export const getDashboardsRevertToVersionCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsRevertToVersionCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/revert_to_version/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/revert_to_version/`
+}
+
+/**
+ * Revert this dashboard to the state recorded at the given version id.
+
+Reconstructable scalar fields (name, description, filters, variables, etc.) are
+restored. Tiles and tags are managed through other endpoints and are not affected
+by a revert.
+ */
+export const dashboardsRevertToVersionCreate = async (
+    projectId: string,
+    id: number,
+    dashboardRevertRequestApi: DashboardRevertRequestApi,
+    params?: DashboardsRevertToVersionCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsRevertToVersionCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardRevertRequestApi),
+    })
+}
+
 export const getDashboardsRunInsightsRetrieveUrl = (
     projectId: string,
     id: number,
@@ -693,6 +739,40 @@ export const dashboardsStreamTilesRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardsVersionsListUrl = (projectId: string, id: number, params?: DashboardsVersionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/versions/`
+}
+
+/**
+ * List recorded versions of this dashboard, newest first.
+
+Each version corresponds to an activity log entry capturing who made the change,
+when, and what fields changed (before/after).
+ */
+export const dashboardsVersionsList = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsVersionsListParams,
+    options?: RequestInit
+): Promise<PaginatedDashboardVersionListItemListApi> => {
+    return apiMutator<PaginatedDashboardVersionListItemListApi>(getDashboardsVersionsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

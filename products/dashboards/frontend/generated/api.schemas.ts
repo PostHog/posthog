@@ -430,6 +430,11 @@ export interface ReorderTilesRequestApi {
     tile_order: number[]
 }
 
+export interface DashboardRevertRequestApi {
+    /** The activity log entry id to revert this dashboard to. Obtain it from the versions list endpoint. */
+    version_id: string
+}
+
 /**
  * InsightSerializer restricted to identifiers + result only.
  */
@@ -454,6 +459,48 @@ export interface DashboardTileResultApi {
 export interface RunInsightsResponseApi {
     /** Results for each insight tile on the dashboard. */
     results: DashboardTileResultApi[]
+}
+
+export interface DashboardVersionUserApi {
+    /** User id. */
+    id: number
+    /** User first name. */
+    first_name: string
+    /** User last name. */
+    last_name: string
+    /** User email. */
+    email: string
+}
+
+export interface DashboardVersionListItemApi {
+    /** Version identifier (the underlying activity log entry id). */
+    version_id: string
+    /** When the version was recorded. */
+    created_at: string
+    /** Activity type, e.g. created/updated/deleted/restored. */
+    activity: string
+    /** The user that made the change. Null when the change was made by the system or an unknown actor. */
+    user: DashboardVersionUserApi | null
+    /** True when the change was performed by a system process. */
+    is_system: boolean
+    /** True when the change was made via staff impersonation. */
+    was_impersonated: boolean
+    /**
+     * The value of the x-posthog-client header captured when the activity was logged.
+     * @nullable
+     */
+    client: string | null
+    /** Detail payload including before/after diffs. */
+    detail: unknown
+}
+
+export interface PaginatedDashboardVersionListItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardVersionListItemApi[]
 }
 
 /**
@@ -697,6 +744,18 @@ export const DashboardsReorderTilesCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsRevertToVersionCreateParams = {
+    format?: DashboardsRevertToVersionCreateFormat
+}
+
+export type DashboardsRevertToVersionCreateFormat =
+    (typeof DashboardsRevertToVersionCreateFormat)[keyof typeof DashboardsRevertToVersionCreateFormat]
+
+export const DashboardsRevertToVersionCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsRunInsightsRetrieveParams = {
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
@@ -784,6 +843,30 @@ export type DashboardsStreamTilesRetrieveLayoutSize =
 export const DashboardsStreamTilesRetrieveLayoutSize = {
     Sm: 'sm',
     Xs: 'xs',
+} as const
+
+export type DashboardsVersionsListParams = {
+    /**
+     * Return versions older than this ISO timestamp (for paging).
+     */
+    before?: string
+    format?: DashboardsVersionsListFormat
+    /**
+     * Maximum number of versions to return (default 50, max 200).
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DashboardsVersionsListFormat =
+    (typeof DashboardsVersionsListFormat)[keyof typeof DashboardsVersionsListFormat]
+
+export const DashboardsVersionsListFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsBulkUpdateTagsCreateParams = {

@@ -289,6 +289,19 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Revert this dashboard to the state recorded at the given version id.
+
+Reconstructable scalar fields (name, description, filters, variables, etc.) are
+restored. Tiles and tags are managed through other endpoints and are not affected
+by a revert.
+ */
+export const DashboardsRevertToVersionCreateBody = /* @__PURE__ */ zod.object({
+    version_id: zod
+        .uuid()
+        .describe('The activity log entry id to revert this dashboard to. Obtain it from the versions list endpoint.'),
+})
+
+/**
  * Snapshot the current dashboard state (from cache) for AI analysis.
 Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
  */
