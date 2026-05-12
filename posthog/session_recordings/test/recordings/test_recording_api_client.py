@@ -433,10 +433,19 @@ class TestProbeOnOpen:
     """The probe loop sidesteps an ultimate-express route-miss bug on cold TCP
     connections. See module docstring on `recording_api_client.py`."""
 
+    @pytest.mark.parametrize("n_bad", [0, 1])
     @pytest.mark.asyncio
-    async def test_returns_session_on_first_json_response(self):
-        good = _make_probe_response(status=200, content_type="application/json; charset=utf-8")
-        session = _make_session_yielding(good)
+    async def test_returns_good_session_after_n_poisoned(self, n_bad: int):
+        """Probe loop yields the first JSON-responding session after `n_bad`
+        HTML-poisoned ones. n_bad=0 also vacuously asserts the good path never
+        calls close on a non-existent bad session before yielding."""
+        bad_sessions = [
+            _make_session_yielding(_make_probe_response(status=404, content_type="text/html; charset=utf-8"))
+            for _ in range(n_bad)
+        ]
+        good_session = _make_session_yielding(
+            _make_probe_response(status=200, content_type="application/json; charset=utf-8")
+        )
 
         with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
@@ -451,49 +460,27 @@ class TestProbeOnOpen:
                 patch("posthog.session_recordings.recordings.recording_api_client.aiohttp.TCPConnector"),
                 patch(
                     "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
-                    return_value=session,
-                ) as mock_client_session,
-            ):
-                async with recording_api_client() as client:
-                    assert client.session is session
-
-                mock_client_session.assert_called_once()
-                session.get.assert_called_once()
-                probe_url = session.get.call_args[0][0]
-                # Probes hit a router-mounted path so they can detect the bug.
-                assert "/api/projects/" in probe_url
-                assert "/recordings/" in probe_url
-                assert probe_url.endswith("/blocks")
-
-    @pytest.mark.asyncio
-    async def test_retries_when_first_response_is_html(self):
-        bad = _make_probe_response(status=404, content_type="text/html; charset=utf-8")
-        good = _make_probe_response(status=200, content_type="application/json; charset=utf-8")
-
-        bad_session = _make_session_yielding(bad)
-        good_session = _make_session_yielding(good)
-
-        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
-            mock_settings.RECORDING_API_URL = "http://test-api:8080"
-            mock_settings.INTERNAL_API_SECRET = ""
-            mock_settings.DEBUG = True
-            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
-
-            with (
-                patch("posthog.session_recordings.recordings.recording_api_client.aiohttp.TCPConnector"),
-                patch(
-                    "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
-                    side_effect=[bad_session, good_session],
+                    side_effect=[*bad_sessions, good_session],
                 ),
             ):
                 async with recording_api_client() as client:
                     assert client.session is good_session
 
-                bad_session.close.assert_awaited()
+                # Every poisoned session must have been closed before we moved
+                # on. Vacuously true when n_bad == 0.
+                for bad_session in bad_sessions:
+                    bad_session.close.assert_awaited()
+
                 # The yielded session is closed by the context manager's finally
                 # clause — assert it explicitly so a regression that drops the
-                # finally would fail this test.
+                # finally would fail this test (see commit 9fad57b9).
                 good_session.close.assert_awaited()
+
+                # Probes hit a router-mounted path so they can detect the bug.
+                probe_url = good_session.get.call_args[0][0]
+                assert "/api/projects/" in probe_url
+                assert "/recordings/" in probe_url
+                assert probe_url.endswith("/blocks")
 
     @pytest.mark.parametrize(
         "failure_mode,expected_saw_html,expected_last_error,expected_hint_fragment",
