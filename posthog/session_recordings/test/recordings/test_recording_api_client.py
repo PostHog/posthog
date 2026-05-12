@@ -488,6 +488,10 @@ class TestProbeOnOpen:
                     assert client.session is good_session
 
                 bad_session.close.assert_awaited()
+                # The yielded session is closed by the context manager's finally
+                # clause — assert it explicitly so a regression that drops the
+                # finally would fail this test.
+                good_session.close.assert_awaited()
 
     @pytest.mark.parametrize(
         "failure_mode,expected_saw_html,expected_last_error,expected_hint_fragment",
@@ -541,10 +545,16 @@ class TestProbeOnOpen:
                 # calls surface real errors rather than hanging here.
                 assert client.session is sessions[-1]
 
-            # Every session except the last is explicitly closed — this is the
-            # behavioural promise of the loop and the easiest part to regress.
+            # Every session except the last is explicitly closed inside the
+            # probe loop — this is the behavioural promise of the loop and the
+            # easiest part to regress.
             for poisoned in sessions[:-1]:
                 poisoned.close.assert_awaited()
+
+            # The last (yielded) session is closed by the context manager's
+            # finally clause once we exit the `async with` block. Assert it
+            # outside the block so a regression dropping the finally would fail.
+            sessions[-1].close.assert_awaited()
 
             warning_calls = mock_logger.warning.call_args_list
             assert any(
