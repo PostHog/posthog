@@ -613,7 +613,7 @@ def enforce_detail_object_permissions(monkeypatch, request):
         is_detail = getattr(self, "detail", False) is True
         should_assert = is_detail and is_auth and 200 <= response.status_code < 300
 
-        if should_assert and not self._access_control_hop_called:
+        if should_assert and not getattr(self, "_access_control_hop_called", False):
             view_name = self.__class__.__name__
             action = getattr(self, "action", "?")
             raise AssertionError(
