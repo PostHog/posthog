@@ -1323,6 +1323,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     heatmaps_opt_in?: boolean | null
+    /**
+     * Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.
+     * @nullable
+     */
+    toolbar_opt_out?: boolean | null
     readonly product_intents: readonly ProjectBackwardCompatApiProductIntentsItem[]
     /**
      * Default value for the `persist` option on newly created feature flags.
@@ -2119,6 +2124,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     heatmaps_opt_in?: boolean | null
+    /**
+     * Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.
+     * @nullable
+     */
+    toolbar_opt_out?: boolean | null
     readonly product_intents?: readonly PatchedProjectBackwardCompatApiProductIntentsItem[]
     /**
      * Default value for the `persist` option on newly created feature flags.

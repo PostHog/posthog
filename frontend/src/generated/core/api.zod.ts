@@ -355,6 +355,12 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -547,6 +553,12 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -741,6 +753,12 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -947,6 +965,12 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -1145,6 +1169,12 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -1363,6 +1393,12 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -1577,6 +1613,12 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -1795,6 +1837,12 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -1989,6 +2037,12 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()
@@ -2195,6 +2249,12 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .nullish()
             .describe('Enables displaying surveys via posthog-js on allowed origins.'),
         heatmaps_opt_in: zod.boolean().nullish().describe('Enables heatmap recording on pages that host posthog-js.'),
+        toolbar_opt_out: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.'
+            ),
         flags_persistence_default: zod
             .boolean()
             .nullish()

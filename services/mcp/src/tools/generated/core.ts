@@ -205,6 +205,9 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.heatmaps_opt_in !== undefined) {
             body['heatmaps_opt_in'] = params.heatmaps_opt_in
         }
+        if (params.toolbar_opt_out !== undefined) {
+            body['toolbar_opt_out'] = params.toolbar_opt_out
+        }
         if (params.flags_persistence_default !== undefined) {
             body['flags_persistence_default'] = params.flags_persistence_default
         }

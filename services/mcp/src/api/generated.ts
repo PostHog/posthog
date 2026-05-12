@@ -27954,6 +27954,11 @@ export namespace Schemas {
          * @nullable
          */
       heatmaps_opt_in?: boolean | null;
+      /**
+         * Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.
+         * @nullable
+         */
+      toolbar_opt_out?: boolean | null;
       readonly product_intents?: readonly PatchedProjectBackwardCompatProductIntentsItem[];
       /**
          * Default value for the `persist` option on newly created feature flags.
@@ -29470,6 +29475,8 @@ export namespace Schemas {
       /** @nullable */
       heatmaps_opt_in?: boolean | null;
       /** @nullable */
+      toolbar_opt_out?: boolean | null;
+      /** @nullable */
       flags_persistence_default?: boolean | null;
       /** @nullable */
       feature_flag_confirmation_enabled?: boolean | null;
@@ -30776,6 +30783,11 @@ export namespace Schemas {
          * @nullable
          */
       heatmaps_opt_in?: boolean | null;
+      /**
+         * Disables the PostHog toolbar for this project when true. When disabled, team members cannot launch the toolbar even if their user setting allows it.
+         * @nullable
+         */
+      toolbar_opt_out?: boolean | null;
       readonly product_intents: readonly ProjectBackwardCompatProductIntentsItem[];
       /**
          * Default value for the `persist` option on newly created feature flags.
@@ -34494,6 +34506,8 @@ export namespace Schemas {
       surveys_opt_in?: boolean | null;
       /** @nullable */
       heatmaps_opt_in?: boolean | null;
+      /** @nullable */
+      toolbar_opt_out?: boolean | null;
       /** @nullable */
       flags_persistence_default?: boolean | null;
       /** @nullable */
