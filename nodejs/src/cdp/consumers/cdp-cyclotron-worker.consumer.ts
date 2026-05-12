@@ -120,10 +120,6 @@ export class CdpCyclotronWorker<
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
-        logger.info('🔁', `${this.name} - handling batch`, {
-            size: invocations.length,
-        })
-
         const invocationResults = await this.processInvocations(invocations)
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations

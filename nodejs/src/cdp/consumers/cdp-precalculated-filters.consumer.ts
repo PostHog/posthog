@@ -292,10 +292,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         await super.start()
 
         await this.eventKafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling event batch`, {
-                size: messages.length,
-            })
-
             return await instrumentFn('cdpPrecalculatedFiltersConsumer.handleEventBatch', async () => {
                 const { precalculatedEvents, precalculatedPersonProperties } = await this._parseKafkaBatch(messages)
 

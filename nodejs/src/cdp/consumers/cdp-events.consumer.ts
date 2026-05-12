@@ -473,10 +473,6 @@ export class CdpEventsConsumer<
         await this.cyclotronJobQueue.startAsProducer()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 const { backgroundTask } = await this.processBatch(invocationGlobals)

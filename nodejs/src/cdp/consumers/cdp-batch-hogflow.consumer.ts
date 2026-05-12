@@ -337,10 +337,6 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         await this.cyclotronJobQueue.startAsProducer()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const batchHogFlowRequestMessages = await this._parseKafkaBatch(messages)
                 const { backgroundTask } = await this.processBatch(batchHogFlowRequestMessages)

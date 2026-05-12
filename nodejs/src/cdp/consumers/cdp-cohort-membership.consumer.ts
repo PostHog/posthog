@@ -129,10 +129,6 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         logger.info('🚀', `${this.name} starting...`)
 
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
             return instrumentFn('cdpCohortMembershipConsumer.handleEachBatch', async () => {
                 const cohortMembershipChanges = this._parseAndValidateBatch(messages)
                 await this.persistCohortMembershipChanges(cohortMembershipChanges)

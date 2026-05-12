@@ -406,10 +406,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         await this.legacyWebhookService.start()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
                 const [webhookBatch, pluginBatch] = await Promise.all([
                     this.legacyWebhookService.processBatch(messages),
