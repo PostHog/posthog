@@ -1,21 +1,24 @@
 rules:
     - id: prefer-uuid7-django-pk
       message: >-
-          Do not use `uuid.uuid4` as the default for a Django `UUIDField`. Use
-          `uuid7` from `posthog.models.utils` — or, preferably, inherit from
-          `UUIDModel`, which sets a `uuid7` PK for you. UUIDv7 embeds a 48-bit
-          unix-ms timestamp in its high bits, so cross-millisecond collisions are
-          structurally impossible regardless of entropy quality, and the
-          time-prefix gives much better B-tree index locality on inserts. The
-          `UUIDModel` base class is the established convention — over 100 models
-          already inherit from it. UUIDs are not the right primitive for secret
-          tokens regardless of version; use `secrets.token_urlsafe(...)` for
-          those. See `posthog/models/utils.py` for `UUIDModel` and `uuid7`.
+          Do not use `uuid.uuid4` as the default for a Django `UUIDField`
+          primary key. Inherit from `UUIDModel` (which sets a `uuid7` PK for
+          you), or set `default=uuid7` from `posthog.models.utils` explicitly.
+          UUIDv7 embeds a 48-bit unix-ms timestamp in its high bits, so
+          cross-millisecond collisions are structurally impossible regardless
+          of entropy quality, and the time-prefix gives much better B-tree
+          index locality on inserts. `UUIDModel` is the established convention
+          — over 100 models already inherit from it. UUIDs are not the right
+          primitive for secret tokens regardless of version; use
+          `secrets.token_urlsafe(...)` for those. See `posthog/models/utils.py`
+          for `UUIDModel` and `uuid7`.
       severity: WARNING
       languages: [python]
-      pattern-either:
-          - pattern: models.UUIDField(..., default=uuid.uuid4, ...)
-          - pattern: models.UUIDField(..., default=uuid4, ...)
+      patterns:
+          - pattern-either:
+                - pattern: models.UUIDField(..., default=uuid.uuid4, ...)
+                - pattern: models.UUIDField(..., default=uuid4, ...)
+          - pattern: models.UUIDField(..., primary_key=True, ...)
       paths:
           include:
               - '**/models.py'
