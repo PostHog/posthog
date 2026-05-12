@@ -473,6 +473,8 @@ export const FEATURE_FLAGS = {
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-llm-analytics
     TAXONOMIC_FILTER_CATEGORY_DROPDOWN: 'taxonomic-filter-category-dropdown', // owner: @pauldambra #team-product-analytics multivariate=control,pill
+    TAXONOMIC_FILTER_HEADLESS: 'taxonomic-filter-headless', // owner: @adamleith, opt-in to the headless useTaxonomicFilter rewrite
+    TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the new TaxonomicFilterMenu (column / preview-pane) for series row pickers
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
@@ -489,8 +491,8 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_CITY_BREAKDOWN: 'web-analytics-live-city-breakdown', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_DOMAIN_FILTER: 'web-analytics-live-domain-filter', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_EDIT_LAYOUT: 'web-analytics-live-edit-layout', // owner: @jordanm-posthog #team-web-analytics
+    WEB_ANALYTICS_LIVE_FILTERS: 'web-analytics-live-filters', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics

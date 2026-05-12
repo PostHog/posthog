@@ -1,10 +1,13 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
+import type { TooltipConfig } from 'lib/hog-charts'
 
+import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import {
     buildDerivedConfigs,
     buildMainTrendsSeries,
+    buildTrendsLineTimeSeriesConfig,
     buildTrendsSeries,
     computeDashedFromIndex,
     type TrendsResultLike,
@@ -306,6 +309,108 @@ describe('trendsChartTransforms', () => {
                 )
                 expect(out.comparisonOf).toEqual({ '1': '1' })
             })
+        })
+    })
+
+    describe('buildTrendsLineTimeSeriesConfig', () => {
+        const TOOLTIP: TooltipConfig = { pinnable: true, placement: 'top' }
+
+        const baseOpts = {
+            results: [makeResult()],
+            isPercentStackView: false,
+        } as const
+
+        it('returns the same top-level keys TrendsLineChart spreads today', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                trendsFilter: null,
+                interval: 'day',
+                timezone: 'UTC',
+                allDays: ['2024-01-01', '2024-01-02'],
+                goalLines: [{ label: 'goal', value: 10 }] satisfies SchemaGoalLine[],
+                showConfidenceIntervals: true,
+                confidenceLevel: 95,
+                valueLabels: false,
+                showCrosshair: true,
+                tooltip: TOOLTIP,
+            })
+
+            expect(config.xAxis).toEqual({ timezone: 'UTC', interval: 'day', allDays: ['2024-01-01', '2024-01-02'] })
+            expect(config.yAxis).not.toBeUndefined()
+            expect(config.valueLabels).toBe(false)
+            expect(config.goalLines).toHaveLength(1)
+            expect(config.confidenceIntervals).toHaveLength(1)
+            expect(config.percentStackView).toBe(false)
+            expect(config.showCrosshair).toBe(true)
+            expect(config.tooltip).toBe(TOOLTIP)
+        })
+
+        it.each([[80], [95], [99]])(
+            'confidenceIntervals match buildDerivedConfigs at confidenceLevel %d',
+            (confidenceLevel) => {
+                const results = [makeResult({ id: 'a' }), makeResult({ id: 'b', data: [10, 11, 9, 12, 13] })]
+                const config = buildTrendsLineTimeSeriesConfig({
+                    ...baseOpts,
+                    results,
+                    showConfidenceIntervals: true,
+                    confidenceLevel,
+                })
+                const direct = buildDerivedConfigs(results, {
+                    showConfidenceIntervals: true,
+                    confidenceLevel,
+                })
+                expect(config.confidenceIntervals).toEqual(direct.confidenceIntervals)
+            }
+        )
+
+        describe('valueLabels', () => {
+            it('passes through valueLabels: false unchanged', () => {
+                const config = buildTrendsLineTimeSeriesConfig({
+                    ...baseOpts,
+                    valueLabels: false,
+                })
+                expect(config.valueLabels).toBe(false)
+            })
+
+            it('passes through an assembled valueLabels object unchanged', () => {
+                const formatter = (value: number): string => `${value}!`
+                const config = buildTrendsLineTimeSeriesConfig({
+                    ...baseOpts,
+                    valueLabels: { formatter },
+                })
+                expect(config.valueLabels).toEqual({ formatter })
+            })
+        })
+
+        describe('goalLines', () => {
+            it.each<[string, SchemaGoalLine[] | null]>([
+                ['null', null],
+                ['empty array', []],
+            ])('is undefined when goalLines is %s', (_, goalLines) => {
+                const config = buildTrendsLineTimeSeriesConfig({
+                    ...baseOpts,
+                    goalLines,
+                })
+                expect(config.goalLines).toBeUndefined()
+            })
+        })
+
+        it('defaults xAxis.interval to "day" when interval is omitted', () => {
+            const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts })
+            expect(config.xAxis?.interval).toBe('day')
+        })
+
+        it('derives yAxis from buildTrendsYAxisConfig when isPercentStackView is true and passes through tooltip / showCrosshair', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                isPercentStackView: true,
+                tooltip: TOOLTIP,
+                showCrosshair: false,
+            })
+            expect(config.yAxis).toMatchObject({ format: 'percentage', scale: 'linear', showGrid: true })
+            expect(config.percentStackView).toBe(true)
+            expect(config.tooltip).toBe(TOOLTIP)
+            expect(config.showCrosshair).toBe(false)
         })
     })
 })

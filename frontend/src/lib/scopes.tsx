@@ -41,6 +41,16 @@ export const API_SCOPES: APIScope[] = [
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
+    {
+        key: 'file_system',
+        objectName: 'File system',
+        objectPlural: 'file system items',
+        // Read-only for now: the file-system delete path cascades into the backing
+        // object (dashboard, insight, cohort, feature flag, hog function, ...), so a
+        // `file_system:write` token would bypass the more specific resource scopes.
+        disabledActions: ['write'],
+    },
+    { key: 'file_system_shortcut', objectName: 'File system shortcut', objectPlural: 'file system shortcuts' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
@@ -81,6 +91,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
+    { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
@@ -94,6 +105,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
+    { key: 'replay_lens', objectName: 'Replay lens', objectPlural: 'replay lenses' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
     {

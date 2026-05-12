@@ -5305,6 +5305,8 @@ export type APIScopeObject =
     | 'external_data_source'
     | 'export'
     | 'feature_flag'
+    | 'file_system'
+    | 'file_system_shortcut'
     | 'group'
     | 'health_issue'
     | 'heatmap'
@@ -5326,11 +5328,13 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'replay_lens'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -7399,6 +7403,8 @@ export interface WebAnalyticsFiltersConfig {
     compareFilter?: { compare?: boolean; compare_to?: string | null }
     domainFilter?: string | null
     deviceTypeFilter?: string | null
+    countryFilter?: string | null
+    referrerFilter?: string | null
     conversionGoal?: { actionId?: number; customEventName?: string } | null
     isPathCleaningEnabled?: boolean
     shouldFilterTestAccounts?: boolean

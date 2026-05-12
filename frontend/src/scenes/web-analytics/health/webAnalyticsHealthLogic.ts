@@ -225,7 +225,6 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         action: hasAuthorizedUrls
                             ? { label: 'Manage domains', to: urls.settings('environment-web-analytics') }
                             : { label: 'Add domains', to: urls.settings('environment-web-analytics') },
-                        docsUrl: 'https://posthog.com/docs/web-analytics/authorized-urls',
                     },
                     reverseProxyCheck,
                 ]
