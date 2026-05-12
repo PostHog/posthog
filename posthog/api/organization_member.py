@@ -15,6 +15,14 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import raise_errors_on_nested_writes
+
+# Import from `.models`, not `.admin`. `social_django.admin` re-exports
+# `UserSocialAuth` for convenience, but importing that module triggers
+# `@admin.register(UserSocialAuth)` as a setup-time side effect — and
+# `PostHogConfig.ready()` later wraps `admin.site._registry` with
+# `LazyAdminRegistry`, throwing the registration away. `.models` is the
+# semantically-correct source for the model class and keeps the setup-time
+# admin-import surface as small as possible.
 from social_django.models import UserSocialAuth
 
 from posthog.api.routing import TeamAndOrgViewSetMixin

@@ -153,6 +153,15 @@ class PostHogConfig(AppConfig):
             # `self._registry.values()`, so without explicit overrides the
             # lazy load never fires from those code paths and admin URLs /
             # sidebar entries silently come back empty.
+            #
+            # Read methods are listed out explicitly rather than wrapped via
+            # metaprogramming. The set is small, exhaustive against what
+            # Django's admin actually calls, and grep-friendly. Wrapping
+            # every dict method via `__getattribute__` or a class-time loop
+            # would also have to carefully skip the write methods
+            # (`__setitem__`, `__delitem__`) that `register_all_admin()`
+            # depends on, plus our own `_ensure_loaded` / `_loaded` — adding
+            # recursion footguns without removing real boilerplate.
             def __getitem__(self, key):
                 self._ensure_loaded()
                 return super().__getitem__(key)
