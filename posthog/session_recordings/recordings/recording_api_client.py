@@ -34,9 +34,11 @@ logger = structlog.get_logger(__name__)
 # Once a non-HTML response confirms the session is healthy, `limit_per_host=1`
 # keeps every subsequent request pinned to that known-good connection.
 #
-# Defaults to enabled. Set `RECORDING_API_PROBE_ON_OPEN = False` in settings if
-# your deployment uses a recording-api build with a fixed ultimate-express (e.g.
-# >= 2.0.10) or a different HTTP server.
+# Defaults to **disabled** so PostHog Cloud and any other deployment that doesn't
+# hit the bug doesn't pay the extra probe round-trip. Operators who see the
+# "session replay player hangs on buffering" symptom should enable it by adding
+# `RECORDING_API_PROBE_ON_OPEN = True` to their settings — the symptom-to-flag
+# breadcrumb lives in the Self-Hosted Session Replay troubleshooting docs.
 _PROBE_SESSION_ID = "00000000-0000-0000-0000-000000000000"
 _PROBE_TEAM_ID = 1
 _MAX_PROBES = 6
@@ -229,7 +231,7 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
         logger.warning("recording_api_client.missing_internal_api_secret")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
-    if getattr(settings, "RECORDING_API_PROBE_ON_OPEN", True):
+    if getattr(settings, "RECORDING_API_PROBE_ON_OPEN", False):
         session = await _probe_for_good_session(settings.RECORDING_API_URL, timeout, headers)
     else:
         # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API

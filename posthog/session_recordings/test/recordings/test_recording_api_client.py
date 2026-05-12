@@ -433,7 +433,7 @@ class TestProbeOnOpen:
     """The probe loop sidesteps an ultimate-express route-miss bug on cold TCP
     connections. See module docstring on `recording_api_client.py`."""
 
-    @pytest.mark.parametrize("n_bad", [0, 1])
+    @pytest.mark.parametrize("n_bad", [0, 1, 2])
     @pytest.mark.asyncio
     async def test_returns_good_session_after_n_poisoned(self, n_bad: int):
         """Probe loop yields the first JSON-responding session after `n_bad`
