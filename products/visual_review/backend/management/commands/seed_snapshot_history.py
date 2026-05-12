@@ -2,7 +2,6 @@
 
 import random
 from datetime import timedelta
-from pathlib import Path
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
@@ -13,6 +12,8 @@ from blake3 import blake3
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 from products.visual_review.backend.storage import ArtifactStorage
+
+from common.path_utils import find_repo_root
 
 
 class Command(BaseCommand):
@@ -50,7 +51,7 @@ class Command(BaseCommand):
         except Repo.DoesNotExist:
             raise CommandError(f"Repo {repo_id} not found")
 
-        repo_root = Path(__file__).resolve().parents[5]
+        repo_root = find_repo_root()
         pool = list((repo_root / "frontend" / "__snapshots__").glob("*.png")) or list(
             (repo_root / "playwright" / "__snapshots__").rglob("*.png")
         )

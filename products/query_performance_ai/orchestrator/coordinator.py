@@ -37,6 +37,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from common.path_utils import find_repo_root
+
 from .backends.base import ExecutionBackend
 from .backends.local import LocalClickhouseBackend
 from .backends.metabase import MetabaseBackend
@@ -754,16 +756,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _resolve_repo_root() -> Path:
-    """Walk up from the product dir until we find the repo root marker."""
-    candidate = PRODUCT_DIR
-    for _ in range(8):
-        if (candidate / "manage.py").is_file() and (candidate / "products").is_dir():
-            return candidate
-        candidate = candidate.parent
-    raise SystemExit(
-        "could not locate the posthog repo root (looked for manage.py + products/). "
-        "Run the coordinator from inside the posthog checkout."
-    )
+    try:
+        return find_repo_root(PRODUCT_DIR)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            "could not locate the posthog repo root (no hogli.yaml above). "
+            "Run the coordinator from inside the posthog checkout."
+        ) from exc
 
 
 def _check_branch_on_remote(repo_root: Path, repository: str, branch: str) -> None:

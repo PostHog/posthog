@@ -33,20 +33,14 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
 
+from common.path_utils import find_repo_root
+
 TEST_BUCKET_BASE = "test_storage_bucket"
 INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 CUSTOMERS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 SUBSCRIPTIONS_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions"
 CHARGES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_charges"
-_TEST_DATA_DIR = (
-    Path(__file__).resolve().parents[5]
-    / "products"
-    / "revenue_analytics"
-    / "backend"
-    / "hogql_queries"
-    / "test"
-    / "data"
-)
+_TEST_DATA_DIR = find_repo_root() / "products" / "revenue_analytics" / "backend" / "hogql_queries" / "test" / "data"
 
 
 class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):

@@ -1,6 +1,5 @@
 import os
 import logging
-from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -15,7 +14,9 @@ from posthoganalytics.ai.openai import AsyncOpenAI
 
 from posthog.models import Organization, Team
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+from common.path_utils import find_repo_root
+
+load_dotenv(find_repo_root() / ".env")
 
 logging.getLogger("google_genai").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)

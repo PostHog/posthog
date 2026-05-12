@@ -1,8 +1,9 @@
 import re
-from pathlib import Path
 
 import pytest
 from posthog.test.base import APIBaseTest
+
+from common.path_utils import find_repo_root
 
 
 class TestAPIDocsSchema(APIBaseTest):
@@ -36,7 +37,7 @@ class TestAPIDocsSchema(APIBaseTest):
 
     @staticmethod
     def _normalize_warning_path(warning: str) -> str:
-        repo_root = str(Path(__file__).resolve().parents[3])
+        repo_root = str(find_repo_root())
         warning = warning.replace(repo_root, "/home/runner/work/posthog/posthog")
         return re.sub(
             r"^.*?/site-packages/",

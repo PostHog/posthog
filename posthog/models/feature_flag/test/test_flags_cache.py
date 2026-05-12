@@ -10,7 +10,6 @@ Tests cover:
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -40,6 +39,8 @@ from posthog.models.feature_flag.flags_cache import (
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
+
+from common.path_utils import find_repo_root
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -671,8 +672,7 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         update_team_service_flags_cache(999999)
 
 
-# Path from this test file up to the repo root (4 levels: test/ -> feature_flag/ -> models/ -> posthog/ -> repo)
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = find_repo_root()
 
 
 def _extract_schema(obj: Any) -> Any:

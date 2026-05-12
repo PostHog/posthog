@@ -42,13 +42,7 @@ from .ts_helpers import codegen_adoption, codegen_call_sites
 # Config loading (best-effort from migration_config.json)
 # ---------------------------------------------------------------------------
 
-_MIGRATION_CONFIG = (
-    Path(__file__).parent.parent.parent.parent
-    / ".agents"
-    / "skills"
-    / "product-model-migration"
-    / "migration_config.json"
-)
+_MIGRATION_CONFIG = REPO_ROOT / ".agents" / "skills" / "product-model-migration" / "migration_config.json"
 _SKILL_DIR_CONFIG = Path.home() / ".claude" / "skills" / "product-model-migration" / "migration_config.json"
 
 

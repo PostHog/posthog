@@ -16,6 +16,8 @@ from products.visual_review.backend.facade.enums import ReviewState, RunStatus, 
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 from products.visual_review.backend.storage import ArtifactStorage
 
+from common.path_utils import find_repo_root
+
 
 class Command(BaseCommand):
     help = "Seed visual review with dummy runs from real master commits and repo snapshots"
@@ -80,7 +82,7 @@ class Command(BaseCommand):
             self.stdout.write(f"Using existing repo: {repo.repo_full_name}")
 
         # Collect snapshot files
-        repo_root = Path(__file__).resolve().parents[5]  # Go up to repo root
+        repo_root = find_repo_root()
         storybook_snapshots = list((repo_root / "frontend" / "__snapshots__").glob("*.png"))
         playwright_snapshots = list((repo_root / "playwright" / "__snapshots__").rglob("*.png"))
 

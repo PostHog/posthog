@@ -1,6 +1,5 @@
 import json
 import dataclasses
-from pathlib import Path
 from typing import get_args
 
 import pytest
@@ -12,7 +11,9 @@ from posthog.temporal.data_imports.signals.github_issues import github_issue_emi
 from posthog.temporal.data_imports.signals.linear_issues import linear_issue_emitter
 from posthog.temporal.data_imports.signals.zendesk_tickets import zendesk_ticket_emitter
 
-FIXTURES_DIR = Path(__file__).resolve().parents[5] / "products" / "signals" / "eval" / "fixtures"
+from common.path_utils import find_repo_root
+
+FIXTURES_DIR = find_repo_root() / "products" / "signals" / "eval" / "fixtures"
 
 
 def _load_fixture(filename: str) -> list[dict]:

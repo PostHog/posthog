@@ -6,8 +6,9 @@ from pathlib import Path
 
 import yaml
 
-# product/ -> hogli_commands/ -> hogli-commands/ -> tools/ -> repo root
-REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
+from common.path_utils import find_repo_root
+
+REPO_ROOT = find_repo_root()
 STRUCTURE_FILE = Path(__file__).parent.parent / "product_structure.yaml"
 PRODUCTS_DIR = REPO_ROOT / "products"
 TACH_TOML = REPO_ROOT / "tach.toml"

@@ -1,14 +1,15 @@
-import os
 import sys
 
 import structlog
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
+from common.path_utils import find_repo_root
+
 logger = structlog.get_logger(__name__)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
-BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BASE_DIR: str = str(find_repo_root())
 
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
 IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)  # Set in ee/hogai/eval/pytest.ini
