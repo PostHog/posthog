@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo
+
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
@@ -62,6 +64,46 @@ class TestQueryCompareToDateRange(APIBaseTest):
 
         # Human friendly comparison periods guarantee that the end of the week is same day
         self.assertEqual(query_date_range.date_to().isoweekday(), now.isoweekday())
+
+    def test_explicit_timezone_info_overrides_team_timezone(self):
+        # The compare-period parsing used to read directly from `self._team.timezone_info`,
+        # so a `timezone_info=UTC` override on the constructor was silently ignored.
+        # With the fix it should resolve `compare_to` in the explicitly-passed timezone.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="-48h")
+        with_override = QueryCompareToDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.DAY,
+            now=now,
+            compare_to="-1d",
+            timezone_info=ZoneInfo("UTC"),
+        )
+        without_override = QueryCompareToDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.DAY,
+            now=now,
+            compare_to="-1d",
+        )
+        # With the override the compare period anchors to UTC; without it, to US/Pacific.
+        # The two must produce different instants — otherwise the override has no effect.
+        self.assertNotEqual(with_override.date_from(), without_override.date_from())
+        # And the override produces the same result as a UTC-team baseline would.
+        self.team.timezone = "UTC"
+        self.team.save()
+        utc_baseline = QueryCompareToDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.DAY,
+            now=now,
+            compare_to="-1d",
+        )
+        self.assertEqual(with_override.date_from(), utc_baseline.date_from())
+        self.assertEqual(with_override.date_to(), utc_baseline.date_to())
 
     def test_minus_one_year_human_friendly(self):
         self.team.human_friendly_comparison_periods = True
