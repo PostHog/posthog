@@ -82,7 +82,7 @@ ROLE_CHOICES = (
 )
 
 
-class UserManager(BaseUserManager["User"]):
+class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     def get_queryset(self):
