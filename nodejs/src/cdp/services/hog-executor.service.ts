@@ -676,7 +676,7 @@ export class HogExecutorService {
                 (token): token is string => typeof token === 'string' && token.length > 0
             )
             if (teamTokens.length > 0) {
-                const haystack = `${params.url}\n${params.body ?? ''}`
+                const haystack = `${params.url}\n${params.body ?? ''}\n${Object.values(headers).join('\n')}`
                 const matchedToken = teamTokens.find((token) => haystack.includes(token))
                 if (matchedToken) {
                     const message =

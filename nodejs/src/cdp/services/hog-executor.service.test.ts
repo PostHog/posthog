@@ -1466,6 +1466,21 @@ describe('Hog Executor', () => {
                 expect(String(result.error)).toContain(expectedRejectionMessage)
             })
 
+            it('rejects when the team token appears in a request header', async () => {
+                const invocation = await createFetchInvocation({
+                    url: 'https://us.posthog.com/i/v0/e/',
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${TEAM_API_TOKEN}` },
+                    body: JSON.stringify({ event: '$pageview' }),
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(String(result.error)).toContain(expectedRejectionMessage)
+            })
+
             it('allows posthog.com fetches that use a different token', async () => {
                 jest.mocked(fetch).mockResolvedValue({
                     status: 200,
