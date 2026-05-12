@@ -990,6 +990,26 @@ def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User
     return activity_visibility_manager.apply_to_queryset(queryset, is_staff)
 
 
+def apply_organization_scoped_filter(
+    queryset: QuerySet["ActivityLog"], include_org_scoped: bool, team_id: int, organization_id: Any
+) -> QuerySet["ActivityLog"]:
+    """
+    Filter activity log queryset by team/org.
+
+    When include_org_scoped is True, includes both:
+    - Records with team_id matching the given team
+    - Records with team_id=NULL and organization_id matching (org-scoped records)
+
+    When False, only filters by team_id.
+    """
+    from django.db.models import Q
+
+    if include_org_scoped:
+        return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
+    else:
+        return queryset.filter(team_id=team_id)
+
+
 def load_activity(
     scope: ActivityScope,
     team_id: int,

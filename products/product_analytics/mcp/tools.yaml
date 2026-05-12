@@ -176,6 +176,28 @@ tools:
                 - query_status
                 - hogql
                 - types
+    insight-revert:
+        operation: insights_revert_create
+        enabled: true
+        scopes:
+            - insight:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Revert insight to a previous state
+        description: >
+            Revert an insight to the state recorded immediately before a specific activity log entry. Provide
+            the insight numeric `id` and the UUID `activity_log_id` of the entry to undo (look it up via
+            insights-activity-retrieve to see what changed, or via advanced-activity-logs-list with
+            scope=Insight and item_ids={insight_id} for the full diff). Only scalar/JSON fields (name,
+            description, filters, query) are reverted. Foreign keys, m2m relations (dashboards, tags),
+            derived fields, and UI state are skipped and returned in `skipped_fields`. Saving the insight
+            records a new activity log entry, so the revert is itself auditable and reversible.
+        param_overrides:
+            id:
+                cast: string-int
     insights-activity-retrieve:
         operation: insights_activity_retrieve
         enabled: true

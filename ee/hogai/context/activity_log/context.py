@@ -6,12 +6,12 @@ from typing import Any, cast
 from django.db.models import QuerySet
 
 from posthog.api.advanced_activity_logs.utils import get_activity_log_lookback_restriction
-from posthog.api.advanced_activity_logs.viewset import apply_organization_scoped_filter
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     ActivityScope,
     apply_activity_visibility_restrictions,
+    apply_organization_scoped_filter,
     field_name_overrides,
 )
 from posthog.sync import database_sync_to_async

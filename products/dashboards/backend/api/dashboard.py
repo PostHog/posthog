@@ -34,7 +34,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
-from posthog.api.advanced_activity_logs.viewset import apply_organization_scoped_filter
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
@@ -59,12 +58,11 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
-from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
-    Detail,
-    apply_activity_visibility_restrictions,
-    changes_between,
-    log_activity,
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.revert import (
+    RevertActivityLogRequestSerializer,
+    apply_revert_to_instance,
+    lookup_revertable_activity_log_entry,
 )
 from posthog.models.alert import AlertConfiguration
 from posthog.models.insight_variable import InsightVariable
@@ -190,17 +188,6 @@ REVERTABLE_DASHBOARD_FIELDS: frozenset[str] = frozenset(
         "deprecated_tags_v2",
     }
 )
-
-
-class RevertDashboardRequestSerializer(serializers.Serializer):
-    activity_log_id = serializers.UUIDField(
-        help_text=(
-            "UUID of the ActivityLog entry to revert. The entry must reference this dashboard "
-            "(scope='Dashboard', item_id equal to this dashboard id) and belong to the same team. "
-            "Look up candidates via the activity-log-list MCP tool or "
-            "GET /api/projects/{team_id}/activity_log/?scope=Dashboard&item_id={dashboard_id}."
-        )
-    )
 
 
 class CanEditDashboard(BasePermission):
@@ -1636,7 +1623,7 @@ class DashboardsViewSet(
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
     @extend_schema(
-        request=RevertDashboardRequestSerializer,
+        request=RevertActivityLogRequestSerializer,
         responses={200: RevertDashboardResponseSerializer},
         description=(
             "Revert this dashboard to the state recorded immediately before a specific activity log entry. "
@@ -1653,49 +1640,19 @@ class DashboardsViewSet(
         # the `dashboard:write` required scope, this gates write access to the dashboard.
         dashboard = self.get_object()
 
-        serializer = RevertDashboardRequestSerializer(data=request.data)
+        serializer = RevertActivityLogRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        activity_log_id = serializer.validated_data["activity_log_id"]
 
-        # Look up the activity log entry with the same access controls the activity log
-        # endpoints apply: team scoping (with org-level activity log opt-in), and the
-        # user-level visibility restrictions used by ActivityLogViewSet.
-        activity_log_queryset = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.id))
-        activity_log_queryset = apply_organization_scoped_filter(
-            activity_log_queryset,
-            bool(self.team.receive_org_level_activity_logs),
-            self.team_id,
-            self.team.organization_id,
+        log_entry = lookup_revertable_activity_log_entry(
+            activity_log_id=serializer.validated_data["activity_log_id"],
+            scope="Dashboard",
+            item_id=str(dashboard.id),
+            team_id=self.team_id,
+            organization_id=self.team.organization_id,
+            include_org_scoped=bool(self.team.receive_org_level_activity_logs),
+            user=request.user,
         )
-        activity_log_queryset = apply_activity_visibility_restrictions(activity_log_queryset, request.user)
-        try:
-            log_entry = activity_log_queryset.get(id=activity_log_id)
-        except ActivityLog.DoesNotExist:
-            raise exceptions.NotFound("Activity log entry not found for this dashboard.")
-
-        detail = log_entry.detail or {}
-        changes = detail.get("changes") or []
-        if not changes:
-            raise exceptions.ValidationError("Activity log entry has no field changes to revert.")
-
-        applied: list[str] = []
-        skipped: list[str] = []
-        for change in changes:
-            field_name = change.get("field")
-            if not field_name:
-                continue
-            if field_name not in REVERTABLE_DASHBOARD_FIELDS:
-                skipped.append(field_name)
-                continue
-            setattr(dashboard, field_name, change.get("before"))
-            applied.append(field_name)
-
-        if not applied:
-            raise exceptions.ValidationError(
-                f"None of the recorded changes are revertable through this endpoint. "
-                f"Skipped fields: {sorted(set(skipped))}."
-            )
-
+        applied, skipped = apply_revert_to_instance(dashboard, log_entry, REVERTABLE_DASHBOARD_FIELDS)
         dashboard.save()
 
         return Response(

@@ -4820,3 +4820,95 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(error_message, str(response.json()))
+
+    def test_revert_insight_restores_name(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        insight = Insight.objects.create(team=self.team, name="Original name", created_by=self.user)
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"name": "Edited name"},
+            content_type="application/json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        log_entry = ActivityLog.objects.filter(scope="Insight", item_id=str(insight.id), activity="updated").latest(
+            "created_at"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/revert/",
+            {"activity_log_id": str(log_entry.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual(body["applied_fields"], ["name"])
+        self.assertEqual(body["skipped_fields"], [])
+        self.assertEqual(body["insight"]["name"], "Original name")
+        insight.refresh_from_db()
+        self.assertEqual(insight.name, "Original name")
+
+    def test_revert_insight_records_new_activity_log_entry(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        insight = Insight.objects.create(team=self.team, name="Before", created_by=self.user)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"name": "After"},
+            content_type="application/json",
+        )
+        target_log = ActivityLog.objects.filter(scope="Insight", item_id=str(insight.id), activity="updated").latest(
+            "created_at"
+        )
+        count_before = ActivityLog.objects.filter(scope="Insight", item_id=str(insight.id)).count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/revert/",
+            {"activity_log_id": str(target_log.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        count_after = ActivityLog.objects.filter(scope="Insight", item_id=str(insight.id)).count()
+        self.assertEqual(count_after, count_before + 1)
+        newest = ActivityLog.objects.filter(scope="Insight", item_id=str(insight.id), activity="updated").latest(
+            "created_at"
+        )
+        names = {c["field"] for c in (newest.detail or {}).get("changes", [])}
+        self.assertIn("name", names)
+
+    def test_revert_insight_with_unknown_log_id_returns_404(self):
+        insight = Insight.objects.create(team=self.team, name="Insight", created_by=self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/revert/",
+            {"activity_log_id": "00000000-0000-0000-0000-000000000000"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_revert_insight_with_no_revertable_fields_returns_400(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        insight = Insight.objects.create(team=self.team, name="Insight", created_by=self.user)
+        log_entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="Insight",
+            item_id=str(insight.id),
+            activity="updated",
+            detail={
+                "name": insight.name,
+                "type": "insight",
+                "changes": [
+                    {"type": "Insight", "action": "changed", "field": "created_by", "before": None, "after": 1}
+                ],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/revert/",
+            {"activity_log_id": str(log_entry.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

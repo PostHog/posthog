@@ -100,6 +100,11 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
+from posthog.models.activity_logging.revert import (
+    RevertActivityLogRequestSerializer,
+    apply_revert_to_instance,
+    lookup_revertable_activity_log_entry,
+)
 from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -1206,6 +1211,29 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
+# Fields on Insight whose `before` value can be safely applied during revert.
+# Excludes foreign keys (created_by, last_modified_by, team), m2m (dashboards, tags),
+# derived/computed fields (filters_hash, query_metadata, derived_name), soft-delete
+# (deleted), and UI state (saved, favorited).
+REVERTABLE_INSIGHT_FIELDS: frozenset[str] = frozenset({"name", "description", "filters", "query"})
+
+
+class RevertInsightResponseSerializer(serializers.Serializer):
+    insight = InsightSerializer(help_text="The insight after the revert has been applied.")
+    applied_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Fields that were reset to their `before` value from the activity log entry.",
+    )
+    skipped_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Fields recorded in the activity log entry that this endpoint will not revert — typically "
+            "relations (created_by, dashboards, tags), derived fields (filters_hash, query_metadata), "
+            "or UI state (saved, favorited)."
+        ),
+    )
+
+
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 @extend_schema_view(
     list=extend_schema(
@@ -2203,6 +2231,67 @@ When set, the specified dashboard's filters and date range override will be appl
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @extend_schema(
+        request=RevertActivityLogRequestSerializer,
+        responses={200: RevertInsightResponseSerializer},
+        description=(
+            "Revert this insight to the state recorded immediately before a specific activity log entry. "
+            "Each field captured in that entry's `changes` is reset to its `before` value. Foreign keys, "
+            "m2m relations (dashboards, tags), derived fields (filters_hash, query_metadata), and UI state "
+            "(saved, favorited) are skipped and listed in `skipped_fields`. Saving the insight records a "
+            "new `updated` activity log entry, so reverts are themselves auditable and can be reverted in turn."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["insight:write"])
+    def revert(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        # get_object() runs through AccessControlViewSetMixin, which enforces edit
+        # access on the insight. Combined with `insight:write`, this gates the write.
+        insight = self.get_object()
+
+        request_serializer = RevertActivityLogRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        log_entry = lookup_revertable_activity_log_entry(
+            activity_log_id=request_serializer.validated_data["activity_log_id"],
+            scope="Insight",
+            item_id=str(insight.id),
+            team_id=self.team_id,
+            organization_id=self.team.organization_id,
+            include_org_scoped=bool(self.team.receive_org_level_activity_logs),
+            user=request.user,
+        )
+
+        # Snapshot the pre-revert state so we can emit a faithful activity log entry
+        # for the revert itself — Insight uses imperative activity logging, not the
+        # ModelActivityMixin signal, so save() alone does not record anything.
+        before_update = Insight.objects.get(pk=insight.pk)
+        applied, skipped = apply_revert_to_instance(insight, log_entry, REVERTABLE_INSIGHT_FIELDS)
+        insight.save()
+
+        changes = [
+            c for c in changes_between("Insight", previous=before_update, current=insight) if c.field != "dashboards"
+        ]
+        log_and_report_insight_activity(
+            activity="updated",
+            insight=insight,
+            insight_id=insight.id,
+            insight_short_id=insight.short_id,
+            organization_id=cast(User, request.user).current_organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            request=request,
+            changes=changes,
+        )
+
+        return Response(
+            {
+                "insight": InsightSerializer(insight, context=self.get_serializer_context()).data,
+                "applied_fields": applied,
+                "skipped_fields": skipped,
+            }
+        )
 
     @action(methods=["POST"], detail=False)
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="CANCEL")

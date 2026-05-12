@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
@@ -24,6 +24,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     ActivityScope,
     apply_activity_visibility_restrictions,
+    apply_organization_scoped_filter,
 )
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.organization import Organization, OrganizationMembership
@@ -34,24 +35,6 @@ from posthog.tasks import exporter
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager
 from .utils import get_activity_log_lookback_restriction
-
-
-def apply_organization_scoped_filter(
-    queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
-) -> QuerySet[ActivityLog]:
-    """
-    Filter activity log queryset by team/org.
-
-    When include_org_scoped is True, includes both:
-    - Records with team_id matching the given team
-    - Records with team_id=NULL and organization_id matching (org-scoped records)
-
-    When False, only filters by team_id.
-    """
-    if include_org_scoped:
-        return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
-    else:
-        return queryset.filter(team_id=team_id)
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
