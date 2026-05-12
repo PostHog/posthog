@@ -169,7 +169,6 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert response.status_code == status.HTTP_410_GONE
         data = response.json()
         assert data["code"] == "conflict_stale"
-        # Carries fresh content so the client can populate the modal preview without a GET.
         assert data["content"] == SAMPLE_DOC
 
 

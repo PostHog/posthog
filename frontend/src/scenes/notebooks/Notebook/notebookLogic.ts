@@ -456,9 +456,8 @@ export const notebookLogic = kea<notebookLogicType>([
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.steps) {
-                                // PM-collab rebases our pending steps over the missed range.
-                                // If receiveTransaction throws, `rebaseFailed` opens the modal;
-                                // silent step drops (range eliminated) are tolerated.
+                                // prosemirror-collab rebases our pending steps over the missed range.
+                                // If receiveTransaction throws, `rebaseFailed` opens the conflict modal.
                                 const steps = error.data.steps as Record<string, any>[]
                                 const clientIds = error.data.client_ids as string[]
                                 const serverVersion = error.data.version as number
@@ -480,10 +479,8 @@ export const notebookLogic = kea<notebookLogicType>([
                                 return values.notebook
                             }
                             if (error.status === 410) {
-                                // Server is past us in a way collab can't bridge (stream trimmed,
-                                // or out-of-band Postgres write). 410 carries fresh content; the
-                                // modal shows side-by-side previews so the user can copy any
-                                // unsaved text into a new notebook before discarding.
+                                // Stream trimmed, 410 carries fresh content;
+                                // the modal shows side-by-side previews so the user can discard/save changes.
                                 const fresh = error.data?.content
                                     ? error.data
                                     : await api.notebooks.get(values.notebook.short_id, undefined, {})
@@ -1103,7 +1100,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         rebaseFailed: ({ serverContent, localContent, localText }) => {
-            // PM-collab couldn't apply a remote step; the modal lets the user copy or discard.
+            // prosemirror-collab couldn't apply a remote step; the modal lets the user copy or discard.
             actions.showCollabConflict({ serverContent, localContent, localText })
         },
 
