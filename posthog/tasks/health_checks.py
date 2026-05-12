@@ -8,13 +8,7 @@ logger = get_logger(__name__)
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def evaluate_health_check_for_team(kind: str, team_id: int) -> None:
-    # Run a single health check synchronously for one team and reconcile its active issues.
-    # Triggered by signals on the underlying data so users see fresh state before the next
-    # scheduled batch run; safe to be called multiple times — the reconciliation is idempotent.
-    #
-    # Imports are deferred: posthog.temporal.health_checks.__init__ pulls in posthog.dags,
-    # which calls django.setup() at import time and re-enters Django's app population if
-    # this module is loaded during Django boot (which happens via posthog.tasks autoload).
+    # Deferred: posthog.dags.__init__ calls django.setup() and would re-enter if loaded during boot.
     from posthog.temporal.health_checks.processing import _process_batch_detection
     from posthog.temporal.health_checks.registry import ensure_registry_loaded, get_detect_fn
 

@@ -70,6 +70,4 @@ class HealthCheck:
         raise NotImplementedError
 
     def evaluate_for_team(self, team_id: int) -> BatchResult:
-        # Synchronously run this check for a single team and reconcile its active issues.
-        # Used for event-driven evaluation so changes show up before the next scheduled run.
         return _process_batch_detection(team_ids=[team_id], kind=self.kind, detect_fn=self.detect)
