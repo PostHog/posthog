@@ -18401,6 +18401,14 @@ export namespace Schemas {
       values?: unknown;
     }
 
+    export interface InsightViewedRequest {
+      /**
+         * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
+         * @maxItems 2500
+         */
+      insight_ids: number[];
+    }
+
     export interface InsightsToolCall {
       /** @maxLength 1000 */
       query: string;
