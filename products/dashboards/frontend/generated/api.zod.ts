@@ -294,6 +294,9 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
 Reconstructable scalar fields (name, description, filters, variables, etc.) are
 restored. Tiles and tags are managed through other endpoints and are not affected
 by a revert.
+
+Requires both dashboard edit access and ``activity_log:read`` — you cannot revert
+without being able to inspect what you are reverting to.
  */
 export const DashboardsRevertToVersionCreateBody = /* @__PURE__ */ zod.object({
     version_id: zod

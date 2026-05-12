@@ -619,6 +619,9 @@ export const getDashboardsRevertToVersionCreateUrl = (
 Reconstructable scalar fields (name, description, filters, variables, etc.) are
 restored. Tiles and tags are managed through other endpoints and are not affected
 by a revert.
+
+Requires both dashboard edit access and ``activity_log:read`` — you cannot revert
+without being able to inspect what you are reverting to.
  */
 export const dashboardsRevertToVersionCreate = async (
     projectId: string,
@@ -765,6 +768,10 @@ export const getDashboardsVersionsListUrl = (projectId: string, id: number, para
 
 Each version corresponds to an activity log entry capturing who made the change,
 when, and what fields changed (before/after).
+
+Visibility requires both dashboard edit access (only editors of the dashboard see who
+edited it) and ``activity_log:read`` so audit visibility can be revoked at the RBAC
+layer independently.
  */
 export const dashboardsVersionsList = async (
     projectId: string,
