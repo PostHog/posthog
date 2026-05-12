@@ -34,6 +34,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
+from posthog.api.advanced_activity_logs.viewset import apply_organization_scoped_filter
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
@@ -58,7 +59,13 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
-from posthog.models.activity_logging.activity_log import ActivityLog, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Detail,
+    apply_activity_visibility_restrictions,
+    changes_between,
+    log_activity,
+)
 from posthog.models.alert import AlertConfiguration
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
@@ -1641,19 +1648,28 @@ class DashboardsViewSet(
     )
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
     def revert(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # get_object() enforces CanEditDashboard.has_object_permission, which checks
+        # the dashboard's restriction_level and the user's edit privilege. Combined with
+        # the `dashboard:write` required scope, this gates write access to the dashboard.
         dashboard = self.get_object()
 
         serializer = RevertDashboardRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         activity_log_id = serializer.validated_data["activity_log_id"]
 
+        # Look up the activity log entry with the same access controls the activity log
+        # endpoints apply: team scoping (with org-level activity log opt-in), and the
+        # user-level visibility restrictions used by ActivityLogViewSet.
+        activity_log_queryset = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.id))
+        activity_log_queryset = apply_organization_scoped_filter(
+            activity_log_queryset,
+            bool(self.team.receive_org_level_activity_logs),
+            self.team_id,
+            self.team.organization_id,
+        )
+        activity_log_queryset = apply_activity_visibility_restrictions(activity_log_queryset, request.user)
         try:
-            log_entry = ActivityLog.objects.get(
-                id=activity_log_id,
-                team_id=self.team_id,
-                scope="Dashboard",
-                item_id=str(dashboard.id),
-            )
+            log_entry = activity_log_queryset.get(id=activity_log_id)
         except ActivityLog.DoesNotExist:
             raise exceptions.NotFound("Activity log entry not found for this dashboard.")
 

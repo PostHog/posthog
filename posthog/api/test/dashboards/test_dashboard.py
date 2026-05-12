@@ -3427,6 +3427,64 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_revert_dashboard_requires_edit_permission_on_dashboard(self):
+        # A member who is not a collaborator on a restricted dashboard cannot revert it,
+        # even if the activity log entry is otherwise accessible.
+        dashboard = Dashboard.objects.create(team=self.team, name="Original", created_by=self.user)
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
+            {"name": "Edited"},
+            content_type="application/json",
+        )
+        target_log = self._get_dashboard_activity_log(dashboard.pk)
+
+        # Restrict the dashboard and switch the request user to a non-collaborator.
+        dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        dashboard.created_by = None
+        dashboard.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        other_user = User.objects.create_and_join(self.organization, "non-collab@example.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(target_log.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.name, "Edited")
+
+    def test_revert_dashboard_rejects_log_from_another_team(self):
+        # Activity log entries from other teams must not be reachable, even if the
+        # current user can edit the target dashboard.
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        cross_team_log = ActivityLog.objects.create(
+            team_id=other_team.pk,
+            organization_id=other_org.pk,
+            user=self.user,
+            scope="Dashboard",
+            item_id=str(dashboard.pk),
+            activity="updated",
+            detail={
+                "name": dashboard.name,
+                "type": "dashboard",
+                "changes": [
+                    {"type": "Dashboard", "action": "changed", "field": "name", "before": "Old", "after": "New"}
+                ],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+            {"activity_log_id": str(cross_team_log.id)},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_revert_dashboard_mixed_fields_lists_skipped(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Original")
         # Hand-craft a log entry mixing revertable (name) and skipped (created_by) fields.
