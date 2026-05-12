@@ -72,8 +72,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 
-# 100 columns ≈ 19 weeks at 5 cols/week before compaction is needed.
-DMAT_STRING_COLUMN_COUNT = 100
+# Shared per-team allocation: each team picks its slots independently from this range, and
+# (team_id, slot_index) → property_name is resolved at write/read time via the dmat dictionary.
+# Cap matches MAX_SLOTS_PER_TEAM so every team can fully saturate its slots.
+DMAT_STRING_COLUMN_COUNT = 10
 
 
 def EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:

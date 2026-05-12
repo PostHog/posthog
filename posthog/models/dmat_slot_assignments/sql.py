@@ -10,9 +10,9 @@ Pattern mirrors `posthog/models/web_preaggregated/team_selection.py` —
 ReplacingMergeTree backing table + CLICKHOUSE-source dictionary, created
 per-host via `run_sql_with_exceptions`. Differs from that pattern in one
 place: we use TRUNCATE+INSERT every
-cycle rather than append-only, because dmat slots can be deleted/reset/
-compacted and append-only would leave stale rows in the dict that silently
-overwrite columns no longer assigned to that (team, slot_index).
+cycle rather than append-only, because dmat slots can be deleted or reset
+and append-only would leave stale rows in the dict that silently overwrite
+columns no longer assigned to that (team, slot_index).
 """
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE

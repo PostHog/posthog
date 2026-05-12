@@ -54,7 +54,7 @@ def test_dict_has_returns_false_for_unknown_keys() -> None:
 
 def test_dict_get_string_round_trips_property_name() -> None:
     team_id = 2_000_002
-    column_index = 12
+    column_index = 8
     property_name = f"my prop with spaces {uuid.uuid4().hex[:6]}"
     _populate([(team_id, column_index, property_name)])
 

@@ -5,15 +5,13 @@ from posthog.models.utils import UUIDTModel
 
 from products.event_definitions.backend.models import PropertyDefinition
 
-MAX_SLOTS_PER_TEAM = 5
+MAX_SLOTS_PER_TEAM = 10
 
 # Inclusive — must stay paired with `DMAT_STRING_COLUMN_COUNT` in posthog/models/event/sql.py.
-MAX_SLOT_INDEX = 99
-
-# Compaction and PENDING allocation each consume up to MAX_SLOTS_PER_TEAM columns from the
-# global free pool, so the threshold is set to 2 * MAX_SLOTS_PER_TEAM — guarantees compaction
-# always has headroom to allocate dense targets even after a full PENDING week.
-COMPACTION_FREE_COLUMN_THRESHOLD = 10
+# Slots are allocated per-team: each team picks freely from 0..MAX_SLOT_INDEX, and different
+# teams may share the same column index for different properties (the dmat dict resolves
+# (team_id, slot_index) → property_name at write/read time).
+MAX_SLOT_INDEX = 9
 
 
 class MaterializedColumnSlotState(models.TextChoices):
@@ -48,12 +46,6 @@ class MaterializedColumnSlot(UUIDTModel):
     # to BACKFILL. The unique constraint on (team, slot_index) only applies to rows with a
     # non-null slot_index, so multiple PENDING slots can coexist without conflict.
     slot_index = models.PositiveSmallIntegerField(null=True, blank=True)
-    # Set during compaction — the slot is being repacked into a smaller column index so the old
-    # one can be freed. While this is set, ingestion writes to BOTH columns (slot_index AND
-    # compaction_target_slot_index) so HogQL reads stay correct on the old column until the
-    # weekly mutation finishes backfilling the new column. After the mutation completes, the
-    # workflow swaps slot_index ← compaction_target_slot_index and clears this field.
-    compaction_target_slot_index = models.PositiveSmallIntegerField(null=True, blank=True)
     state = models.CharField(
         max_length=20,
         choices=MaterializedColumnSlotState,
@@ -76,21 +68,13 @@ class MaterializedColumnSlot(UUIDTModel):
                 name="unique_team_property_definition",
             ),
             # Per-team uniqueness on the assigned column index. The dmat_string_<idx> columns
-            # are shared across teams (one column physically; per-row team_id discriminates
-            # via the multiIf branches in the backfill mutation), but within a team each
-            # slot must own a distinct index so dual-writes don't collide.
+            # are shared across teams (one column physically; the dmat dict resolves
+            # (team_id, slot_index) → property_name per row), but within a team each slot
+            # must own a distinct index.
             models.UniqueConstraint(
                 fields=["team", "slot_index"],
                 name="unique_team_slot_index",
                 condition=models.Q(slot_index__isnull=False),
-            ),
-            # Defense-in-depth — the planner enforces this in code; the constraint catches
-            # hand edits and any future planner regression that would otherwise let two slots
-            # in one team dual-write to the same target column.
-            models.UniqueConstraint(
-                fields=["team", "compaction_target_slot_index"],
-                name="unique_team_compaction_target",
-                condition=models.Q(compaction_target_slot_index__isnull=False),
             ),
             models.CheckConstraint(
                 name="valid_slot_index",
@@ -103,14 +87,6 @@ class MaterializedColumnSlot(UUIDTModel):
                     models.Q(state=MaterializedColumnSlotState.PENDING)
                     | models.Q(state=MaterializedColumnSlotState.ERROR)
                     | models.Q(slot_index__isnull=False)
-                ),
-            ),
-            models.CheckConstraint(
-                name="valid_compaction_target_slot_index",
-                condition=models.Q(compaction_target_slot_index__isnull=True)
-                | (
-                    models.Q(compaction_target_slot_index__gte=0)
-                    & models.Q(compaction_target_slot_index__lte=MAX_SLOT_INDEX)
                 ),
             ),
         ]

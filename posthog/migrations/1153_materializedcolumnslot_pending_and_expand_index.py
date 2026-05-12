@@ -4,11 +4,12 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [("posthog", "1152_fix_device_bucketing_persist_across_auth")]
 
-    # Bundles three pre-shipping changes for MaterializedColumnSlot:
-    # 1) slot_index becomes nullable + range expands to 0–99 + uniqueness becomes partial
+    # Bundles two pre-shipping changes for MaterializedColumnSlot:
+    # 1) slot_index becomes nullable + range allows 0–9 + uniqueness becomes partial
     #    so multiple PENDING slots per team can coexist with no slot_index assigned.
-    # 2) Add compaction_target_slot_index with its own partial unique constraint.
-    # 3) Drop property_type from Django state only — every dmat column is `Nullable(String)`;
+    #    Slots are allocated per-team — every team picks freely from 0..9, and the dmat
+    #    dictionary resolves (team_id, slot_index) → property_name at write/read time.
+    # 2) Drop property_type from Django state only — every dmat column is `Nullable(String)`;
     #    HogQL casts at read using prop_def.property_type instead. The DB column is left in
     #    place per safe-django-migrations.md (multi-phase column drop). A future migration
     #    can drop the column once all running code no longer references it.
@@ -58,7 +59,7 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
-        # Slot index becomes nullable for PENDING and ranges 0–99.
+        # Slot index becomes nullable for PENDING and ranges 0–9.
         migrations.AlterField(
             model_name="materializedcolumnslot",
             name="slot_index",
@@ -78,12 +79,6 @@ class Migration(migrations.Migration):
                 default="PENDING",
             ),
         ),
-        # Compaction target field — set during repack, otherwise NULL.
-        migrations.AddField(
-            model_name="materializedcolumnslot",
-            name="compaction_target_slot_index",
-            field=models.PositiveSmallIntegerField(null=True, blank=True),
-        ),
         # Re-add constraints in the new (property_type-free) shape.
         migrations.AddConstraint(
             model_name="materializedcolumnslot",
@@ -95,26 +90,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="materializedcolumnslot",
-            constraint=models.UniqueConstraint(
-                fields=("team", "compaction_target_slot_index"),
-                name="unique_team_compaction_target",
-                condition=models.Q(compaction_target_slot_index__isnull=False),
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="materializedcolumnslot",
             constraint=models.CheckConstraint(
                 name="valid_slot_index",
                 condition=models.Q(slot_index__isnull=True)
-                | (models.Q(slot_index__gte=0) & models.Q(slot_index__lte=99)),
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="materializedcolumnslot",
-            constraint=models.CheckConstraint(
-                name="valid_compaction_target_slot_index",
-                condition=models.Q(compaction_target_slot_index__isnull=True)
-                | (models.Q(compaction_target_slot_index__gte=0) & models.Q(compaction_target_slot_index__lte=99)),
+                | (models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9)),
             ),
         ),
         migrations.AddConstraint(
