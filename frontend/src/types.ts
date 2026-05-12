@@ -847,7 +847,18 @@ export interface ElementType {
     text?: string
 }
 
-// Single source of truth — derive both the type and any runtime allowlist from this tuple.
+// Keep the union literal so kea-typegen can inline its members; the runtime allowlist below
+// is asserted to satisfy the same members so TypeScript fails the build if either side drifts.
+export type ToolbarUserIntent =
+    | 'add-action'
+    | 'edit-action'
+    | 'heatmaps'
+    | 'add-experiment'
+    | 'edit-experiment'
+    | 'add-product-tour'
+    | 'edit-product-tour'
+    | 'preview-product-tour'
+
 export const TOOLBAR_USER_INTENTS = [
     'add-action',
     'edit-action',
@@ -857,8 +868,7 @@ export const TOOLBAR_USER_INTENTS = [
     'add-product-tour',
     'edit-product-tour',
     'preview-product-tour',
-] as const
-export type ToolbarUserIntent = (typeof TOOLBAR_USER_INTENTS)[number]
+] as const satisfies readonly ToolbarUserIntent[]
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
