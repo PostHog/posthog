@@ -1,4 +1,4 @@
-import './LiveEventsTable.scss'
+import './LiveEventsFeed.scss'
 
 import clsx from 'clsx'
 import { type ReactNode, useMemo } from 'react'
@@ -106,7 +106,7 @@ export function LiveEventsFeed({
 
     return (
         <LemonTable
-            className={clsx('LiveEventsTable__table', className)}
+            className={clsx('LiveEventsFeed__table', className)}
             columns={tableColumns}
             data-attr="live-events-table"
             rowKey="uuid"

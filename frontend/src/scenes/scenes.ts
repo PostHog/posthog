@@ -287,12 +287,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
-    [Scene.LiveEvents]: {
-        projectBased: true,
-        name: 'Live events',
-        description: 'Real-time events from your app or website.',
-        iconType: 'live',
-    },
     [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true, layout: 'plain' },
@@ -774,7 +768,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
     [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
-    [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce(
