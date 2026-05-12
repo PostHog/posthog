@@ -178,6 +178,12 @@ async def _probe_for_good_session(
                 saw_html = True
         except aiohttp.ClientError as e:
             last_error = e
+        except BaseException:
+            # CancelledError/KeyboardInterrupt/SystemExit must not leak the
+            # session we just opened. Mirrors the cleanup `async with` would
+            # have given us if we used ClientSession as a context manager.
+            await last_session.close()
+            raise
     if saw_html and last_error is None:
         # All responses came back, just as HTML — the ultimate-express bug.
         hint = (

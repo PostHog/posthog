@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -565,6 +567,33 @@ class TestProbeOnOpen:
                 and expected_hint_fragment in call.kwargs.get("hint", "")
                 for call in warning_calls
             ), f"expected {failure_mode} warning with hint containing {expected_hint_fragment!r}, got: {warning_calls}"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_during_probe_closes_session(self):
+        """If an async task is cancelled mid-probe, the in-flight session must still close."""
+        session = AsyncMock(spec=aiohttp.ClientSession)
+        session.get = MagicMock(side_effect=asyncio.CancelledError)
+        session.close = AsyncMock(return_value=None)
+
+        with (
+            patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
+            patch("posthog.session_recordings.recordings.recording_api_client.aiohttp.TCPConnector"),
+            patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                return_value=session,
+            ),
+        ):
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
+            mock_settings.RECORDING_API_PROBE_ON_OPEN = True
+
+            with pytest.raises(asyncio.CancelledError):
+                async with recording_api_client():
+                    pass
+
+            # The in-flight session must be cleaned up before the cancellation propagates.
+            session.close.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_disabled_skips_probe(self):
