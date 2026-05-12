@@ -52,6 +52,7 @@ import {
     retryWithBackoff,
     reverseColonDelimitedDuration,
     roundToDecimal,
+    safeStringify,
     selectorOperatorMap,
     shortTimeZone,
     stringOperatorMap,
@@ -60,6 +61,33 @@ import {
 } from './utils'
 
 describe('lib/utils', () => {
+    describe('safeStringify()', () => {
+        it.each([
+            ['plain string', 'hello', '"hello"'],
+            ['plain number', 42, '42'],
+            ['null', null, 'null'],
+            ['plain object', { a: 1, b: 'two' }, '{"a":1,"b":"two"}'],
+            ['array of primitives', [1, 2, 3], '[1,2,3]'],
+            ['top-level bigint', BigInt('9007199254740993'), '"9007199254740993"'],
+            ['object with bigint', { id: BigInt('9007199254740993') }, '{"id":"9007199254740993"}'],
+            ['array of bigints', [BigInt(1), BigInt(2)], '["1","2"]'],
+            ['nested bigint', { a: { b: BigInt(7) } }, '{"a":{"b":"7"}}'],
+            ['mixed types', { n: 1, b: BigInt(2), s: 'x', a: [BigInt(3)] }, '{"n":1,"b":"2","s":"x","a":["3"]}'],
+        ])('serialises %s', (_label, input, expected) => {
+            expect(safeStringify(input)).toEqual(expected)
+        })
+
+        it('does not throw on BigInt where JSON.stringify would throw', () => {
+            expect(() => JSON.stringify(BigInt(1))).toThrow()
+            expect(() => safeStringify(BigInt(1))).not.toThrow()
+        })
+
+        it('omits undefined values like JSON.stringify', () => {
+            expect(safeStringify(undefined)).toBeUndefined()
+            expect(safeStringify({ a: undefined, b: 1 })).toEqual('{"b":1}')
+        })
+    })
+
     describe('toParams', () => {
         it('handles unusual input', () => {
             expect(toParams({})).toEqual('')

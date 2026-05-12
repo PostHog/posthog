@@ -2140,6 +2140,13 @@ export function tryJsonParse(value: string, fallback?: any): any {
  * when a BigInt value is encountered. This function converts BigInt values to their
  * string representation instead, preventing the error while preserving the numeric value.
  *
+ * NOTE: The conversion is intentionally lossy with respect to JSON types: a BigInt like
+ * `9007199254740993n` becomes the JSON *string* `"9007199254740993"`, not a JSON number.
+ * Callers that parse the output back into JS should not assume numeric equality on
+ * BigInt-sourced fields, and should not rely on this for round-trip type preservation.
+ * This is used for serialising filter property values for stable comparison / URL
+ * encoding, where preventing the crash is more important than type fidelity.
+ *
  * @example
  * safeStringify({ id: BigInt(9007199254740993) }) // '{"id":"9007199254740993"}'
  */
