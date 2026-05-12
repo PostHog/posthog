@@ -117,6 +117,22 @@ def lookup_revertable_activity_log_entry(
     )
 
 
+def _field_allows_null(instance: Model, field_name: str) -> bool:
+    """Return True if `field_name` is a real model field whose column is nullable.
+
+    Unknown fields (e.g. dynamic Python-only attributes or renamed fields no
+    longer on the model) return True so the caller can still attempt the
+    setattr — only known-non-null columns are protected.
+    """
+    from django.core.exceptions import FieldDoesNotExist
+
+    try:
+        field = instance._meta.get_field(field_name)
+    except FieldDoesNotExist:
+        return True
+    return bool(getattr(field, "null", True))
+
+
 def apply_revert_to_instance(
     instance: Model,
     log_entry: ActivityLog,
@@ -129,6 +145,12 @@ def apply_revert_to_instance(
     appears in `revertable_fields`; otherwise it is surfaced in `skipped_fields`
     so the caller can communicate what wasn't reverted (typically relations,
     m2m, or immutable metadata that the whitelist deliberately excludes).
+
+    Special case: a `before=None` on a NOT NULL model column is also skipped —
+    `changes_between` records `None` for fields whose previous value was the
+    model default (e.g. `{}` / `""` / `[]`). Blindly applying `None` would
+    raise `IntegrityError` at save time for non-nullable columns and 500 the
+    request. Skipping is consistent with our "preserve the safe parts" promise.
 
     Raises rest_framework.exceptions.ValidationError if the entry has no changes
     to apply, or if every captured change is in the skip list.
@@ -147,7 +169,11 @@ def apply_revert_to_instance(
         if field_name not in revertable:
             skipped.append(field_name)
             continue
-        setattr(instance, field_name, change.get("before"))
+        before = change.get("before")
+        if before is None and not _field_allows_null(instance, field_name):
+            skipped.append(field_name)
+            continue
+        setattr(instance, field_name, before)
         applied.append(field_name)
     if not applied:
         raise exceptions.ValidationError(

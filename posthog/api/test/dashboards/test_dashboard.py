@@ -3420,7 +3420,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         names = {c["field"] for c in (newest.detail or {}).get("changes", [])}
         self.assertIn("name", names)
 
-    def test_revert_dashboard_undeletes(self):
+    def test_revert_dashboard_does_not_undelete(self):
+        # `deleted` is intentionally NOT in REVERTABLE_DASHBOARD_FIELDS because the
+        # normal soft-delete/restore path runs related-state bookkeeping (DashboardTile
+        # cleanup, Team.primary_dashboard, group_type_mapping) that a raw setattr would
+        # bypass. A revert targeting only `deleted` should be rejected as having no
+        # revertable fields.
         dashboard = Dashboard.objects.create(team=self.team, name="To delete")
         self.client.patch(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/",
@@ -3434,10 +3439,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"activity_log_id": str(target_log.id)},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("deleted", response.json()["applied_fields"])
-        dashboard.refresh_from_db()
-        self.assertFalse(dashboard.deleted)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_revert_dashboard_with_unknown_log_id_returns_404(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")

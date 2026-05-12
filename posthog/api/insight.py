@@ -2275,7 +2275,9 @@ When set, the specified dashboard's filters and date range override will be appl
         # Snapshot the pre-revert state so we can emit a faithful activity log entry
         # for the revert itself — Insight uses imperative activity logging, not the
         # ModelActivityMixin signal, so save() alone does not record anything.
-        before_update = Insight.objects.get(pk=insight.pk)
+        # `objects_including_soft_deleted` matches the viewset's `get_object()`
+        # queryset; the default manager excludes soft-deleted insights and would 500.
+        before_update = Insight.objects_including_soft_deleted.get(pk=insight.pk)
         applied, skipped = apply_revert_to_instance(insight, log_entry, REVERTABLE_INSIGHT_FIELDS)
         insight.save()
 

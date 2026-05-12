@@ -171,18 +171,24 @@ class CopyDashboardTileRequestSerializer(serializers.Serializer):
 
 
 # Fields on Dashboard whose `before` value can be safely applied during revert.
-# Excludes foreign keys (created_by, data_color_theme, team), m2m (insights, tags),
-# immutable metadata (creation_mode, share_token, is_shared), and bookkeeping fields.
+# Excludes:
+#   - foreign keys (created_by, data_color_theme, team)
+#   - m2m (insights, tags)
+#   - immutable metadata (creation_mode, share_token, is_shared)
+#   - `restriction_level` — the normal PATCH path enforces `can_user_restrict`; a raw
+#     setattr from a historical activity log would silently bypass that check and
+#     let any editor lower the restriction level
+#   - `deleted` — soft-delete/restore runs related-state bookkeeping (DashboardTile
+#     cleanup, Team.primary_dashboard, group_type_mapping); flipping the flag alone
+#     would leave dashboards half-deleted or half-restored
 REVERTABLE_DASHBOARD_FIELDS: frozenset[str] = frozenset(
     {
         "name",
         "description",
         "pinned",
-        "deleted",
         "filters",
         "variables",
         "breakdown_colors",
-        "restriction_level",
         "quick_filter_ids",
         "deprecated_tags",
         "deprecated_tags_v2",

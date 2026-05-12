@@ -9,7 +9,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -1002,8 +1002,6 @@ def apply_organization_scoped_filter(
 
     When False, only filters by team_id.
     """
-    from django.db.models import Q
-
     if include_org_scoped:
         return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
     else:
