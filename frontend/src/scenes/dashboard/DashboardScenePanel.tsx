@@ -170,7 +170,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </>
                 )}
 
-                {dashboard && <DashboardVersionHistoryMenuItem dashboardId={dashboard.id} />}
+                {dashboard && canEditDashboard && <DashboardVersionHistoryMenuItem dashboardId={dashboard.id} />}
 
                 {dashboard && (
                     <ButtonPrimitive

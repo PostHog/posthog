@@ -1482,6 +1482,20 @@ class DashboardsViewSet(
 
         return layout_size
 
+    def _assert_can_view_dashboard_versions(self, dashboard: Dashboard) -> None:
+        """Gate version-history endpoints behind both dashboard edit access and activity log read.
+
+        ``required_scopes`` covers Personal API Keys; this also enforces the same rule for
+        session-authenticated users by consulting ``UserPermissions`` (dashboard edit) and
+        ``UserAccessControl`` (``activity_log`` RBAC resource).
+        """
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        user_access_control = UserAccessControl(user=cast(User, self.request.user), team=self.team)
+        if not user_access_control.check_access_level_for_resource("activity_log", "viewer"):
+            raise exceptions.PermissionDenied("You don't have access log permissions in this project.")
+
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # TODO could things be rearranged so this is  PATCH call on a resource and not a custom endpoint?
@@ -1631,14 +1645,24 @@ class DashboardsViewSet(
         ],
         responses={200: DashboardVersionListItemSerializer(many=True)},
     )
-    @action(methods=["GET"], detail=True, url_path="versions", required_scopes=["dashboard:read"])
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="versions",
+        required_scopes=["dashboard:write", "activity_log:read"],
+    )
     def versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List recorded versions of this dashboard, newest first.
 
         Each version corresponds to an activity log entry capturing who made the change,
         when, and what fields changed (before/after).
+
+        Visibility requires both dashboard edit access (only editors of the dashboard see who
+        edited it) and ``activity_log:read`` so audit visibility can be revoked at the RBAC
+        layer independently.
         """
         dashboard = self.get_object()
+        self._assert_can_view_dashboard_versions(dashboard)
 
         try:
             limit = int(request.query_params.get("limit", "50"))
@@ -1665,7 +1689,7 @@ class DashboardsViewSet(
         methods=["POST"],
         detail=True,
         url_path="revert_to_version",
-        required_scopes=["dashboard:write"],
+        required_scopes=["dashboard:write", "activity_log:read"],
     )
     def revert_to_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Revert this dashboard to the state recorded at the given version id.
@@ -1673,10 +1697,14 @@ class DashboardsViewSet(
         Reconstructable scalar fields (name, description, filters, variables, etc.) are
         restored. Tiles and tags are managed through other endpoints and are not affected
         by a revert.
+
+        Requires both dashboard edit access and ``activity_log:read`` — you cannot revert
+        without being able to inspect what you are reverting to.
         """
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
+        self._assert_can_view_dashboard_versions(dashboard)
 
         serializer = DashboardRevertRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

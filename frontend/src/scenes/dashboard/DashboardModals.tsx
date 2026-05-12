@@ -66,9 +66,9 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                     <DeleteDashboardModal />
                     <DuplicateDashboardModal />
                     <DashboardInsightColorsModal />
+                    <DashboardVersionHistoryModal dashboardId={dashboard.id} canEdit={canEditDashboard} />
                 </>
             )}
-            <DashboardVersionHistoryModal dashboardId={dashboard.id} canEdit={canEditDashboard} />
             {user?.is_staff && <DashboardTemplateEditor />}
             <TerraformExportModal
                 isOpen={terraformModalOpen}

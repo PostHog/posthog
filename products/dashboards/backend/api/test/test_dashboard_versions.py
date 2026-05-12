@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -208,3 +210,62 @@ class TestDashboardVersionHistory(APIBaseTest):
         dashboard.refresh_from_db()
         assert dashboard.filters == {}
         assert dashboard.pinned is False
+
+    def test_versions_endpoint_requires_dashboard_edit_permission(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "v1"})
+
+        with patch(
+            "posthog.user_permissions.UserDashboardPermissions.can_edit",
+            new=False,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/versions/"
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "edit" in response.json()["detail"].lower()
+
+    def test_versions_endpoint_requires_activity_log_read(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "v1"})
+
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/versions/"
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access log" in response.json()["detail"].lower()
+
+    def test_revert_endpoint_requires_dashboard_edit_permission(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "v1"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"name": "v2"})
+        entries = self._get_activity_entries(dashboard_id)
+
+        with patch(
+            "posthog.user_permissions.UserDashboardPermissions.can_edit",
+            new=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/revert_to_version/",
+                {"version_id": str(entries[0].id)},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_revert_endpoint_requires_activity_log_read(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "v1"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"name": "v2"})
+        entries = self._get_activity_entries(dashboard_id)
+
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/revert_to_version/",
+                {"version_id": str(entries[0].id)},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access log" in response.json()["detail"].lower()
