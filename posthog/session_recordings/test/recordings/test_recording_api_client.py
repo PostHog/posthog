@@ -442,10 +442,16 @@ class TestProbeOnOpen:
             mock_settings.DEBUG = True
             mock_settings.RECORDING_API_PROBE_ON_OPEN = True
 
-            with patch(
-                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
-                return_value=session,
-            ) as mock_client_session:
+            # Stub TCPConnector too — _build_session would otherwise create a real
+            # connector for every probe attempt that no one ever closes, raising
+            # ResourceWarning under strict pytest configs.
+            with (
+                patch("posthog.session_recordings.recordings.recording_api_client.aiohttp.TCPConnector"),
+                patch(
+                    "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                    return_value=session,
+                ) as mock_client_session,
+            ):
                 async with recording_api_client() as client:
                     assert client.session is session
 
@@ -471,9 +477,12 @@ class TestProbeOnOpen:
             mock_settings.DEBUG = True
             mock_settings.RECORDING_API_PROBE_ON_OPEN = True
 
-            with patch(
-                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
-                side_effect=[bad_session, good_session],
+            with (
+                patch("posthog.session_recordings.recordings.recording_api_client.aiohttp.TCPConnector"),
+                patch(
+                    "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
+                    side_effect=[bad_session, good_session],
+                ),
             ):
                 async with recording_api_client() as client:
                     assert client.session is good_session
@@ -516,6 +525,7 @@ class TestProbeOnOpen:
         with (
             patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
             patch("posthog.session_recordings.recordings.recording_api_client.logger") as mock_logger,
+            patch("posthog.session_recordings.recordings.recording_api_client.aiohttp.TCPConnector"),
             patch(
                 "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession",
                 side_effect=sessions,
