@@ -81,6 +81,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
+    GitHog: () => import('../../products/githog/frontend/scenes/GitHogScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -179,6 +180,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
+    '/githog': ['GitHog', 'gitHog'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -388,6 +390,7 @@ export const productConfiguration: Record<string, any> = {
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
+    GitHog: { name: 'GitHog', projectBased: true, iconType: 'default_icon_type' },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -790,6 +793,7 @@ export const productUrls = {
     },
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
+    gitHog: (): string => '/githog',
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     groupsNew: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}/new`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -1494,6 +1498,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.featureFlags(),
         sceneKey: 'FeatureFlags',
         sceneKeys: ['FeatureFlags', 'FeatureFlag'],
+    },
+    {
+        path: 'GitHog',
+        intents: [ProductKey.GITHOG],
+        category: ProductItemCategory.UNRELEASED,
+        href: '/githog',
+        iconType: 'default_icon_type',
+        sceneKey: 'GitHog',
+        sceneKeys: ['GitHog'],
     },
     {
         path: 'Heatmaps',

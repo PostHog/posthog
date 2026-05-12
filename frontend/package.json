@@ -84,6 +84,7 @@
         "@posthog/products-experiments": "workspace:*",
         "@posthog/products-feature-flags": "workspace:*",
         "@posthog/products-games": "workspace:*",
+        "@posthog/products-githog": "workspace:*",
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-legal-documents": "workspace:*",
         "@posthog/products-links": "workspace:*",
