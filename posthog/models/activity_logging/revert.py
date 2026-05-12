@@ -25,12 +25,13 @@ sites. The matching MCP tools live under each product's `mcp/tools.yaml`.
 """
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model
 
+import posthoganalytics
 from rest_framework import exceptions, serializers
 
 from posthog.models.activity_logging.activity_log import (
@@ -40,6 +41,32 @@ from posthog.models.activity_logging.activity_log import (
     apply_organization_scoped_filter,
 )
 from posthog.models.user import User
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
+
+# Server-side PostHog feature flag that gates every `/revert/` endpoint built on
+# these helpers. Off by default so the feature can be smoke-tested on internal
+# teams in production before opening up to all customers. Enable the flag in the
+# PostHog UI / API for the orgs you want to give access to.
+ACTIVITY_LOG_REVERT_FLAG = "activity-log-revert"
+
+
+def is_activity_log_revert_enabled(user: "User", team: "Team") -> bool:
+    distinct_id = user.distinct_id or str(user.uuid)
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    return bool(
+        posthoganalytics.feature_enabled(
+            ACTIVITY_LOG_REVERT_FLAG,
+            distinct_id,
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 class RevertActivityLogRequestSerializer(serializers.Serializer):

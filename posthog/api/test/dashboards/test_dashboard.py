@@ -80,6 +80,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
+        # Default the experimental activity-log revert flag to ON so the existing
+        # revert tests exercise the full path. Individual tests can stop this
+        # patcher early (or restart with return_value=False) to assert flag-off
+        # behaviour. The patch only intercepts feature_enabled() calls made from
+        # the revert helper module, so non-revert tests are unaffected.
+        self._revert_flag_patcher = patch(
+            "posthog.models.activity_logging.revert.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._revert_flag_patcher.start()
+        self.addCleanup(self._revert_flag_patcher.stop)
+
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
         dashboard_names = ["a dashboard", "b dashboard"]
@@ -3287,6 +3299,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         return ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard_id), activity="updated").latest(
             "created_at"
         )
+
+    def test_revert_dashboard_returns_404_when_feature_flag_disabled(self):
+        # Stack a return_value=False patch on top of the default-on setUp patcher;
+        # the with-block restores the True patcher on exit so addCleanup is happy.
+        with patch(
+            "posthog.models.activity_logging.revert.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/revert/",
+                {},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_revert_dashboard_without_log_id_picks_latest_revertable(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Original", description="Original description")

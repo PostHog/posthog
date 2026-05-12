@@ -81,6 +81,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
+        # Default the experimental activity-log revert flag to ON so the revert
+        # tests in this class exercise the full path. The patch only intercepts
+        # feature_enabled() calls made from the revert helper module — other
+        # tests are unaffected. Individual tests can stack a return_value=False
+        # patch via `with` to assert flag-off behaviour.
+        self._revert_flag_patcher = patch(
+            "posthog.models.activity_logging.revert.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._revert_flag_patcher.start()
+        self.addCleanup(self._revert_flag_patcher.stop)
+
     @parameterized.expand(
         [
             ("trend", "/api/projects/{team_id}/insights/trend/"),
@@ -4820,6 +4832,19 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(error_message, str(response.json()))
+
+    def test_revert_insight_returns_404_when_feature_flag_disabled(self):
+        insight = Insight.objects.create(team=self.team, name="Insight", created_by=self.user)
+        with patch(
+            "posthog.models.activity_logging.revert.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/revert/",
+                {},
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_revert_insight_restores_name(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
