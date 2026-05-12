@@ -11,6 +11,7 @@ message with no tool calls, or on budget exhaustion.
 
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -41,6 +42,11 @@ MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well un
 # Per-request cap. The surrounding Temporal activity has its own (longer) deadline;
 # this guards against a single stuck HTTP call hanging for the whole activity budget.
 LLM_REQUEST_TIMEOUT_SECONDS = 90.0
+# Bounded so a runaway final message can't dominate log retention; large enough to fit the would-be JSON payload.
+PARSE_FAILURE_RAW_PREVIEW_CHARS = 2_000
+
+# The model is instructed to emit raw JSON, but sometimes wraps in fences anyway — handle here, not via agent retry.
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*\n?(.*?)\n?```", re.DOTALL)
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
@@ -219,32 +225,75 @@ async def run_investigation(
             messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
 
     final_message = messages[-1]
-    report = _parse_report(getattr(final_message, "content", ""))
+    report = _parse_report(getattr(final_message, "content", ""), tool_calls_used=tool_calls_used)
     report.tool_calls_used = tool_calls_used
     return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
 
 
-def _parse_report(content: Any) -> InvestigationReport:
+def _parse_report(content: Any, *, tool_calls_used: int = 0) -> InvestigationReport:
     text = _stringify(content).strip()
     if not text:
+        logger.warning(
+            "anomaly_investigation.parse_report_failed",
+            extra={"reason": "empty_final_message", "tool_calls_used": tool_calls_used},
+        )
         return _fallback_report("Agent returned no final message.")
-    # Try direct JSON; else find first/last brace.
+
+    parse_errors: list[str] = []
     for candidate in _json_candidates(text):
         try:
             parsed = json.loads(candidate)
-            return InvestigationReport.model_validate(parsed)
-        except (ValueError, TypeError, ValidationError):
+        except (ValueError, TypeError) as err:
+            parse_errors.append(f"json: {err}")
             continue
+        try:
+            return InvestigationReport.model_validate(parsed)
+        except ValidationError as err:
+            parse_errors.append(f"schema: {_summarize_validation_errors(err)}")
+            continue
+
+    logger.warning(
+        "anomaly_investigation.parse_report_failed",
+        extra={
+            "reason": "no_valid_json_found",
+            "tool_calls_used": tool_calls_used,
+            "raw_content_length": len(text),
+            "raw_content_preview": text[:PARSE_FAILURE_RAW_PREVIEW_CHARS],
+            "parse_errors": parse_errors[:5],
+        },
+    )
     return _fallback_report("Agent final message was not valid InvestigationReport JSON.")
 
 
 def _json_candidates(text: str) -> list[str]:
-    candidates: list[str] = [text]
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(candidate: str) -> None:
+        stripped = candidate.strip()
+        if stripped and stripped not in seen:
+            seen.add(stripped)
+            candidates.append(stripped)
+
+    _add(text)
+
+    # finditer handles the rare case of a prose example fence followed by the real report fence.
+    for fence_match in _FENCE_RE.finditer(text):
+        _add(fence_match.group(1))
+
+    # Outermost braces — covers leading and trailing prose around the JSON.
     first = text.find("{")
     last = text.rfind("}")
     if first != -1 and last > first:
-        candidates.append(text[first : last + 1])
+        _add(text[first : last + 1])
+
     return candidates
+
+
+def _summarize_validation_errors(err: ValidationError) -> str:
+    # Keep only loc + type so the log entry stays bounded even if the model returned a huge payload.
+    summary = [f"{'.'.join(str(p) for p in e['loc'])}: {e['type']}" for e in err.errors()[:3]]
+    return ", ".join(summary)
 
 
 def _stringify(content: Any) -> str:
