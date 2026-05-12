@@ -20,6 +20,7 @@ const eventFilter = (key: string, value: string | string[]): WebAnalyticsPropert
     operator: PropertyOperator.Exact,
 })
 
+// Event+Exact filters are the subset shared with the live stream view.
 export const isLiveStreamFilter = (filter: WebAnalyticsPropertyFilter): boolean =>
     filter.type === PropertyFilterType.Event && filter.operator === PropertyOperator.Exact
 

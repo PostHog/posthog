@@ -99,11 +99,12 @@ const LiveDashboardFilterRow = ({
 
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
+    const preservedOverviewFilters = rawWebAnalyticsFilters.filter((f) => !isLiveStreamFilter(f))
     const activeFilterCount = livePropertyFilters.length + (deviceTypeFilter ? 1 : 0)
     const hasFilters = activeFilterCount > 0 || hasDomainFilter
 
     const resetFilters = (): void => {
-        setWebAnalyticsFilters([])
+        setWebAnalyticsFilters(preservedOverviewFilters)
         setCountryFilter(null)
         setReferrerFilter(null)
         setDeviceTypeFilter(null)
@@ -123,9 +124,6 @@ const LiveDashboardFilterRow = ({
                             const nextLiveFilters = filters
                                 .filter(isWebAnalyticsPropertyFilter)
                                 .filter(isLiveStreamFilter)
-                            const preservedOverviewFilters = rawWebAnalyticsFilters.filter(
-                                (filter) => !isLiveStreamFilter(filter)
-                            )
                             setWebAnalyticsFilters([...preservedOverviewFilters, ...nextLiveFilters])
                         }}
                         propertyFilters={livePropertyFilters}
