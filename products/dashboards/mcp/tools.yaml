@@ -192,7 +192,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Revert dashboard to a previous state
         description: >
             Revert a dashboard to a previous state captured in the activity log. The typical case — "undo my last

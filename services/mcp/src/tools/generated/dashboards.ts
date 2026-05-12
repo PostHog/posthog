@@ -283,7 +283,7 @@ const dashboardRevert = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/revert/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 

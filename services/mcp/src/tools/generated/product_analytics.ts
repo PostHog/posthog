@@ -316,7 +316,7 @@ const insightRevert = (): ToolBase<typeof InsightRevertSchema, WithPostHogUrl<Sc
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/revert/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/insights/${result.id}`)
+        return await withPostHogUrl(context, result, `/insights/${params.id}`)
     },
 })
 

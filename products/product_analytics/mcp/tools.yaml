@@ -146,7 +146,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Revert insight to a previous state
         description: >
             Revert an insight to a previous state captured in the activity log. The typical case — "undo my last change"
