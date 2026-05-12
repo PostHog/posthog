@@ -119,7 +119,13 @@ The easiest way is to use hogli:
 bin/hogli product:bootstrap your_product_name
 ```
 
-This creates the full structure with apps.py, package.json, etc.
+This creates the full structure with apps.py, package.json, and working example code. The scaffold generates a fully wired "SplineReticulator" example across every layer: enum, frozen DTO, `ProductTeamModel` model, logic functions, facade with converter, `DataclassSerializer`, viewset with list+create, URL registration, and a test. Replace or remove the example code as you build your product.
+
+For CI or automation, use the `--non-interactive` flag to skip prompts:
+
+```bash
+bin/hogli product:bootstrap your_product_name --non-interactive
+```
 
 To check your product structure follows conventions:
 
