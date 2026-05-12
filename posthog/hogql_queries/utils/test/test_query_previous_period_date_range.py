@@ -16,20 +16,25 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         query_date_range = QueryPreviousPeriodDateRange(
             team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now
         )
-        # 2 days ago from now = 2021-08-23T00:00 → previous period of equal length
-        # goes back another 2 days (-48h shifted back by 48h).
-        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-21T00:00:00Z"))
+        # Current period [2021-08-23T00:00, 2021-08-25T23:59:59] is ~3 days inclusive.
+        # The previous period shifts back by that full span.
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-20T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-22T23:59:59.999999Z"))
 
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from
         # `self._team.timezone_info`, so a `timezone_info=UTC` override on the constructor
-        # was silently ignored. With the fix it should resolve the date range in the
-        # explicitly-passed timezone.
+        # was silently ignored.
+        #
+        # The bug surfaces in `date_from_str` / `date_to_str`, not in the datetime
+        # objects themselves: both point to the same UTC instant but display in
+        # different timezones. `format_date` strips the tz suffix via
+        # `strftime("%Y-%m-%d %H:%M:%S")`, so the formatted string carries the
+        # team-tz wall clock under the bug and the UTC wall clock with the fix.
+        # That string is what flows into ClickHouse, so we assert against it.
         #
         # `date_from="-2d"` is day-based, so the midnight-of-day anchor differs between
-        # US/Pacific (08-24 00:00 Pacific = 08-24 07:00 UTC) and UTC (08-24 00:00 UTC).
-        # A fixed-hour input like "-48h" would not exercise this — same delta either way.
+        # US/Pacific (08-24 00:00 PDT = 08-24 07:00 UTC) and UTC (08-24 00:00 UTC).
         self.team.timezone = "US/Pacific"
         self.team.save()
 
@@ -49,9 +54,9 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
             interval=IntervalType.DAY,
             now=now,
         )
-        # The override must actually change the result — otherwise the test wouldn't
-        # notice a regression of the fix.
-        self.assertNotEqual(with_override.date_from(), without_override.date_from())
+        # The override must change the formatted output — otherwise the test wouldn't
+        # catch a regression of the fix.
+        self.assertNotEqual(with_override.date_from_str, without_override.date_from_str)
 
         # Same setup with team on UTC and no override — should match the override result.
         self.team.timezone = "UTC"
@@ -62,5 +67,5 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
             interval=IntervalType.DAY,
             now=now,
         )
-        self.assertEqual(with_override.date_from(), utc_baseline.date_from())
-        self.assertEqual(with_override.date_to(), utc_baseline.date_to())
+        self.assertEqual(with_override.date_from_str, utc_baseline.date_from_str)
+        self.assertEqual(with_override.date_to_str, utc_baseline.date_to_str)
