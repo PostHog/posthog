@@ -43,7 +43,7 @@ BREAKDOWN_REFERRER_PREFIX = "referrer:"
 
 
 @dataclass(frozen=True)
-class StatsTableQueryPlan:
+class ResolvedStatsTableStrategy:
     strategy: str
     build_query: Callable[[], ast.SelectQuery]
     uses_preaggregated_tables: bool = False
@@ -84,7 +84,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
-    def _resolve_query_plan(self) -> StatsTableQueryPlan:
+    def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
         if (
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
@@ -93,39 +93,39 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             and not self.query.conversionGoal
         ):
             if self.query.breakdownBy == WebStatsBreakdown.PAGE:
-                return StatsTableQueryPlan(
+                return ResolvedStatsTableStrategy(
                     strategy="stats_table_preaggregated_path_breakdown",
                     build_query=self.preaggregated_query_builder.get_query,
                     uses_preaggregated_tables=True,
                 )
             if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
-                return StatsTableQueryPlan(
+                return ResolvedStatsTableStrategy(
                     strategy="stats_table_preaggregated_entry_bounce",
                     build_query=self.preaggregated_query_builder.get_query,
                     uses_preaggregated_tables=True,
                 )
-            return StatsTableQueryPlan(
+            return ResolvedStatsTableStrategy(
                 strategy="stats_table_preaggregated",
                 build_query=self.preaggregated_query_builder.get_query,
                 uses_preaggregated_tables=True,
             )
 
         strategy = self._get_strategy()
-        return StatsTableQueryPlan(
+        return ResolvedStatsTableStrategy(
             strategy=self._strategy_name(strategy),
             build_query=strategy.build_query,
         )
 
     def query_strategy(self) -> str:
-        return self._resolve_query_plan().strategy
+        return self._resolve_strategy().strategy
 
     def clickhouse_query_type(self) -> str:
         return f"{self.query_strategy()}_query"
 
     def to_query(self) -> ast.SelectQuery:
-        query_plan = self._resolve_query_plan()
-        self.used_preaggregated_tables = query_plan.uses_preaggregated_tables
-        return query_plan.build_query()
+        resolved = self._resolve_strategy()
+        self.used_preaggregated_tables = resolved.uses_preaggregated_tables
+        return resolved.build_query()
 
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
