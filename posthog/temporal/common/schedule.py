@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
@@ -9,8 +8,6 @@ from temporalio.service import RPCError, RPCStatusCode
 
 if TYPE_CHECKING:
     from temporalio.common import TypedSearchAttributes
-
-logger = logging.getLogger(__name__)
 
 
 @async_to_sync
@@ -162,23 +159,15 @@ async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             return False
-        logger.warning("Transient Temporal error checking schedule %s: %s", schedule_id, e)
-        return False
-    except Exception:
-        logger.exception("Unexpected error checking schedule existence for %s", schedule_id)
-        return False
+        raise
 
 
 async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists."""
+    """Check whether a schedule exists. See :func:`schedule_exists`."""
     try:
         await temporal.get_schedule_handle(schedule_id).describe()
         return True
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             return False
-        logger.warning("Transient Temporal error checking schedule %s: %s", schedule_id, e)
-        return False
-    except Exception:
-        logger.exception("Unexpected error checking schedule existence for %s", schedule_id)
-        return False
+        raise
