@@ -377,7 +377,14 @@ def is_enable_analyzer_team(team_id: int | None) -> bool:
 def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+    # The instance-settings API does not coerce list[int] inputs, so a value set
+    # via the UI text input can be stored as a bare string or int. Coerce here so
+    # `team_id in <value>` cannot raise TypeError on every HogQL query — worst
+    # case the analyzer stays off (the default) instead of breaking queries.
+    raw = get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, int) and not isinstance(item, bool)]
 
 
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:

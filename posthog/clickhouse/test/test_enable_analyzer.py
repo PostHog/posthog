@@ -90,3 +90,28 @@ class TestGetDefaultHogQLGlobalSettings:
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             settings = get_default_hogql_global_settings(team_id=None)
             assert settings.enable_analyzer is None
+
+
+class TestEnableAnalyzerTeamsMalformedValue:
+    def setup_method(self):
+        _get_enable_analyzer_teams.cache_clear()
+
+    def teardown_method(self):
+        _get_enable_analyzer_teams.cache_clear()
+
+    @parameterized.expand(
+        [
+            ("string_csv", "2, 17909"),
+            ("bare_int", 2),
+            ("none", None),
+            ("dict", {"team": 2}),
+            ("list_with_non_int", [2, "abc", None]),
+            ("list_with_bool", [2, True]),
+        ]
+    )
+    def test_malformed_setting_does_not_raise(self, _name: str, setting_value):
+        # Regression: a malformed stored value previously raised TypeError on every
+        # query (e.g. `int in <string>`). The reader now coerces defensively.
+        with patch(INSTANCE_SETTING_PATH, return_value=setting_value):
+            assert is_enable_analyzer_team(2) is False
+            assert is_enable_analyzer_team(17909) is False
