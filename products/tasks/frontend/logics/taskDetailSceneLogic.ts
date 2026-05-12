@@ -377,6 +377,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     return () => {}
                 }
 
+                // TODO(no-at-current-in-api-urls): migrate to `currentProjectIdStrict`. Rule misses this site because the URL is bound to a const and passed to fetch via the variable.
                 const streamUrl = `/api/projects/@current/tasks/${props.taskId}/runs/${runId}/stream/`
                 const toolMap = buildToolMap(values.streamEntries)
                 let eventIndex = values.streamEntries.length
