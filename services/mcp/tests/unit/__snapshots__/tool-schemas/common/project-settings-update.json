@@ -115,6 +115,28 @@
         "data_attributes": {
             "description": "Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`)."
         },
+        "environment_color": {
+            "anyOf": [
+                {
+                    "maxLength": 20,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "environment_label": {
+            "anyOf": [
+                {
+                    "maxLength": 30,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "extra_settings": {},
         "flags_persistence_default": {
             "anyOf": [
