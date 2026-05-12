@@ -960,7 +960,7 @@ class OauthIntegration:
         # Stripe Apps OAuth tokens don't include expires_in in the response
         if not config.get("expires_in") and kind == "stripe":
             config["expires_in"] = 3600
-  
+
         if kind == "stripe":
             # Persisted so downstream Stripe API calls (refresh_access_token,
             # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
