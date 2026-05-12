@@ -90,7 +90,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def get_by_natural_key(self, username: str | None) -> "User":
+    def get_by_natural_key(self, username: str | None) -> "User":  # type: ignore[override]
         # Case-insensitive lookup, ModelBackend.authenticate calls this method,
         # is_active filtering happens later in ModelBackend.user_can_authenticate, so we don't filter on it here.
         user = EmailLookupHandler.get_user_by_email(username, is_active=None) if username else None
