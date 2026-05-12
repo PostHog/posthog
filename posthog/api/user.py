@@ -1386,12 +1386,16 @@ class ToolbarOAuthRefreshView(APIView):
 
         # Reject refresh early if the toolbar was disabled for the user's team since
         # the token was issued. The endpoint is AllowAny, so we resolve the team via
-        # the refresh token's owning user. Missing rows or users without a current
-        # team are left to the OAuth server to handle so existing failure paths
-        # stay unchanged — only an explicit toolbar_disabled=True is rejected here.
+        # the refresh token's owning user. `User.team` is a cached_property over
+        # `User.current_team`, which is the real FK, so we prefetch that. Missing
+        # rows or users without a current team fall through to the OAuth server so
+        # existing failure paths stay unchanged — only an explicit
+        # toolbar_disabled=True is rejected here.
         try:
             refresh_token_row = (
-                OAuthRefreshToken.objects.select_related("user", "user__team").filter(token=refresh_token).first()
+                OAuthRefreshToken.objects.select_related("user", "user__current_team")
+                .filter(token=refresh_token)
+                .first()
             )
             if refresh_token_row and refresh_token_row.user and refresh_token_row.user.team:
                 assert_toolbar_enabled(refresh_token_row.user.team)

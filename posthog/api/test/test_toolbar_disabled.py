@@ -156,6 +156,22 @@ class TestToolbarDisabledRefresh(APIBaseTest):
         # The refresh call must never reach the OAuth server once disabled
         mock_refresh.assert_not_called()
 
+    def test_enabled_baseline_resolves_team_lookup(self):
+        # Regression guard: the team lookup via select_related must evaluate without
+        # raising FieldError. `User.team` is a cached_property over `current_team`,
+        # so the prefetch path must use the real FK name.
+        self.team.toolbar_disabled = False
+        self.team.save()
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh:
+            mock_refresh.return_value = {
+                "access_token": "new_access",
+                "refresh_token": "new_refresh",
+                "expires_in": 3600,
+            }
+            response = self._refresh()
+        assert response.status_code == 200
+        mock_refresh.assert_called_once()
+
 
 class TestAssertToolbarEnabled(APIBaseTest):
     """Unit tests for the assert_toolbar_enabled helper."""
