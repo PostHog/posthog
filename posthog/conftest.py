@@ -603,7 +603,8 @@ def enforce_detail_object_permissions(monkeypatch, request):
         ):
             return response
 
-        action_fn = getattr(self, getattr(self, "action", ""), None)
+        action_name = getattr(self, "action", "") or ""
+        action_fn = getattr(self, action_name, None) if action_name else None
         action_kwargs = getattr(action_fn, "kwargs", {}) or {}
         if "permission_classes" in action_kwargs and AccessControlPermission not in action_kwargs["permission_classes"]:
             return response
