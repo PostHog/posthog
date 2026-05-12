@@ -234,11 +234,15 @@ async fn try_chunk_id_rescue(
             );
             Ok(Some(data))
         }
-        SymbolSetLoadResult::MissingBlob(record) => {
+        SymbolSetLoadResult::MissingBlob(mut record) => {
             warn!(
                 "Symbol set record for chunk id {} points to a missing S3 object",
                 record.set_ref
             );
+            record
+                .delete(&rescue.pool)
+                .await
+                .map_err(ResolveError::UnhandledError)?;
             Ok(None)
         }
         SymbolSetLoadResult::Missing
@@ -786,6 +790,72 @@ mod test {
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
         provider.fetch(1, url).await.unwrap();
 
+        js_mock.assert_hits(1);
+        map_mock.assert_hits(1);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn chunk_id_rescue_deletes_stale_record_when_blob_is_missing(db: PgPool) {
+        use crate::symbol_store::{saving::SymbolSetRecord, MockS3Client};
+        use chrono::Utc;
+        use mockall::predicate;
+        use uuid::Uuid;
+
+        const RESCUE_BUCKET: &str = "test-bucket";
+
+        let chunk_id = "019dfdfb-2ec9-7d71-84a2-6c269108158f".to_string();
+        let storage_key = format!("symbolsets/{}", Uuid::now_v7());
+
+        SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(storage_key.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        }
+        .save(&db)
+        .await
+        .unwrap();
+
+        let server = MockServer::start();
+        let body =
+            format!("console.log('hello');\n//# sourceMappingURL=/static/chunk.js.map\n//# chunkId={chunk_id}\n");
+        let js_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let mut s3 = MockS3Client::default();
+        s3.expect_get()
+            .with(
+                predicate::eq(RESCUE_BUCKET),
+                predicate::eq(storage_key.clone()),
+            )
+            .returning(|_, _| Ok(None));
+        let s3: Arc<dyn BlobClient> = Arc::new(s3);
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
+            db.clone(),
+            s3,
+            RESCUE_BUCKET.to_string(),
+        );
+
+        let url = server.url("/static/chunk.js").parse().unwrap();
+        provider.fetch(1, url).await.unwrap();
+
+        assert!(SymbolSetRecord::load(&db, 1, &chunk_id)
+            .await
+            .unwrap()
+            .is_none());
         js_mock.assert_hits(1);
         map_mock.assert_hits(1);
     }
