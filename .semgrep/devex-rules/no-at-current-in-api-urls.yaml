@@ -26,12 +26,12 @@ rules:
               # tests and fixtures legitimately exercise the `@current` route
               - '**/*.test.ts'
               - '**/*.test.tsx'
-              - '**/test/'
-              - '**/__tests__/'
+              - '**/test/**'
+              - '**/__tests__/**'
               - '**/*.stories.tsx'
               - '**/*.stories.ts'
-              - '**/__mocks__/'
-              - '**/mocks/'
+              - '**/__mocks__/**'
+              - '**/mocks/**'
               # toolbar runs in third-party page context — separate concern
               - '/frontend/src/toolbar/'
               # documented bootstrap exceptions: explicit ID isn't loaded yet
@@ -54,6 +54,12 @@ rules:
                 - metavariable-regex:
                       metavariable: $URL
                       regex: '.*@current.*'
+          # Semgrep's TypeScript parser treats generic-typed calls
+          # (api.create<T>(...)) as a different AST shape that the patterns above
+          # don't match — same limitation as documented in prefer-codegen-api.yaml.
+          # Fall back to a regex; bounds type args by `(` so nested generics like
+          # api.get<PaginatedResponse<Foo>>(...) still match.
+          - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\([^)]*@current[^)]*'
           # raw fetch with full URL
           - patterns:
                 - pattern: fetch($URL, ...)

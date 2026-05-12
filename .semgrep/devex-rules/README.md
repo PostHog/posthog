@@ -10,7 +10,7 @@ Rules in this directory are run by the `semgrep-devex` job in `ci-security.yaml`
 
 When the backlog for a rule hits zero, promote the rule from warning to error so the codebase stays clean:
 
-1. Verify locally that `semgrep --config .semgrep/devex-rules/<rule>.yaml common/ ee/ posthog/ products/` returns zero findings.
+1. Verify locally that `semgrep --config .semgrep/devex-rules/<rule>.yaml common/ ee/ frontend/ posthog/ products/` returns zero findings.
 2. Edit the rule file: change `severity: WARNING` to `severity: ERROR`.
 3. Update the rule's `message:` to drop the "tracked, not blocking" phrasing — it's now blocking.
 4. Land the change. Future regressions fail CI on `semgrep-devex`.

@@ -56,7 +56,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+                    common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
@@ -216,7 +216,7 @@ jobs:
                     --severity=WARNING \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/
+                    common/ ee/ frontend/ posthog/ products/
 
             # Pass 2: enforce graduated rules. Any ERROR-severity finding fails
             # the job — once a rule's backlog hits zero and its severity flips
@@ -229,7 +229,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/
+                    common/ ee/ frontend/ posthog/ products/
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
