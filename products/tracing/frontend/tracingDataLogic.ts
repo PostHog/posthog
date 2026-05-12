@@ -58,9 +58,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
         cancelInProgressAggregation: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressSpanTree: (controller: AbortController | null) => ({ controller }),
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
         setSparklineAbortController: (controller: AbortController | null) => ({ controller }),
         setAggregationAbortController: (controller: AbortController | null) => ({ controller }),
+        setSpanTreeAbortController: (controller: AbortController | null) => ({ controller }),
         setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
         setNextCursor: (cursor: string | null) => ({ cursor }),
         /**
@@ -89,6 +91,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         aggregationAbortController: [
             null as AbortController | null,
             { setAggregationAbortController: (_, { controller }) => controller },
+        ],
+        spanTreeAbortController: [
+            null as AbortController | null,
+            { setSpanTreeAbortController: (_, { controller }) => controller },
         ],
         lastAggregationWindow: [
             null as null | {
@@ -228,6 +234,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
             {
                 fetchSpanTree: async (params: { spanName: string }) => {
+                    // Abort any in-flight tree fetch so rapid row-clicks can't deliver a stale
+                    // response that overwrites the newer one — matches the pattern used by
+                    // fetchSpans / fetchSparkline / fetchAggregation.
+                    const controller = new AbortController()
+                    actions.cancelInProgressSpanTree(controller)
+
                     // Use the snapshotted window from the last aggregation fetch when available
                     // so the drill-down numbers align with the row the user clicked. Fall back
                     // to the live computed window only on a cold start (e.g. deep link before
@@ -250,6 +262,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             compare_to: new Date(previousStartMs).toISOString(),
                         },
                     })
+
+                    actions.setSpanTreeAbortController(null)
                     return {
                         spanName: params.spanName,
                         current: response.results ?? [],
@@ -267,13 +281,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
 
                     // Snapshot the resolved windows so the drill-down flame query uses the
                     // same absolute timestamps as this aggregation, even if the user's
-                    // relative `-1h` range has since shifted forward in time.
+                    // relative `-1h` range has since shifted forward in time. Dispatched
+                    // BEFORE the await so a concurrent `fetchSpanTree` (e.g. fired from the
+                    // same `setOverlayWindows` listener) reads the new window, not the old.
                     const window = {
                         currentStartMs: values.currentWindowMs.startMs,
                         currentEndMs: values.currentWindowMs.endMs,
                         previousStartMs: values.previousWindowMs.startMs,
                         previousEndMs: values.previousWindowMs.endMs,
                     }
+                    actions.setLastAggregationWindow(window)
 
                     const response = await api.tracing.aggregate({
                         dateRange: {
@@ -289,7 +306,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     })
 
                     actions.setAggregationAbortController(null)
-                    actions.setLastAggregationWindow(window)
                     return {
                         current: response.results ?? [],
                         previous: response.compare ?? null,
@@ -409,6 +425,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setAggregationAbortController(controller)
         },
+        cancelInProgressSpanTree: ({ controller }) => {
+            if (values.spanTreeAbortController !== null) {
+                values.spanTreeAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setSpanTreeAbortController(controller)
+        },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
@@ -424,6 +446,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 lemonToast.error(`Failed to load span aggregation: ${error}`)
             }
         },
+        fetchSpanTreeFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load call tree: ${error}`)
+            }
+        },
     })),
 
     events(({ values }) => ({
@@ -433,6 +460,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             if (values.sparklineAbortController) {
                 values.sparklineAbortController.abort('unmounting component')
+            }
+            if (values.spanTreeAbortController) {
+                values.spanTreeAbortController.abort('unmounting component')
             }
             if (values.aggregationAbortController) {
                 values.aggregationAbortController.abort('unmounting component')

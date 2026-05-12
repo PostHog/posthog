@@ -146,8 +146,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
         setOverlayWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
-            // stays fixed while the user moves windows around within it.
+            // stays fixed while the user moves windows around within it. If the compare-flame
+            // modal is open we also refetch its tree so it doesn't display stale windows.
             actions.fetchAggregation()
+            if (values.compareFlameSpanName) {
+                actions.fetchSpanTree({ spanName: values.compareFlameSpanName })
+            }
         },
         setFilters: () => {
             actions.syncUrlAndRunQuery()
