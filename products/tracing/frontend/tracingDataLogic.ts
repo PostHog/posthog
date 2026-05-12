@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -35,12 +35,21 @@ function isUserInitiatedError(error: unknown): boolean {
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
-export const tracingDataLogic = kea<tracingDataLogicType>([
-    path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
+export interface TracingDataLogicProps {
+    tabId?: string
+}
 
-    connect({
-        values: [tracingFiltersLogic, ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
-    }),
+export const tracingDataLogic = kea<tracingDataLogicType>([
+    props({} as TracingDataLogicProps),
+    key((p) => p.tabId ?? 'default'),
+    path((tabId) => ['products', 'tracing', 'frontend', 'tracingDataLogic', tabId]),
+
+    connect((p: TracingDataLogicProps) => ({
+        values: [
+            tracingFiltersLogic({ tabId: p.tabId }),
+            ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs'],
+        ],
+    })),
 
     actions({
         runQuery: true,
@@ -54,6 +63,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         setAggregationAbortController: (controller: AbortController | null) => ({ controller }),
         setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
         setNextCursor: (cursor: string | null) => ({ cursor }),
+        /**
+         * Snapshot the resolved time windows used for the last aggregation fetch.
+         * The drill-down flame query reads this snapshot instead of recomputing from
+         * the (potentially shifted) `-1h`-style relative date range, so its numbers
+         * line up with the row the user clicked.
+         */
+        setLastAggregationWindow: (window: {
+            currentStartMs: number
+            currentEndMs: number
+            previousStartMs: number
+            previousEndMs: number
+        }) => ({ window }),
     }),
 
     reducers({
@@ -68,6 +89,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         aggregationAbortController: [
             null as AbortController | null,
             { setAggregationAbortController: (_, { controller }) => controller },
+        ],
+        lastAggregationWindow: [
+            null as null | {
+                currentStartMs: number
+                currentEndMs: number
+                previousStartMs: number
+                previousEndMs: number
+            },
+            { setLastAggregationWindow: (_, { window }) => window },
         ],
         hasRunQuery: [
             false as boolean,
@@ -198,17 +228,26 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
             {
                 fetchSpanTree: async (params: { spanName: string }) => {
+                    // Use the snapshotted window from the last aggregation fetch when available
+                    // so the drill-down numbers align with the row the user clicked. Fall back
+                    // to the live computed window only on a cold start (e.g. deep link before
+                    // any aggregation has run).
+                    const snapshot = values.lastAggregationWindow
+                    const currentStartMs = snapshot?.currentStartMs ?? values.currentWindowMs.startMs
+                    const currentEndMs = snapshot?.currentEndMs ?? values.currentWindowMs.endMs
+                    const previousStartMs = snapshot?.previousStartMs ?? values.previousWindowMs.startMs
+
                     const response = await api.tracing.tree({
                         spanName: params.spanName,
                         dateRange: {
-                            date_from: new Date(values.currentWindowMs.startMs).toISOString(),
-                            date_to: new Date(values.currentWindowMs.endMs).toISOString(),
+                            date_from: new Date(currentStartMs).toISOString(),
+                            date_to: new Date(currentEndMs).toISOString(),
                         },
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                         compareFilter: {
                             compare: values.filters.compareMode,
-                            compare_to: new Date(values.previousWindowMs.startMs).toISOString(),
+                            compare_to: new Date(previousStartMs).toISOString(),
                         },
                     })
                     return {
@@ -226,23 +265,31 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressAggregation(controller)
 
-                    // The aggregation's dateRange is the *current* compare window — the user-positioned
-                    // sub-range inside the sparkline. The previous window's start is passed via
-                    // compare_to as an ISO timestamp; the backend infers width from this dateRange.
+                    // Snapshot the resolved windows so the drill-down flame query uses the
+                    // same absolute timestamps as this aggregation, even if the user's
+                    // relative `-1h` range has since shifted forward in time.
+                    const window = {
+                        currentStartMs: values.currentWindowMs.startMs,
+                        currentEndMs: values.currentWindowMs.endMs,
+                        previousStartMs: values.previousWindowMs.startMs,
+                        previousEndMs: values.previousWindowMs.endMs,
+                    }
+
                     const response = await api.tracing.aggregate({
                         dateRange: {
-                            date_from: new Date(values.currentWindowMs.startMs).toISOString(),
-                            date_to: new Date(values.currentWindowMs.endMs).toISOString(),
+                            date_from: new Date(window.currentStartMs).toISOString(),
+                            date_to: new Date(window.currentEndMs).toISOString(),
                         },
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                         compareFilter: {
                             compare: values.filters.compareMode,
-                            compare_to: new Date(values.previousWindowMs.startMs).toISOString(),
+                            compare_to: new Date(window.previousStartMs).toISOString(),
                         },
                     })
 
                     actions.setAggregationAbortController(null)
+                    actions.setLastAggregationWindow(window)
                     return {
                         current: response.results ?? [],
                         previous: response.compare ?? null,

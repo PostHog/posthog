@@ -52,20 +52,61 @@ function countDescendants(node: TreeNode): number {
  * Both windows contribute nodes; previous-only nodes still appear so vanished call sites
  * are visible in the diff.
  */
+/**
+ * Merge multiple (parent → child) rows that describe the same span into a single node.
+ * The backend's tree query emits one row per (parent_service, parent_name, service_name,
+ * name) edge, so a span with multiple parents shows up multiple times. Summing across
+ * rows is what makes the per-span totals here match the per-span totals in the
+ * aggregation list.
+ *
+ * Percentiles can't be combined exactly without raw samples; we use a count-weighted
+ * average, which is close enough for this UI's purpose (relative comparison).
+ */
+function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
+    let totalCount = 0
+    let totalDuration = 0
+    let errorCount = 0
+    let p50Weighted = 0
+    let p95Weighted = 0
+    let avgDurationWeighted = 0
+    let startOffsetWeighted = 0
+    for (const row of rows) {
+        totalCount += row.count
+        totalDuration += row.total_duration_nano
+        errorCount += row.error_count
+        p50Weighted += row.p50_duration_nano * row.count
+        p95Weighted += row.p95_duration_nano * row.count
+        avgDurationWeighted += row.avg_duration_nano * row.count
+        startOffsetWeighted += row.avg_start_offset_nano * row.count
+    }
+    const denom = totalCount || 1
+    const first = rows[0]
+    return {
+        ...first,
+        count: totalCount,
+        total_duration_nano: totalDuration,
+        error_count: errorCount,
+        p50_duration_nano: p50Weighted / denom,
+        p95_duration_nano: p95Weighted / denom,
+        avg_duration_nano: avgDurationWeighted / denom,
+        avg_start_offset_nano: startOffsetWeighted / denom,
+    }
+}
+
 function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): TreeNode {
-    const allNodes = new Map<string, { current: SpanTreeNode | null; previous: SpanTreeNode | null }>()
+    const allNodes = new Map<string, { currentRows: SpanTreeNode[]; previousRows: SpanTreeNode[] }>()
     const childrenByParent = new Map<string, Set<string>>()
 
     function record(row: SpanTreeNode, isCurrent: boolean): void {
         const key = nodeKey(row.service_name, row.name)
         if (!allNodes.has(key)) {
-            allNodes.set(key, { current: null, previous: null })
+            allNodes.set(key, { currentRows: [], previousRows: [] })
         }
         const entry = allNodes.get(key)!
         if (isCurrent) {
-            entry.current = row
+            entry.currentRows.push(row)
         } else {
-            entry.previous = row
+            entry.previousRows.push(row)
         }
 
         const parentKey = row.parent_name === '<ROOT>' ? ROOT_KEY : nodeKey(row.parent_service, row.parent_name)
@@ -83,12 +124,13 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
     }
 
     function build(key: string, serviceName: string, name: string): TreeNode {
-        const entry = allNodes.get(key) ?? { current: null, previous: null }
+        const entry = allNodes.get(key) ?? { currentRows: [], previousRows: [] }
         const childKeys = Array.from(childrenByParent.get(key) ?? [])
         const children = childKeys
             .map((childKey) => {
                 const childEntry = allNodes.get(childKey)!
-                const ref = childEntry.current ?? childEntry.previous!
+                const ref =
+                    childEntry.currentRows[0] ?? childEntry.previousRows[0]!
                 return build(childKey, ref.service_name, ref.name)
             })
             // Order children by typical start offset (left = earlier).
@@ -96,8 +138,8 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
         return {
             serviceName,
             name,
-            node: entry.current,
-            previousNode: entry.previous,
+            node: entry.currentRows.length > 0 ? mergeRows(entry.currentRows) : null,
+            previousNode: entry.previousRows.length > 0 ? mergeRows(entry.previousRows) : null,
             children,
         }
     }

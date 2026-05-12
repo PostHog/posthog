@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -14,12 +15,15 @@ import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
 import { TracingFilterBar } from './TracingFilterBar'
-import { tracingSceneLogic } from './tracingSceneLogic'
+import { tracingDataLogic } from './tracingDataLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { tracingSceneLogic, TracingSceneLogicProps } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
+import { TracingTabIdProvider, useTracingTabId } from './TracingTabContext'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<TracingSceneLogicProps> = {
     component: TracingScene,
     logic: tracingSceneLogic,
     productKey: ProductKey.TRACING,
@@ -82,7 +86,22 @@ const columns: LemonTableColumns<Span> = [
     },
 ]
 
-export default function TracingScene(): JSX.Element {
+export default function TracingScene(props: TracingSceneLogicProps = {}): JSX.Element {
+    const sceneLogic = tracingSceneLogic(props)
+    // Keep filters + data logic alive across tab switches by attaching them to the scene
+    // root. The root itself is kept mounted by `tabAwareScene()` even when the tab is inactive.
+    useAttachedLogic(tracingFiltersLogic({ tabId: props.tabId }), sceneLogic)
+    useAttachedLogic(tracingDataLogic({ tabId: props.tabId }), sceneLogic)
+
+    return (
+        <TracingTabIdProvider value={props.tabId}>
+            <TracingSceneContents />
+        </TracingTabIdProvider>
+    )
+}
+
+function TracingSceneContents(): JSX.Element {
+    const tabId = useTracingTabId()
     const {
         rootSpans,
         spansLoading,
@@ -101,9 +120,9 @@ export default function TracingScene(): JSX.Element {
         spanTree,
         spanTreeLoading,
         compareFlameSpanName,
-    } = useValues(tracingSceneLogic)
+    } = useValues(tracingSceneLogic({ tabId }))
     const { openTraceModal, closeTraceModal, setDateRange, setOverlayWindows, openCompareFlame, closeCompareFlame } =
-        useActions(tracingSceneLogic)
+        useActions(tracingSceneLogic({ tabId }))
     const compareMode = filters.compareMode
 
     // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay

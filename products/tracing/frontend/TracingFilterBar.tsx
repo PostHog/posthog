@@ -28,6 +28,7 @@ import {
 } from '~/types'
 
 import { tracingDataLogic } from './tracingDataLogic'
+import { useTracingTabId } from './TracingTabContext'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
 
@@ -79,10 +80,13 @@ const dateMapping: DateMappingOption[] = [
 ]
 
 export function TracingFilterBar(): JSX.Element {
-    const { spansLoading } = useValues(tracingDataLogic)
-    const { runQuery } = useActions(tracingDataLogic)
-    const { filters, utcDateRange } = useValues(tracingFiltersLogic)
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic)
+    const tabId = useTracingTabId()
+    const { spansLoading } = useValues(tracingDataLogic({ tabId }))
+    const { runQuery } = useActions(tracingDataLogic({ tabId }))
+    const { filters, utcDateRange } = useValues(tracingFiltersLogic({ tabId }))
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(
+        tracingFiltersLogic({ tabId })
+    )
     const { dateRange, serviceNames, filterGroup, compareMode } = filters
 
     return (
@@ -176,7 +180,8 @@ function TracingFilterGroup({
     onFilterGroupChange: (filterGroup: UniversalFiltersGroup) => void
     children: React.ReactNode
 }): JSX.Element {
-    const { utcDateRange, filters } = useValues(tracingFiltersLogic)
+    const tabId = useTracingTabId()
+    const { utcDateRange, filters } = useValues(tracingFiltersLogic({ tabId }))
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
@@ -201,7 +206,8 @@ function TracingFilterGroup({
 
 function TracingFilterSearch(): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic)
+    const tabIdForSearch = useTracingTabId()
+    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic({ tabId: tabIdForSearch }))
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
