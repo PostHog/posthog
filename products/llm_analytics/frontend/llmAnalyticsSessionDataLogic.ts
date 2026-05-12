@@ -17,6 +17,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { SessionTurn, extractSessionTurns } from './conversationDedup'
 import type { llmAnalyticsSessionDataLogicType } from './llmAnalyticsSessionDataLogicType'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { restoreTree } from './llmAnalyticsTraceDataLogic'
@@ -27,6 +28,12 @@ export interface TraceSummary {
     loading: boolean
     error: string | null
 }
+
+// Eager-load the first 2 and last 3 traces on mount so long sessions show the
+// conversation's start and most-recent state without fanning out too many
+// TraceQuery middle traces render a "Show conversation" button.
+const AUTO_LOAD_FIRST = 2
+const AUTO_LOAD_LAST = 3
 
 export interface SessionDataLogicProps {
     sessionId: string
@@ -71,7 +78,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     })),
 
     actions({
-        toggleTraceExpanded: (traceId: string) => ({ traceId }),
+        // Reasoning panel = the per-turn `LLMAnalyticsTraceEvents` tree shown via the
+        // "Show reasoning" link. Distinct from "trace loaded" because the conversation
+        // bubbles render as soon as the full trace is fetched, regardless of reasoning state.
+        toggleReasoning: (traceId: string) => ({ traceId }),
         toggleGenerationExpanded: (generationId: string) => ({ generationId }),
         loadFullTrace: (traceId: string) => ({ traceId }),
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
@@ -86,10 +96,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     }),
 
     reducers({
-        expandedTraceIds: [
+        reasoningExpandedTraceIds: [
             new Set<string>() as Set<string>,
             {
-                toggleTraceExpanded: (state, { traceId }) => {
+                toggleReasoning: (state, { traceId }) => {
                     const newSet = new Set(state)
                     if (newSet.has(traceId)) {
                         newSet.delete(traceId)
@@ -180,6 +190,11 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return [...(tracesResponse?.results || [])].reverse()
             },
         ],
+        sessionTurns: [
+            (s) => [s.traces, s.fullTraces],
+            (traces: LLMTrace[], fullTraces: Record<string, LLMTrace>): SessionTurn[] =>
+                extractSessionTurns(traces, fullTraces),
+        ],
         summariesLoading: [
             (s) => [s.traceSummaries],
             (traceSummaries: Record<string, TraceSummary>): boolean =>
@@ -216,30 +231,24 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 // Silently fail - this is just a cache optimization
             }
         },
-        toggleTraceExpanded: async ({ traceId }) => {
-            if (
-                values.expandedTraceIds.has(traceId) &&
-                !values.fullTraces[traceId] &&
-                !values.loadingFullTraces.has(traceId)
-            ) {
-                actions.loadFullTrace(traceId)
-
-                const traceQuery: TraceQuery = {
-                    kind: NodeKind.TraceQuery,
-                    traceId,
-                }
-
-                try {
-                    const response = await api.query(traceQuery)
-                    if (response.results && response.results[0]) {
-                        actions.loadFullTraceSuccess(traceId, response.results[0])
-                    } else {
-                        actions.loadFullTraceFailure(traceId)
-                    }
-                } catch (error) {
-                    console.error('Error loading full trace:', error)
+        loadFullTrace: async ({ traceId }) => {
+            if (values.fullTraces[traceId]) {
+                return
+            }
+            const traceQuery: TraceQuery = {
+                kind: NodeKind.TraceQuery,
+                traceId,
+            }
+            try {
+                const response = await api.query(traceQuery)
+                if (response.results && response.results[0]) {
+                    actions.loadFullTraceSuccess(traceId, response.results[0])
+                } else {
                     actions.loadFullTraceFailure(traceId)
                 }
+            } catch (error) {
+                console.error('Error loading full trace:', error)
+                actions.loadFullTraceFailure(traceId)
             }
         },
         summarizeAllTraces: async () => {
@@ -299,10 +308,21 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
 
     subscriptions(({ actions, values }) => ({
         traces: (traces: LLMTrace[]) => {
-            // Load cached summaries when traces are loaded
-            if (traces.length > 0 && Object.keys(values.traceSummaries).length === 0) {
-                const traceIds = traces.map((t) => t.id)
-                actions.loadCachedSummaries(traceIds)
+            if (traces.length === 0) {
+                return
+            }
+            // Cache lookup for existing trace summaries
+            if (Object.keys(values.traceSummaries).length === 0) {
+                actions.loadCachedSummaries(traces.map((t) => t.id))
+            }
+            const tracesToLoad =
+                traces.length <= AUTO_LOAD_FIRST + AUTO_LOAD_LAST
+                    ? traces
+                    : [...traces.slice(0, AUTO_LOAD_FIRST), ...traces.slice(-AUTO_LOAD_LAST)]
+            for (const trace of tracesToLoad) {
+                if (!values.fullTraces[trace.id] && !values.loadingFullTraces.has(trace.id)) {
+                    actions.loadFullTrace(trace.id)
+                }
             }
         },
     })),
