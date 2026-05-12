@@ -1,10 +1,9 @@
+import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
+import React from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonDropdown, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
-
-import clsx from 'clsx'
-import React from 'react'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -48,11 +47,6 @@ function countDescendants(node: TreeNode): number {
 }
 
 /**
- * Build a tree from the flat (parent_service, parent_name) → (service_name, name) edges.
- * Both windows contribute nodes; previous-only nodes still appear so vanished call sites
- * are visible in the diff.
- */
-/**
  * Merge multiple (parent → child) rows that describe the same span into a single node.
  * The backend's tree query emits one row per (parent_service, parent_name, service_name,
  * name) edge, so a span with multiple parents shows up multiple times. Summing across
@@ -93,6 +87,11 @@ function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
     }
 }
 
+/**
+ * Build a tree from the flat (parent_service, parent_name) → (service_name, name) edges.
+ * Both windows contribute nodes; previous-only nodes still appear so vanished call sites
+ * are visible in the diff.
+ */
 function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): TreeNode {
     const allNodes = new Map<string, { currentRows: SpanTreeNode[]; previousRows: SpanTreeNode[] }>()
     const childrenByParent = new Map<string, Set<string>>()
@@ -129,8 +128,7 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
         const children = childKeys
             .map((childKey) => {
                 const childEntry = allNodes.get(childKey)!
-                const ref =
-                    childEntry.currentRows[0] ?? childEntry.previousRows[0]!
+                const ref = childEntry.currentRows[0] ?? childEntry.previousRows[0]!
                 return build(childKey, ref.service_name, ref.name)
             })
             // Order children by typical start offset (left = earlier).
@@ -387,10 +385,7 @@ function GroupedCell({ items, fraction, ancestorPath, onFocus }: GroupedCellProp
                                     node={item.child}
                                     depth={0}
                                     fraction={nodeSize(item.child) / bundleTotal}
-                                    selfPath={[
-                                        ...ancestorPath,
-                                        nodeKey(item.child.serviceName, item.child.name),
-                                    ]}
+                                    selfPath={[...ancestorPath, nodeKey(item.child.serviceName, item.child.name)]}
                                     onFocus={(p) => {
                                         setOpen(false)
                                         onFocus(p)
@@ -501,13 +496,7 @@ export function TraceCompareFlame({
                 ) : (
                     // Focused span sits at the top as a full-width bar; its children stack below.
                     <div className="flex">
-                        <FlameRow
-                            node={focused}
-                            depth={0}
-                            fraction={1}
-                            selfPath={focusPath}
-                            onFocus={setFocusPath}
-                        />
+                        <FlameRow node={focused} depth={0} fraction={1} selfPath={focusPath} onFocus={setFocusPath} />
                     </div>
                 )}
             </div>
@@ -567,7 +556,13 @@ function truncateLeft(s: string, maxChars: number): string {
 }
 
 function FocusBreadcrumb({ breadcrumb, onSelect }: FocusBreadcrumbProps): JSX.Element {
-    const items: { fullLabel: string; displayLabel: string; isCurrent: boolean; onClick: () => void; mono?: boolean }[] = [
+    const items: {
+        fullLabel: string
+        displayLabel: string
+        isCurrent: boolean
+        onClick: () => void
+        mono?: boolean
+    }[] = [
         {
             fullLabel: 'Root',
             displayLabel: 'Root',
@@ -589,19 +584,14 @@ function FocusBreadcrumb({ breadcrumb, onSelect }: FocusBreadcrumbProps): JSX.El
         <div className="flex items-center gap-x-2 overflow-x-auto">
             {items.map((item, idx) => {
                 const truncated = item.displayLabel !== item.fullLabel
-                const labelNode = (
-                    <span className={clsx(item.mono && 'font-mono')}>{item.displayLabel}</span>
-                )
+                const labelNode = <span className={clsx(item.mono && 'font-mono')}>{item.displayLabel}</span>
                 const content = truncated ? <Tooltip title={item.fullLabel}>{labelNode}</Tooltip> : labelNode
                 return (
                     <React.Fragment key={idx}>
                         {item.isCurrent ? (
                             <span className="text-sm font-semibold shrink-0">{content}</span>
                         ) : (
-                            <Link
-                                className="text-sm text-muted shrink-0 whitespace-nowrap"
-                                onClick={item.onClick}
-                            >
+                            <Link className="text-sm text-muted shrink-0 whitespace-nowrap" onClick={item.onClick}>
                                 {content}
                             </Link>
                         )}

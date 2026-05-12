@@ -28,9 +28,9 @@ import {
 } from '~/types'
 
 import { tracingDataLogic } from './tracingDataLogic'
-import { useTracingTabId } from './TracingTabContext'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
+import { useTracingTabId } from './TracingTabContext'
 
 const taxonomicFilterLogicKey = 'tracing'
 const taxonomicGroupTypes = [
@@ -84,9 +84,7 @@ export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic({ tabId }))
     const { runQuery } = useActions(tracingDataLogic({ tabId }))
     const { filters, utcDateRange } = useValues(tracingFiltersLogic({ tabId }))
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(
-        tracingFiltersLogic({ tabId })
-    )
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic({ tabId }))
     const { dateRange, serviceNames, filterGroup, compareMode } = filters
 
     return (
