@@ -165,26 +165,6 @@ events(({ cache, actions }) => ({
 })),
 ```
 
-**`setTimeout` + `visibilitychange` combo with `dispose()`** — `frontend/src/scenes/health/pipelineStatus/pipelineHealthLogic.ts:107-134`
-
-```ts
-listeners(({ actions, cache }) => ({
-    loadHealthIssuesSuccess: () => {
-        cache.disposables.add(() => {
-            const timerId = setTimeout(() => actions.loadHealthIssues(), REFRESH_INTERVAL)
-            return () => clearTimeout(timerId)
-        }, 'refreshTimeout')
-    },
-    setPageVisibility: ({ visible }) => {
-        if (visible) {
-            actions.loadHealthIssues()
-        } else {
-            cache.disposables.dispose('refreshTimeout')
-        }
-    },
-})),
-```
-
 ## Anti-patterns to convert
 
 Bare `cache.<thing>` + `beforeUnmount` cleanup is the pattern this plugin replaces. Convert these on sight.
