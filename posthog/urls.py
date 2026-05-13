@@ -31,6 +31,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.internal_integration import InternalIntegrationViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
@@ -315,6 +316,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
+    ),
+    path(
+        "api/internal/integrations/lookup",
+        csrf_exempt(InternalIntegrationViewSet.as_view({"post": "lookup"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
