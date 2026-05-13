@@ -436,7 +436,6 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
-            "posthog.metrics",
             *self.get_system_table_names(),
         ]
 
