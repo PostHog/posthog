@@ -10,9 +10,10 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import ProjectSecretAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.permissions import ProjectSecretAPITokenPermission
 
-from products.live_debugger.backend.models import LiveDebuggerBreakpoint
+from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
 
 
 class LiveDebuggerBreakpointSerializer(serializers.ModelSerializer):
@@ -312,5 +313,248 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 "results": breakpoints_list,
                 "count": len(breakpoints_list),
                 "has_more": False,
+            }
+        )
+
+
+class LiveDebuggerProgramSerializer(serializers.ModelSerializer):
+    """Full representation of a live debugger program, including its code."""
+
+    class Meta:
+        model = LiveDebuggerProgram
+        fields = ["id", "code", "description", "status", "created_at", "updated_at"]
+        read_only_fields = ["id", "status", "created_at", "updated_at"]
+        extra_kwargs = {
+            "code": {
+                "help_text": (
+                    "The hogtrace program source code to install. "
+                    "This is executed by the client-side runtime to instrument production code with probes."
+                ),
+            },
+            "description": {
+                "help_text": "Human-readable description of what this program does and why it was installed.",
+            },
+            "status": {
+                "help_text": (
+                    "Lifecycle status of the program. 'installed' programs are active and will emit events "
+                    "when their probes are hit. 'uninstalled' programs are inactive and retained for history."
+                ),
+            },
+            "created_at": {"help_text": "Time the program was installed."},
+            "updated_at": {"help_text": "Time the program record was last modified (e.g. on uninstall)."},
+        }
+
+    def create(self, validated_data: dict) -> LiveDebuggerProgram:
+        validated_data["team"] = self.context["team"]
+        return super().create(validated_data)
+
+
+class LiveDebuggerProgramListItemSerializer(serializers.ModelSerializer):
+    """Compact representation of a program for list views — omits the program code."""
+
+    class Meta:
+        model = LiveDebuggerProgram
+        fields = ["id", "description", "status", "created_at", "updated_at"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Unique identifier for the program."},
+            "description": {"help_text": "Human-readable description of the program."},
+            "status": {"help_text": "Lifecycle status: 'installed' or 'uninstalled'."},
+            "created_at": {"help_text": "Time the program was installed."},
+            "updated_at": {"help_text": "Time the program record was last modified."},
+        }
+
+
+class ProgramEventSerializer(serializers.Serializer):
+    """A single event emitted by a probe in a live debugger program."""
+
+    id = serializers.UUIDField(help_text="Unique identifier for this event.")
+    timestamp = serializers.DateTimeField(help_text="Wall-clock time at which the probe fired.")
+    program_id = serializers.UUIDField(help_text="ID of the program that emitted this event.")
+    probe_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Identifier of the specific probe within the program that fired (may be null).",
+    )
+    line_number = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Source line where the probe fired (may be null if not applicable).",
+    )
+    filename = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Source file where the probe fired (may be null if not applicable).",
+    )
+    function_name = serializers.CharField(help_text="Function containing the probe at the time it fired.")
+    locals = serializers.DictField(
+        help_text="Snapshot of local variables captured at the probe site, as a key/value map.",
+    )
+    stack_trace = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="Stack trace at the time the probe fired; each frame is a dict with at least 'function' and source info.",
+    )
+
+
+class ProgramEventsResponseSerializer(serializers.Serializer):
+    """Paginated list of probe events for a single program."""
+
+    results = serializers.ListField(
+        child=ProgramEventSerializer(),
+        help_text="List of probe events, most recent first.",
+    )
+    count = serializers.IntegerField(help_text="Number of events returned in this page.")
+    has_more = serializers.BooleanField(help_text="Whether additional events are available beyond this page.")
+
+
+class ProgramEventsRequestSerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        help_text="Maximum number of events to return (default 100, max 1000).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Pagination offset; events are ordered by timestamp descending.",
+    )
+
+
+class LiveDebuggerProgramViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    Install, list, inspect, and uninstall live debugger programs (hogtrace programs).
+
+    Programs are soft-uninstalled (status transitions to 'uninstalled') rather than deleted,
+    so previously emitted events remain queryable.
+    """
+
+    scope_object = "live_debugger"
+    scope_object_read_actions = ["list", "retrieve", "events"]
+    scope_object_write_actions = ["create", "uninstall"]
+    queryset = LiveDebuggerProgram.objects.all()
+    serializer_class = LiveDebuggerProgramSerializer
+    basename = "live_debugger_programs"
+    # Programs are immutable post-install except for status, which transitions via the
+    # `uninstall` action — disable update/destroy so the only mutation paths are explicit.
+    http_method_names = ["get", "post", "head", "options"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.order_by("-created_at")
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.action == "list":
+            return LiveDebuggerProgramListItemSerializer
+        return LiveDebuggerProgramSerializer
+
+    @extend_schema(
+        summary="Install a live debugger program",
+        description=(
+            "Install a hogtrace program. The program will be picked up by the client-side runtime "
+            "and its probes will start emitting events on hit. Returns the full program record "
+            "including its newly assigned id."
+        ),
+        request=LiveDebuggerProgramSerializer,
+        responses={
+            201: OpenApiResponse(response=LiveDebuggerProgramSerializer, description="Program installed."),
+            400: OpenApiResponse(description="Invalid request body."),
+        },
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        return super().create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="List live debugger programs",
+        description="List programs for the current team, most recently installed first. Omits program code.",
+        responses={200: OpenApiResponse(response=LiveDebuggerProgramListItemSerializer(many=True))},
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Show a live debugger program",
+        description="Retrieve a single program by id, including its full hogtrace program source code.",
+        responses={
+            200: OpenApiResponse(response=LiveDebuggerProgramSerializer),
+            404: OpenApiResponse(description="Program not found."),
+        },
+    )
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        return super().retrieve(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Uninstall a live debugger program",
+        description=(
+            "Soft-uninstall a program by transitioning its status to 'uninstalled'. "
+            "The program record and any events it previously emitted remain queryable. "
+            "Returns the updated program."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=LiveDebuggerProgramSerializer, description="Program uninstalled."),
+            404: OpenApiResponse(description="Program not found."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def uninstall(self, request: Request, *args, **kwargs) -> Response:
+        program = self.get_object()
+        if program.status != LiveDebuggerProgram.Status.UNINSTALLED:
+            program.status = LiveDebuggerProgram.Status.UNINSTALLED
+            program.save(update_fields=["status", "updated_at"])
+        return Response(LiveDebuggerProgramSerializer(program).data)
+
+    @extend_schema(
+        summary="Get events emitted by a program",
+        description=(
+            "Retrieve probe-hit events emitted by this program from ClickHouse. "
+            "Events are filtered by the program id stored in the `$program_id` property "
+            "and returned most recent first."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                description="Maximum number of events to return (default 100, max 1000).",
+                required=False,
+            ),
+            OpenApiParameter(
+                "offset",
+                OpenApiTypes.INT,
+                description="Pagination offset.",
+                required=False,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(response=ProgramEventsResponseSerializer),
+            400: OpenApiResponse(description="Invalid query parameters."),
+            404: OpenApiResponse(description="Program not found."),
+        },
+    )
+    @action(methods=["GET"], detail=True)
+    def events(self, request: Request, *args, **kwargs) -> Response:
+        program = self.get_object()
+        param_serializer = ProgramEventsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=Product.LIVE_DEBUGGER, feature=Feature.QUERY)
+        events = LiveDebuggerProgram.get_program_events(
+            team=self.team,
+            program_id=str(program.id),
+            limit=params["limit"],
+            offset=params["offset"],
+        )
+        return Response(
+            {
+                "results": [event.to_json() for event in events],
+                "count": len(events),
+                "has_more": len(events) == params["limit"],
             }
         )

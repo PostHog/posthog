@@ -1,0 +1,108 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Live debugger
+feature: live_debugger
+url_prefix: /live-debugger
+tools:
+    live-debugger-programs-install:
+        operation: live_debugger_programs_create
+        enabled: true
+        scopes:
+            - live_debugger:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Install live debugger program
+        description: >
+            Install a hogtrace program into the project. The program's probes will start
+            emitting events as soon as the client-side runtime picks it up.
+            Provide the program source code in `code` and a short human-readable
+            `description` explaining what it observes and why it was installed.
+            Returns the newly installed program including its id.
+
+    live-debugger-programs-uninstall:
+        operation: live_debugger_programs_uninstall_create
+        enabled: true
+        scopes:
+            - live_debugger:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Uninstall live debugger program
+        description: >
+            Soft-uninstall a previously installed program by its id. The program's
+            status transitions to `uninstalled` and its probes stop firing, but the
+            row and any events it previously emitted remain queryable for history.
+            Calling this on an already-uninstalled program is a no-op.
+
+    live-debugger-programs-list:
+        operation: live_debugger_programs_list
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - live_debugger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List live debugger programs
+        description: >
+            List all live debugger programs for the current project, most recently
+            installed first. Returns each program's id, description, and status
+            (`installed` or `uninstalled`). Program source code is omitted from this
+            list view — use the show tool to retrieve the full code for a specific
+            program.
+        list: true
+        enrich_url: '{id}'
+
+    live-debugger-programs-show:
+        operation: live_debugger_programs_retrieve
+        enabled: true
+        mcp_version: 1
+        scopes:
+            - live_debugger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Show live debugger program
+        description: >
+            Retrieve a single live debugger program by id, including its full
+            hogtrace program source code and lifecycle metadata.
+        enrich_url: '{id}'
+
+    live-debugger-programs-events:
+        operation: live_debugger_programs_events_retrieve
+        enabled: true
+        scopes:
+            - live_debugger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get live debugger program events
+        description: >
+            Retrieve probe-hit events emitted by a specific program. Events are
+            returned most recent first and include captured local variables and
+            the stack trace at the time each probe fired. Use this to inspect
+            the runtime behavior the program observed in production.
+
+    # Existing breakpoint endpoints — not yet exposed as MCP tools. Enable as needed.
+    live-debugger-breakpoints-active-retrieve:
+        operation: live_debugger_breakpoints_active_retrieve
+        enabled: false
+    live-debugger-breakpoints-breakpoint-hits-retrieve:
+        operation: live_debugger_breakpoints_breakpoint_hits_retrieve
+        enabled: false
+    live-debugger-breakpoints-create:
+        operation: live_debugger_breakpoints_create
+        enabled: false
+    live-debugger-breakpoints-list:
+        operation: live_debugger_breakpoints_list
+        enabled: false

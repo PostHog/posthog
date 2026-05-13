@@ -830,6 +830,21 @@ logs_alerts: PostgresTable = PostgresTable(
     },
 )
 
+live_debugger_programs: PostgresTable = PostgresTable(
+    name="live_debugger_programs",
+    postgres_table_name="posthog_livedebuggerprogram",
+    access_scope="live_debugger",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "code": StringDatabaseField(name="code"),
+        "description": StringDatabaseField(name="description"),
+        "status": StringDatabaseField(name="status"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
@@ -1132,6 +1147,7 @@ class SystemTables(TableNode):
         "logs_alerts": TableNode(name="logs_alerts", table=logs_alerts),
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
+        "live_debugger_programs": TableNode(name="live_debugger_programs", table=live_debugger_programs),
         "notebooks": TableNode(name="notebooks", table=notebooks),
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
         "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),

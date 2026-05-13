@@ -1,8 +1,13 @@
-from posthog.test.base import APIBaseTest
+from datetime import UTC, datetime
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+
+from parameterized import parameterized
 from rest_framework import status
 
-from products.live_debugger.backend.models import LiveDebuggerBreakpoint
+from posthog.models import Team
+
+from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
 
 
 class TestLiveDebuggerBreakpointAPI(APIBaseTest):
@@ -946,3 +951,277 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filename"], "admin_accessible_file.py")
+
+
+class TestLiveDebuggerProgramAPI(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/live_debugger_programs/{suffix}"
+
+    def _create_program(
+        self,
+        *,
+        team: Team | None = None,
+        code: str = "trace foo() { log() }",
+        description: str = "Trace foo calls",
+        status_value: str = LiveDebuggerProgram.Status.INSTALLED,
+    ) -> LiveDebuggerProgram:
+        return LiveDebuggerProgram.objects.create(
+            team=team or self.team,
+            code=code,
+            description=description,
+            status=status_value,
+        )
+
+    def _emit_hit(
+        self,
+        *,
+        program_id: str,
+        probe_id: str = "probe-1",
+        distinct_id: str = "user-1",
+        function_name: str = "foo",
+    ) -> None:
+        _create_event(
+            team=self.team,
+            event="$data_breakpoint_hit",
+            distinct_id=distinct_id,
+            properties={
+                "$program_id": program_id,
+                "$probe_id": probe_id,
+                "$line_number": 42,
+                "$file_path": "app.py",
+                "$locals_variables": {"x": 1},
+                "$stack_trace": [{"function": function_name}],
+            },
+            timestamp=datetime.now(tz=UTC),
+        )
+
+    # ----- install (POST /) -----
+
+    def test_install_returns_full_program_record(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"code": "trace foo() { log() }", "description": "Trace foo calls"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertIn("id", body)
+        self.assertEqual(body["code"], "trace foo() { log() }")
+        self.assertEqual(body["description"], "Trace foo calls")
+        self.assertEqual(body["status"], LiveDebuggerProgram.Status.INSTALLED)
+        self.assertIn("created_at", body)
+        self.assertIn("updated_at", body)
+
+    def test_install_defaults_description_to_empty_when_omitted(self) -> None:
+        response = self.client.post(self._url(), data={"code": "x"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["description"], "")
+
+    def test_install_without_code_returns_400(self) -> None:
+        response = self.client.post(self._url(), data={"description": "no code"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("code", response.json()["attr"])
+
+    def test_install_ignores_client_supplied_status(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"code": "x", "status": LiveDebuggerProgram.Status.UNINSTALLED},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["status"], LiveDebuggerProgram.Status.INSTALLED)
+
+    # ----- list (GET /) -----
+
+    def test_list_empty_returns_no_results(self) -> None:
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_list_orders_by_created_at_desc(self) -> None:
+        first = self._create_program(description="first")
+        second = self._create_program(description="second")
+        response = self.client.get(self._url())
+        ids = [item["id"] for item in response.json()["results"]]
+        self.assertEqual(ids, [str(second.id), str(first.id)])
+
+    def test_list_omits_code_field(self) -> None:
+        self._create_program()
+        response = self.client.get(self._url())
+        item = response.json()["results"][0]
+        self.assertNotIn("code", item)
+        # Required compact fields are present
+        self.assertEqual(set(item.keys()), {"id", "description", "status", "created_at", "updated_at"})
+
+    def test_list_includes_installed_and_uninstalled(self) -> None:
+        self._create_program(description="active")
+        self._create_program(description="retired", status_value=LiveDebuggerProgram.Status.UNINSTALLED)
+        response = self.client.get(self._url())
+        statuses = {item["status"] for item in response.json()["results"]}
+        self.assertEqual(statuses, {"installed", "uninstalled"})
+
+    def test_list_does_not_leak_programs_from_other_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        self._create_program(description="mine")
+        self._create_program(team=other_team, description="theirs")
+        response = self.client.get(self._url())
+        descriptions = [item["description"] for item in response.json()["results"]]
+        self.assertEqual(descriptions, ["mine"])
+
+    # ----- show (GET /{id}/) -----
+
+    def test_show_returns_full_program_including_code(self) -> None:
+        program = self._create_program(code="trace bar() {}", description="bar")
+        response = self.client.get(self._url(f"{program.id}/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["id"], str(program.id))
+        self.assertEqual(body["code"], "trace bar() {}")
+        self.assertEqual(body["description"], "bar")
+
+    def test_show_returns_404_for_unknown_id(self) -> None:
+        response = self.client.get(self._url("00000000-0000-0000-0000-000000000000/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_show_returns_404_for_program_from_other_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        program = self._create_program(team=other_team)
+        response = self.client.get(self._url(f"{program.id}/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # ----- uninstall (POST /{id}/uninstall/) -----
+
+    def test_uninstall_transitions_status_to_uninstalled(self) -> None:
+        program = self._create_program()
+        response = self.client.post(self._url(f"{program.id}/uninstall/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], LiveDebuggerProgram.Status.UNINSTALLED)
+        program.refresh_from_db()
+        self.assertEqual(program.status, LiveDebuggerProgram.Status.UNINSTALLED)
+
+    def test_uninstall_is_idempotent(self) -> None:
+        program = self._create_program(status_value=LiveDebuggerProgram.Status.UNINSTALLED)
+        original_updated_at = program.updated_at
+        response = self.client.post(self._url(f"{program.id}/uninstall/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], LiveDebuggerProgram.Status.UNINSTALLED)
+        # updated_at not bumped when no transition needed
+        program.refresh_from_db()
+        self.assertEqual(program.updated_at, original_updated_at)
+
+    def test_uninstall_returns_404_for_unknown_id(self) -> None:
+        response = self.client.post(self._url("00000000-0000-0000-0000-000000000000/uninstall/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_uninstall_does_not_touch_other_team_program(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        program = self._create_program(team=other_team)
+        response = self.client.post(self._url(f"{program.id}/uninstall/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        program.refresh_from_db()
+        self.assertEqual(program.status, LiveDebuggerProgram.Status.INSTALLED)
+
+    # ----- events (GET /{id}/events/) -----
+
+    def test_events_empty_when_no_hits(self) -> None:
+        program = self._create_program()
+        response = self.client.get(self._url(f"{program.id}/events/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["results"], [])
+        self.assertEqual(body["count"], 0)
+        self.assertFalse(body["has_more"])
+
+    def test_events_returns_hits_for_this_program(self) -> None:
+        program = self._create_program()
+        self._emit_hit(program_id=str(program.id), probe_id="p1", function_name="foo")
+        self._emit_hit(program_id=str(program.id), probe_id="p2", function_name="bar")
+        flush_persons_and_events()
+
+        response = self.client.get(self._url(f"{program.id}/events/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["count"], 2)
+        self.assertFalse(body["has_more"])
+        function_names = {event["function_name"] for event in body["results"]}
+        self.assertEqual(function_names, {"foo", "bar"})
+        for event in body["results"]:
+            self.assertEqual(event["program_id"], str(program.id))
+            self.assertEqual(event["filename"], "app.py")
+            self.assertEqual(event["line_number"], 42)
+            self.assertEqual(event["locals"], {"x": 1})
+
+    def test_events_excludes_hits_from_other_programs(self) -> None:
+        program = self._create_program()
+        other_program = self._create_program()
+        self._emit_hit(program_id=str(program.id), probe_id="mine")
+        self._emit_hit(program_id=str(other_program.id), probe_id="theirs")
+        flush_persons_and_events()
+
+        response = self.client.get(self._url(f"{program.id}/events/"))
+        body = response.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["results"][0]["probe_id"], "mine")
+
+    def test_events_has_more_when_limit_reached(self) -> None:
+        program = self._create_program()
+        for i in range(3):
+            self._emit_hit(program_id=str(program.id), probe_id=f"p{i}")
+        flush_persons_and_events()
+
+        response = self.client.get(self._url(f"{program.id}/events/"), {"limit": 2})
+        body = response.json()
+        self.assertEqual(body["count"], 2)
+        self.assertTrue(body["has_more"])
+
+    def test_events_returns_404_for_unknown_program(self) -> None:
+        response = self.client.get(self._url("00000000-0000-0000-0000-000000000000/events/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_events_returns_404_for_other_team_program(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        program = self._create_program(team=other_team)
+        response = self.client.get(self._url(f"{program.id}/events/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("limit_too_high", {"limit": 1001}, "limit"),
+            ("limit_too_low", {"limit": 0}, "limit"),
+            ("limit_negative", {"limit": -1}, "limit"),
+            ("limit_non_integer", {"limit": "abc"}, "limit"),
+            ("offset_negative", {"offset": -1}, "offset"),
+            ("offset_non_integer", {"offset": "abc"}, "offset"),
+        ]
+    )
+    def test_events_rejects_invalid_query_params(self, _name: str, params: dict, expected_attr: str) -> None:
+        program = self._create_program()
+        response = self.client.get(self._url(f"{program.id}/events/"), params)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_attr, response.json()["attr"])
+
+    @parameterized.expand(
+        [
+            ("limit_at_max", {"limit": 1000}),
+            ("limit_at_min", {"limit": 1}),
+            ("default_pagination", {}),
+        ]
+    )
+    def test_events_accepts_boundary_query_params(self, _name: str, params: dict) -> None:
+        program = self._create_program()
+        response = self.client.get(self._url(f"{program.id}/events/"), params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # ----- disabled HTTP methods -----
+
+    @parameterized.expand(
+        [
+            ("put", "put"),
+            ("patch", "patch"),
+            ("delete", "delete"),
+        ]
+    )
+    def test_disabled_methods_return_405(self, _name: str, method: str) -> None:
+        program = self._create_program()
+        response = getattr(self.client, method)(self._url(f"{program.id}/"))
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)

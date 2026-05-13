@@ -104,6 +104,66 @@ export interface BreakpointHitsResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `installed` - Installed
+ * `uninstalled` - Uninstalled
+ */
+export type LiveDebuggerProgramStatusEnumApi =
+    (typeof LiveDebuggerProgramStatusEnumApi)[keyof typeof LiveDebuggerProgramStatusEnumApi]
+
+export const LiveDebuggerProgramStatusEnumApi = {
+    Installed: 'installed',
+    Uninstalled: 'uninstalled',
+} as const
+
+/**
+ * Compact representation of a program for list views — omits the program code.
+ */
+export interface LiveDebuggerProgramListItemApi {
+    /** Unique identifier for the program. */
+    readonly id: string
+    /** Human-readable description of the program. */
+    readonly description: string
+    /** Lifecycle status: 'installed' or 'uninstalled'.
+
+  * `installed` - Installed
+  * `uninstalled` - Uninstalled */
+    readonly status: LiveDebuggerProgramStatusEnumApi
+    /** Time the program was installed. */
+    readonly created_at: string
+    /** Time the program record was last modified. */
+    readonly updated_at: string
+}
+
+export interface PaginatedLiveDebuggerProgramListItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LiveDebuggerProgramListItemApi[]
+}
+
+/**
+ * Full representation of a live debugger program, including its code.
+ */
+export interface LiveDebuggerProgramApi {
+    readonly id: string
+    /** The hogtrace program source code to install. This is executed by the client-side runtime to instrument production code with probes. */
+    code: string
+    /** Human-readable description of what this program does and why it was installed. */
+    description?: string
+    /** Lifecycle status of the program. 'installed' programs are active and will emit events when their probes are hit. 'uninstalled' programs are inactive and retained for history.
+
+  * `installed` - Installed
+  * `uninstalled` - Uninstalled */
+    readonly status: LiveDebuggerProgramStatusEnumApi
+    /** Time the program was installed. */
+    readonly created_at: string
+    /** Time the program record was last modified (e.g. on uninstall). */
+    readonly updated_at: string
+}
+
 export type LiveDebuggerBreakpointsListParams = {
     filename?: string
     /**
@@ -143,6 +203,17 @@ export type LiveDebuggerBreakpointsBreakpointHitsRetrieveParams = {
     limit?: number
     /**
      * Pagination offset for retrieving additional results (default: 0)
+     */
+    offset?: number
+}
+
+export type LiveDebuggerProgramsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
      */
     offset?: number
 }

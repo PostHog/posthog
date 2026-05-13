@@ -19158,6 +19158,57 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `installed` - Installed
+    * `uninstalled` - Uninstalled
+     */
+    export type LiveDebuggerProgramStatusEnum = typeof LiveDebuggerProgramStatusEnum[keyof typeof LiveDebuggerProgramStatusEnum];
+
+
+    export const LiveDebuggerProgramStatusEnum = {
+      Installed: 'installed',
+      Uninstalled: 'uninstalled',
+    } as const;
+
+    /**
+     * Full representation of a live debugger program, including its code.
+     */
+    export interface LiveDebuggerProgram {
+      readonly id: string;
+      /** The hogtrace program source code to install. This is executed by the client-side runtime to instrument production code with probes. */
+      code: string;
+      /** Human-readable description of what this program does and why it was installed. */
+      description?: string;
+      /** Lifecycle status of the program. 'installed' programs are active and will emit events when their probes are hit. 'uninstalled' programs are inactive and retained for history.
+
+      * `installed` - Installed
+      * `uninstalled` - Uninstalled */
+      readonly status: LiveDebuggerProgramStatusEnum;
+      /** Time the program was installed. */
+      readonly created_at: string;
+      /** Time the program record was last modified (e.g. on uninstall). */
+      readonly updated_at: string;
+    }
+
+    /**
+     * Compact representation of a program for list views — omits the program code.
+     */
+    export interface LiveDebuggerProgramListItem {
+      /** Unique identifier for the program. */
+      readonly id: string;
+      /** Human-readable description of the program. */
+      readonly description: string;
+      /** Lifecycle status: 'installed' or 'uninstalled'.
+
+      * `installed` - Installed
+      * `uninstalled` - Uninstalled */
+      readonly status: LiveDebuggerProgramStatusEnum;
+      /** Time the program was installed. */
+      readonly created_at: string;
+      /** Time the program record was last modified. */
+      readonly updated_at: string;
+    }
+
     export type LocalEvaluationResponseGroupTypeMapping = {[key: string]: string};
 
     /**
@@ -21473,6 +21524,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LiveDebuggerBreakpoint[];
+    }
+
+    export interface PaginatedLiveDebuggerProgramListItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LiveDebuggerProgramListItem[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
@@ -30027,6 +30087,58 @@ export namespace Schemas {
       * `app` - app
       * `toolbar` - toolbar */
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
+    }
+
+    /**
+     * Snapshot of local variables captured at the probe site, as a key/value map.
+     */
+    export type ProgramEventLocals = { [key: string]: unknown };
+
+    export type ProgramEventStackTraceItem = { [key: string]: unknown };
+
+    /**
+     * A single event emitted by a probe in a live debugger program.
+     */
+    export interface ProgramEvent {
+      /** Unique identifier for this event. */
+      id: string;
+      /** Wall-clock time at which the probe fired. */
+      timestamp: string;
+      /** ID of the program that emitted this event. */
+      program_id: string;
+      /**
+         * Identifier of the specific probe within the program that fired (may be null).
+         * @nullable
+         */
+      probe_id?: string | null;
+      /**
+         * Source line where the probe fired (may be null if not applicable).
+         * @nullable
+         */
+      line_number?: number | null;
+      /**
+         * Source file where the probe fired (may be null if not applicable).
+         * @nullable
+         */
+      filename?: string | null;
+      /** Function containing the probe at the time it fired. */
+      function_name: string;
+      /** Snapshot of local variables captured at the probe site, as a key/value map. */
+      locals: ProgramEventLocals;
+      /** Stack trace at the time the probe fired; each frame is a dict with at least 'function' and source info. */
+      stack_trace: ProgramEventStackTraceItem[];
+    }
+
+    /**
+     * Paginated list of probe events for a single program.
+     */
+    export interface ProgramEventsResponse {
+      /** List of probe events, most recent first. */
+      results: ProgramEvent[];
+      /** Number of events returned in this page. */
+      count: number;
+      /** Whether additional events are available beyond this page. */
+      has_more: boolean;
     }
 
     export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
@@ -42335,6 +42447,28 @@ export namespace Schemas {
     limit?: number;
     /**
      * Pagination offset for retrieving additional results (default: 0)
+     */
+    offset?: number;
+    };
+
+    export type LiveDebuggerProgramsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LiveDebuggerProgramsEventsRetrieveParams = {
+    /**
+     * Maximum number of events to return (default 100, max 1000).
+     */
+    limit?: number;
+    /**
+     * Pagination offset.
      */
     offset?: number;
     };

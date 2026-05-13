@@ -38,6 +38,7 @@ class Product(StrEnum):
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    LIVE_DEBUGGER = "live_debugger"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"

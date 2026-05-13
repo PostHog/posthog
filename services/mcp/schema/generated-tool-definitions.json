@@ -2358,6 +2358,81 @@
             "readOnlyHint": true
         }
     },
+    "live-debugger-programs-events": {
+        "description": "Retrieve probe-hit events emitted by a specific program. Events are returned most recent first and include captured local variables and the stack trace at the time each probe fired. Use this to inspect the runtime behavior the program observed in production.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Get live debugger program events",
+        "title": "Get live debugger program events",
+        "required_scopes": ["live_debugger:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "live-debugger-programs-install": {
+        "description": "Install a hogtrace program into the project. The program's probes will start emitting events as soon as the client-side runtime picks it up. Provide the program source code in `code` and a short human-readable `description` explaining what it observes and why it was installed. Returns the newly installed program including its id.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Install live debugger program",
+        "title": "Install live debugger program",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "live-debugger-programs-list": {
+        "description": "List all live debugger programs for the current project, most recently installed first. Returns each program's id, description, and status (`installed` or `uninstalled`). Program source code is omitted from this list view — use the show tool to retrieve the full code for a specific program.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "List live debugger programs",
+        "title": "List live debugger programs",
+        "required_scopes": ["live_debugger:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "live-debugger-programs-show": {
+        "description": "Retrieve a single live debugger program by id, including its full hogtrace program source code and lifecycle metadata.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Show live debugger program",
+        "title": "Show live debugger program",
+        "required_scopes": ["live_debugger:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "live-debugger-programs-uninstall": {
+        "description": "Soft-uninstall a previously installed program by its id. The program's status transitions to `uninstalled` and its probes stop firing, but the row and any events it previously emitted remain queryable for history. Calling this on an already-uninstalled program is a no-op.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Uninstall live debugger program",
+        "title": "Uninstall live debugger program",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-clustering-job-get": {
         "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
         "category": "LLM analytics",

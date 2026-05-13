@@ -15,7 +15,10 @@ import type {
     LiveDebuggerBreakpointsActiveRetrieveParams,
     LiveDebuggerBreakpointsBreakpointHitsRetrieveParams,
     LiveDebuggerBreakpointsListParams,
+    LiveDebuggerProgramApi,
+    LiveDebuggerProgramsListParams,
     PaginatedLiveDebuggerBreakpointListApi,
+    PaginatedLiveDebuggerProgramListItemListApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -158,4 +161,56 @@ export const liveDebuggerBreakpointsBreakpointHitsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getLiveDebuggerProgramsListUrl = (projectId: string, params?: LiveDebuggerProgramsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/live_debugger_programs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/live_debugger_programs/`
+}
+
+/**
+ * List programs for the current team, most recently installed first. Omits program code.
+ * @summary List live debugger programs
+ */
+export const liveDebuggerProgramsList = async (
+    projectId: string,
+    params?: LiveDebuggerProgramsListParams,
+    options?: RequestInit
+): Promise<PaginatedLiveDebuggerProgramListItemListApi> => {
+    return apiMutator<PaginatedLiveDebuggerProgramListItemListApi>(getLiveDebuggerProgramsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerProgramsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/live_debugger_programs/`
+}
+
+/**
+ * Install a hogtrace program. The program will be picked up by the client-side runtime and its probes will start emitting events on hit. Returns the full program record including its newly assigned id.
+ * @summary Install a live debugger program
+ */
+export const liveDebuggerProgramsCreate = async (
+    projectId: string,
+    liveDebuggerProgramApi: NonReadonly<LiveDebuggerProgramApi>,
+    options?: RequestInit
+): Promise<LiveDebuggerProgramApi> => {
+    return apiMutator<LiveDebuggerProgramApi>(getLiveDebuggerProgramsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liveDebuggerProgramApi),
+    })
 }

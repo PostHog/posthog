@@ -13,6 +13,128 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class ProgramEvent:
+    """A single event emitted by a live debugger program (e.g. a probe hit)."""
+
+    id: str
+    timestamp: str
+    program_id: str
+    probe_id: Optional[str]
+    line_number: Optional[int]
+    filename: Optional[str]
+    function_name: str
+    locals: dict[str, Any]
+    stack_trace: list[dict[str, Any]]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "program_id": self.program_id,
+            "probe_id": self.probe_id,
+            "line_number": self.line_number,
+            "filename": self.filename,
+            "function_name": self.function_name,
+            "locals": self.locals,
+            "stack_trace": self.stack_trace,
+        }
+
+
+class LiveDebuggerProgram(UUIDModel):
+    class Status(models.TextChoices):
+        INSTALLED = "installed", "Installed"
+        UNINSTALLED = "uninstalled", "Uninstalled"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    code = models.TextField()
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.INSTALLED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_livedebuggerprogram"
+        managed = True
+        indexes = [
+            models.Index(fields=["team_id", "status"], name="live_debug_prog_team_st_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Program {self.pk} ({self.status}) for team {self.team_id}"
+
+    @classmethod
+    def get_program_events(
+        cls,
+        team: "Team",
+        program_id: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list["ProgramEvent"]:
+        """Query ClickHouse for events emitted by a specific program."""
+        import json
+
+        from posthog.hogql import ast
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.query import execute_hogql_query
+
+        placeholders: dict[str, ast.Expr] = {
+            "event_name": ast.Constant(value="$data_breakpoint_hit"),
+            "program_id": ast.Constant(value=str(program_id)),
+            "limit": ast.Constant(value=limit),
+            "offset": ast.Constant(value=offset),
+        }
+
+        query = parse_select(
+            """
+            SELECT
+                uuid,
+                timestamp,
+                properties.$program_id as program_id,
+                properties.$probe_id as probe_id,
+                properties.$line_number as line_number,
+                properties.$file_path as filename,
+                arrayElement(JSONExtractArrayRaw(properties, '$stack_trace'), 1) as stack_first,
+                properties.$locals_variables as locals,
+                properties.$stack_trace as stack_trace
+            FROM events
+            WHERE event = {event_name}
+              AND JSONExtractString(properties, '$program_id') = {program_id}
+            ORDER BY timestamp DESC
+            LIMIT {limit} OFFSET {offset}
+            """,
+            placeholders=placeholders,
+        )
+
+        response = execute_hogql_query(query, team=team)
+        results = response.results or []
+
+        events: list[ProgramEvent] = []
+        for row in results:
+            try:
+                stack_first = json.loads(row[6]) if row[6] else {}
+                function_name = stack_first.get("function", "") if isinstance(stack_first, dict) else ""
+                locals_data = json.loads(row[7]) if row[7] else {}
+                stack_trace_data = json.loads(row[8]) if row[8] else []
+                events.append(
+                    ProgramEvent(
+                        id=str(row[0]),
+                        timestamp=row[1].isoformat(),
+                        program_id=row[2],
+                        probe_id=row[3],
+                        line_number=int(row[4]) if row[4] else None,
+                        filename=row[5],
+                        function_name=function_name,
+                        locals=locals_data,
+                        stack_trace=stack_trace_data,
+                    )
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+
+        return events
+
+
+@dataclass
 class BreakpointHit:
     """
     Represents a single breakpoint hit event.
