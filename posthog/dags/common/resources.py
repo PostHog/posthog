@@ -42,6 +42,12 @@ def _is_retryable_clickhouse_exception(e: Exception) -> bool:
                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                 ErrorCodes.NOT_ENOUGH_SPACE,
                 ErrorCodes.SOCKET_TIMEOUT,
+                # Raised by waitMutationToFinishOnReplicas / cross-replica reads when the
+                # coordinator's snapshot of active replicas momentarily lacks the covering
+                # part (e.g. mid-fetch, mid-merge) or no replica is online. The mutation
+                # itself usually proceeds; the wait is what fails. Retry to re-poll.
+                ErrorCodes.NO_REPLICA_HAS_PART,  # 234
+                ErrorCodes.NO_ACTIVE_REPLICAS,  # 254
                 439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
             )
         )

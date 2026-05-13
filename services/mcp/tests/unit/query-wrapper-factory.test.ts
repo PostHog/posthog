@@ -49,16 +49,18 @@ describe('createQueryWrapper _posthogUrl', () => {
         baseUrl = 'http://localhost:8010',
         query: Record<string, unknown> = {}
     ): Context {
+        const actorsResponse = {
+            query,
+            results: { columns: [], results: [] },
+            hasMore: false,
+            offset: 0,
+        }
         return {
             api: {
                 query: vi.fn().mockReturnValue({
                     runQuery: vi.fn().mockResolvedValue({ results: [] }),
-                    trendsActors: vi.fn().mockResolvedValue({
-                        query: query,
-                        results: { columns: [], results: [] },
-                        hasMore: false,
-                        offset: 0,
-                    }),
+                    trendsActors: vi.fn().mockResolvedValue(actorsResponse),
+                    lifecycleActors: vi.fn().mockResolvedValue(actorsResponse),
                 }),
                 getProjectBaseUrl: vi.fn().mockReturnValue(`${baseUrl}/project/${projectId}`),
             },
@@ -87,22 +89,54 @@ describe('createQueryWrapper _posthogUrl', () => {
         }
     )
 
-    it('wraps trends-actors in DataTableNode with the ActorsQuery as source', async () => {
-        const context = createMockContext('1', 'http://localhost:8010', {
-            kind: 'ActorsQuery',
-            source: { kind: 'InsightActorsQuery', day: '2024-01-15' },
-        })
-        const factory = createQueryWrapper({ name: 'test', schema, kind: 'InsightActorsQuery' })
-        const tool = factory()
+    function createActorsDispatchContext(): {
+        context: Context
+        trendsActors: ReturnType<typeof vi.fn>
+        lifecycleActors: ReturnType<typeof vi.fn>
+    } {
+        const actorsResponse = {
+            query: { kind: 'ActorsQuery', source: { kind: 'InsightActorsQuery' } },
+            results: { columns: [], results: [] },
+            hasMore: false,
+            offset: 0,
+        }
+        const trendsActors = vi.fn().mockResolvedValue(actorsResponse)
+        const lifecycleActors = vi.fn().mockResolvedValue(actorsResponse)
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ trendsActors, lifecycleActors }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        return { context, trendsActors, lifecycleActors }
+    }
 
-        const result = (await tool.handler(context, {
-            series: [{ kind: 'EventsNode', event: '$pageview' }],
-        })) as any
+    const actorsSchema = z.object({
+        day: z.string().optional(),
+        source: z.looseObject({ kind: z.string() }),
+    })
 
-        const hash = result._posthogUrl.split('#q=')[1]
-        const parsed = JSON.parse(decodeURIComponent(hash))
-        expect(parsed.kind).toBe('DataTableNode')
-        expect(parsed.source.kind).toBe('ActorsQuery')
+    it('dispatches TrendsQuery source to trendsActors', async () => {
+        const { context, trendsActors, lifecycleActors } = createActorsDispatchContext()
+        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
+
+        const result = (await tool.handler(context, { source: { kind: 'TrendsQuery' } })) as any
+
+        expect(trendsActors).toHaveBeenCalledOnce()
+        expect(lifecycleActors).not.toHaveBeenCalled()
+        expect(result._posthogUrl).toContain('DataTableNode')
+    })
+
+    it('dispatches LifecycleQuery source to lifecycleActors', async () => {
+        const { context, trendsActors, lifecycleActors } = createActorsDispatchContext()
+        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
+
+        const result = (await tool.handler(context, { source: { kind: 'LifecycleQuery' } })) as any
+
+        expect(lifecycleActors).toHaveBeenCalledOnce()
+        expect(trendsActors).not.toHaveBeenCalled()
+        expect(result._posthogUrl).toContain('DataTableNode')
     })
 
     it('uses hash param not query param', async () => {
@@ -165,6 +199,7 @@ describe('createQueryWrapper output_format handling', () => {
                 query: vi.fn().mockReturnValue({
                     runQuery: runQueryMock,
                     trendsActors: vi.fn(),
+                    lifecycleActors: vi.fn(),
                 }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
@@ -247,5 +282,34 @@ describe('createQueryWrapper output_format handling', () => {
         })) as any
 
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('formatted-text')
+    })
+})
+
+describe('createQueryWrapper actors dispatch', () => {
+    function createMockContext(): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn(),
+                    trendsActors: vi.fn(),
+                    lifecycleActors: vi.fn(),
+                }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('throws when actors source kind is not supported', async () => {
+        const context = createMockContext()
+        const actorsSchema = z.object({
+            source: z.looseObject({ kind: z.string() }),
+        })
+        const factory = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })
+        const tool = factory()
+
+        await expect(tool.handler(context, { source: { kind: 'PathsQuery' } })).rejects.toThrow(
+            'Unsupported source kind for actors query: PathsQuery'
+        )
     })
 })

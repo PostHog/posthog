@@ -23,7 +23,6 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
-    AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionActionsNode,
     AssistantRetentionEventsNode,
@@ -34,8 +33,10 @@ from posthog.schema import (
     AssistantTrendsQuery,
     ContextMessage,
     DashboardFilter,
+    DataVisualizationNode,
     EventTaxonomyItem,
     FailureMessage,
+    HogQLQuery,
     HumanMessage,
     MaxAddonInfo,
     MaxBillingContext,
@@ -645,7 +646,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         )
         root_mock.side_effect = cycle([res1, res2])
 
-        query = AssistantHogQLQuery(query="SELECT 1")
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT 1"))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True, agent_mode=AgentMode.SQL)

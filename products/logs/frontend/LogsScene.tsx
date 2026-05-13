@@ -127,7 +127,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             )}
             <LemonTabs<LogsSceneActiveTab>
                 activeKey={activeTab}
-                onChange={(key) => setActiveTab(key)}
+                onChange={(key) => {
+                    if (key === 'sql' && activeTab !== 'sql') {
+                        posthog.capture('logs sql tab opened')
+                    }
+                    setActiveTab(key)
+                }}
                 tabs={tabs}
                 sceneInset
             />

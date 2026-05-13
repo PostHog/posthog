@@ -7,7 +7,7 @@ export enum AnalyticsEvent {
     MCP_INIT = 'mcp init',
     MCP_PROJECT_SWITCHED = 'mcp project switched',
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
-    MCP_TOOL_CALLED = 'mcp_tool_called', // matching mcpcat
+    MCP_TOOL_CALL = 'mcp_tool_call', // matching mcpcat
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
 }
 

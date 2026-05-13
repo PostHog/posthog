@@ -8,7 +8,6 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -111,14 +110,10 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         return self.name or str(self.id)
 
     def delete(self, *args, **kwargs):
-        from posthog.models.group_type_mapping import GroupTypeMapping
+        from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
 
-        # Handle SET_NULL for GroupTypeMapping.detail_dashboard in persons database
-        # This is needed because GroupTypeMapping is in the persons database
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
-            detail_dashboard_id=self.id
-        ).update(  # nosemgrep: no-direct-persons-db-orm
-            detail_dashboard_id=None
+        clear_dashboard_from_group_type_mapping(
+            team_id=self.team_id, dashboard_id=self.id, project_id=self.team.project_id
         )
         return super().delete(*args, **kwargs)
 

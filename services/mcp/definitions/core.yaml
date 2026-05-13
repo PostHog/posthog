@@ -44,6 +44,18 @@ tools:
     change-organization-create:
         operation: organizations_projects_change_organization_create
         enabled: false
+    cimd-verification-tokens-create:
+        operation: cimd_verification_tokens_create
+        enabled: false
+    cimd-verification-tokens-destroy:
+        operation: cimd_verification_tokens_destroy
+        enabled: false
+    cimd-verification-tokens-list:
+        operation: cimd_verification_tokens_list
+        enabled: false
+    cimd-verification-tokens-retrieve:
+        operation: cimd_verification_tokens_retrieve
+        enabled: false
     cohorts-activity-retrieve:
         operation: cohorts_activity_retrieve
         enabled: false
@@ -80,6 +92,9 @@ tools:
     cohorts-update:
         operation: cohorts_update
         enabled: false
+    comments-complete-create:
+        operation: comments_complete_create
+        enabled: false
     comments-count-retrieve:
         operation: comments_count_retrieve
         enabled: false
@@ -94,6 +109,9 @@ tools:
         enabled: false
     comments-partial-update:
         operation: comments_partial_update
+        enabled: false
+    comments-reopen-create:
+        operation: comments_reopen_create
         enabled: false
     comments-retrieve:
         operation: comments_retrieve
@@ -401,6 +419,18 @@ tools:
     members-update:
         operation: members_update
         enabled: false
+    notebooks-sharing-list:
+        operation: notebooks_sharing_list
+        enabled: false
+    notebooks-sharing-passwords-create:
+        operation: notebooks_sharing_passwords_create
+        enabled: false
+    notebooks-sharing-passwords-destroy:
+        operation: notebooks_sharing_passwords_destroy
+        enabled: false
+    notebooks-sharing-refresh-create:
+        operation: notebooks_sharing_refresh_create
+        enabled: false
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
@@ -419,6 +449,7 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to fetch the caller's active project.
+                cast: string-int
         response:
             exclude:
                 - secret_api_token
@@ -480,6 +511,7 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
+                cast: string-int
     projects-create:
         operation: organizations_projects_create
         enabled: false

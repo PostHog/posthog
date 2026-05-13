@@ -22,6 +22,7 @@ APIScopeObject = Literal[
     "approvals",
     "batch_export",
     "batch_import",
+    "business_knowledge",
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
@@ -76,6 +77,7 @@ APIScopeObject = Literal[
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
+    "replay_lens",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -121,7 +123,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_t
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"user_interview_DO_NOT_USE"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"user_interview_DO_NOT_USE", "replay_lens"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 

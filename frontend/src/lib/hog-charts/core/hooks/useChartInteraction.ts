@@ -64,6 +64,7 @@ interface UseChartInteractionOptions<Meta> {
 
 interface UseChartInteractionResult<Meta> {
     hoverIndex: number
+    hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -87,6 +88,7 @@ export function useChartInteraction<Meta = unknown>({
     labelToCoord,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
+    const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the
     // most recent commit, so an effect-deferred ref is correct here.
@@ -94,6 +96,7 @@ export function useChartInteraction<Meta = unknown>({
 
     const clearTooltip = useCallback(() => {
         setHoverIndex(-1)
+        setHoverPosition(null)
         setTooltipCtx(null)
     }, [])
 
@@ -137,7 +140,8 @@ export function useChartInteraction<Meta = unknown>({
                 canvasBounds,
                 resolveValueRef.current,
                 scales.yAxes,
-                interactionAxis
+                interactionAxis,
+                prev.hoverPosition
             )
             if (!fresh) {
                 return null
@@ -237,6 +241,7 @@ export function useChartInteraction<Meta = unknown>({
             const probe = interactionAxis === 'y' ? mouseY : mouseX
             const index = findNearestIndexFromPositions(probe, labelPositions)
             setHoverIndex(index)
+            setHoverPosition({ x: mouseX, y: mouseY })
 
             if (index >= 0 && showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
@@ -251,7 +256,8 @@ export function useChartInteraction<Meta = unknown>({
                         canvasBounds,
                         resolveValue,
                         scales.yAxes,
-                        interactionAxis
+                        interactionAxis,
+                        { x: mouseX, y: mouseY }
                     )
                 )
             }
@@ -309,5 +315,5 @@ export function useChartInteraction<Meta = unknown>({
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 
-    return { hoverIndex, tooltipCtx, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, handlers }
 }
