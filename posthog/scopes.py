@@ -66,6 +66,7 @@ APIScopeObject = Literal[
     "llm_provider_key",
     "llm_skill",
     "logs",
+    "mindmap",
     "notebook",
     "organization",
     "organization_integration",
