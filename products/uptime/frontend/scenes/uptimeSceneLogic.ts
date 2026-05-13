@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -81,13 +82,17 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
 
     actions({
         setActiveTab: (activeTab: UptimeSceneActiveTab) => ({ activeTab }),
-        selectMonitor: (monitorId: string | null) => ({ monitorId }),
         pingNow: (monitorId: string) => ({ monitorId }),
         setCreateModalOpen: (open: boolean) => ({ open }),
         setSuggestModalOpen: (open: boolean) => ({ open }),
         toggleSuggestion: (url: string) => ({ url }),
         clearSelectedSuggestions: true,
         bulkAddSelected: true,
+        startEditing: (monitor: MonitorSummary) => ({ monitor }),
+        stopEditing: true,
+        confirmDeleteMonitor: (monitor: { id: string; name: string }) => ({ monitor }),
+        deleteMonitor: (monitorId: string) => ({ monitorId }),
+        quickAddSuggestion: (suggestion: SuggestedUrl) => ({ suggestion }),
     }),
 
     reducers({
@@ -95,12 +100,6 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             DEFAULT_ACTIVE_TAB as UptimeSceneActiveTab,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
-            },
-        ],
-        selectedMonitorId: [
-            null as string | null,
-            {
-                selectMonitor: (_, { monitorId }) => monitorId,
             },
         ],
         createModalOpen: [
@@ -124,6 +123,13 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 setSuggestModalOpen: (state, { open }) => (open ? state : []),
             },
         ],
+        editingMonitorId: [
+            null as string | null,
+            {
+                startEditing: (_, { monitor }) => monitor.id,
+                stopEditing: () => null,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -133,16 +139,6 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 loadMonitorSummaries: async () => {
                     return await api.get<MonitorSummary[]>(
                         `api/projects/${values.currentProjectId}/uptime/monitors/summary/`
-                    )
-                },
-            },
-        ],
-        pings: [
-            [] as Ping[],
-            {
-                loadPings: async (monitorId: string) => {
-                    return await api.get<Ping[]>(
-                        `api/projects/${values.currentProjectId}/uptime/monitors/${monitorId}/pings/`
                     )
                 },
             },
@@ -178,17 +174,62 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 actions.loadSuggestedUrls()
             },
         },
+        editMonitor: {
+            defaults: { name: '', url: '' } as { name: string; url: string },
+            errors: ({ name, url }) => ({
+                name: !name ? 'Name is required' : null,
+                url: !url ? 'URL is required' : null,
+            }),
+            submit: async ({ name, url }) => {
+                const id = values.editingMonitorId
+                if (!id) {
+                    return
+                }
+                const updated = await api.update<Monitor>(
+                    `api/projects/${values.currentProjectId}/uptime/monitors/${id}/`,
+                    { name, url }
+                )
+                lemonToast.success(`Monitor "${updated.name}" updated`)
+                actions.stopEditing()
+                actions.loadMonitorSummaries()
+            },
+        },
     })),
 
     listeners(({ actions, values }) => ({
-        selectMonitor: ({ monitorId }) => {
-            if (monitorId) {
-                actions.loadPings(monitorId)
-            }
-        },
         pingNow: async ({ monitorId }) => {
             await api.create(`api/projects/${values.currentProjectId}/uptime/monitors/${monitorId}/ping_now/`, {})
             lemonToast.info('Ping enqueued — refresh in a few seconds')
+        },
+        startEditing: ({ monitor }) => {
+            actions.setEditMonitorValues({ name: monitor.name, url: monitor.url })
+        },
+        confirmDeleteMonitor: ({ monitor }) => {
+            LemonDialog.open({
+                title: `Delete monitor "${monitor.name}"?`,
+                description: 'Historical pings stay in the audit log; the monitor card disappears from the list.',
+                primaryButton: {
+                    children: 'Delete monitor',
+                    status: 'danger',
+                    onClick: () => actions.deleteMonitor(monitor.id),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        deleteMonitor: async ({ monitorId }) => {
+            await api.delete(`api/projects/${values.currentProjectId}/uptime/monitors/${monitorId}/`)
+            lemonToast.success('Monitor deleted')
+            actions.loadMonitorSummaries()
+            actions.loadSuggestedUrls()
+        },
+        quickAddSuggestion: async ({ suggestion }) => {
+            const created = await api.create<Monitor>(`api/projects/${values.currentProjectId}/uptime/monitors/`, {
+                name: suggestion.host,
+                url: suggestion.url,
+            })
+            lemonToast.success(`Now monitoring ${created.name}`)
+            actions.loadMonitorSummaries()
+            actions.loadSuggestedUrls()
         },
         bulkAddSelected: async () => {
             const selected = values.selectedSuggestionsAsItems

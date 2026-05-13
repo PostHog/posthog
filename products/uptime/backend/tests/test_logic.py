@@ -13,9 +13,11 @@ from products.uptime.backend.facade.enums import PingOutcome
 from products.uptime.backend.logic import (
     DAILY_BUCKETS,
     bulk_create_monitors,
+    delete_monitor,
     list_monitor_summaries,
     list_suggested_urls,
     record_ping,
+    update_monitor,
 )
 from products.uptime.backend.models import Monitor
 from products.uptime.backend.tests.conftest import UptimeTeamScopedTestMixin
@@ -260,6 +262,42 @@ class TestBulkCreateMonitors(UptimeTeamScopedTestMixin, BaseTest):
         created = bulk_create_monitors(team_id=self.team.id, items=[])
         assert created == []
         assert Monitor.objects.filter(team_id=self.team.id).count() == 0
+
+
+class TestUpdateMonitor(UptimeTeamScopedTestMixin, BaseTest):
+    def test_updates_name_and_url(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="old", url="https://old.io")
+
+        updated = update_monitor(team_id=self.team.id, monitor_id=monitor.id, name="new name", url="https://new.io")
+
+        assert updated.name == "new name"
+        assert updated.url == "https://new.io"
+        monitor.refresh_from_db()
+        assert monitor.name == "new name"
+        assert monitor.url == "https://new.io"
+
+    def test_updates_only_provided_fields(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="keep", url="https://keep.io")
+
+        updated = update_monitor(team_id=self.team.id, monitor_id=monitor.id, url="https://changed.io")
+
+        assert updated.name == "keep"  # untouched
+        assert updated.url == "https://changed.io"
+
+
+class TestDeleteMonitor(UptimeTeamScopedTestMixin, BaseTest):
+    def test_removes_monitor(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="bye", url="https://bye.io")
+
+        delete_monitor(team_id=self.team.id, monitor_id=monitor.id)
+
+        assert not Monitor.objects.filter(team_id=self.team.id, id=monitor.id).exists()
+
+    def test_delete_is_idempotent(self) -> None:
+        # Deleting a non-existent monitor should not raise
+        from uuid import uuid4
+
+        delete_monitor(team_id=self.team.id, monitor_id=uuid4())
 
 
 @pytest.mark.django_db

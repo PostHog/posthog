@@ -18,6 +18,23 @@ export const UptimeMonitorsCreateBody = /* @__PURE__ */ zod.object({
     url: zod.url().max(uptimeMonitorsCreateBodyUrlMax).describe('HTTP(S) URL to ping every 5 minutes.'),
 })
 
+export const uptimeMonitorsPartialUpdateBodyNameMax = 255
+
+export const uptimeMonitorsPartialUpdateBodyUrlMax = 2048
+
+export const UptimeMonitorsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(uptimeMonitorsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New human-readable name of the monitor.'),
+    url: zod
+        .url()
+        .max(uptimeMonitorsPartialUpdateBodyUrlMax)
+        .optional()
+        .describe('New HTTP(S) URL to ping every 5 minutes.'),
+})
+
 /**
  * Create multiple monitors in a single atomic transaction. Used by the URL-suggester bulk add.
  */

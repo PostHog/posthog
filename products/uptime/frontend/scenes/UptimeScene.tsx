@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 
+import { IconEllipsis, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
     LemonCheckbox,
     LemonInput,
+    LemonMenu,
     LemonModal,
     LemonTab,
     LemonTable,
@@ -20,6 +23,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -31,7 +35,6 @@ import {
     MonitorStatus,
     MonitorSummary,
     OverallStats,
-    Ping,
     SuggestedUrl,
     UptimeSceneActiveTab,
     uptimeSceneLogic,
@@ -99,81 +102,41 @@ export function UptimeScene(): JSX.Element {
 }
 
 function MonitorsTab(): JSX.Element {
-    const {
-        monitorSummaries,
-        monitorSummariesLoading,
-        suggestedUrls,
-        overallStats,
-        selectedMonitorId,
-        pings,
-        pingsLoading,
-    } = useValues(uptimeSceneLogic)
-    const { selectMonitor, pingNow, setSuggestModalOpen } = useActions(uptimeSceneLogic)
+    const { monitorSummaries, monitorSummariesLoading, suggestedUrls, overallStats } = useValues(uptimeSceneLogic)
+    const { setSuggestModalOpen, setCreateModalOpen, startEditing, confirmDeleteMonitor, pingNow } =
+        useActions(uptimeSceneLogic)
 
-    const selectedMonitor = monitorSummaries.find((m) => m.id === selectedMonitorId) ?? null
-    const hasSuggestions = suggestedUrls.length > 0
     const hasMonitors = monitorSummaries.length > 0
+    const topSuggestion = suggestedUrls[0] ?? null
 
     return (
-        <>
+        <div className="flex flex-col gap-4">
             {hasMonitors && <OverallStatusBanner stats={overallStats} />}
 
             {!hasMonitors && !monitorSummariesLoading ? (
-                <EmptyState hasSuggestions={hasSuggestions} onOpenSuggest={() => setSuggestModalOpen(true)} />
+                <EmptyState
+                    topSuggestion={topSuggestion}
+                    hasMoreSuggestions={suggestedUrls.length > 1}
+                    onOpenSuggest={() => setSuggestModalOpen(true)}
+                    onCreateBlank={() => setCreateModalOpen(true)}
+                />
             ) : (
-                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}>
                     {monitorSummariesLoading && !hasMonitors
                         ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)
                         : monitorSummaries.map((monitor) => (
                               <MonitorTile
                                   key={monitor.id}
                                   monitor={monitor}
-                                  onViewPings={() => selectMonitor(monitor.id)}
                                   onPingNow={() => pingNow(monitor.id)}
+                                  onEdit={() => startEditing(monitor)}
+                                  onDelete={() => confirmDeleteMonitor({ id: monitor.id, name: monitor.name })}
                               />
                           ))}
                 </div>
             )}
-
-            <LemonModal
-                isOpen={selectedMonitorId !== null}
-                onClose={() => selectMonitor(null)}
-                title={selectedMonitor ? `Recent pings: ${selectedMonitor.name}` : 'Pings'}
-                width={800}
-            >
-                <LemonTable
-                    loading={pingsLoading}
-                    dataSource={pings}
-                    columns={[
-                        {
-                            title: 'When',
-                            dataIndex: 'timestamp',
-                            render: (_, row: Ping) => dayjs(row.timestamp).fromNow(),
-                        },
-                        {
-                            title: 'Outcome',
-                            dataIndex: 'outcome',
-                            render: (_, row: Ping) => (
-                                <LemonTag type={row.outcome === 'success' ? 'success' : 'danger'}>
-                                    {row.outcome}
-                                </LemonTag>
-                            ),
-                        },
-                        {
-                            title: 'Status',
-                            dataIndex: 'status_code',
-                            render: (_, row: Ping) => (row.status_code ? String(row.status_code) : '—'),
-                        },
-                        {
-                            title: 'Latency',
-                            dataIndex: 'latency_ms',
-                            render: (_, row: Ping) => `${row.latency_ms} ms`,
-                        },
-                    ]}
-                    emptyState="No pings recorded yet."
-                />
-            </LemonModal>
-        </>
+            <EditMonitorModal />
+        </div>
     )
 }
 
@@ -224,17 +187,27 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 
 function MonitorTile({
     monitor,
-    onViewPings,
     onPingNow,
+    onEdit,
+    onDelete,
 }: {
     monitor: MonitorSummary
-    onViewPings: () => void
     onPingNow: () => void
+    onEdit: () => void
+    onDelete: () => void
 }): JSX.Element {
     const tone = monitor.status === 'up' ? 'success' : monitor.status === 'down' ? 'danger' : 'muted'
 
+    // The whole card is a Link to the detail page. Interactive children stopPropagation so
+    // clicking them doesn't also fire the navigation.
+    const stop = (e: React.MouseEvent): void => e.stopPropagation()
+
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+        <LemonCard
+            hoverEffect
+            onClick={() => router.actions.push(urls.uptimeMonitor(monitor.id))}
+            className="flex flex-col gap-3 p-4"
+        >
             <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                     <StatusDot status={monitor.status} />
@@ -245,6 +218,7 @@ function MonitorTile({
                         <Link
                             to={monitor.url}
                             target="_blank"
+                            onClick={stop}
                             className="text-xs text-secondary truncate"
                             title={monitor.url}
                         >
@@ -252,9 +226,19 @@ function MonitorTile({
                         </Link>
                     </div>
                 </div>
-                <LemonTag type={tone} size="small">
-                    {statusLabel(monitor.status)}
-                </LemonTag>
+                <div className="flex items-center gap-1 shrink-0" onClick={stop}>
+                    <LemonTag type={tone} size="small">
+                        {statusLabel(monitor.status)}
+                    </LemonTag>
+                    <LemonMenu
+                        items={[
+                            { label: 'Edit', icon: <IconPencil />, onClick: onEdit },
+                            { label: 'Delete', icon: <IconTrash />, status: 'danger', onClick: onDelete },
+                        ]}
+                    >
+                        <LemonButton size="xsmall" icon={<IconEllipsis />} aria-label="Monitor actions" />
+                    </LemonMenu>
+                </div>
             </div>
 
             <div className="flex items-baseline justify-between gap-2">
@@ -278,13 +262,14 @@ function MonitorTile({
                 <span>
                     {monitor.last_ping_at ? `Last checked ${dayjs(monitor.last_ping_at).fromNow()}` : 'No checks yet'}
                 </span>
-            </div>
-
-            <div className="flex gap-2 min-w-0">
-                <LemonButton type="secondary" size="small" onClick={onViewPings} className="flex-1 min-w-0 truncate">
-                    View pings
-                </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={onPingNow} className="flex-1 min-w-0 truncate">
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconPlay />}
+                    onClick={(e) => {
+                        stop(e)
+                        onPingNow()
+                    }}
+                >
                     Ping now
                 </LemonButton>
             </div>
@@ -300,7 +285,7 @@ function StatusTimeline({ buckets }: { buckets: DailyBucket[] }): JSX.Element {
                     <Tooltip key={b.date} title={bucketTooltipText(b)}>
                         <div
                             className={cn(
-                                'flex-1 h-full rounded-sm cursor-help transition-opacity hover:opacity-80',
+                                'flex-1 h-full rounded-sm transition-opacity hover:opacity-80',
                                 dailyStatusToBgClass(b.status)
                             )}
                         />
@@ -340,27 +325,69 @@ function SkeletonCard(): JSX.Element {
 }
 
 function EmptyState({
-    hasSuggestions,
+    topSuggestion,
+    hasMoreSuggestions,
     onOpenSuggest,
+    onCreateBlank,
 }: {
-    hasSuggestions: boolean
+    topSuggestion: SuggestedUrl | null
+    hasMoreSuggestions: boolean
     onOpenSuggest: () => void
+    onCreateBlank: () => void
 }): JSX.Element {
+    const { quickAddSuggestion } = useActions(uptimeSceneLogic)
+
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col items-center gap-3 p-8 text-center">
-            <div className="text-xl font-semibold">No monitors yet</div>
-            {hasSuggestions ? (
-                <>
-                    <div className="text-secondary">
-                        We spotted URLs in your traffic. Pick which to start monitoring.
-                    </div>
-                    <LemonButton type="primary" onClick={onOpenSuggest}>
-                        Add from traffic
-                    </LemonButton>
-                </>
-            ) : (
-                <div className="text-secondary">Create a monitor to start tracking uptime.</div>
+        <div className="flex flex-col gap-4">
+            <LemonCard hoverEffect={false} className="flex flex-col items-center gap-2 p-8 text-center">
+                <div className="text-xl font-semibold">No monitors yet</div>
+                <div className="text-secondary max-w-md">
+                    {topSuggestion
+                        ? 'Start with a URL we found in your traffic below, or add one manually.'
+                        : 'Add a URL to start tracking its uptime, latency, and response codes.'}
+                </div>
+                <LemonButton type="primary" icon={<IconPlus />} onClick={onCreateBlank}>
+                    Create monitor
+                </LemonButton>
+            </LemonCard>
+            {topSuggestion && (
+                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}>
+                    <GhostTile suggestion={topSuggestion} onAdd={() => quickAddSuggestion(topSuggestion)} />
+                    {hasMoreSuggestions && (
+                        <LemonCard
+                            hoverEffect
+                            onClick={onOpenSuggest}
+                            className="flex flex-col items-center justify-center gap-2 p-6 text-center border-dashed"
+                        >
+                            <div className="font-semibold">See all suggestions</div>
+                            <div className="text-xs text-secondary">More URLs detected in your traffic</div>
+                        </LemonCard>
+                    )}
+                </div>
             )}
+        </div>
+    )
+}
+
+function GhostTile({ suggestion, onAdd }: { suggestion: SuggestedUrl; onAdd: () => void }): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4 border-dashed bg-surface-secondary/50">
+            <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold truncate">{suggestion.host}</div>
+                <LemonTag type="muted" size="small">
+                    Suggested
+                </LemonTag>
+            </div>
+            <div className="text-xs text-secondary truncate" title={suggestion.url}>
+                {suggestion.url}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary">
+                <span>{humanFriendlyNumber(suggestion.event_count)} pageviews</span>
+                <span>{suggestion.unique_paths} paths</span>
+            </div>
+            <LemonButton type="primary" icon={<IconPlus />} onClick={onAdd} fullWidth>
+                Start monitoring {suggestion.host}
+            </LemonButton>
         </LemonCard>
     )
 }
@@ -411,6 +438,33 @@ function CreateMonitorModal(): JSX.Element {
                 </LemonField>
                 <LemonField name="url" label="URL">
                     <LemonInput placeholder="https://example.com" onChange={(v) => setCreateMonitorValue('url', v)} />
+                </LemonField>
+            </Form>
+        </LemonModal>
+    )
+}
+
+function EditMonitorModal(): JSX.Element {
+    const { editingMonitorId, isEditMonitorFormSubmitting } = useValues(uptimeSceneLogic)
+    const { setEditMonitorValue, submitEditMonitor, stopEditing } = useActions(uptimeSceneLogic)
+
+    return (
+        <LemonModal
+            isOpen={editingMonitorId !== null}
+            onClose={stopEditing}
+            title="Edit monitor"
+            footer={
+                <LemonButton type="primary" loading={isEditMonitorFormSubmitting} onClick={() => submitEditMonitor()}>
+                    Save
+                </LemonButton>
+            }
+        >
+            <Form logic={uptimeSceneLogic} formKey="editMonitor" className="deprecated-space-y-4">
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="My website" onChange={(v) => setEditMonitorValue('name', v)} />
+                </LemonField>
+                <LemonField name="url" label="URL">
+                    <LemonInput placeholder="https://example.com" onChange={(v) => setEditMonitorValue('url', v)} />
                 </LemonField>
             </Form>
         </LemonModal>

@@ -16,6 +16,7 @@ import type {
     PaginatedMonitorSummaryDTOListApi,
     PaginatedPingDTOListApi,
     PaginatedSuggestedUrlDTOListApi,
+    PatchedUpdateMonitorApi,
     UptimeMonitorsBulkCreateCreateParams,
     UptimeMonitorsListParams,
     UptimeMonitorsPingsListParams,
@@ -64,6 +65,35 @@ export const uptimeMonitorsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createMonitorApi),
+    })
+}
+
+export const getUptimeMonitorsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/monitors/${id}/`
+}
+
+export const uptimeMonitorsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateMonitorApi?: PatchedUpdateMonitorApi,
+    options?: RequestInit
+): Promise<MonitorDTOApi> => {
+    return apiMutator<MonitorDTOApi>(getUptimeMonitorsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateMonitorApi),
+    })
+}
+
+export const getUptimeMonitorsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/monitors/${id}/`
+}
+
+export const uptimeMonitorsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUptimeMonitorsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

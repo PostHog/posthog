@@ -29813,6 +29813,19 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface PatchedUpdateMonitor {
+      /**
+         * New human-readable name of the monitor.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * New HTTP(S) URL to ping every 5 minutes.
+         * @maxLength 2048
+         */
+      url?: string;
+    }
+
     /**
      * @nullable
      */

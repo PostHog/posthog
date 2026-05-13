@@ -21,6 +21,15 @@ def create(input: contracts.CreateMonitorInput) -> contracts.MonitorDTO:
     return _to_dto(obj)
 
 
+def update(input: contracts.UpdateMonitorInput) -> contracts.MonitorDTO:
+    obj = logic.update_monitor(team_id=input.team_id, monitor_id=input.monitor_id, name=input.name, url=input.url)
+    return _to_dto(obj)
+
+
+def delete(*, team_id: int, monitor_id: UUID) -> None:
+    logic.delete_monitor(team_id=team_id, monitor_id=monitor_id)
+
+
 def bulk_create(input: contracts.BulkCreateMonitorInput) -> list[contracts.MonitorDTO]:
     objs = logic.bulk_create_monitors(
         team_id=input.team_id,

@@ -25,6 +25,14 @@ class CreateMonitorInput:
 
 
 @dataclass(frozen=True)
+class UpdateMonitorInput:
+    team_id: int
+    monitor_id: UUID
+    name: str | None = None
+    url: str | None = None
+
+
+@dataclass(frozen=True)
 class BulkCreateMonitorItem:
     name: str
     url: str

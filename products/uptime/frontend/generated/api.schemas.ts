@@ -36,6 +36,19 @@ export interface CreateMonitorApi {
     url: string
 }
 
+export interface PatchedUpdateMonitorApi {
+    /**
+     * New human-readable name of the monitor.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * New HTTP(S) URL to ping every 5 minutes.
+     * @maxLength 2048
+     */
+    url?: string
+}
+
 /**
  * * `success` - SUCCESS
  * `failure` - FAILURE

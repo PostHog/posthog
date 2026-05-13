@@ -54,6 +54,23 @@ def bulk_create_monitors(*, team_id: int, items: list[dict[str, str]]) -> list[M
         return [Monitor.objects.create(team_id=team_id, name=item["name"], url=item["url"]) for item in items]
 
 
+def update_monitor(*, team_id: int, monitor_id: UUID, name: str | None = None, url: str | None = None) -> Monitor:
+    """Update a monitor's display name and/or URL. Pings are not rewritten — the monitor_id is stable."""
+    monitor = Monitor.objects.get(team_id=team_id, id=monitor_id)
+    if name is not None:
+        monitor.name = name
+    if url is not None:
+        monitor.url = url
+    monitor.save()
+    return monitor
+
+
+def delete_monitor(*, team_id: int, monitor_id: UUID) -> None:
+    """Delete a monitor. Historical pings in uptime_pings are intentionally retained for audit;
+    the monitor_id is a UUID so there's no reuse risk."""
+    Monitor.objects.filter(team_id=team_id, id=monitor_id).delete()
+
+
 def list_monitors() -> list[Monitor]:
     return list(Monitor.objects.order_by("-created_at"))
 

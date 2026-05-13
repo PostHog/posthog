@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -15,6 +17,7 @@ from .serializers import (
     MonitorSummarySerializer,
     PingSerializer,
     SuggestedUrlSerializer,
+    UpdateMonitorSerializer,
 )
 
 
@@ -46,6 +49,25 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         )
         return Response(MonitorSerializer(dto).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=UpdateMonitorSerializer, responses={200: MonitorSerializer})
+    def partial_update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        serializer = UpdateMonitorSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        dto = api.update(
+            contracts.UpdateMonitorInput(
+                team_id=self.team_id,
+                monitor_id=UUID(str(pk)),
+                name=serializer.validated_data.get("name"),
+                url=serializer.validated_data.get("url"),
+            )
+        )
+        return Response(MonitorSerializer(dto).data)
+
+    @extend_schema(responses={204: OpenApiResponse(description="Monitor deleted.")})
+    def destroy(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        api.delete(team_id=self.team_id, monitor_id=UUID(str(pk)))
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(responses={200: PingSerializer(many=True)})
     @action(detail=True, methods=["get"], url_path="pings")

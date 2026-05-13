@@ -10,13 +10,20 @@ export const manifest: ProductManifest = {
             projectBased: true,
             import: () => import('./frontend/scenes/UptimeScene'),
         },
+        UptimeMonitor: {
+            name: 'Monitor',
+            projectBased: true,
+            import: () => import('./frontend/scenes/UptimeMonitorScene'),
+        },
     },
     routes: {
         '/uptime': ['Uptime', 'uptime'],
+        '/uptime/:id': ['UptimeMonitor', 'uptimeMonitor'],
     },
     redirects: {},
     urls: {
         uptime: (): string => '/uptime',
+        uptimeMonitor: (id: string): string => `/uptime/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
