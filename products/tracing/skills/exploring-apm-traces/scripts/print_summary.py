@@ -14,7 +14,8 @@ import sys
 
 SPAN_KIND = {0: "Unspecified", 1: "Internal", 2: "Server", 3: "Client", 4: "Producer", 5: "Consumer"}
 STATUS_CODE = {0: "Unset", 1: "OK", 2: "Error"}
-ZERO_PARENT = "00000000000000000000000000000000"
+def is_zero_id(s):
+    return not s or set(s) == {"0"}
 
 
 def load_trace_file(path):
@@ -22,8 +23,12 @@ def load_trace_file(path):
         raw = json.load(f)
     if isinstance(raw, list) and raw and raw[0].get("type") == "text":
         raw = json.loads(raw[0]["text"])
-    results = raw.get("results", raw)
-    return results if isinstance(results, list) else [results]
+    if isinstance(raw, dict):
+        for key in ("trace_spans", "spans", "results"):
+            if key in raw and isinstance(raw[key], list):
+                return raw[key]
+        return [raw]
+    return raw if isinstance(raw, list) else [raw]
 
 
 def fmt_duration(nanos):
@@ -52,7 +57,7 @@ def is_root(span):
     if span.get("is_root_span"):
         return True
     parent = span.get("parent_span_id") or ""
-    return not parent or parent == ZERO_PARENT
+    return is_zero_id(parent)
 
 
 max_len = int(os.environ.get("MAX_LEN", "100"))

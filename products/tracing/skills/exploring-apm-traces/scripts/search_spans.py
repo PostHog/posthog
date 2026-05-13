@@ -32,8 +32,12 @@ def load_trace_file(path):
         raw = json.load(f)
     if isinstance(raw, list) and raw and raw[0].get("type") == "text":
         raw = json.loads(raw[0]["text"])
-    results = raw.get("results", raw)
-    return results if isinstance(results, list) else [results]
+    if isinstance(raw, dict):
+        for key in ("trace_spans", "spans", "results"):
+            if key in raw and isinstance(raw[key], list):
+                return raw[key]
+        return [raw]
+    return raw if isinstance(raw, list) else [raw]
 
 
 def fmt_duration(nanos):
