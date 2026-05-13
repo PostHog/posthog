@@ -7,12 +7,11 @@ and activity describers will be filled in later.
 
 from __future__ import annotations
 
-import uuid
-
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.models.utils import uuid7
 
 
 class Deployment(ModelActivityMixin, ProductTeamModel):
@@ -37,7 +36,7 @@ class Deployment(ModelActivityMixin, ProductTeamModel):
         ROLLBACK = "rollback", "Rollback"
         SEED = "seed", "Seed"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
 
     status = models.CharField(
         max_length=32,
