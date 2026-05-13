@@ -228,7 +228,10 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 url: suggestion.url,
             })
             lemonToast.success(`Now monitoring ${created.name}`)
-            actions.loadMonitorSummaries()
+            // Send the user straight to the new monitor's detail page — clearer feedback than
+            // hoping the list reload finishes before the empty state re-evaluates, which left
+            // the new monitor invisible behind a re-rendered ghost tile.
+            router.actions.push(urls.uptimeMonitor(created.id))
             actions.loadSuggestedUrls()
         },
         bulkAddSelected: async () => {
