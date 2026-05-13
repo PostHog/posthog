@@ -611,6 +611,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
                         },
                         {
+                            identifier: 'MCPAnalytics',
+                            label: 'MCP analytics',
+                            icon: <IconLlmAnalytics />,
+                            to: urls.mcpAnalyticsDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
+                        },
+                        {
                             identifier: Scene.Logs,
                             label: 'Logs',
                             icon: <IconLive />,
