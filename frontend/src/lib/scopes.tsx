@@ -136,6 +136,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
+    { key: 'automl', objectName: 'AutoML', objectPlural: 'AutoML pipelines' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
@@ -236,6 +237,8 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'error_tracking:read',
     'logs:read',
     'tracing:read',
+    'automl:read',
+    'automl:write',
 ]
 
 export const getScopeDescription = (scope: string): string | undefined => {

@@ -378,6 +378,126 @@
             "readOnlyHint": true
         }
     },
+    "automl-archive": {
+        "description": "Soft-archive a pipeline. Inference stops permanently and the pipeline disappears from the default list view. History (predictions, model versions, audit log) is preserved. Idempotent.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Archive AutoML pipeline",
+        "title": "Archive AutoML pipeline",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-create": {
+        "description": "Create a new AutoML pipeline in draft state. Picks one of four task types (clustering, classification, regression, forecasting), describes the training and inference populations, and sets cadences and autonomy. The pipeline does not start training until automl-start is called.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Create AutoML pipeline",
+        "title": "Create AutoML pipeline",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-get": {
+        "description": "Fetch one AutoML pipeline by id. Returns the full pipeline including task type, status, autonomy level, configured populations, cadences, and timestamps. Use this after automl-list to inspect a specific pipeline in detail.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Retrieve AutoML pipeline",
+        "title": "Retrieve AutoML pipeline",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "automl-list": {
+        "description": "List all non-archived AutoML pipelines for the current team, newest first. Each pipeline captures a configured ML task (clustering, classification, regression, or forecasting) along with its populations, cadence, autonomy, and lifecycle status. Use this to discover what pipelines exist before fetching one by id.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "List AutoML pipelines",
+        "title": "List AutoML pipelines",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "automl-pause": {
+        "description": "Pause scheduled inference and retraining for an active pipeline. The model and history are kept; no new predictions are produced until automl-resume is called. Idempotent — pausing an already paused pipeline is a no-op.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Pause AutoML pipeline",
+        "title": "Pause AutoML pipeline",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-resume": {
+        "description": "Resume a paused pipeline. Scheduled inference and retraining restart on the configured cadence. Idempotent — resuming an already active pipeline is a no-op.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Resume AutoML pipeline",
+        "title": "Resume AutoML pipeline",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-start": {
+        "description": "Transition a draft pipeline into bootstrap-pending state, which queues the initial training run. Only valid from the \"draft\" state. Returns the updated pipeline. The actual Temporal training workflow is wired separately.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Start AutoML pipeline",
+        "title": "Start AutoML pipeline",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-update": {
+        "description": "Apply partial config updates to an existing pipeline. All body fields are optional; only fields you pass are changed. Status transitions are NOT done here — use automl-start, automl-pause, automl-resume, or automl-archive instead, so the lifecycle stays explicit.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Update AutoML pipeline",
+        "title": "Update AutoML pipeline",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "batch-export-create": {
         "description": "Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination types are permitted by the API but typically must be created via the PostHog UI because their credentials are stored in the destination config. Always specify the model field (events, persons, or sessions) — omitting it defaults to events but the field should be set explicitly.",
         "category": "Data pipelines",

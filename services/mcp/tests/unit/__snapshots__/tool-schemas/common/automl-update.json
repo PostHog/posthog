@@ -1,0 +1,125 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "autonomy": {
+            "anyOf": [
+                {
+                    "description": "* `shadow_only` - SHADOW_ONLY\n* `champion_only` - CHAMPION_ONLY\n* `promote_eligible` - PROMOTE_ELIGIBLE",
+                    "enum": ["shadow_only", "champion_only", "promote_eligible"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "config": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "extra": {
+            "additionalProperties": {},
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "id": {
+            "type": "string"
+        },
+        "inference_cadence": {
+            "anyOf": [
+                {
+                    "description": "* `hourly` - HOURLY\n* `daily` - DAILY\n* `weekly` - WEEKLY\n* `monthly` - MONTHLY\n* `never` - NEVER",
+                    "enum": ["hourly", "daily", "weekly", "monthly", "never"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "inference_population": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "output_property_name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "retraining_cadence": {
+            "anyOf": [
+                {
+                    "description": "* `hourly` - HOURLY\n* `daily` - DAILY\n* `weekly` - WEEKLY\n* `monthly` - MONTHLY\n* `never` - NEVER",
+                    "enum": ["hourly", "daily", "weekly", "monthly", "never"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "training_population": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

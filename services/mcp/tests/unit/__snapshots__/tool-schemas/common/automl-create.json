@@ -1,0 +1,62 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "autonomy": {
+            "description": "Output gate. \"shadow_only\" surfaces predictions internally but never writes person/group properties or emits events. \"champion_only\" writes from the active champion model. \"promote_eligible\" lets challenger models graduate to champion automatically when metrics pass thresholds.",
+            "enum": ["shadow_only", "champion_only", "promote_eligible"],
+            "type": "string"
+        },
+        "config": {
+            "additionalProperties": {},
+            "description": "Task-type-specific configuration (target event, horizon, cluster count, forecasting window, etc.). Shape depends on task_type. See the AutoML design doc for per-task fields.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "description": {
+            "type": "string"
+        },
+        "inference_cadence": {
+            "description": "How often inference runs after the pipeline is active. One of \"hourly\", \"daily\", \"weekly\", \"monthly\", or \"never\" (manual only).",
+            "enum": ["hourly", "daily", "weekly", "monthly", "never"],
+            "type": "string"
+        },
+        "inference_population": {
+            "additionalProperties": {},
+            "description": "Population definition describing who the model is scored against on each scheduled run. Usually broader than training_population.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "name": {
+            "description": "Human-readable label for the pipeline. Shows up in the UI and in property names. Keep it short and unique within the team.",
+            "type": "string"
+        },
+        "output_property_name": {
+            "description": "Name of the person or group property where predictions are written. Optional; if blank the pipeline emits events only.",
+            "type": "string"
+        },
+        "retraining_cadence": {
+            "description": "How often the model is refit on a rolling window. One of \"hourly\", \"daily\", \"weekly\", \"monthly\", or \"never\".",
+            "enum": ["hourly", "daily", "weekly", "monthly", "never"],
+            "type": "string"
+        },
+        "task_type": {
+            "description": "One of \"clustering\", \"classification\", \"regression\", or \"forecasting\". Determines what kind of model is trained and how predictions are surfaced.",
+            "enum": ["clustering", "classification", "regression", "forecasting"],
+            "type": "string"
+        },
+        "training_population": {
+            "additionalProperties": {},
+            "description": "Population definition (HogQL or filter spec) describing which persons, groups, or events are eligible to be drawn into the training set.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        }
+    },
+    "required": ["name", "task_type", "config", "training_population", "inference_population"],
+    "type": "object"
+}

@@ -41,9 +41,7 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     state machine stays explicit.
     """
 
-    # Hackathon scope: using INTERNAL until we promote to a registered scope.
-    # When we register an "automl" scope (posthog/scopes.py + frontend), switch here.
-    scope_object = "INTERNAL"
+    scope_object = "automl"
     scope_object_write_actions = ["create", "partial_update", "start", "pause", "resume", "archive"]
     scope_object_read_actions = ["list", "retrieve"]
     serializer_class = AutoMLPipelineSerializer
