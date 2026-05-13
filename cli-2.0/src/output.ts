@@ -69,6 +69,11 @@ function printPrettyJson(result: unknown): void {
 }
 
 function printListTable(result: unknown, emptyMessage: string, columns: TableColumn[]): void {
+  if (!process.stdout.isTTY) {
+    printPrettyJson(result)
+    return
+  }
+
   const items = getListItems(result)
 
   if (items.length === 0) {
@@ -474,10 +479,6 @@ const listFormatters: ListFormatter[] = [
     columns: [valueColumn('Name', ['name', 'title', 'table', 'event'], 60), valueColumn('Type', ['type', 'kind', 'category'], 30), valueColumn('Description', ['description', 'summary'], 80)],
   },
 ]
-
-const explicitlyFormattedListTools = new Set(
-  listFormatters.flatMap((formatter) => formatter.matches).filter((matcher): matcher is string => typeof matcher === 'string')
-)
 
 function printKnownList(toolName: string, result: unknown): boolean {
   if (toolName === 'feature-flag-get-all' || toolName === 'feature-flags-list') {

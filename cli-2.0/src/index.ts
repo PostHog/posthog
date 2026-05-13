@@ -18,9 +18,13 @@ function isTopLevelCommandGroupHelpRequest(argv: { _: Array<string | number> }):
   return command === 'auth' || Object.prototype.hasOwnProperty.call(commandGroups, command)
 }
 
+function getGroupNameParts(groupName: string): { groupPrefix: string; groupSingular: string } {
+  const groupPrefix = groupName
+  return { groupPrefix, groupSingular: groupPrefix.replace(/s$/, '') }
+}
+
 function stripGroupPrefix(toolName: string, groupName: string): string {
-  const groupPrefix = groupName.replace(/-/g, '-')
-  const groupSingular = groupPrefix.replace(/s$/, '')
+  const { groupPrefix, groupSingular } = getGroupNameParts(groupName)
 
   if (toolName.startsWith(groupSingular + '-')) {
     return toolName.substring(groupSingular.length + 1)
@@ -35,7 +39,7 @@ function stripGroupPrefix(toolName: string, groupName: string): string {
 
 function getCommandName(toolName: string, groupName: string): string {
   let commandName = stripGroupPrefix(toolName, groupName)
-  const groupSingular = groupName.replace(/-/g, '-').replace(/s$/, '')
+  const { groupSingular } = getGroupNameParts(groupName)
 
   if (commandName.startsWith('create-' + groupSingular)) {
     commandName = commandName.replace('create-' + groupSingular, 'create')
@@ -81,6 +85,9 @@ function getCommandAliases(commandName: string): string[] {
 }
 
 async function main() {
+  let authCommandHelp: (() => void) | undefined
+  const commandGroupHelp = new Map<string, () => void>()
+
   const cli = yargs(hideBin(process.argv))
     .scriptName('ph')
     .usage('$0 <command> [options]')
@@ -122,7 +129,7 @@ async function main() {
     
     // Auth commands
     .command('auth', 'Authentication commands', (yargs) => {
-      return yargs
+      const authCommands = yargs
         .command('login', 'Login to PostHog with OAuth', {}, async () => {
           config.clear()
           await config.login()
@@ -139,8 +146,11 @@ async function main() {
           console.log('Host:', cfg.host || '❌ Not set')
           console.log('Project ID:', cfg.projectId || '❌ Not set')
         })
+
+      authCommandHelp = () => authCommands.showHelp()
+      return authCommands
     }, () => {
-      cli.showHelp()
+      authCommandHelp?.() ?? cli.showHelp()
     })
     
     // Add generated commands dynamically
@@ -174,9 +184,10 @@ async function main() {
         )
       }
       
+      commandGroupHelp.set(groupName, () => subCommands.showHelp())
       return subCommands
     }, () => {
-      cli.showHelp()
+      commandGroupHelp.get(groupName)?.() ?? cli.showHelp()
     })
   }
     
