@@ -38,6 +38,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getLiveDebuggerProgramsActiveRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/live_debugger/programs/active/`
+}
+
+/**
+ * External API endpoint for the libdebugger runtime poller. Returns the team's installed hogtrace programs as a single `ProgramList` protobuf payload (see hogtrace/proto/bytecode.proto). The poller diffs against its installed set using `Program.hash` to decide install/uninstall/update.
+
+Authentication: personal API key in the Authorization header: `Authorization: Bearer phx_<your-personal-api-key>`. Required scope: `live_debugger:read`.
+ * @summary Get compiled active programs (External API)
+ */
+export const liveDebuggerProgramsActiveRetrieve = async (projectId: string, options?: RequestInit): Promise<Blob> => {
+    return apiMutator<Blob>(getLiveDebuggerProgramsActiveRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getLiveDebuggerBreakpointsListUrl = (projectId: string, params?: LiveDebuggerBreakpointsListParams) => {
     const normalizedParams = new URLSearchParams()
 
