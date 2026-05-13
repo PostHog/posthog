@@ -6,13 +6,18 @@ PostHog admin — code only asks 'is this enabled for this user / team?' and
 returns the answer.
 """
 
+from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
 import posthoganalytics
 
-from posthog.models.user import User
 
-
-def has_deployments_access(user: User, *, team_id: int | None = None) -> bool:
-    if not user or not user.is_authenticated or not user.distinct_id:
+def has_deployments_access(user: AbstractBaseUser | AnonymousUser | None, *, team_id: int | None = None) -> bool:
+    # Accept the union DRF gives us on `request.user` (authenticated User or AnonymousUser).
+    # Bail on anything that can't carry a distinct_id — the flag check below needs one.
+    if not user or not user.is_authenticated:
+        return False
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
         return False
 
     kwargs: dict = {
@@ -23,4 +28,4 @@ def has_deployments_access(user: User, *, team_id: int | None = None) -> bool:
         kwargs["groups"] = {"project": str(team_id)}
         kwargs["group_properties"] = {"project": {"id": str(team_id)}}
 
-    return bool(posthoganalytics.feature_enabled("deployments", user.distinct_id, **kwargs))
+    return bool(posthoganalytics.feature_enabled("deployments", distinct_id, **kwargs))

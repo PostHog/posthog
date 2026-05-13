@@ -115,7 +115,7 @@ class DeploymentSerializer(serializers.ModelSerializer):
         help_text="URL of a screenshot capture of the deployed site, used in the list view.",
     )
 
-    triggered_by_deployment = serializers.PrimaryKeyRelatedField(
+    triggered_by_deployment: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         allow_null=True,
         help_text="The deployment this one was triggered from (e.g. for rollbacks/redeploys).",
