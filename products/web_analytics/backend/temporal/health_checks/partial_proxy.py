@@ -35,6 +35,8 @@ WHERE team_id IN %(team_ids)s
   AND JSONExtractString(properties, '$host') != ''
 GROUP BY team_id, host
 HAVING event_count >= %(min_events_per_host)s
+ORDER BY event_count DESC
+LIMIT %(max_hosts_per_bucket)s BY team_id, has_proxy
 """
 
 
@@ -51,7 +53,10 @@ class PartialProxyCheck(HealthCheck):
             PARTIAL_PROXY_SQL,
             team_ids=team_ids,
             lookback_days=PARTIAL_PROXY_LOOKBACK_DAYS,
-            params={"min_events_per_host": MIN_EVENTS_PER_HOST},
+            params={
+                "min_events_per_host": MIN_EVENTS_PER_HOST,
+                "max_hosts_per_bucket": MAX_HOSTS_IN_PAYLOAD,
+            },
         )
 
         proxied_by_team: dict[int, list[str]] = defaultdict(list)
@@ -75,8 +80,8 @@ class PartialProxyCheck(HealthCheck):
                     payload={
                         "reason": "Reverse proxy is only configured on some hostnames. "
                         "Traffic from unproxied hosts is more likely to be blocked or have inaccurate geolocation.",
-                        "proxied_hosts": sorted(proxied)[:MAX_HOSTS_IN_PAYLOAD],
-                        "unproxied_hosts": sorted(unproxied)[:MAX_HOSTS_IN_PAYLOAD],
+                        "proxied_hosts": sorted(proxied),
+                        "unproxied_hosts": sorted(unproxied),
                     },
                     hash_keys=[],
                 )

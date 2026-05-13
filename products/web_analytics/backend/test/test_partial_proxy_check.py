@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from posthog.models.health_issue import HealthIssue
 
 from products.web_analytics.backend.temporal.health_checks.partial_proxy import (
+    MAX_HOSTS_IN_PAYLOAD,
     MIN_EVENTS_PER_HOST,
     PartialProxyCheck,
     _is_valid_host,
@@ -120,6 +121,7 @@ def test_partial_proxy_passes_min_events_per_host(mock_query: MagicMock) -> None
 
     _args, kwargs = mock_query.call_args
     assert kwargs["params"]["min_events_per_host"] == MIN_EVENTS_PER_HOST
+    assert kwargs["params"]["max_hosts_per_bucket"] == MAX_HOSTS_IN_PAYLOAD
     assert kwargs["lookback_days"] > 0
 
 
