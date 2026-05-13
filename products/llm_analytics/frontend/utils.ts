@@ -1330,12 +1330,16 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     return [{ role: roleToUse, content: cajoledContent }]
 }
 
+// Synthetic role used by `normalizeMessages` to surface the `$ai_tools` payload
+// as a pseudo-message
+export const AVAILABLE_TOOLS_ROLE = 'available tools'
+
 export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
     const normalizedMessages: CompatMessage[] = []
 
     if (tools) {
         normalizedMessages.push({
-            role: 'available tools',
+            role: AVAILABLE_TOOLS_ROLE,
             content: '',
             tools,
         })

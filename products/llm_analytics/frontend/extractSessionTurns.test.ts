@@ -100,6 +100,8 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         expect(turns[0].isLoaded).toBe(false)
         expect(turns[0].newInputs).toEqual([])
         expect(turns[0].outputs).toEqual([])
+        expect(turns[0].tools).toEqual([])
+        expect(turns[0].errors).toEqual([])
     })
 
     it('returns an isLoaded turn with no userVisibleTurn for span-only traces', () => {
@@ -209,8 +211,6 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         expect(turns[1].newInputs).toHaveLength(1)
         expect(turns[1].newInputs[0].role).toBe('user')
         expect(turns[1].newInputs[0].content).toBe('continue')
-        // The new "continue" lives at index 2 of turn 2's raw input.
-        expect(turns[1].newInputSourceIndices).toEqual([2])
     })
 
     it('renders the same user message N times when it appears N times across N turns', () => {
@@ -271,8 +271,6 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         ])
         const turns = extractSessionTurns([t1, t2], { t1, t2 })
         expect(turns[1].newInputs.map((m) => m.role)).toEqual(['tool'])
-        // The new tool message is at index 3 of turn 2's raw input.
-        expect(turns[1].newInputSourceIndices).toEqual([3])
     })
 
     it('renders an assistant reply that exactly repeats a prior turn output', () => {
@@ -344,27 +342,6 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         expect(turns[1].newInputs.map((m) => m.role)).toEqual(['assistant'])
     })
 
-    it('source indices line up with the rendered messages after dedup', () => {
-        const t1 = makeTrace('t1', [
-            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
-                $ai_input: [{ role: 'user', content: 'Hi' }],
-                $ai_output_choices: [{ role: 'assistant', content: 'Hello' }],
-            }),
-        ])
-        const t2 = makeTrace('t2', [
-            makeGeneration('g2', '2026-05-11T00:00:01.000Z', {
-                $ai_input: [
-                    { role: 'user', content: 'Hi' }, // index 0 — dedup'd
-                    { role: 'assistant', content: 'Hello' }, // index 1 — dedup'd
-                    { role: 'user', content: 'New question' }, // index 2 — rendered
-                ],
-                $ai_output_choices: [{ role: 'assistant', content: 'Answer' }],
-            }),
-        ])
-        const turns = extractSessionTurns([t1, t2], { t1, t2 })
-        expect(turns[1].newInputSourceIndices).toEqual([2])
-    })
-
     it('dedups an assistant message even when its output shape differs from the next-turn-input shape', () => {
         // SDK pattern observed in the wild: $ai_output_choices comes back as a
         // flat-string OpenAI-style message, but the next call's $ai_input
@@ -399,6 +376,175 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         // output should match turn 2's typed-parts assistant input.
         expect(turns[1].newInputs.map((m) => m.role)).toEqual(['user'])
         expect(turns[1].newInputs[0].content).toBe('Continue')
+    })
+})
+
+describe('extractSessionTurns — tools and errors', () => {
+    it('collects distinct tool names from `$ai_span_name` events', () => {
+        const span = (id: string, name: string): LLMTraceEvent => ({
+            id,
+            event: '$ai_span',
+            createdAt: '2026-05-11T00:00:00.000Z',
+            properties: { $ai_span_name: name },
+        })
+        const t1 = makeTrace('t1', [
+            span('s1', 'fetch_user'),
+            span('s2', 'subscription_lookup'),
+            span('s3', 'fetch_user'), // duplicate — first-appearance order wins
+            makeGeneration('g1', '2026-05-11T00:00:01.000Z'),
+        ])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.tools).toEqual(['fetch_user', 'subscription_lookup'])
+    })
+
+    it('orders tool names chronologically, not by array order', () => {
+        // Events come back from ClickHouse in whatever order the query produced.
+        // The doc promises "first-appearance order" — that means chronological,
+        // not "first in the array".
+        const span = (id: string, name: string, createdAt: string): LLMTraceEvent => ({
+            id,
+            event: '$ai_span',
+            createdAt,
+            properties: { $ai_span_name: name },
+        })
+        const t1 = makeTrace('t1', [
+            // Deliberately reverse-chronological in the array.
+            span('s3', 'send_email', '2026-05-11T00:00:02.000Z'),
+            span('s1', 'fetch_user', '2026-05-11T00:00:00.000Z'),
+            span('s2', 'subscription_lookup', '2026-05-11T00:00:01.000Z'),
+            makeGeneration('g1', '2026-05-11T00:00:03.000Z'),
+        ])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.tools).toEqual(['fetch_user', 'subscription_lookup', 'send_email'])
+    })
+
+    it('collects tool names from OpenAI `tool_calls` in generation outputs', () => {
+        const t1 = makeTrace('t1', [
+            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+                $ai_output_choices: [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            { id: 'a', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+                            { id: 'b', type: 'function', function: { name: 'search_docs', arguments: '{}' } },
+                        ],
+                    },
+                ],
+            }),
+        ])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.tools).toEqual(['get_weather', 'search_docs'])
+    })
+
+    it('collects tool names from Anthropic `tool_use` typed parts', () => {
+        const t1 = makeTrace('t1', [
+            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+                $ai_output_choices: [
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'text', text: 'Looking it up.' },
+                            { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Berlin' } },
+                            { type: 'tool_use', id: 'toolu_2', name: 'search_docs', input: {} },
+                        ],
+                    },
+                ],
+            }),
+        ])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.tools).toEqual(['get_weather', 'search_docs'])
+    })
+
+    it('surfaces the first chronological error with label + message', () => {
+        const errorSpan: LLMTraceEvent = {
+            id: 's1',
+            event: '$ai_span',
+            createdAt: '2026-05-11T00:00:01.000Z',
+            properties: {
+                $ai_span_name: 'subscription_lookup',
+                $ai_is_error: 'true',
+                $ai_error: { message: '404 not found: subscription does not exist' },
+            },
+        }
+        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), errorSpan])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.errors).toEqual([
+            {
+                label: 'subscription_lookup',
+                message: '404 not found: subscription does not exist',
+            },
+        ])
+    })
+
+    it('returns errors=[] when no event has an error flag', () => {
+        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z')])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.errors).toEqual([])
+    })
+
+    it('treats `$ai_is_error: "false"` as NOT an error (string-boolean serialization)', () => {
+        // PostHog SDKs serialize booleans as strings. A naive truthy check (`!!is_error`)
+        // would treat the string 'false' as truthy and surface a non-error as an error.
+        // Pin the strict `=== 'true'` check so we don't regress.
+        const nonErrorEvent: LLMTraceEvent = {
+            id: 's1',
+            event: '$ai_span',
+            createdAt: '2026-05-11T00:00:01.000Z',
+            properties: {
+                $ai_span_name: 'subscription_lookup',
+                $ai_is_error: 'false',
+                // No $ai_error payload — the SDK explicitly marked this as a non-error.
+            },
+        }
+        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), nonErrorEvent])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.errors).toEqual([])
+    })
+
+    it('dedups errors by label + message — retries collapse to one entry', () => {
+        // Three retries of the same failure should appear as one entry, not three.
+        // `trace.errorCount` (from the summary) keeps the raw event count; `errors.length`
+        // reflects the count of DISTINCT failures.
+        const errorSpan = (id: string, createdAt: string): LLMTraceEvent => ({
+            id,
+            event: '$ai_span',
+            createdAt,
+            properties: {
+                $ai_span_name: 'fetch_user',
+                $ai_is_error: 'true',
+                $ai_error: { message: 'connection timeout' },
+            },
+        })
+        const t1 = makeTrace('t1', [
+            errorSpan('s1', '2026-05-11T00:00:00.000Z'),
+            errorSpan('s2', '2026-05-11T00:00:01.000Z'),
+            errorSpan('s3', '2026-05-11T00:00:02.000Z'),
+            makeGeneration('g1', '2026-05-11T00:00:03.000Z'),
+        ])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.errors).toEqual([{ label: 'fetch_user', message: 'connection timeout' }])
+    })
+
+    it('preserves distinct errors in chronological first-appearance order', () => {
+        // Three different failures appearing in order should all surface — and the
+        // order should be chronological (by createdAt), not whatever order the
+        // events array happened to come back in.
+        const errorEvent = (id: string, createdAt: string, spanName: string, message: string): LLMTraceEvent => ({
+            id,
+            event: '$ai_span',
+            createdAt,
+            properties: { $ai_span_name: spanName, $ai_is_error: 'true', $ai_error: { message } },
+        })
+        const t1 = makeTrace('t1', [
+            // Deliberately out of chronological order in the array.
+            errorEvent('s3', '2026-05-11T00:00:02.000Z', 'send_email', 'rate limited'),
+            errorEvent('s1', '2026-05-11T00:00:00.000Z', 'fetch_user', 'connection timeout'),
+            errorEvent('s2', '2026-05-11T00:00:01.000Z', 'subscription_lookup', '404 not found'),
+            makeGeneration('g1', '2026-05-11T00:00:03.000Z'),
+        ])
+        const [turn] = extractSessionTurns([t1], { t1 })
+        expect(turn.errors.map((e) => e.label)).toEqual(['fetch_user', 'subscription_lookup', 'send_email'])
     })
 })
 
