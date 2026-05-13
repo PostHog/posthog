@@ -1437,6 +1437,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-text-3000)'] as FileSystemIconColor,
         sceneKey: 'Deployments',
         sceneKeys: ['Deployments', 'Deployment'],
+        flag: FEATURE_FLAGS.DEPLOYMENTS,
+        tags: ['alpha'],
     },
     {
         path: 'Early access features',
