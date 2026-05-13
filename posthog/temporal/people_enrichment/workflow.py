@@ -385,17 +385,23 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
         if not capture_client:
             return
         non_null_fields = {k: v for k, v in fields.items() if v is not None}
+        # Two calls intentionally:
+        #   1. `capture` emits the `person_enriched` event with the enriched fields
+        #      flattened on the event so they show up in events queries.
+        #   2. `set` sends a dedicated `$set` event so the ingestion pipeline
+        #      updates `person.properties` with the same fields. Nesting `$set`
+        #      inside `capture` properties does *not* drive person updates for
+        #      custom events in the PostHog Python SDK; the canonical path is the
+        #      dedicated `posthog.set` method.
         capture_client.capture(
             distinct_id=distinct_id,
             event=ENRICHED_EVENT_NAME,
             properties={
                 "enriched_fields": sorted(non_null_fields.keys()),
                 **non_null_fields,
-                # Mirror onto `$set` so the event also drives the same property
-                # updates we just made via ORM, keeping the two in sync.
-                "$set": non_null_fields,
             },
         )
+        capture_client.set(distinct_id=distinct_id, properties=non_null_fields)
 
     for person_id, distinct_id, fields, source, err in results:
         if err is not None:
