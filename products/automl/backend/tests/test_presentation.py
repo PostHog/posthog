@@ -5,8 +5,10 @@ end-to-end through the request/response cycle.
 """
 
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -68,9 +70,17 @@ class TestAutoMLPipelineViewSet(APIBaseTest):
 
     def test_start_transitions_to_bootstrap_pending(self):
         created = self.client.post(self._url(), VALID_BODY, format="json").json()
-        response = self.client.post(self._url(f"{created['id']}/start/"))
+        fake_task_id = uuid4()
+        # Mock the sandbox enqueue — the viewset's contract is "transition + enqueue";
+        # we test the transition + runtime side here, the tasks bridge in test_bootstrap.
+        with patch("products.automl.backend.facade.api.bootstrap.enqueue_bootstrap_training") as mock_enqueue:
+            mock_enqueue.return_value = type("StubTask", (), {"id": fake_task_id})()
+            response = self.client.post(self._url(f"{created['id']}/start/"))
+
         assert response.status_code == status.HTTP_200_OK, response.data
-        assert response.json()["status"] == PipelineStatus.BOOTSTRAP_PENDING.value
+        body = response.json()
+        assert body["status"] == PipelineStatus.BOOTSTRAP_PENDING.value
+        assert body["runtime"]["bootstrap_task_id"] == str(fake_task_id)
 
     def test_pause_from_draft_returns_409(self):
         # DRAFT cannot be paused — only ACTIVE / BOOTSTRAP_* can

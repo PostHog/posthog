@@ -7,6 +7,7 @@ converts ORM models to frozen dataclasses.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from ..facade import contracts
@@ -146,4 +147,16 @@ def transition_pipeline(
 
     pipeline.status = new_status.value
     pipeline.save(update_fields=["status", "updated_at"])
+    return pipeline
+
+
+def set_runtime(*, pipeline: AutoMLPipeline, **updates: Any) -> AutoMLPipeline:
+    """Merge keys into the pipeline's `runtime` JSON and persist.
+
+    `runtime` is system-managed (bootstrap_task_id, mlflow_run_id, last_inference_at,
+    bootstrap_error, ...). User-configured intent lives in `config` — never touch
+    that from runtime paths.
+    """
+    pipeline.runtime = {**pipeline.runtime, **updates}
+    pipeline.save(update_fields=["runtime", "updated_at"])
     return pipeline

@@ -198,6 +198,7 @@ export interface PaginatedTaskAutomationListApi {
  * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
+ * `automl` - AutoML
  * `signal_report` - Signal Report
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
@@ -210,6 +211,7 @@ export const OriginProductEnumApi = {
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
+    Automl: 'automl',
     SignalReport: 'signal_report',
 } as const
 

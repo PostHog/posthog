@@ -59,6 +59,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.analytics_platform",
+    "products.automl",
     "products.batch_exports",
     "products.business_knowledge",
     "products.conversations",
@@ -120,6 +121,7 @@ layer = "modules"
 path = "products.automl"
 depends_on = [
     "posthog",
+    "products.tasks",
 ]
 layer = "modules"
 

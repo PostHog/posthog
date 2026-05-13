@@ -87,6 +87,16 @@ class AutoMLPipeline(ProductTeamModel):
         help_text="Person/group property name to write the latest prediction to.",
     )
 
+    runtime = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "System-managed runtime state. Holds pointers like the bootstrap task id, "
+            "champion mlflow run id, and last inference timestamp. Distinct from user-"
+            "configured `config` so we never overwrite user intent with system state."
+        ),
+    )
+
     # Plain integer instead of FK — keeps us free to move products to separate
     # databases later without rewriting (per products/architecture.md).
     created_by_id = models.IntegerField(

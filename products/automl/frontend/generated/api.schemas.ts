@@ -80,6 +80,8 @@ export type AutoMLPipelineDTOApiTrainingPopulation = { [key: string]: unknown }
 
 export type AutoMLPipelineDTOApiInferencePopulation = { [key: string]: unknown }
 
+export type AutoMLPipelineDTOApiRuntime = { [key: string]: unknown }
+
 /**
  * Output shape of an AutoML pipeline.
  */
@@ -97,6 +99,7 @@ export interface AutoMLPipelineDTOApi {
     inference_cadence: CadenceEnumApi
     retraining_cadence: CadenceEnumApi
     output_property_name: string
+    runtime: AutoMLPipelineDTOApiRuntime
     /** @nullable */
     created_by_id: number | null
     created_at: string

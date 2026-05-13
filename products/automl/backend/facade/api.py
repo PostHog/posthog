@@ -12,6 +12,7 @@ from uuid import UUID
 
 from .. import logic
 from ..models import AutoMLPipeline
+from ..training import bootstrap
 from . import contracts
 from .enums import AutonomyLevel, Cadence, PipelineStatus, TaskType
 
@@ -35,6 +36,7 @@ def _to_dto(obj: AutoMLPipeline) -> contracts.AutoMLPipelineDTO:
         inference_cadence=Cadence(obj.inference_cadence),
         retraining_cadence=Cadence(obj.retraining_cadence),
         output_property_name=obj.output_property_name,
+        runtime=obj.runtime,
         created_by_id=obj.created_by_id,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
@@ -74,15 +76,34 @@ def update(
     return _to_dto(obj) if obj else None
 
 
-def start(*, team_id: int, pipeline_id: UUID) -> contracts.AutoMLPipelineDTO:
-    """Transition a draft pipeline into bootstrap-pending state.
+def start(*, team_id: int, pipeline_id: UUID, user_id: int) -> contracts.AutoMLPipelineDTO:
+    """Transition a draft pipeline to BOOTSTRAP_PENDING and enqueue training.
 
-    Raises ``PipelineNotFoundError`` or ``PipelineStateTransitionError``.
-    The actual Temporal training workflow is wired in a follow-up commit.
+    Two-phase:
+      1. State transition (DRAFT/FAILED -> BOOTSTRAP_PENDING). Fails fast on
+         disallowed moves via ``PipelineStateTransitionError``.
+      2. Enqueue a Task in the ``tasks`` product (single-shot agent run in a
+         sandbox). On enqueue failure the pipeline is transitioned to FAILED
+         with the error stashed in ``runtime.bootstrap_error`` so the user can
+         see why and retry.
+
+    The Task's id lands on the pipeline as ``runtime.bootstrap_task_id``.
+    Returns the post-enqueue DTO.
     """
     obj = logic.transition_pipeline(
         team_id=team_id, pipeline_id=pipeline_id, new_status=PipelineStatus.BOOTSTRAP_PENDING
     )
+
+    try:
+        task = bootstrap.enqueue_bootstrap_training(pipeline=obj, user_id=user_id)
+    except Exception as exc:
+        # Surface the failure so the user can retry. Use str(exc) only — the
+        # full traceback stays in logs, not in user-visible runtime state.
+        logic.set_runtime(pipeline=obj, bootstrap_error=str(exc))
+        logic.transition_pipeline(team_id=team_id, pipeline_id=pipeline_id, new_status=PipelineStatus.FAILED)
+        raise
+
+    obj = logic.set_runtime(pipeline=obj, bootstrap_task_id=str(task.id))
     return _to_dto(obj)
 
 

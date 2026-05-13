@@ -30,6 +30,9 @@ class AutoMLPipelineDTO:
     inference_cadence: Cadence
     retraining_cadence: Cadence
     output_property_name: str
+    # System-managed runtime state (bootstrap_task_id, mlflow_run_id, ...).
+    # Read-only from the API — populated by the facade's lifecycle methods.
+    runtime: dict[str, Any]
     created_by_id: int | None
     created_at: datetime
     updated_at: datetime

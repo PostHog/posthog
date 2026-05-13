@@ -164,10 +164,11 @@ export const getAutomlPipelinesStartCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Transition a draft pipeline into bootstrap-pending state.
+ * Transition a draft pipeline to bootstrap-pending and enqueue the first training run.
 
-The actual Temporal training workflow is wired in a follow-up commit;
-this action records intent and validates the state transition.
+The training itself runs in a sandbox via the ``tasks`` product (one
+Task per pipeline bootstrap). The task id lands on the pipeline as
+``runtime.bootstrap_task_id`` so the agent's progress is traceable.
  */
 export const automlPipelinesStartCreate = async (
     projectId: string,

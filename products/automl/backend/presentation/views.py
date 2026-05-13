@@ -99,12 +99,28 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"])
     def start(self, request: Request, pk: str, **kwargs) -> Response:
-        """Transition a draft pipeline into bootstrap-pending state.
+        """Transition a draft pipeline to bootstrap-pending and enqueue the first training run.
 
-        The actual Temporal training workflow is wired in a follow-up commit;
-        this action records intent and validates the state transition.
+        The training itself runs in a sandbox via the ``tasks`` product (one
+        Task per pipeline bootstrap). The task id lands on the pipeline as
+        ``runtime.bootstrap_task_id`` so the agent's progress is traceable.
         """
-        return self._run_transition(pk, "start")
+        user_id = cast(int | None, getattr(request.user, "id", None))
+        if user_id is None:
+            return Response(
+                {"detail": "Authentication required to start a pipeline."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            dto = api.start(team_id=self.team_id, pipeline_id=UUID(pk), user_id=user_id)
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.PipelineStateTransitionError as e:
+            return Response(
+                {"detail": str(e), "code": "invalid_transition"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(AutoMLPipelineSerializer(instance=dto).data)
 
     @extend_schema(
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],

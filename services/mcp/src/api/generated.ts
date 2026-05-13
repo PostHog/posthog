@@ -4317,6 +4317,8 @@ export namespace Schemas {
 
     export type AutoMLPipelineDTOInferencePopulation = { [key: string]: unknown };
 
+    export type AutoMLPipelineDTORuntime = { [key: string]: unknown };
+
     /**
      * * `clustering` - CLUSTERING
     * `classification` - CLASSIFICATION
@@ -4404,6 +4406,7 @@ export namespace Schemas {
       inference_cadence: CadenceEnum;
       retraining_cadence: CadenceEnum;
       output_property_name: string;
+      runtime: AutoMLPipelineDTORuntime;
       /** @nullable */
       created_by_id: number | null;
       created_at: string;
@@ -20828,6 +20831,7 @@ export namespace Schemas {
     * `slack` - Slack
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
+    * `automl` - AutoML
     * `signal_report` - Signal Report
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
@@ -20841,6 +20845,7 @@ export namespace Schemas {
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
+      Automl: 'automl',
       SignalReport: 'signal_report',
     } as const;
 
