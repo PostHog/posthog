@@ -570,6 +570,29 @@ export const AvailableSetupTaskIdsEnumApi = {
 } as const
 
 /**
+ * * `red` - Red
+ * `orange` - Orange
+ * `yellow` - Yellow
+ * `green` - Green
+ * `blue` - Blue
+ * `purple` - Purple
+ * `pink` - Pink
+ * `gray` - Gray
+ */
+export type EnvironmentColorEnumApi = (typeof EnvironmentColorEnumApi)[keyof typeof EnvironmentColorEnumApi]
+
+export const EnvironmentColorEnumApi = {
+    Red: 'red',
+    Orange: 'orange',
+    Yellow: 'yellow',
+    Green: 'green',
+    Blue: 'blue',
+    Purple: 'purple',
+    Pink: 'pink',
+    Gray: 'gray',
+} as const
+
+/**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
 backward compatibility of the REST API.
@@ -1356,11 +1379,17 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     environment_label?: string | null
-    /**
-     * @maxLength 20
-     * @nullable
-     */
-    environment_color?: string | null
+    /** Color key paired with `environment_label`. Must be one of the predefined values.
+
+  * `red` - Red
+  * `orange` - Orange
+  * `yellow` - Yellow
+  * `green` - Green
+  * `blue` - Blue
+  * `purple` - Purple
+  * `pink` - Pink
+  * `gray` - Gray */
+    environment_color?: EnvironmentColorEnumApi | BlankEnumApi | null
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2162,11 +2191,17 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     environment_label?: string | null
-    /**
-     * @maxLength 20
-     * @nullable
-     */
-    environment_color?: string | null
+    /** Color key paired with `environment_label`. Must be one of the predefined values.
+
+  * `red` - Red
+  * `orange` - Orange
+  * `yellow` - Yellow
+  * `green` - Green
+  * `blue` - Blue
+  * `purple` - Purple
+  * `pink` - Pink
+  * `gray` - Gray */
+    environment_color?: EnvironmentColorEnumApi | BlankEnumApi | null
 }
 
 /**

@@ -213,8 +213,6 @@ export const organizationsProjectsCreateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsCreateBodyEnvironmentLabelMax = 30
 
-export const organizationsProjectsCreateBodyEnvironmentColorMax = 20
-
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -382,7 +380,20 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         environment_label: zod.string().max(organizationsProjectsCreateBodyEnvironmentLabelMax).nullish(),
-        environment_color: zod.string().max(organizationsProjectsCreateBodyEnvironmentColorMax).nullish(),
+        environment_color: zod
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -410,8 +421,6 @@ export const organizationsProjectsUpdateBodySessionRecordingTriggerMatchTypeConf
 export const organizationsProjectsUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -580,7 +589,20 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         environment_label: zod.string().max(organizationsProjectsUpdateBodyEnvironmentLabelMax).nullish(),
-        environment_color: zod.string().max(organizationsProjectsUpdateBodyEnvironmentColorMax).nullish(),
+        environment_color: zod
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -608,8 +630,6 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchT
 export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsPartialUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -780,7 +800,20 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         environment_label: zod.string().max(organizationsProjectsPartialUpdateBodyEnvironmentLabelMax).nullish(),
-        environment_color: zod.string().max(organizationsProjectsPartialUpdateBodyEnvironmentColorMax).nullish(),
+        environment_color: zod
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -808,8 +841,6 @@ export const organizationsProjectsAddProductIntentPartialUpdateBodySessionRecord
 export const organizationsProjectsAddProductIntentPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -996,9 +1027,19 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .max(organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsAddProductIntentPartialUpdateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1026,8 +1067,6 @@ export const organizationsProjectsChangeOrganizationCreateBodySessionRecordingTr
 export const organizationsProjectsChangeOrganizationCreateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsChangeOrganizationCreateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsChangeOrganizationCreateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1206,9 +1245,19 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .max(organizationsProjectsChangeOrganizationCreateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsChangeOrganizationCreateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1235,8 +1284,6 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodySess
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1436,9 +1483,19 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .max(organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsCompleteProductOnboardingPartialUpdateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1466,8 +1523,6 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodySessio
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1662,9 +1717,19 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .max(organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsDeleteSecretTokenBackupPartialUpdateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1691,8 +1756,6 @@ export const organizationsProjectsGenerateConversationsPublicTokenCreateBodySess
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1892,9 +1955,19 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .max(organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsGenerateConversationsPublicTokenCreateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1922,8 +1995,6 @@ export const organizationsProjectsResetTokenPartialUpdateBodySessionRecordingTri
 export const organizationsProjectsResetTokenPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsResetTokenPartialUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsResetTokenPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -2098,9 +2169,19 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .max(organizationsProjectsResetTokenPartialUpdateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsResetTokenPartialUpdateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -2128,8 +2209,6 @@ export const organizationsProjectsRotateSecretTokenPartialUpdateBodySessionRecor
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodyRecordingDomainsItemMax = 200
 
 export const organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentLabelMax = 30
-
-export const organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentColorMax = 20
 
 export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -2316,9 +2395,19 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .max(organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentLabelMax)
             .nullish(),
         environment_color: zod
-            .string()
-            .max(organizationsProjectsRotateSecretTokenPartialUpdateBodyEnvironmentColorMax)
-            .nullish(),
+            .union([
+                zod
+                    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'])
+                    .describe(
+                        '\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+                    ),
+                zod.enum(['']),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Color key paired with `environment_label`. Must be one of the predefined values.\n\n\* `red` - Red\n\* `orange` - Orange\n\* `yellow` - Yellow\n\* `green` - Green\n\* `blue` - Blue\n\* `purple` - Purple\n\* `pink` - Pink\n\* `gray` - Gray'
+            ),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'

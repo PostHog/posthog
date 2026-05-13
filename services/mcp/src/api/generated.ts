@@ -28021,11 +28021,17 @@ export namespace Schemas {
          * @nullable
          */
       environment_label?: string | null;
-      /**
-         * @maxLength 20
-         * @nullable
-         */
-      environment_color?: string | null;
+      /** Color key paired with `environment_label`. Must be one of the predefined values.
+
+      * `red` - Red
+      * `orange` - Orange
+      * `yellow` - Yellow
+      * `green` - Green
+      * `blue` - Blue
+      * `purple` - Purple
+      * `pink` - Pink
+      * `gray` - Gray */
+      environment_color?: EnvironmentColorEnum | BlankEnum | null;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -30870,11 +30876,17 @@ export namespace Schemas {
          * @nullable
          */
       environment_label?: string | null;
-      /**
-         * @maxLength 20
-         * @nullable
-         */
-      environment_color?: string | null;
+      /** Color key paired with `environment_label`. Must be one of the predefined values.
+
+      * `red` - Red
+      * `orange` - Orange
+      * `yellow` - Yellow
+      * `green` - Green
+      * `blue` - Blue
+      * `purple` - Purple
+      * `pink` - Pink
+      * `gray` - Gray */
+      environment_color?: EnvironmentColorEnum | BlankEnum | null;
     }
 
     export interface Property {
