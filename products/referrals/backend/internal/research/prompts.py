@@ -117,25 +117,24 @@ SELECT
 FROM all_signals
 GROUP BY distinct_id
 ORDER BY signal_count DESC
-LIMIT 100
+LIMIT 20
 ```
 
-Returns rows like: `('abc-123', 3, ['login_streak', 'invited_colleagues', 'nps_promoter'])`.
+Returns rows like: `('abc-123', 3, ['login_streak', 'invited_colleagues', 'nps_promoter'])`. The `LIMIT 20` cap keeps the candidate pool small — focus on these top-ranked rows for the rest of the flow.
 
 ## Step 2 — Person-detail lookup
 
-For the distinct_ids you want to keep (run in batches of ≤20 to stay under memory limits):
+For the distinct_ids you want to keep, run this **once** (the cap above guarantees ≤20 IDs, well under memory limits). The `argMax(..., timestamp)` pattern collapses each distinct_id to a single row holding the most recent email, name, and org_id — no agent-side dedup needed.
 
 ```sql
 SELECT
     distinct_id,
-    person.properties.email as email,
-    person.properties.name as name,
-    person.properties.organization_id as org_id
+    argMax(person.properties.email, timestamp) as email,
+    argMax(person.properties.name, timestamp) as name,
+    argMax(person.properties.organization_id, timestamp) as org_id
 FROM events
 WHERE distinct_id IN ('id1', 'id2', ...)
-GROUP BY distinct_id, email, name, org_id
-LIMIT 50
+GROUP BY distinct_id
 ```
 
 ## Step 3 — Org-name lookup
@@ -177,9 +176,9 @@ Bias: when in doubt, include and explain in the `reason`. The growth team can fi
 
 ## Deduplication and identity
 
-A single PostHog user can have multiple `distinct_id`s. When the person lookup returns the same email across several distinct_ids, treat them as one person — pick one distinct_id (the one with the highest signal count, or any if tied) and return just one row per email.
+The step-2 query already collapses each distinct_id to a single row via `argMax`, so within one distinct_id you do not need to dedup. The rare remaining case is the **same email surfacing under two different distinct_ids** (identity merges that did not converge); when that happens, keep the distinct_id with the higher signal count and drop the others — one row per email in the final output.
 
-If `email` is empty or null in the lookup output, skip that distinct_id — without an email the growth team cannot reach the user."""
+If `email` is empty or null after the lookup, skip that distinct_id — without an email the growth team cannot reach the user."""
 
 
 _HOGQL_SYNTAX_GUARDRAILS = """## HogQL syntax guardrails
