@@ -1,3 +1,4 @@
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheck, IconCode, IconGitBranch, IconPlus, IconX } from '@posthog/icons'
@@ -6,81 +7,70 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-export const scene: SceneExport = {
+import {
+    GitHogPRReviewLogicProps,
+    GitHogPullRequestDetail,
+    GitHogPullRequestFile,
+    gitHogPRReviewLogic,
+} from './gitHogPRReviewLogic'
+import { GitHogAgentChatWidget, PRChatContext } from './widgets/GitHogAgentChatWidget'
+
+export const scene: SceneExport<GitHogPRReviewLogicProps> = {
     component: GitHogPRReviewScene,
+    logic: gitHogPRReviewLogic,
+    paramsToProps: ({ params: { owner, name, number } }) => ({
+        owner: decodeURIComponent(owner),
+        name: decodeURIComponent(name),
+        number: Number(number),
+    }),
 }
 
-// ─── Sample data ────────────────────────────────────────────────────────────
+// ─── Mock data for widgets we don't yet back with a real API ──────────────────
+//
+// Comments, reviewers, and overall PR-discussion data aren't yet exposed by the
+// githog backend. We keep mocks for those widgets so the scene renders, but
+// every widget that *can* use real data (header, files, stats, agent) does.
 
-const SAMPLE_PR = {
-    number: 1234,
-    title: 'feat(insights): add retention graph export with multi-format support',
-    author: 'Sarah Chen',
-    sourceBranch: 'feat/retention-export',
-    targetBranch: 'main',
-    createdAt: '3 days ago',
-    stats: { additions: 342, deletions: 89, changedFiles: 12, commits: 7 },
-    reviewers: [
-        { name: 'Marcus Webb', initials: 'MW', status: 'changes_requested' as const },
-        { name: 'Priya Kapoor', initials: 'PK', status: 'approved' as const },
-        { name: 'James Liu', initials: 'JL', status: 'pending' as const },
-    ],
-    labels: ['enhancement', 'insights'],
-    comments: [
-        {
-            id: 1,
-            author: 'Marcus Webb',
-            initials: 'MW',
-            timestamp: '2 days ago',
-            body: "Should we guard against exporting when the graph hasn't finished loading? Right now it could fail silently.",
-            reviewType: 'changes_requested' as const,
-        },
-        {
-            id: 2,
-            author: 'Sarah Chen',
-            initials: 'SC',
-            timestamp: '2 days ago',
-            body: 'Good catch — added a loading guard and a toast for the not-ready state. Updated in the latest commit.',
-            reviewType: 'reply' as const,
-        },
-        {
-            id: 3,
-            author: 'Priya Kapoor',
-            initials: 'PK',
-            timestamp: '1 day ago',
-            body: 'LGTM. The CSV implementation is clean.',
-            reviewType: 'approved' as const,
-        },
-        {
-            id: 4,
-            author: 'James Liu',
-            initials: 'JL',
-            timestamp: '4 hours ago',
-            body: 'Reviewing now, will have feedback shortly.',
-            reviewType: 'comment' as const,
-        },
-    ],
-    changedFiles: [
-        { name: 'RetentionGraph.tsx', additions: 89, deletions: 12 },
-        { name: 'exportUtils.ts', additions: 134, deletions: 3, isNew: true },
-        { name: 'InsightActionBar.tsx', additions: 45, deletions: 28 },
-        { name: 'retentionExporter.ts', additions: 67, deletions: 0, isNew: true },
-        { name: 'types.ts', additions: 7, deletions: 2 },
-    ],
-}
+const SAMPLE_REVIEWERS = [
+    { name: 'Marcus Webb', initials: 'MW', status: 'changes_requested' as const },
+    { name: 'Priya Kapoor', initials: 'PK', status: 'approved' as const },
+    { name: 'James Liu', initials: 'JL', status: 'pending' as const },
+]
+
+const SAMPLE_COMMENTS = [
+    {
+        id: 1,
+        author: 'Marcus Webb',
+        initials: 'MW',
+        timestamp: '2 days ago',
+        body: "Should we guard against exporting when the graph hasn't finished loading? Right now it could fail silently.",
+        reviewType: 'changes_requested' as const,
+    },
+    {
+        id: 2,
+        author: 'Sarah Chen',
+        initials: 'SC',
+        timestamp: '2 days ago',
+        body: 'Good catch — added a loading guard and a toast for the not-ready state. Updated in the latest commit.',
+        reviewType: 'reply' as const,
+    },
+]
 
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
-type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers'
+type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'agent'
 
 const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; column: 'main' | 'side' }> = {
     conversation: { label: 'Conversation', description: 'Comments and review discussion', column: 'main' },
     files: { label: 'Files changed', description: 'Modified files with line counts', column: 'main' },
+    agent: { label: 'Ask the agent', description: 'Chat with an AI agent about this PR', column: 'main' },
     stats: { label: 'Stats', description: 'Additions, deletions, and commits', column: 'side' },
     reviewers: { label: 'Reviewers', description: 'Review status per reviewer', column: 'side' },
 }
@@ -119,25 +109,19 @@ function WidgetShell({ children, onRemove }: { children: React.ReactNode; onRemo
 // ─── Individual widgets ───────────────────────────────────────────────────────
 
 function ConversationWidget(): JSX.Element {
-    const { comments } = SAMPLE_PR
     return (
         <div className="flex flex-col divide-y divide-border">
             <div className="px-4 py-3 flex items-center justify-between">
                 <span className="font-semibold text-sm">Conversation</span>
-                <span className="text-xs text-secondary">{comments.length} comments</span>
+                <span className="text-xs text-secondary">{SAMPLE_COMMENTS.length} comments (mock)</span>
             </div>
-            {comments.map((c) => (
+            {SAMPLE_COMMENTS.map((c) => (
                 <div key={c.id} className="px-4 py-4 flex gap-x-3">
                     <Avatar initials={c.initials} />
                     <div className="flex flex-col gap-y-1.5 flex-1 min-w-0">
                         <div className="flex items-center gap-x-2 flex-wrap">
                             <span className="font-semibold text-sm">{c.author}</span>
                             <span className="text-xs text-secondary">{c.timestamp}</span>
-                            {c.reviewType === 'approved' && (
-                                <LemonTag type="success" size="small" icon={<IconCheck />}>
-                                    Approved
-                                </LemonTag>
-                            )}
                             {c.reviewType === 'changes_requested' && (
                                 <LemonTag type="danger" size="small" icon={<IconX />}>
                                     Changes requested
@@ -152,8 +136,7 @@ function ConversationWidget(): JSX.Element {
     )
 }
 
-function StatsWidget(): JSX.Element {
-    const { stats } = SAMPLE_PR
+function StatsWidget({ pr }: { pr: GitHogPullRequestDetail }): JSX.Element {
     return (
         <div className="flex flex-col divide-y divide-border">
             <div className="px-4 py-3">
@@ -161,10 +144,10 @@ function StatsWidget(): JSX.Element {
             </div>
             <div className="grid grid-cols-2 divide-x divide-y divide-border">
                 {[
-                    { label: 'Additions', value: `+${stats.additions}`, className: 'text-success' },
-                    { label: 'Deletions', value: `-${stats.deletions}`, className: 'text-danger' },
-                    { label: 'Files', value: stats.changedFiles, className: '' },
-                    { label: 'Commits', value: stats.commits, className: '' },
+                    { label: 'Additions', value: `+${pr.additions}`, className: 'text-success' },
+                    { label: 'Deletions', value: `-${pr.deletions}`, className: 'text-danger' },
+                    { label: 'Files', value: pr.changed_files, className: '' },
+                    { label: 'Commits', value: pr.commits, className: '' },
                 ].map(({ label, value, className }) => (
                     <div key={label} className="flex flex-col gap-y-0.5 px-4 py-4">
                         <span className={`text-2xl font-bold tabular-nums ${className}`}>{value}</span>
@@ -177,14 +160,14 @@ function StatsWidget(): JSX.Element {
 }
 
 function ReviewersWidget(): JSX.Element {
-    const { reviewers } = SAMPLE_PR
     return (
         <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3">
+            <div className="px-4 py-3 flex items-center justify-between">
                 <span className="font-semibold text-sm">Reviewers</span>
+                <span className="text-xs text-secondary">mock</span>
             </div>
             <div className="px-4 py-3 flex flex-col gap-y-3">
-                {reviewers.map((r) => (
+                {SAMPLE_REVIEWERS.map((r) => (
                     <div key={r.initials} className="flex items-center gap-x-2.5">
                         <Avatar initials={r.initials} size="sm" />
                         <span className="text-sm flex-1">{r.name}</span>
@@ -196,21 +179,25 @@ function ReviewersWidget(): JSX.Element {
     )
 }
 
-function FilesWidget(): JSX.Element {
-    const { changedFiles } = SAMPLE_PR
+function FilesWidget({ files }: { files: GitHogPullRequestFile[] }): JSX.Element {
     return (
         <div className="flex flex-col divide-y divide-border">
             <div className="px-4 py-3 flex items-center justify-between">
                 <span className="font-semibold text-sm">Files changed</span>
-                <span className="text-xs text-secondary">{changedFiles.length} files</span>
+                <span className="text-xs text-secondary">{files.length} files</span>
             </div>
-            {changedFiles.map((f) => (
-                <div key={f.name} className="px-4 py-2.5 flex items-center gap-x-3">
+            {files.map((f) => (
+                <div key={f.filename} className="px-4 py-2.5 flex items-center gap-x-3">
                     <IconCode className="size-3.5 text-muted shrink-0" />
-                    <span className="text-sm flex-1 font-mono">{f.name}</span>
-                    {f.isNew && (
+                    <span className="text-sm flex-1 font-mono truncate">{f.filename}</span>
+                    {f.status === 'added' && (
                         <LemonTag type="success" size="small">
                             New
+                        </LemonTag>
+                    )}
+                    {f.status === 'removed' && (
+                        <LemonTag type="danger" size="small">
+                            Removed
                         </LemonTag>
                     )}
                     <span className="text-xs text-success shrink-0">+{f.additions}</span>
@@ -221,17 +208,43 @@ function FilesWidget(): JSX.Element {
     )
 }
 
-const WIDGET_COMPONENTS: Record<WidgetType, () => JSX.Element> = {
-    conversation: ConversationWidget,
-    stats: StatsWidget,
-    reviewers: ReviewersWidget,
-    files: FilesWidget,
+function AgentWidget({
+    owner,
+    repo,
+    pr,
+    files,
+    diff,
+}: {
+    owner: string
+    repo: string
+    pr: GitHogPullRequestDetail
+    files: GitHogPullRequestFile[]
+    diff: string | null
+}): JSX.Element {
+    const context: PRChatContext = { owner, repo, pr, files, diff }
+    return <GitHogAgentChatWidget context={context} />
 }
 
 // ─── Scene ───────────────────────────────────────────────────────────────────
 
-export function GitHogPRReviewScene(): JSX.Element {
-    const pr = SAMPLE_PR
+export function GitHogPRReviewScene({ owner, name, number }: GitHogPRReviewLogicProps): JSX.Element {
+    return (
+        <BindLogic logic={gitHogPRReviewLogic} props={{ owner, name, number }}>
+            <GitHogPRReviewSceneInner owner={owner} repoName={name} number={number} />
+        </BindLogic>
+    )
+}
+
+function GitHogPRReviewSceneInner({
+    owner,
+    repoName,
+    number,
+}: {
+    owner: string
+    repoName: string
+    number: number
+}): JSX.Element {
+    const { prDetail, prDetailLoading } = useValues(gitHogPRReviewLogic)
     const [widgets, setWidgets] = useState<WidgetType[]>([])
 
     const addWidget = (type: WidgetType): void => setWidgets((prev) => [...prev, type])
@@ -242,6 +255,47 @@ export function GitHogPRReviewScene(): JSX.Element {
     const mainWidgets = widgets.filter((w) => WIDGET_DEFS[w].column === 'main')
     const sideWidgets = widgets.filter((w) => WIDGET_DEFS[w].column === 'side')
     const hasSide = sideWidgets.length > 0
+
+    if (prDetailLoading && !prDetail) {
+        return (
+            <SceneContent>
+                <div className="flex items-center justify-center py-16">
+                    <Spinner className="text-2xl" />
+                </div>
+            </SceneContent>
+        )
+    }
+
+    if (!prDetail) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name={`#${number} in ${owner}/${repoName}`} resourceType={{ type: 'githog' }} />
+                <p className="text-secondary text-sm">
+                    Could not load this pull request. Check that the team's GitHub integration has access to{' '}
+                    <code>
+                        {owner}/{repoName}
+                    </code>
+                    .
+                </p>
+            </SceneContent>
+        )
+    }
+
+    const pr = prDetail.pull_request
+    const renderWidget = (type: WidgetType): JSX.Element => {
+        switch (type) {
+            case 'conversation':
+                return <ConversationWidget />
+            case 'files':
+                return <FilesWidget files={prDetail.files} />
+            case 'agent':
+                return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
+            case 'stats':
+                return <StatsWidget pr={pr} />
+            case 'reviewers':
+                return <ReviewersWidget />
+        }
+    }
 
     return (
         <SceneContent>
@@ -268,20 +322,20 @@ export function GitHogPRReviewScene(): JSX.Element {
                 }
             />
 
-            {/* Minimal PR metadata — no card, just inline tags */}
+            {/* PR metadata strip — real data from the GitHub integration */}
             <div className="flex items-center gap-x-3 flex-wrap text-sm -mt-2">
-                <LemonTag type="success" size="small">
-                    Open
+                <LemonTag type={pr.state === 'open' ? 'success' : 'default'} size="small">
+                    {pr.draft ? 'Draft' : pr.state}
                 </LemonTag>
                 <span className="text-secondary flex items-center gap-x-1">
                     <IconGitBranch className="size-3.5" />
-                    {pr.sourceBranch}
+                    {pr.head_branch}
                     <span className="text-muted mx-0.5">→</span>
-                    {pr.targetBranch}
+                    {pr.base_branch}
                 </span>
                 <span className="text-muted">·</span>
                 <span className="text-secondary">
-                    {pr.author} · {pr.createdAt}
+                    {owner}/{repoName} · {pr.author || 'unknown'} · {humanFriendlyDetailedTime(pr.created_at)}
                 </span>
             </div>
 
@@ -302,32 +356,24 @@ export function GitHogPRReviewScene(): JSX.Element {
                     </LemonMenu>
                 </div>
             ) : (
-                <div className={`flex gap-4 items-start mt-2 ${!hasSide ? '' : ''}`}>
-                    {/* Main column */}
+                <div className="flex gap-4 items-start mt-2">
                     {(mainWidgets.length > 0 || !hasSide) && (
                         <div className="flex flex-col gap-y-4 flex-1 min-w-0">
-                            {mainWidgets.map((type) => {
-                                const Widget = WIDGET_COMPONENTS[type]
-                                return (
-                                    <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                        <Widget />
-                                    </WidgetShell>
-                                )
-                            })}
+                            {mainWidgets.map((type) => (
+                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
+                                    {renderWidget(type)}
+                                </WidgetShell>
+                            ))}
                         </div>
                     )}
 
-                    {/* Side column */}
                     {hasSide && (
                         <div className="flex flex-col gap-y-4 w-72 shrink-0">
-                            {sideWidgets.map((type) => {
-                                const Widget = WIDGET_COMPONENTS[type]
-                                return (
-                                    <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                        <Widget />
-                                    </WidgetShell>
-                                )
-                            })}
+                            {sideWidgets.map((type) => (
+                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
+                                    {renderWidget(type)}
+                                </WidgetShell>
+                            ))}
                         </div>
                     )}
                 </div>

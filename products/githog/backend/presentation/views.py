@@ -20,6 +20,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import GitHubIntegration, Integration
 
 from .serializers import (
+    GitHogPullRequestDetailQuerySerializer,
+    GitHogPullRequestDetailResponseSerializer,
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
@@ -116,5 +118,35 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             {
                 "repository": repository,
                 "pull_requests": result.get("pull_requests", []),
+            }
+        )
+
+    @extend_schema(
+        parameters=[GitHogPullRequestDetailQuerySerializer],
+        responses={200: GitHogPullRequestDetailResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_detail")
+    def pull_request_detail(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogPullRequestDetailQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        number: int = query.validated_data["number"]
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+
+        integration, _owner, name = match
+        github = GitHubIntegration(integration)
+        result = github.get_pull_request_detail(name, number)
+        if not result.get("success"):
+            raise ValidationError(result.get("error") or "Failed to fetch pull request")
+
+        return Response(
+            {
+                "repository": repository,
+                "pull_request": result["pull_request"],
+                "files": result.get("files", []),
+                "diff": result.get("diff"),
             }
         )

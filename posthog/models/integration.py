@@ -2735,6 +2735,87 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def get_pull_request_detail(self, repository: str, number: int) -> dict[str, Any]:
+        """Fetch a single pull request's metadata, list of changed files, and unified diff.
+
+        ``repository`` is the bare repo name (matching ``list_pull_requests``); the
+        installation organization is resolved via :meth:`organization`.
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+        base_url = f"https://api.github.com/repos/{org}/{repository}/pulls/{number}"
+        auth_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        }
+
+        meta_response = self._github_api_get(
+            base_url,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={**auth_headers, "Accept": "application/vnd.github+json"},
+        )
+        if meta_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to get pull request: {meta_response.text}",
+                "status_code": meta_response.status_code,
+            }
+        pr = meta_response.json()
+
+        files_response = self._github_api_get(
+            f"{base_url}/files",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+            params={"per_page": 100},
+            headers={**auth_headers, "Accept": "application/vnd.github+json"},
+        )
+        files: list[dict[str, Any]] = []
+        if files_response.status_code == 200:
+            for f in files_response.json():
+                files.append(
+                    {
+                        "filename": f.get("filename"),
+                        "status": f.get("status"),
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "changes": f.get("changes", 0),
+                        "patch": f.get("patch"),
+                    }
+                )
+
+        # Raw unified diff. GitHub serves this when the Accept header is the
+        # diff media type. Capped on the agent-side; we just relay what we get.
+        diff_response = self._github_api_get(
+            base_url,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={**auth_headers, "Accept": "application/vnd.github.v3.diff"},
+        )
+        diff = diff_response.text if diff_response.status_code == 200 else None
+
+        return {
+            "success": True,
+            "pull_request": {
+                "number": pr["number"],
+                "title": pr["title"],
+                "body": pr.get("body") or "",
+                "url": pr["html_url"],
+                "state": pr["state"],
+                "draft": pr.get("draft", False),
+                "head_branch": pr["head"]["ref"],
+                "head_sha": pr["head"]["sha"],
+                "base_branch": pr["base"]["ref"],
+                "base_sha": pr["base"]["sha"],
+                "author": (pr.get("user") or {}).get("login") or "",
+                "created_at": pr["created_at"],
+                "updated_at": pr["updated_at"],
+                "additions": pr.get("additions", 0),
+                "deletions": pr.get("deletions", 0),
+                "changed_files": pr.get("changed_files", 0),
+                "commits": pr.get("commits", 0),
+            },
+            "files": files,
+            "diff": diff,
+        }
+
 
 class GitLabIntegrationError(Exception):
     pass

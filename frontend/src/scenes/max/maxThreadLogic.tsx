@@ -216,6 +216,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         activateCommand: (command: SlashCommand) => ({ command }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         setIsSandboxMode: (isSandboxMode: boolean) => ({ isSandboxMode }),
+        setSystemContext: (systemContext: string | null) => ({ systemContext }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({
             agentMode,
         }),
@@ -349,6 +350,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             false,
             {
                 setIsSandboxMode: (_, { isSandboxMode }) => isSandboxMode,
+            },
+        ],
+
+        // Sandbox-mode-only preamble. Caller-supplied scene context (e.g. PR
+        // diff + metadata from the GitHog PR review widget) that the backend
+        // prepends to the agent's first task description, without appearing in
+        // the chat transcript. Backend ignores it on follow-up messages.
+        systemContext: [
+            null as string | null,
+            {
+                setSystemContext: (_, { systemContext }) => systemContext,
             },
         ],
 
@@ -645,6 +657,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (isSandbox) {
                     apiData.is_sandbox = true
+                    if (values.systemContext) {
+                        apiData.system_context = values.systemContext
+                    }
+                }
+
+                // Quick-and-dirty: when a caller (e.g. the GitHog PR review
+                // widget) seeds a ``systemContext`` and we're on the standard
+                // (non-sandbox) chat path, prepend it to the first message's
+                // content so the LLM sees the PR diff + metadata, while the
+                // visible thread message above already shows only the user's
+                // own question.
+                if (
+                    !isSandbox &&
+                    generationAttempt === 0 &&
+                    values.systemContext &&
+                    typeof apiData.content === 'string' &&
+                    apiData.content.length > 0
+                ) {
+                    apiData.content = `${values.systemContext}\n\n---\n\n${apiData.content}`
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -2030,8 +2061,20 @@ export async function onEventImplementation(
                 lastHumanMessage.trace_id === parsedResponse.trace_id
 
             if (lastHumanIndex != null && shouldReplace) {
+                // If a caller prepended a hidden ``systemContext`` to the
+                // outgoing content (see streamConversation), the server echoes
+                // that prefixed text back as the human message. Keep the local
+                // bubble's clean content so the diff/preamble never appears in
+                // the visible transcript.
+                const preserveLocalContent =
+                    !!values.systemContext &&
+                    isHumanMessage(lastHumanMessage) &&
+                    typeof lastHumanMessage.content === 'string' &&
+                    typeof parsedResponse.content === 'string' &&
+                    lastHumanMessage.content !== parsedResponse.content
                 actions.replaceMessage(lastHumanIndex, {
                     ...parsedResponse,
+                    content: preserveLocalContent ? lastHumanMessage.content : parsedResponse.content,
                     status: 'completed',
                 })
             } else {
