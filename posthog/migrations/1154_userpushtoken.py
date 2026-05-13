@@ -9,7 +9,7 @@ from posthog.models.utils import uuid7
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1152_fix_device_bucketing_persist_across_auth"),
+        ("posthog", "1153_subscription_hourly_frequency"),
     ]
 
     operations = [
