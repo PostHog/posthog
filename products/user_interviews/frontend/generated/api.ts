@@ -9,12 +9,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    IntervieweeContextApi,
+    PaginatedIntervieweeContextListApi,
     PaginatedUserInterviewListApi,
     PaginatedUserInterviewTopicListApi,
+    PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
     UserInterviewApi,
     UserInterviewTopicApi,
+    UserInterviewTopicsIntervieweesListParams,
     UserInterviewTopicsListParams,
     UserInterviewsListParams,
 } from './api.schemas'
@@ -159,6 +163,150 @@ export const userInterviewTopicsDestroy = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getUserInterviewTopicsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesListUrl = (
+    projectId: string,
+    topicId: string,
+    params?: UserInterviewTopicsIntervieweesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/?${stringifiedParams}`
+        : `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesList = async (
+    projectId: string,
+    topicId: string,
+    params?: UserInterviewTopicsIntervieweesListParams,
+    options?: RequestInit
+): Promise<PaginatedIntervieweeContextListApi> => {
+    return apiMutator<PaginatedIntervieweeContextListApi>(
+        getUserInterviewTopicsIntervieweesListUrl(projectId, topicId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getUserInterviewTopicsIntervieweesCreateUrl = (projectId: string, topicId: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesCreate = async (
+    projectId: string,
+    topicId: string,
+    intervieweeContextApi: NonReadonly<IntervieweeContextApi>,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(getUserInterviewTopicsIntervieweesCreateUrl(projectId, topicId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeContextApi),
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesRetrieveUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesRetrieve = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(getUserInterviewTopicsIntervieweesRetrieveUrl(projectId, topicId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesUpdateUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesUpdate = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    intervieweeContextApi: NonReadonly<IntervieweeContextApi>,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(getUserInterviewTopicsIntervieweesUpdateUrl(projectId, topicId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeContextApi),
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesPartialUpdateUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesPartialUpdate = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    patchedIntervieweeContextApi?: NonReadonly<PatchedIntervieweeContextApi>,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(
+        getUserInterviewTopicsIntervieweesPartialUpdateUrl(projectId, topicId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedIntervieweeContextApi),
+        }
+    )
+}
+
+export const getUserInterviewTopicsIntervieweesDestroyUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesDestroy = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsIntervieweesDestroyUrl(projectId, topicId, id), {
         ...options,
         method: 'DELETE',
     })
