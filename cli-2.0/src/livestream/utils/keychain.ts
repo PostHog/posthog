@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
@@ -14,10 +14,9 @@ const isMacOS = process.platform === 'darwin'
 // macOS Keychain functions using `security` CLI
 const keychainGet = (): string | null => {
   try {
-    const result = execFileSync(
-      'security',
-      ['find-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME, '-w'],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+    const result = execSync(
+      `security find-generic-password -s "${SERVICE_NAME}" -a "${ACCOUNT_NAME}" -w 2>/dev/null`,
+      { encoding: 'utf-8' }
     )
     return result.trim()
   } catch {
@@ -26,21 +25,26 @@ const keychainGet = (): string | null => {
 }
 
 const keychainSet = (value: string): void => {
+  // Delete existing entry first (ignore errors if it doesn't exist)
   try {
-    execFileSync('security', ['delete-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME],
-      { stdio: 'ignore' })
-  } catch { /* ignore */ }
+    execSync(`security delete-generic-password -s "${SERVICE_NAME}" -a "${ACCOUNT_NAME}" 2>/dev/null`)
+  } catch {
+    // Ignore - entry might not exist
+  }
 
-  execFileSync('security',
-    ['add-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME, '-w', value],
-    { encoding: 'utf-8' })
+  // Add new entry
+  execSync(
+    `security add-generic-password -s "${SERVICE_NAME}" -a "${ACCOUNT_NAME}" -w "${value.replace(/"/g, '\\"')}"`,
+    { encoding: 'utf-8' }
+  )
 }
 
 const keychainDelete = (): void => {
   try {
-    execFileSync('security', ['delete-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME],
-      { stdio: 'ignore' })
-  } catch { /* ignore */ }
+    execSync(`security delete-generic-password -s "${SERVICE_NAME}" -a "${ACCOUNT_NAME}" 2>/dev/null`)
+  } catch {
+    // Ignore - entry might not exist
+  }
 }
 
 // File-based fallback for non-macOS
