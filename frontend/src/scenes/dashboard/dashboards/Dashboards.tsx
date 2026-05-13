@@ -41,6 +41,7 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const dashboardSceneName = (undefined as any).name
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -64,7 +65,7 @@ export function Dashboards(): JSX.Element {
             <DashboardTemplateModal />
 
             <SceneTitleSection
-                name={sceneConfigurations[Scene.Dashboards].name}
+                name={dashboardSceneName}
                 description={sceneConfigurations[Scene.Dashboards].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboards].iconType || 'default_icon_type',
