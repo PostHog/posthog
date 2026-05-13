@@ -7,7 +7,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -2814,6 +2814,132 @@ class GitHubIntegration(GitHubIntegrationBase):
             },
             "files": files,
             "diff": diff,
+        }
+
+    def get_pull_request(self, repository: str, number: int, timeout: int = 20) -> dict[str, Any]:
+        """Fetch a single pull request's metadata, including head/base SHAs."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+        response = self._github_api_get(
+            f"https://api.github.com/repos/{org}/{repository}/pulls/{number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+            timeout=timeout,
+        )
+        if response.status_code == 200:
+            pr = response.json()
+            return {
+                "success": True,
+                "number": pr["number"],
+                "title": pr["title"],
+                "body": pr.get("body") or "",
+                "state": pr["state"],
+                "head_sha": pr["head"]["sha"],
+                "base_sha": pr["base"]["sha"],
+                "head_branch": pr["head"]["ref"],
+                "base_branch": pr["base"]["ref"],
+                "html_url": pr["html_url"],
+                "author": (pr.get("user") or {}).get("login") or "",
+                "author_avatar_url": (pr.get("user") or {}).get("avatar_url") or "",
+                "created_at": pr.get("created_at") or "",
+                "updated_at": pr.get("updated_at") or "",
+                "merged_at": pr.get("merged_at") or None,
+                "draft": bool(pr.get("draft", False)),
+            }
+        return {
+            "success": False,
+            "error": f"Failed to get pull request: {response.text}",
+            "status_code": response.status_code,
+        }
+
+    def list_pull_request_files(
+        self, repository: str, number: int, max_files: int = 300, timeout: int = 20
+    ) -> dict[str, Any]:
+        """List files changed in a pull request, paginating up to `max_files`."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+        per_page = 100
+        page = 1
+        collected: list[dict[str, Any]] = []
+        while len(collected) < max_files:
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{org}/{repository}/pulls/{number}/files",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+                params={"per_page": per_page, "page": page},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                timeout=timeout,
+            )
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to list PR files: {response.text}",
+                    "status_code": response.status_code,
+                }
+            page_data = response.json()
+            if not page_data:
+                break
+            collected.extend(page_data)
+            if len(page_data) < per_page:
+                break
+            page += 1
+        files = [
+            {
+                "filename": f["filename"],
+                "status": f["status"],
+                "additions": f.get("additions", 0),
+                "deletions": f.get("deletions", 0),
+                "patch": f.get("patch", ""),
+                "previous_filename": f.get("previous_filename"),
+            }
+            for f in collected[:max_files]
+        ]
+        return {"success": True, "files": files}
+
+    def get_file_content(self, repository: str, path: str, ref: str, timeout: int = 20) -> dict[str, Any]:
+        """Fetch a single file's contents at a given ref. Returns success=False with status_code=404 for missing files.
+
+        ``path`` is URL-quoted segment-by-segment so paths containing parens or other reserved characters work.
+        ``timeout`` (default 20s) caps individual fetches so a single hung connection can't block the caller indefinitely.
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+        encoded_path = "/".join(quote(seg, safe="") for seg in path.split("/"))
+        response = self._github_api_get(
+            f"https://api.github.com/repos/{org}/{repository}/contents/{encoded_path}",
+            endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": ref},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+            timeout=timeout,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list):
+                return {"success": False, "error": "Path is a directory", "status_code": 400}
+            encoding = data.get("encoding")
+            content_b64 = data.get("content") or ""
+            if encoding != "base64":
+                return {"success": False, "error": f"Unsupported encoding: {encoding}", "status_code": 415}
+            try:
+                content = base64.b64decode(content_b64).decode("utf-8", errors="replace")
+            except Exception as exc:
+                return {"success": False, "error": f"Failed to decode content: {exc}", "status_code": 500}
+            return {"success": True, "content": content, "sha": data.get("sha")}
+        return {
+            "success": False,
+            "error": f"Failed to fetch file: {response.text}",
+            "status_code": response.status_code,
         }
 
 

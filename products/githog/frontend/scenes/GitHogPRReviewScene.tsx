@@ -1,14 +1,17 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck, IconCode, IconGitBranch, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconCode, IconGitBranch, IconPlus, IconRefresh, IconX } from '@posthog/icons'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import MermaidDiagram from 'lib/lemon-ui/LemonMarkdown/MermaidDiagram'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,23 +23,29 @@ import {
     GitHogPullRequestFile,
     gitHogPRReviewLogic,
 } from './gitHogPRReviewLogic'
+import {
+    GitHogDataFlowStep,
+    GitHogPullRequestDataFlowLogicProps,
+    gitHogPullRequestDataFlowLogic,
+} from './gitHogPullRequestDataFlowLogic'
+import { gitHogPullRequestDetailLogic } from './gitHogPullRequestDetailLogic'
 import { GitHogAgentChatWidget, PRChatContext } from './widgets/GitHogAgentChatWidget'
 
 export const scene: SceneExport<GitHogPRReviewLogicProps> = {
     component: GitHogPRReviewScene,
     logic: gitHogPRReviewLogic,
     paramsToProps: ({ params: { owner, name, number } }) => ({
-        owner: decodeURIComponent(owner),
-        name: decodeURIComponent(name),
-        number: Number(number),
+        owner: decodeURIComponent(owner ?? ''),
+        name: decodeURIComponent(name ?? ''),
+        number: Number(number ?? 0),
     }),
 }
 
 // ─── Mock data for widgets we don't yet back with a real API ──────────────────
 //
-// Comments, reviewers, and overall PR-discussion data aren't yet exposed by the
-// githog backend. We keep mocks for those widgets so the scene renders, but
-// every widget that *can* use real data (header, files, stats, agent) does.
+// Comments and reviewers aren't yet exposed by the githog backend. We keep
+// mocks for those widgets so the scene renders, but every widget that *can*
+// use real data (header, files, stats, agent, data flow) does.
 
 const SAMPLE_REVIEWERS = [
     { name: 'Marcus Webb', initials: 'MW', status: 'changes_requested' as const },
@@ -65,12 +74,13 @@ const SAMPLE_COMMENTS = [
 
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
-type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'agent'
+type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'agent' | 'dataFlow'
 
 const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; column: 'main' | 'side' }> = {
     conversation: { label: 'Conversation', description: 'Comments and review discussion', column: 'main' },
     files: { label: 'Files changed', description: 'Modified files with line counts', column: 'main' },
     agent: { label: 'Ask the agent', description: 'Chat with an AI agent about this PR', column: 'main' },
+    dataFlow: { label: 'Data flow', description: 'AI-generated execution flow before vs after', column: 'main' },
     stats: { label: 'Stats', description: 'Additions, deletions, and commits', column: 'side' },
     reviewers: { label: 'Reviewers', description: 'Review status per reviewer', column: 'side' },
 }
@@ -225,6 +235,109 @@ function AgentWidget({
     return <GitHogAgentChatWidget context={context} />
 }
 
+function StepList({ steps, emptyLabel }: { steps: GitHogDataFlowStep[]; emptyLabel: string }): JSX.Element {
+    if (steps.length === 0) {
+        return <p className="text-secondary text-sm italic my-0">{emptyLabel}</p>
+    }
+    return (
+        <ol className="flex flex-col gap-2 my-0 pl-5">
+            {steps.map((step, idx) => (
+                <li key={`${step.title}-${idx}`} className="text-sm">
+                    <div className="font-semibold">{step.title}</div>
+                    {step.file && <div className="font-mono text-xs text-muted">{step.file}</div>}
+                    {step.detail && <div className="text-sm text-secondary">{step.detail}</div>}
+                </li>
+            ))}
+        </ol>
+    )
+}
+
+function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowLogicProps): JSX.Element {
+    const logic = gitHogPullRequestDataFlowLogic({ owner, name, number })
+    const { dataFlow, dataFlowLoading, view } = useValues(logic)
+    const { setView, refreshDataFlow } = useActions(logic)
+
+    return (
+        <div className="flex flex-col divide-y divide-border">
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+                <span className="font-semibold text-sm">Data flow</span>
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={view}
+                        onChange={(v) => setView(v)}
+                        options={[
+                            { value: 'mermaid', label: 'Diagram' },
+                            { value: 'steps', label: 'Steps' },
+                        ]}
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        loading={dataFlowLoading}
+                        onClick={() => refreshDataFlow()}
+                        tooltip="Force-recompute via LLM"
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
+            </div>
+            <div className="px-4 py-4 flex flex-col gap-3">
+                {dataFlowLoading && !dataFlow ? (
+                    <>
+                        <LemonSkeleton className="h-4 w-3/4" />
+                        <LemonSkeleton className="h-32 w-full" />
+                        <LemonSkeleton className="h-32 w-full" />
+                    </>
+                ) : !dataFlow ? (
+                    <p className="text-secondary text-sm my-0">No flow available yet. Click Refresh to generate one.</p>
+                ) : (
+                    <>
+                        {dataFlow.summary && (
+                            <p className="text-sm text-secondary my-0 leading-relaxed">{dataFlow.summary}</p>
+                        )}
+                        {dataFlow.truncated && (
+                            <LemonTag type="warning" size="small">
+                                Truncated — files were too large for full context, flow inferred from diff
+                            </LemonTag>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-2 min-w-0">
+                                <div className="text-xs uppercase tracking-wide text-muted">Before</div>
+                                {view === 'mermaid' ? (
+                                    dataFlow.mermaid_before ? (
+                                        <MermaidDiagram code={dataFlow.mermaid_before} />
+                                    ) : (
+                                        <p className="text-sm text-secondary italic my-0">No prior flow.</p>
+                                    )
+                                ) : (
+                                    <StepList steps={dataFlow.steps_before} emptyLabel="No prior flow." />
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 min-w-0">
+                                <div className="text-xs uppercase tracking-wide text-muted">After</div>
+                                {view === 'mermaid' ? (
+                                    dataFlow.mermaid_after ? (
+                                        <MermaidDiagram code={dataFlow.mermaid_after} />
+                                    ) : (
+                                        <p className="text-sm text-secondary italic my-0">No new flow.</p>
+                                    )
+                                ) : (
+                                    <StepList steps={dataFlow.steps_after} emptyLabel="No new flow." />
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-xs text-muted">
+                            head {dataFlow.head_sha.slice(0, 7)} · {dataFlow.cached ? 'cached' : 'freshly computed'}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
 // ─── Scene ───────────────────────────────────────────────────────────────────
 
 export function GitHogPRReviewScene({ owner, name, number }: GitHogPRReviewLogicProps): JSX.Element {
@@ -244,7 +357,15 @@ function GitHogPRReviewSceneInner({
     repoName: string
     number: number
 }): JSX.Element {
+    // Two logics used in parallel:
+    //  - ``gitHogPRReviewLogic`` (HEAD): PR meta + files + unified diff. Backs the
+    //    stats/files/agent widgets that need the diff.
+    //  - ``gitHogPullRequestDetailLogic`` (incoming): lighter PR metadata
+    //    with ``merged_at``, ``author_avatar_url``, etc., used for the header
+    //    strip's merged/draft/closed tag logic. Slight duplication is the
+    //    hackathon-acceptable tax for keeping both branches' UX intact.
     const { prDetail, prDetailLoading } = useValues(gitHogPRReviewLogic)
+    const { pullRequest, pullRequestLoading } = useValues(gitHogPullRequestDetailLogic({ owner, name: repoName, number }))
     const [widgets, setWidgets] = useState<WidgetType[]>([])
 
     const addWidget = (type: WidgetType): void => setWidgets((prev) => [...prev, type])
@@ -290,6 +411,8 @@ function GitHogPRReviewSceneInner({
                 return <FilesWidget files={prDetail.files} />
             case 'agent':
                 return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
+            case 'dataFlow':
+                return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':
                 return <StatsWidget pr={pr} />
             case 'reviewers':
@@ -322,21 +445,67 @@ function GitHogPRReviewSceneInner({
                 }
             />
 
-            {/* PR metadata strip — real data from the GitHub integration */}
+            {/* PR metadata strip — prefers the richer "detail" logic shape (it
+                knows about merged_at/draft/closed) and falls back to the diff
+                logic's PR shape while the detail load is in flight. */}
             <div className="flex items-center gap-x-3 flex-wrap text-sm -mt-2">
-                <LemonTag type={pr.state === 'open' ? 'success' : 'default'} size="small">
-                    {pr.draft ? 'Draft' : pr.state}
-                </LemonTag>
-                <span className="text-secondary flex items-center gap-x-1">
-                    <IconGitBranch className="size-3.5" />
-                    {pr.head_branch}
-                    <span className="text-muted mx-0.5">→</span>
-                    {pr.base_branch}
-                </span>
-                <span className="text-muted">·</span>
-                <span className="text-secondary">
-                    {owner}/{repoName} · {pr.author || 'unknown'} · {humanFriendlyDetailedTime(pr.created_at)}
-                </span>
+                {pullRequest ? (
+                    <>
+                        <LemonTag
+                            type={
+                                pullRequest.merged_at
+                                    ? 'completion'
+                                    : pullRequest.state === 'open'
+                                      ? pullRequest.draft
+                                          ? 'default'
+                                          : 'success'
+                                      : 'danger'
+                            }
+                            size="small"
+                        >
+                            {pullRequest.merged_at
+                                ? 'Merged'
+                                : pullRequest.draft
+                                  ? 'Draft'
+                                  : pullRequest.state === 'open'
+                                    ? 'Open'
+                                    : 'Closed'}
+                        </LemonTag>
+                        <span className="text-secondary flex items-center gap-x-1">
+                            <IconGitBranch className="size-3.5" />
+                            {pullRequest.head_branch}
+                            <span className="text-muted mx-0.5">→</span>
+                            {pullRequest.base_branch}
+                        </span>
+                        <span className="text-muted">·</span>
+                        <span className="text-secondary flex items-center gap-x-1">
+                            {owner}/{repoName} · {pullRequest.author || 'unknown'}
+                            {pullRequest.created_at && (
+                                <>
+                                    <span className="text-muted mx-1">·</span>
+                                    <TZLabel time={pullRequest.created_at} />
+                                </>
+                            )}
+                        </span>
+                    </>
+                ) : (
+                    <>
+                        <LemonTag type={pr.state === 'open' ? 'success' : 'default'} size="small">
+                            {pr.draft ? 'Draft' : pr.state}
+                        </LemonTag>
+                        <span className="text-secondary flex items-center gap-x-1">
+                            <IconGitBranch className="size-3.5" />
+                            {pr.head_branch}
+                            <span className="text-muted mx-0.5">→</span>
+                            {pr.base_branch}
+                        </span>
+                        <span className="text-muted">·</span>
+                        <span className="text-secondary">
+                            {owner}/{repoName} · {pr.author || 'unknown'}
+                            {pullRequestLoading && <span className="text-muted ml-2">·  loading…</span>}
+                        </span>
+                    </>
+                )}
             </div>
 
             {/* Widget area */}

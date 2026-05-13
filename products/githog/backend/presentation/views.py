@@ -19,9 +19,14 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import GitHubIntegration, Integration
 
+from products.githog.backend.logic.data_flow import compute_data_flow
+
 from .serializers import (
+    GitHogDataFlowQuerySerializer,
+    GitHogDataFlowResponseSerializer,
     GitHogPullRequestDetailQuerySerializer,
     GitHogPullRequestDetailResponseSerializer,
+    GitHogPullRequestDiffResponseSerializer,
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
@@ -125,8 +130,34 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         parameters=[GitHogPullRequestDetailQuerySerializer],
         responses={200: GitHogPullRequestDetailResponseSerializer},
     )
-    @action(methods=["GET"], detail=False, url_path="pull_request_detail")
-    def pull_request_detail(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    @action(methods=["GET"], detail=False, url_path="pull_request")
+    def pull_request(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogPullRequestDetailQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["number"]
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+        integration, _owner, name = match
+
+        result = GitHubIntegration(integration).get_pull_request(name, pr_number)
+        if not result.get("success"):
+            raise ValidationError(result.get("error") or "Failed to fetch pull request")
+        result.pop("success", None)
+        return Response(result)
+
+    @extend_schema(
+        parameters=[GitHogPullRequestDetailQuerySerializer],
+        responses={200: GitHogPullRequestDiffResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_diff")
+    def pull_request_diff(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return PR metadata + changed files + unified diff.
+
+        Used by the agent chat widget to pipe the diff into the LLM context.
+        """
         query = GitHogPullRequestDetailQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         repository: str = query.validated_data["repository"]
@@ -148,5 +179,51 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "pull_request": result["pull_request"],
                 "files": result.get("files", []),
                 "diff": result.get("diff"),
+            }
+        )
+
+    @extend_schema(
+        parameters=[GitHogDataFlowQuerySerializer],
+        responses={200: GitHogDataFlowResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_data_flow")
+    def pull_request_data_flow(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogDataFlowQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["number"]
+        refresh: bool = query.validated_data.get("refresh", False)
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+        integration, _owner, _name = match
+
+        try:
+            row, is_cached = compute_data_flow(
+                team=self.team,
+                user=request.user,
+                integration=integration,
+                repository=repository,
+                pr_number=pr_number,
+                refresh=refresh,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(
+            {
+                "repository": row.repository,
+                "pr_number": row.pr_number,
+                "head_sha": row.head_sha,
+                "base_sha": row.base_sha,
+                "mermaid_before": row.mermaid_before,
+                "mermaid_after": row.mermaid_after,
+                "steps_before": row.steps_before,
+                "steps_after": row.steps_after,
+                "summary": row.summary,
+                "truncated": row.truncated,
+                "cached": is_cached,
+                "computed_at": row.updated_at,
             }
         )

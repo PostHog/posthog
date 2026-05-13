@@ -59,7 +59,7 @@ export const gitHogPRReviewLogic = kea<gitHogPRReviewLogicType>([
                 loadPRDetail: async () => {
                     const repository = `${props.owner}/${props.name}`
                     return await api.get<GitHogPullRequestDetailResponse>(
-                        `api/environments/${getCurrentTeamId()}/githog/pull_request_detail/` +
+                        `api/environments/${getCurrentTeamId()}/githog/pull_request_diff/` +
                             `?repository=${encodeURIComponent(repository)}&number=${props.number}`
                     )
                 },
