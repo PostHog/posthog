@@ -640,6 +640,9 @@ importers:
       '@posthog/products-games':
         specifier: workspace:*
         version: link:../products/games
+      '@posthog/products-githog':
+        specifier: workspace:*
+        version: link:../products/githog
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
@@ -2561,6 +2564,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/githog: {}
 
   products/groups:
     dependencies:

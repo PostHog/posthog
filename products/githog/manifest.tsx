@@ -15,13 +15,20 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/GitHogScene'),
             iconType: 'default_icon_type',
         },
+        GitHogPRReview: {
+            name: 'PR review',
+            projectBased: true,
+            import: () => import('./frontend/scenes/GitHogPRReviewScene'),
+        },
     },
     routes: {
         '/githog': ['GitHog', 'gitHog'],
+        '/githog/pr/:id': ['GitHogPRReview', 'gitHogPRReview'],
     },
     redirects: {},
     urls: {
         gitHog: (): string => '/githog',
+        gitHogPRReview: (id: string): string => `/githog/pr/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
