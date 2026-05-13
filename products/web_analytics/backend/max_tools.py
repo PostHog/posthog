@@ -318,13 +318,13 @@ def _serialize_issue(issue: HealthIssue) -> dict[str, Any]:
     return {"kind": issue.kind, "severity": issue.severity, "payload": issue.payload}
 
 
-_SEVERITY_ORDER = {
+_SEVERITY_ORDER: dict[str, int] = {
     HealthIssue.Severity.CRITICAL: 0,
     HealthIssue.Severity.WARNING: 1,
     HealthIssue.Severity.INFO: 2,
 }
 
-_SEVERITY_MARKER = {
+_SEVERITY_MARKER: dict[str, str] = {
     HealthIssue.Severity.CRITICAL: "×",
     HealthIssue.Severity.WARNING: "!",
     HealthIssue.Severity.INFO: "i",
