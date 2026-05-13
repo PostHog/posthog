@@ -21,17 +21,17 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/GitHogRepoScene'),
             iconType: 'default_icon_type',
         },
-        GitHogPullRequest: {
-            name: 'GitHog pull request',
+        GitHogPRReview: {
+            name: 'PR review',
             projectBased: true,
-            import: () => import('./frontend/scenes/GitHogPullRequestScene'),
+            import: () => import('./frontend/scenes/GitHogPRReviewScene'),
             iconType: 'default_icon_type',
         },
     },
     routes: {
         '/githog': ['GitHog', 'gitHog'],
         '/githog/repos/:owner/:name': ['GitHogRepo', 'gitHogRepo'],
-        '/githog/repos/:owner/:name/pulls/:number': ['GitHogPullRequest', 'gitHogPullRequest'],
+        '/githog/repos/:owner/:name/pulls/:number': ['GitHogPRReview', 'gitHogPullRequest'],
     },
     redirects: {},
     urls: {
