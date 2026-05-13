@@ -20,6 +20,7 @@ from ee.hogai.tool import MaxTool
 from ..api.skill_serializers import SKILL_NAME_PATTERN, validate_skill_file_path
 from ..api.skill_services import (
     MAX_SKILL_BODY_BYTES,
+    MAX_SKILL_FILE_BYTES,
     MAX_SKILL_FILE_COUNT,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
@@ -99,7 +100,9 @@ def _validate_skill_name(name: str) -> str | None:
         return "'new' is a reserved name. Pick another."
     if len(name) > 64:
         return "Skill name must be 64 characters or fewer."
-    if not SKILL_NAME_PATTERN.match(name):
+    # SKILL_NAME_PATTERN allows internal hyphens but doesn't reject consecutive ones (`foo--bar`),
+    # so mirror the REST serializer's explicit check to keep validation parity across surfaces.
+    if "--" in name or not SKILL_NAME_PATTERN.match(name):
         return (
             "Skill name must use only lowercase letters, numbers, and hyphens. "
             "It must not start or end with a hyphen or contain consecutive hyphens."
@@ -357,6 +360,11 @@ class CreateLLMSkillTool(MaxTool):
                     return (f"Invalid file path '{file_input.path}': {e}", None)
                 if file_input.path in seen:
                     return (f"Duplicate file path '{file_input.path}' in input.", None)
+                if len(file_input.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+                    return (
+                        f"File '{file_input.path}' exceeds the {MAX_SKILL_FILE_BYTES} byte size limit.",
+                        None,
+                    )
                 seen.add(file_input.path)
                 normalized_files.append(
                     {
@@ -438,8 +446,8 @@ class CreateLLMSkillTool(MaxTool):
 UPDATE_TOOL_DESCRIPTION = """Publish a new version of an existing LLM analytics skill.
 
 # When to use this tool:
-- The user wants to edit a skill's instructions, description, or metadata
-- The user wants to add, change, or remove bundled files
+- The user wants to edit a skill's instructions, description, license, compatibility, allowed
+  tools, or metadata
 
 # Optimistic concurrency:
 You MUST pass `base_version` — the version number you read most recently via `get_llm_skill`.
@@ -450,7 +458,8 @@ If the skill has changed since, the call fails with a conflict and you should re
 - `edits`: a list of `{old, new}` find-and-replace patches applied sequentially. Each `old`
   must occur exactly once in the current body — supply enough context to make it unique.
 
-Any field you omit carries forward unchanged.
+Any field you omit carries forward unchanged. Bundled files are carried forward as-is — this
+tool does not add, remove, or rewrite files. (Use the REST API for file changes for now.)
 """.strip()
 
 

@@ -198,6 +198,31 @@ class TestCreateLLMSkillTool(BaseTest):
         )
         assert "lowercase letters" in result
 
+    def test_rejects_consecutive_hyphens_in_name(self):
+        # Mirrors REST serializer's "--" rejection so validation is consistent across surfaces.
+        result, _ = _run(
+            self._tool(),
+            name="foo--bar",
+            description="d",
+            body="b",
+        )
+        assert "lowercase letters" in result
+
+    def test_rejects_oversized_file(self):
+        from products.llm_analytics.backend.api.skill_services import MAX_SKILL_FILE_BYTES
+        from products.llm_analytics.backend.tools.manage_skills import CreateSkillFileInput
+
+        oversized = "x" * (MAX_SKILL_FILE_BYTES + 1)
+        result, _ = _run(
+            self._tool(),
+            name="too-big",
+            description="d",
+            body="# x",
+            files=[CreateSkillFileInput(path="huge.txt", content=oversized)],
+        )
+        assert "size limit" in result
+        assert not LLMSkill.objects.filter(team=self.team, name="too-big").exists()
+
     def test_rejects_duplicate_name(self):
         LLMSkill.objects.create(
             team=self.team,
