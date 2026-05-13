@@ -21,6 +21,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
+from products.tasks.backend.models import RenderingCanvas
 
 MIXIN_MODELS = {
     "action": Action,
@@ -35,6 +36,7 @@ MIXIN_MODELS = {
     "cohort": Cohort,
     "hog_function": HogFunction,
     "survey": Survey,
+    "rendering_canvas": RenderingCanvas,
 }
 
 

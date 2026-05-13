@@ -27,6 +27,8 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -1287,7 +1289,7 @@ class CodeInviteRedemption(UUIDModel):
         return f"{self.user} redeemed {self.invite_code}"
 
 
-class RenderingCanvas(DeletedMetaFields, models.Model):
+class RenderingCanvas(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     """An LLM-generated React UI persisted for rendering inside PostHog Code.
 
     Created via the tasks MCP surface (e.g. a `create-ui` tool). The task FK is
@@ -1326,6 +1328,22 @@ class RenderingCanvas(DeletedMetaFields, models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Canvases"),
+            type="rendering_canvas",
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/canvases/{self.id}",
+            meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
+            should_delete=bool(self.deleted),
+        )
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: Team) -> models.QuerySet["RenderingCanvas"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="rendering_canvas", ref_field="id")
 
 
 @receiver(post_save, sender=TaskRun)
