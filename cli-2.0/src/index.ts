@@ -76,6 +76,11 @@ function printPrettyJson(result: unknown): void {
 }
 
 function printListTable(result: unknown, emptyMessage: string, columns: TableColumn[]): void {
+  if (!process.stdout.isTTY) {
+    printPrettyJson(result)
+    return
+  }
+
   const items = getListItems(result)
 
   if (items.length === 0) {
