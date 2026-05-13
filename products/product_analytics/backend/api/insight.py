@@ -1711,14 +1711,14 @@ class InsightViewSet(
                     )
             elif key == "hide_on_dashboard":
                 if str_to_bool(request.GET["hide_on_dashboard"]):
-                    # Exclude insights that are attached to any active dashboard.
+                    # Mirrors the `saved` filter above: an insight is considered
+                    # "on a dashboard" only if it has a tile on a non-unlisted dashboard.
                     # DashboardTile.objects (default manager) already excludes soft-deleted tiles
                     # and tiles whose dashboard is soft-deleted.
-                    queryset = queryset.exclude(
-                        id__in=DashboardTile.objects.filter(insight__isnull=False).values_list(
-                            "insight_id", flat=True
-                        )
+                    visible_tile_for_insight = DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(
+                        dashboard__creation_mode="unlisted"
                     )
+                    queryset = queryset.exclude(Exists(visible_tile_for_insight))
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)

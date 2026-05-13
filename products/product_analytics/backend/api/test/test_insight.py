@@ -511,16 +511,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             dashboard_id=dashboard_id, insight=soft_deleted_insight, deleted=True
         )
 
-        # Without filter: all 3 saved insights returned.
+        # Insight on an unlisted (system-generated) dashboard — should be treated
+        # as not on a dashboard, mirroring the `saved` filter's semantics.
+        unlisted_dashboard = Dashboard.objects.create(
+            name="d-unlisted", team=self.team, creation_mode="unlisted"
+        )
+        on_unlisted_insight = Insight.objects.create(
+            name="On unlisted dashboard",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+        DashboardTile.objects.create(dashboard=unlisted_dashboard, insight=on_unlisted_insight)
+
+        # Without filter: all 4 saved insights returned.
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), 4)
 
-        # With filter: only the two insights with no active dashboard tile.
+        # With filter: insights with no active non-unlisted dashboard tile.
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_on_dashboard=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = sorted(r["name"] for r in response.json()["results"])
-        self.assertEqual(names, ["Not on dashboard", "Soft-deleted tile"])
+        self.assertEqual(names, ["Not on dashboard", "On unlisted dashboard", "Soft-deleted tile"])
 
     def test_get_insight_in_dashboard_context(self) -> None:
         filter_dict = {
