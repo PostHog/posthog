@@ -298,8 +298,9 @@ async def _relay_loop(
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
                                     # Interactive run finished a turn — the agent is now idle waiting
-                                    # for the user. Fire a mobile push so the user knows to check in.
-                                    asyncio.create_task(_dispatch_awaiting_input_push(task_run))
+                                    # for the user. The dispatcher only enqueues a Celery task, so
+                                    # it's safe to call inline without blocking the event loop.
+                                    _safe_dispatch_awaiting_input(task_run)
                             elif not agent_active[0] and _is_session_update(event_data):
                                 agent_active[0] = True
 
@@ -441,18 +442,20 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
-async def _dispatch_awaiting_input_push(task_run: TaskRunModel) -> None:
-    """Fire-and-forget push notification when an interactive run idles waiting on the user.
+def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
+    """Schedule a push when an interactive run idles waiting on the user.
 
-    Wraps the dispatcher so a failed push never bubbles into the relay loop.
+    The dispatcher only does cheap work (feature-flag check, cache lookup,
+    Celery enqueue), so this is safe to call inline. Wrapped in a try so a
+    failed dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input_async
+        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
 
-        await notify_task_run_awaiting_input_async(task_run)
-    except Exception as exc:
+        notify_task_run_awaiting_input(task_run)
+    except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
             run_id=str(task_run.id),
-            error=str(exc),
+            exc_info=True,
         )

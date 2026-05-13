@@ -1,21 +1,33 @@
 """Dispatch push notifications to the task creator's mobile devices.
 
-Wrapper around ``posthog.push_notifications`` that handles the
-PostHog-Code-specific event shape: title, body, and data payload pointing at
-the relevant task / task run.
+Schedules the underlying Expo HTTP call as a Celery task via
+``transaction.on_commit`` so nothing here can block a request/response cycle
+or a Temporal activity's event loop.
 
-All entry points swallow exceptions and log instead of raising — pushes are
-best-effort and must never interfere with the task lifecycle.
+Three guards before we enqueue:
+
+1. **Feature flag.** ``posthog-code-mobile-push`` must be enabled for the
+   user. Off by default — flip on once the mobile build is ready and
+   tokens start arriving.
+2. **Cooldown.** A per-``(task_run, kind)`` Redis lock collapses duplicate
+   triggers in a short window. A workflow that retries ``mark_completed``
+   or an agent that fires several rapid end-of-turn events results in one
+   push, not five.
+3. **Anonymous task.** Runs without a ``created_by`` user get skipped
+   silently — there's no one to notify.
 """
 
 from __future__ import annotations
 
-import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+from django.core.cache import cache
+from django.db import transaction
 
 import structlog
+import posthoganalytics
 
-from posthog.push_notifications import send_push_to_user
+from posthog.tasks.push_notifications import send_user_push
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -23,35 +35,39 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 PUSH_TITLE = "PostHog Code"
+FEATURE_FLAG_KEY = "posthog-code-mobile-push"
+
+# Cooldown windows per push kind. Terminal pushes get a longer window because
+# they should only fire once per run lifetime — anything more is a retry.
+# Interactive turn-end can legitimately fire again after the user replies,
+# so a short cooldown is enough to absorb rapid duplicate triggers.
+PushKind = Literal["completed", "failed", "cancelled", "awaiting"]
+_COOLDOWN_SECONDS: dict[PushKind, int] = {
+    "completed": 600,
+    "failed": 600,
+    "cancelled": 600,
+    "awaiting": 30,
+}
 
 
 def notify_task_run_completed(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` finishes successfully."""
-    _notify(task_run, body=f'"{_task_title(task_run)}" finished')
+    _enqueue(task_run, kind="completed", body=f'"{_task_title(task_run)}" finished')
 
 
 def notify_task_run_failed(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` ends with a failure."""
-    _notify(task_run, body=f'"{_task_title(task_run)}" failed')
+    _enqueue(task_run, kind="failed", body=f'"{_task_title(task_run)}" failed')
 
 
 def notify_task_run_cancelled(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` is cancelled."""
-    _notify(task_run, body=f'"{_task_title(task_run)}" was cancelled')
+    _enqueue(task_run, kind="cancelled", body=f'"{_task_title(task_run)}" was cancelled')
 
 
 def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
     """Fire a push notification when an interactive run is waiting for user input."""
-    _notify(task_run, body=f'"{_task_title(task_run)}" needs your input')
-
-
-async def notify_task_run_awaiting_input_async(task_run: TaskRun) -> None:
-    """Async wrapper for use inside Temporal activities.
-
-    Offloads the synchronous HTTP call to a thread so it doesn't block the
-    activity's event loop while the Expo push API is being called.
-    """
-    await asyncio.to_thread(notify_task_run_awaiting_input, task_run)
+    _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" needs your input')
 
 
 def _task_title(task_run: TaskRun) -> str:
@@ -59,22 +75,33 @@ def _task_title(task_run: TaskRun) -> str:
     return title or "Untitled task"
 
 
-def _notify(task_run: TaskRun, *, body: str) -> None:
+def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     user = task_run.task.created_by
     if user is None:
         return
 
+    distinct_id = user.distinct_id or f"user_{user.id}"
     try:
-        send_push_to_user(
-            user,
-            title=PUSH_TITLE,
-            body=body,
-            data={"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)},
+        flag_enabled = posthoganalytics.feature_enabled(
+            FEATURE_FLAG_KEY,
+            distinct_id,
+            send_feature_flag_events=False,
         )
     except Exception:
-        logger.warning(
-            "push_dispatcher.send_failed",
-            run_id=str(task_run.id),
-            task_id=str(task_run.task_id),
-            exc_info=True,
-        )
+        # Failing closed on flag-evaluation errors keeps an outage from
+        # silently flipping pushes on for the whole user base.
+        logger.warning("push_dispatcher.flag_check_failed", user_id=user.id, exc_info=True)
+        return
+    if not flag_enabled:
+        return
+
+    cooldown_key = f"push_notification:{task_run.id}:{kind}"
+    if not cache.add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+        logger.debug("push_dispatcher.cooldown_hit", run_id=str(task_run.id), kind=kind)
+        return
+
+    data = {"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)}
+
+    # on_commit so we never schedule a push for a write that ends up rolling
+    # back. Outside an atomic block this fires immediately, which is fine.
+    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data))
