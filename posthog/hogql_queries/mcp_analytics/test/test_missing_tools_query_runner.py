@@ -169,3 +169,39 @@ class TestMissingToolsQueryRunner(ClickhouseTestMixin, BaseTest):
         # Results are sorted by distance ascending
         distances = [g.distance for g in result.llm_stated_gaps]
         assert distances == sorted(distances)
+
+    def test_gap_search_failure_does_not_drop_intent_clusters(self) -> None:
+        _emit_intent_clusters_event(
+            self.team,
+            {
+                "$mcp_clustering_run_id": "run-resilient",
+                "$mcp_window_start": "2026-05-01T00:00:00Z",
+                "$mcp_window_end": "2026-05-08T00:00:00Z",
+                "$mcp_total_intents_analyzed": 1,
+                "$mcp_clusters": [
+                    {
+                        "cluster_id": 0,
+                        "title": "Some cluster",
+                        "description": "",
+                        "gap_score": 0.5,
+                        "size": 1,
+                        "aggregate_error_rate": 0.0,
+                        "aggregate_empty_rate": 0.0,
+                        "avg_distinct_tools_attempted": 1.0,
+                        "members": [],
+                    }
+                ],
+            },
+        )
+
+        with patch.object(
+            MissingToolsCandidatesRunner,
+            "_search_llm_stated_gaps",
+            side_effect=RuntimeError("embedding worker down"),
+        ):
+            runner = MissingToolsCandidatesRunner(team=self.team)
+            result = runner.run()
+
+        assert result.clustering_run_id == "run-resilient"
+        assert len(result.intent_clusters) == 1
+        assert result.llm_stated_gaps == []

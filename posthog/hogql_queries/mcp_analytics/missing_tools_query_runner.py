@@ -121,7 +121,18 @@ class MissingToolsCandidatesRunner:
             for raw_cluster in clusters_payload.get("$mcp_clusters", []):
                 intent_clusters.append(self._cluster_payload_to_dto(raw_cluster))
 
-        llm_stated_gaps = self._search_llm_stated_gaps()
+        # The semantic search calls embedText() which depends on the embedding worker
+        # HTTP API; if it's unavailable we still want to return the pre-computed
+        # intent clusters rather than 500-ing the whole endpoint.
+        llm_stated_gaps: list[LLMStatedGapDTO] = []
+        try:
+            llm_stated_gaps = self._search_llm_stated_gaps()
+        except Exception:
+            logger.warning(
+                "mcp_analytics_llm_stated_gap_search_failed",
+                team_id=self.team.pk,
+                exc_info=True,
+            )
 
         return MissingToolsCandidatesResult(
             clustering_run_id=clustering_run_id,
