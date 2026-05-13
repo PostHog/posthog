@@ -230,40 +230,41 @@ class TestSentimentGenerationsRealClickhouse(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = "US/Eastern"
         self.team.save()
 
+    @parameterized.expand(
+        [
+            ("no_events", False),
+            ("with_event", True),
+        ]
+    )
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_preflight_succeeds_for_non_utc_team_timezone(self, mock_heavy: MagicMock) -> None:
-        """Without the alias-shadow fix, the preflight would 500 here regardless of data."""
-        mock_heavy.return_value = MagicMock(results=[])
-
-        response = self.client.post(
-            self.URL,
-            {"filters": {"dateRange": {"date_from": "-7d", "date_to": None}}},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json() == {"results": []}
-        # Heavy query is skipped when preflight is empty — confirms preflight ran
-        # to completion (rather than crashing) and returned no rows for an empty CH.
-        assert mock_heavy.call_count == 0
-
-    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    def test_preflight_returns_rows_for_non_utc_team_with_events(self, mock_heavy: MagicMock) -> None:
-        """End-to-end happy path on a non-UTC team — the preflight must surface the event."""
-        _create_person(team_id=self.team.pk, distinct_ids=["person-1"])
-        _create_event(
-            event="$ai_generation",
-            team=self.team,
-            distinct_id="person-1",
-            properties={
-                "$ai_trace_id": "trace-non-utc-1",
-                "$ai_model": "gpt-4",
-                "$ai_input": [{"role": "user", "content": "hi"}],
-            },
-        )
-        mock_heavy.return_value = MagicMock(
-            results=[("trace-non-utc-1", '[{"role":"user","content":"hi"}]')],
-        )
+    def test_preflight_against_real_clickhouse_for_non_utc_team(
+        self,
+        _name: str,
+        seed_event: bool,
+        mock_heavy: MagicMock,
+    ) -> None:
+        """Without the alias-shadow fix, the preflight 500s here regardless of data
+        — the regression is in the SQL/`replace_filters` interaction, not in row
+        retrieval. The `with_event` case additionally confirms end-to-end shape on
+        a non-UTC team so a future refactor of the preflight can't silently drop
+        rows for the affected timezone class."""
+        if seed_event:
+            _create_person(team_id=self.team.pk, distinct_ids=["person-1"])
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="person-1",
+                properties={
+                    "$ai_trace_id": "trace-non-utc-1",
+                    "$ai_model": "gpt-4",
+                    "$ai_input": [{"role": "user", "content": "hi"}],
+                },
+            )
+            mock_heavy.return_value = MagicMock(
+                results=[("trace-non-utc-1", '[{"role":"user","content":"hi"}]')],
+            )
+        else:
+            mock_heavy.return_value = MagicMock(results=[])
 
         response = self.client.post(
             self.URL,
@@ -273,8 +274,14 @@ class TestSentimentGenerationsRealClickhouse(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.json()
-        assert len(body["results"]) == 1
-        # Response tuple shape: [uuid, trace_id, ai_input, model, distinct_id, ts_max, ts_min]
-        assert body["results"][0][1] == "trace-non-utc-1"
-        assert body["results"][0][3] == "gpt-4"
-        assert body["results"][0][4] == "person-1"
+        if seed_event:
+            assert len(body["results"]) == 1
+            # Response tuple positions: [uuid, trace_id, ai_input, model, distinct_id, ts_max, ts_min]
+            assert body["results"][0][1] == "trace-non-utc-1"
+            assert body["results"][0][3] == "gpt-4"
+            assert body["results"][0][4] == "person-1"
+        else:
+            assert body == {"results": []}
+            # Heavy query is skipped when preflight is empty — confirms the preflight
+            # ran to completion (rather than crashing) and returned no rows.
+            assert mock_heavy.call_count == 0

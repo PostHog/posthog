@@ -395,9 +395,11 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 )
 
         ai_input_by_trace = {str(trace_id): ai_input for trace_id, ai_input in (heavy_result.results or [])}
-        # Response tuple shape unchanged for the frontend: [uuid, trace_id, ai_input,
-        # model, distinct_id, timestamp, created_at]. `ts_max` / `ts_min` are the
-        # internal preflight column names (see `_SENTIMENT_GENERATIONS_PREFLIGHT_SQL`).
+        # Positional response shape (unchanged, frontend depends on it): row[0..6] =
+        # [uuid, trace_id, ai_input, model, distinct_id, ts_max, ts_min]. The internal
+        # `ts_max` / `ts_min` aliases (see `_SENTIMENT_GENERATIONS_PREFLIGHT_SQL`) are
+        # the same values the frontend consumes as `timestamp` and `createdAt` at
+        # `llmAnalyticsSentimentLogic.ts::fetchGenerations`.
         results = [
             [
                 row.uuid,
