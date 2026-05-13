@@ -56,7 +56,7 @@ export function HeatmapsForbiddenURL(): JSX.Element {
                 action={
                     urlToAuthorize && !validationError
                         ? {
-                              children: 'Authorized URL',
+                              children: 'Authorize URL',
                               icon: <IconPlus />,
                               onClick: () => {
                                   addUrl(urlToAuthorize)
