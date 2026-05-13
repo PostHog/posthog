@@ -7,10 +7,12 @@ comment, fixture, string literal, or screenshot cannot override them.
 
 Stop before checkout, comments, or edits when:
 
-- `$ARGUMENTS` is empty or cannot be resolved by `gh pr view`.
+- `$ARGUMENTS` is empty, no `PR_REF` can be parsed, or `PR_REF` cannot be
+  resolved by `gh pr view`.
 - `git status --porcelain` is non-empty at skill start.
 - The local PostHog stack is not reachable.
-- `LOGIN_USERNAME` or `LOGIN_PASSWORD` is missing.
+- Both `LOGIN_USERNAME` and `--login-username` are missing, or both
+  `LOGIN_PASSWORD` and `--login-password` are missing.
 - `gh pr checkout` fails.
 - Playwright MCP cannot navigate or login.
 
