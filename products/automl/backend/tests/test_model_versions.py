@@ -122,11 +122,12 @@ def test_record_is_team_scoped(team):
 def test_list_returns_newest_first_and_includes_archived(team):
     pipeline = _make_pipeline(team.id)
     v1 = api.record_training_result(team_id=team.id, pipeline_id=pipeline.id, params=_record_input())
-    v2 = api.record_training_result(team_id=team.id, pipeline_id=pipeline.id, params=_record_input())
-    # Archive the first one directly via ORM so we don't depend on promotion ordering.
+    # Archive v1 before recording v2 — the partial unique constraint enforces
+    # at-most-one challenger per pipeline, so we can't stack two challengers.
     obj = AutoMLModelVersion.all_teams.get(id=v1.id)
     obj.role = ModelRole.ARCHIVED.value
     obj.save(update_fields=["role"])
+    v2 = api.record_training_result(team_id=team.id, pipeline_id=pipeline.id, params=_record_input())
 
     listed = api.list_model_versions(team_id=team.id, pipeline_id=pipeline.id)
     assert [v.id for v in listed] == [v2.id, v1.id]

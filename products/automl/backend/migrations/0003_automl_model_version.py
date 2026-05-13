@@ -192,7 +192,7 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["team_id", "pipeline", "-created_at"],
-                        name="automl_mv_team_pipe_created_idx",
+                        name="automl_auto_team_id_fd9fae_idx",
                     ),
                 ],
                 "constraints": [
