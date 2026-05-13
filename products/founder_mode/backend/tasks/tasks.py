@@ -1,8 +1,13 @@
 """Celery tasks for founder_mode.
 
-Currently only validation runs async — the LLM round-trip is ~20-60s so we don't want it
-blocking the request thread. The task is the single writer to FounderProject.validation
-during its lifetime; callers must not mutate that column while a run is in progress.
+Three async tasks live here, one per stage that needs LLM work:
+- `run_validation_task` (stage 2, two-pass Gemini with grounded search)
+- `run_gtm_task` (stage 3, OpenAI strict-JSON for launch playbook)
+- `run_landing_page_task` (stage 4, single-pass Gemini for the build spec)
+
+All three follow the same shape — write a `running` envelope → call the service → write
+`completed` or `failed` back to the stage's JSON column. Tasks are the sole writers to
+their respective columns during a run.
 
 Architectural note: skipping the facade for now since no other product consumes founder_mode.
 Tasks call logic/ directly. Reintroduce a facade once a cross-product consumer appears.
@@ -24,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.models.user import User
 
 from products.founder_mode.backend.logic.hashing import ideation_hash
+from products.founder_mode.backend.logic.landing_page.service import generate_landing_page
 from products.founder_mode.backend.logic.validation.service import run_validation
 from products.founder_mode.backend.models import FounderProject
 
@@ -108,7 +114,7 @@ def run_validation_task(founder_project_id: str, user_id: int | None = None) -> 
     project.save(update_fields=["validation", "updated_at"])
 
 
-# --- GTM task ---
+# --- GTM task (stage 3) ---
 
 
 class SocialPost(BaseModel):
@@ -216,3 +222,68 @@ def run_gtm_task(founder_project_id: str, product_description: str) -> None:
 
     project.gtm = {"status": "completed", "result": result.model_dump(), "error": ""}
     project.save(update_fields=["gtm", "updated_at"])
+
+
+# --- Landing-page build-spec task (stage 4) ---
+
+
+@shared_task(ignore_result=True)
+def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -> None:
+    """Generate a landing page from the project's accumulated state and write it to `mvp`.
+
+    Same fail-tolerant pattern as validation: exceptions are captured into the column so the
+    frontend renders a failed state instead of polling forever. Single Gemini pass — no
+    `current_pass` field needed.
+    """
+    project = FounderProject.objects.select_related("team").get(id=founder_project_id)
+
+    if not project.ideation:
+        logger.warning("Skipping landing page, no ideation set", project_id=founder_project_id)
+        return
+
+    user = User.objects.filter(id=user_id).first() if user_id else project.created_by
+    if user is None:
+        logger.warning("No user to generate landing page as", project_id=founder_project_id)
+        return
+
+    started_at = _now_iso()
+    project.mvp = {
+        "status": "running",
+        "started_at": started_at,
+        "page": None,
+        "trace_id": None,
+        "error": "",
+    }
+    project.save(update_fields=["mvp", "updated_at"])
+
+    try:
+        page, trace_id = generate_landing_page(
+            project_name=project.name,
+            ideation=project.ideation,
+            validation=project.validation or {},
+            gtm=project.gtm or {},
+            team=project.team,
+            user=user,
+        )
+    except Exception as exc:
+        logger.exception("Landing page generation failed", project_id=founder_project_id)
+        project.mvp = {
+            "status": "failed",
+            "started_at": started_at,
+            "failed_at": _now_iso(),
+            "page": None,
+            "trace_id": None,
+            "error": str(exc),
+        }
+        project.save(update_fields=["mvp", "updated_at"])
+        return
+
+    project.mvp = {
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "page": page.model_dump(),
+        "trace_id": trace_id,
+        "error": "",
+    }
+    project.save(update_fields=["mvp", "updated_at"])

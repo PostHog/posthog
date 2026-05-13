@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.founder_mode.backend.models import FounderProject
-from products.founder_mode.backend.tasks.tasks import run_validation_task
+from products.founder_mode.backend.tasks.tasks import run_landing_page_task, run_validation_task
 
 from .serializers import FounderProjectSerializer
 
@@ -76,4 +76,26 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # here so the response the founder sees doesn't briefly show stale `completed` state.
         instance.validation = {**(instance.validation or {}), "status": "pending"}
         instance.save(update_fields=["validation", "updated_at"])
+        return Response(self.get_serializer(instance).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        responses={202: FounderProjectSerializer},
+        description=(
+            "Generate (or re-generate) the stage 4 landing page from the project's ideation, "
+            "validation report, and GTM. Returns the FounderProject with `mvp.status` set to "
+            "running. Poll the detail endpoint until status is `completed` or `failed`."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="run_landing_page")
+    def run_landing_page(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: FounderProject = self.get_object()
+        if not instance.ideation:
+            return Response(
+                {"detail": "Cannot generate landing page: ideation is empty."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user_id = request.user.id
+        transaction.on_commit(lambda: run_landing_page_task.delay(str(instance.id), user_id))
+        instance.mvp = {**(instance.mvp or {}), "status": "pending"}
+        instance.save(update_fields=["mvp", "updated_at"])
         return Response(self.get_serializer(instance).data, status=status.HTTP_202_ACCEPTED)
