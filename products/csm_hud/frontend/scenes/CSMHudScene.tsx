@@ -19,12 +19,17 @@ import { csmHudSceneLogic } from '../logics/csmHudSceneLogic'
 
 type TabKey = 'fleet' | 'renewals' | 'engagement' | 'conversations' | 'expansion'
 
-const TAB_FROM_PATH: Record<string, TabKey> = {
-    '/csm-hud/fleet': 'fleet',
-    '/csm-hud/renewals': 'renewals',
-    '/csm-hud/engagement': 'engagement',
-    '/csm-hud/conversations': 'conversations',
-    '/csm-hud/expansion': 'expansion',
+const TAB_KEYS: readonly TabKey[] = ['fleet', 'renewals', 'engagement', 'conversations', 'expansion']
+
+function tabFromPath(pathname: string): TabKey {
+    // pathname is project-prefixed at runtime (`/project/<id>/csm-hud/<tab>`);
+    // suffix match keeps the lookup project-id-agnostic.
+    for (const key of TAB_KEYS) {
+        if (pathname.endsWith(`/csm-hud/${key}`)) {
+            return key
+        }
+    }
+    return 'fleet'
 }
 
 export const scene: SceneExport = {
@@ -41,7 +46,7 @@ export function CSMHudScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    const activeTab: TabKey = TAB_FROM_PATH[location.pathname] ?? 'fleet'
+    const activeTab: TabKey = tabFromPath(location.pathname)
 
     const tabs: LemonTab<TabKey>[] = [
         { key: 'fleet', label: 'Fleet', content: <FleetTab />, link: urls.csmHudFleet() },
