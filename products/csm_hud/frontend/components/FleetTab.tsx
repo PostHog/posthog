@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { csmHudSceneLogic, FleetRow } from '../logics/csmHudSceneLogic'
-import { formatMoney } from '../utils/format'
+import { formatMoney, formatMoneyCompact } from '../utils/format'
 import { healthBand, healthLabel } from '../utils/health'
+import { deriveProjection, ProjectionRow } from '../utils/projection'
 
 const HEALTH_TAG_TYPE: Record<ReturnType<typeof healthBand>, 'success' | 'warning' | 'danger' | 'default'> = {
     good: 'success',
@@ -13,8 +14,31 @@ const HEALTH_TAG_TYPE: Record<ReturnType<typeof healthBand>, 'success' | 'warnin
     unknown: 'default',
 }
 
+function formulaTooltip(p: ProjectionRow): string {
+    const derived = deriveProjection(p)
+    return [
+        `m1 ${formatMoney(p.priorMonthMrr)} × 0.5 + m2 ${formatMoney(p.m2Actual)} × 0.3 + m3 ${formatMoney(p.m3Actual)} × 0.2`,
+        `= weighted ${formatMoney(p.weightedBaseline)} (renormalized over ${p.historyMonths}/3 mo)`,
+        `daily_rate ${formatMoney(derived.dailyRate)}/d (weighted / ${derived.daysInCurrentMonth})`,
+        `MTD ${formatMoney(p.currentMonthSpend)} + (${formatMoney(derived.dailyRate)}/d × ${derived.daysRemaining}d) = ${formatMoney(p.forecastedMrr)}`,
+    ].join('\n')
+}
+
+function MomCell({ projection }: { projection: ProjectionRow | undefined }): JSX.Element {
+    if (!projection) {
+        return <span className="text-muted">—</span>
+    }
+    const derived = deriveProjection(projection)
+    if (derived.momGrowthPct == null) {
+        return <span className="text-muted">—</span>
+    }
+    const sign = derived.momGrowthPct >= 0 ? '+' : ''
+    const tone = derived.momGrowthPct >= 0 ? 'text-success' : 'text-danger'
+    return <span className={tone}>{`${sign}${derived.momGrowthPct.toFixed(1)}%`}</span>
+}
+
 export function FleetTab(): JSX.Element {
-    const { fleet, fleetLoading } = useValues(csmHudSceneLogic)
+    const { fleet, fleetLoading, projection, projectionLoading } = useValues(csmHudSceneLogic)
 
     return (
         <LemonTable<FleetRow>
@@ -43,11 +67,66 @@ export function FleetTab(): JSX.Element {
                     sorter: (a, b) => (a.healthScore ?? -1) - (b.healthScore ?? -1),
                 },
                 {
-                    title: 'MRR',
-                    key: 'mrr',
+                    title: 'Last month',
+                    key: 'lastMonth',
                     align: 'right',
-                    render: (_, row) => formatMoney(row.mrr),
-                    sorter: (a, b) => (a.mrr ?? 0) - (b.mrr ?? 0),
+                    render: (_, row) =>
+                        projectionLoading && !projection[row.externalId] ? (
+                            <span className="text-muted">…</span>
+                        ) : (
+                            formatMoneyCompact(projection[row.externalId]?.priorMonthMrr ?? null)
+                        ),
+                    sorter: (a, b) =>
+                        (projection[a.externalId]?.priorMonthMrr ?? 0) - (projection[b.externalId]?.priorMonthMrr ?? 0),
+                },
+                {
+                    title: 'This month (MTD)',
+                    key: 'mtd',
+                    align: 'right',
+                    render: (_, row) =>
+                        projectionLoading && !projection[row.externalId] ? (
+                            <span className="text-muted">…</span>
+                        ) : (
+                            formatMoneyCompact(projection[row.externalId]?.currentMonthSpend ?? null)
+                        ),
+                    sorter: (a, b) =>
+                        (projection[a.externalId]?.currentMonthSpend ?? 0) -
+                        (projection[b.externalId]?.currentMonthSpend ?? 0),
+                },
+                {
+                    title: 'Projected EoM',
+                    key: 'projected',
+                    align: 'right',
+                    render: (_, row) => {
+                        const p = projection[row.externalId]
+                        if (!p && projectionLoading) {
+                            return <span className="text-muted">…</span>
+                        }
+                        if (!p) {
+                            return <span className="text-muted">—</span>
+                        }
+                        return (
+                            <Tooltip title={<pre className="m-0 text-xs">{formulaTooltip(p)}</pre>}>
+                                <span>{formatMoneyCompact(p.forecastedMrr)}</span>
+                            </Tooltip>
+                        )
+                    },
+                    sorter: (a, b) =>
+                        (projection[a.externalId]?.forecastedMrr ?? 0) - (projection[b.externalId]?.forecastedMrr ?? 0),
+                },
+                {
+                    title: 'MoM',
+                    key: 'mom',
+                    align: 'right',
+                    render: (_, row) => <MomCell projection={projection[row.externalId]} />,
+                },
+                {
+                    title: 'ARR (contract)',
+                    key: 'arr',
+                    align: 'right',
+                    render: (_, row) => formatMoneyCompact(projection[row.externalId]?.arrDiscounted ?? null),
+                    sorter: (a, b) =>
+                        (projection[a.externalId]?.arrDiscounted ?? 0) - (projection[b.externalId]?.arrDiscounted ?? 0),
                 },
                 {
                     title: 'Users',

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -6,6 +6,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
+import { loadProjection } from '../queries/projection'
+import type { ProjectionRow } from '../utils/projection'
 import type { csmHudSceneLogicType } from './csmHudSceneLogicType'
 
 export interface FleetRow {
@@ -15,6 +17,7 @@ export interface FleetRow {
     healthScore: number | null
     mrr: number | null
     usersCount: number
+    stripeCustomerId: string | null
     traits: Record<string, unknown>
     segments: unknown[]
     keyRoles: unknown[]
@@ -61,6 +64,8 @@ function toFloat(value: unknown): number | null {
 
 function mapFleetRow(row: unknown[]): FleetRow {
     const [id, externalId, name, healthScore, mrr, usersCount, traits, segments, keyRoles] = row
+    const parsedTraits = parseJson<Record<string, unknown>>(traits, {})
+    const stripeId = parsedTraits['stripe.customerId']
     return {
         id: String(id ?? ''),
         externalId: String(externalId ?? ''),
@@ -68,7 +73,8 @@ function mapFleetRow(row: unknown[]): FleetRow {
         healthScore: toFloat(healthScore),
         mrr: toFloat(mrr),
         usersCount: parseInt(String(usersCount ?? '0'), 10) || 0,
-        traits: parseJson<Record<string, unknown>>(traits, {}),
+        stripeCustomerId: typeof stripeId === 'string' && stripeId.length > 0 ? stripeId : null,
+        traits: parsedTraits,
         segments: parseJson<unknown[]>(segments, []),
         keyRoles: parseJson<unknown[]>(keyRoles, []),
     }
@@ -105,6 +111,37 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                 },
             },
         ],
+        projection: [
+            {} as Record<string, ProjectionRow>,
+            {
+                loadProjection: async (fleet: FleetRow[]) => {
+                    if (fleet.length === 0) {
+                        return {}
+                    }
+                    const orgIds: string[] = []
+                    const nameByOrg: Record<string, string> = {}
+                    const stripeByOrg: Record<string, string> = {}
+                    for (const row of fleet) {
+                        if (!row.externalId) {
+                            continue
+                        }
+                        orgIds.push(row.externalId)
+                        nameByOrg[row.externalId] = row.name
+                        if (row.stripeCustomerId) {
+                            stripeByOrg[row.externalId] = row.stripeCustomerId
+                        }
+                    }
+                    return loadProjection({ orgIds, nameByOrg, stripeByOrg })
+                },
+            },
+        ],
+    })),
+    listeners(({ actions }) => ({
+        loadFleetSuccess: ({ fleet }) => {
+            if (fleet.length > 0) {
+                actions.loadProjection(fleet)
+            }
+        },
     })),
     afterMount(({ actions, values }) => {
         if (values.canAccess) {
