@@ -3571,6 +3571,92 @@ export namespace Schemas {
       Sandbox: 'sandbox',
     } as const;
 
+    /**
+     * Most recent run for this test, or null if none have completed yet.
+     * @nullable
+     */
+    export type AgenticTestLastRun = { [key: string]: unknown } | null;
+
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `proposed` - Proposed
+    * `rejected` - Rejected
+     */
+    export type AgenticTestStatusEnum = typeof AgenticTestStatusEnum[keyof typeof AgenticTestStatusEnum];
+
+
+    export const AgenticTestStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Proposed: 'proposed',
+      Rejected: 'rejected',
+    } as const;
+
+    export interface AgenticTest {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      description?: string;
+      /** @maxLength 2048 */
+      target_url: string;
+      /** Natural-language instructions for the browser agent. */
+      prompt: string;
+      status?: AgenticTestStatusEnum;
+      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
+      assertions?: unknown;
+      /**
+         * @maxLength 255
+         * @nullable
+         */
+      source_replay_id?: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /**
+         * Most recent run for this test, or null if none have completed yet.
+         * @nullable
+         */
+      readonly last_run: AgenticTestLastRun;
+    }
+
+    /**
+     * * `running` - Running
+    * `passed` - Passed
+    * `failed` - Failed
+    * `timeout` - Timeout
+    * `error` - Error
+     */
+    export type AgenticTestRunStatusEnum = typeof AgenticTestRunStatusEnum[keyof typeof AgenticTestRunStatusEnum];
+
+
+    export const AgenticTestRunStatusEnum = {
+      Running: 'running',
+      Passed: 'passed',
+      Failed: 'failed',
+      Timeout: 'timeout',
+      Error: 'error',
+    } as const;
+
+    export interface AgenticTestRun {
+      readonly id: string;
+      readonly agentic_test: string;
+      readonly started_at: string;
+      /** @nullable */
+      readonly finished_at: string | null;
+      readonly status: AgenticTestRunStatusEnum;
+      /** @nullable */
+      readonly duration_ms: number | null;
+      /** Raw response from the browser agent. */
+      readonly output: unknown;
+      readonly error_message: string;
+      /** Runner-specific session id (e.g. browserbase) so we can deep-link back to the agent run. */
+      readonly external_session_id: string;
+      readonly screenshot_url: string;
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -20894,6 +20980,24 @@ export namespace Schemas {
       results: ActivityLog[];
     }
 
+    export interface PaginatedAgenticTestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgenticTest[];
+    }
+
+    export interface PaginatedAgenticTestRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgenticTestRun[];
+    }
+
     export interface PaginatedAlertList {
       count: number;
       /** @nullable */
@@ -24608,6 +24712,41 @@ export namespace Schemas {
     export interface PatchedAddPersonsToStaticCohortRequest {
       /** List of person UUIDs to add to the cohort */
       person_ids?: string[];
+    }
+
+    /**
+     * Most recent run for this test, or null if none have completed yet.
+     * @nullable
+     */
+    export type PatchedAgenticTestLastRun = { [key: string]: unknown } | null;
+
+    export interface PatchedAgenticTest {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      description?: string;
+      /** @maxLength 2048 */
+      target_url?: string;
+      /** Natural-language instructions for the browser agent. */
+      prompt?: string;
+      status?: AgenticTestStatusEnum;
+      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
+      assertions?: unknown;
+      /**
+         * @maxLength 255
+         * @nullable
+         */
+      source_replay_id?: string | null;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      /** @nullable */
+      readonly last_run_at?: string | null;
+      /**
+         * Most recent run for this test, or null if none have completed yet.
+         * @nullable
+         */
+      readonly last_run?: PatchedAgenticTestLastRun;
     }
 
     export interface PatchedAlert {
@@ -40088,6 +40227,28 @@ export namespace Schemas {
      * @nullable
      */
     was_impersonated?: boolean | null;
+    };
+
+    export type AgenticTestRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AgenticTestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AlertsListParams = {
