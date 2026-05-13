@@ -8,7 +8,7 @@ import { highlight } from 'cli-highlight'
 import Table from 'cli-table3'
 import { config } from './config.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
-import { commandGroups, executeToolCall } from './generated/commands.js'
+import { commands, enhancedMappingsMeta, executeCommand, executeToolCall } from './generated/commands.js'
 
 type JsonRecord = Record<string, unknown>
 
@@ -223,77 +223,33 @@ async function main() {
         })
     })
     
-    // Add generated commands dynamically
+    // Add human-readable commands from the new command mappings
   
-  // Add all command groups
-  for (const [groupName, group] of Object.entries(commandGroups)) {
-    if (group.tools.length === 0) continue // Skip empty groups
+  for (const [commandName, command] of Object.entries(commands)) {
+    if (Object.keys(command.subcommands).length === 0) continue // Skip empty commands
     
-    cli.command(groupName, `${groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ')} commands`, (yargs) => {
+    // Create the main command with aliases
+    const commandAliases = command.aliases || []
+    const commandSpec = [commandName, ...commandAliases]
+    
+    cli.command(commandSpec, command.description, (yargs) => {
       let subCommands = yargs.demandCommand(1, 'You need to specify a subcommand')
       
-      // Add each tool as a subcommand with friendly aliases
-      for (const tool of group.tools) {
-        let commandName = tool.name
-        let aliases: string[] = []
-        
-        // Use the exact tool name, just remove the feature prefix if present
-        commandName = tool.name
-        
-        // Remove feature prefix if the tool name starts with the group name
-        const groupPrefix = groupName.replace(/-/g, '-') // keep dashes for matching
-        const groupSingular = groupPrefix.replace(/s$/, '') // remove trailing 's' for singular
-        
-        if (commandName.startsWith(groupSingular + '-')) {
-          commandName = commandName.substring(groupSingular.length + 1)
-        } else if (commandName.startsWith(groupPrefix + '-')) {
-          commandName = commandName.substring(groupPrefix.length + 1)
-        }
-        
-        // Also check for create-/delete-/update- patterns that reference the feature
-        if (commandName.startsWith('create-' + groupSingular)) {
-          commandName = commandName.replace('create-' + groupSingular, 'create')
-        } else if (commandName.startsWith('delete-' + groupSingular)) {
-          commandName = commandName.replace('delete-' + groupSingular, 'delete')
-        } else if (commandName.startsWith('update-' + groupSingular)) {
-          commandName = commandName.replace('update-' + groupSingular, 'update')
-        }
-        
-        // Set aliases based on common patterns
-        aliases = []
-        if (commandName === 'list' || commandName.includes('get-all')) {
-          aliases = ['ls']
-        } else if (commandName === 'get' || commandName.includes('retrieve')) {
-          aliases = ['show']
-        } else if (commandName === 'create') {
-          aliases = ['new']
-        } else if (commandName === 'update' || commandName.includes('partial-update')) {
-          aliases = ['edit']
-        } else if (commandName === 'delete' || commandName === 'destroy') {
-          aliases = ['remove', 'rm']
-        } else if (commandName === 'launch') {
-          aliases = ['start']
-        } else if (commandName === 'end') {
-          aliases = ['stop']
-        }
-        
-        const description = tool.description || `Execute ${tool.name}`
-        
-        const requiresId = commandName === 'get' || commandName === 'delete' || commandName === 'update'
-        const commandSpec = requiresId ? `${commandName} <id>` : commandName
+      // Add each subcommand
+      for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
+        const subcommandAliases = subcommand.aliases || []
+        const subcommandSpec = [subcommandName, ...subcommandAliases]
         
         subCommands = subCommands.command(
-          [commandSpec, ...aliases.map(alias => requiresId ? `${alias} <id>` : alias)], 
-          description.split('\n')[0], // Use first line of description
+          [subcommandName, ...subcommandAliases],
+          subcommand.description,
           (yargs) => {
-            if (requiresId) {
-              return yargs.positional('id', {
-                type: 'string',
-                describe: 'Resource ID',
-                demandOption: true
-              })
-            }
             return yargs
+              .option('id', {
+                type: 'string',
+                describe: 'Resource ID'
+              })
+              .strict(false) // Allow additional parameters
           },
           async (argv) => {
             const params: any = {}
@@ -303,7 +259,7 @@ async function main() {
                 params[key] = value
               }
             }
-            await executeGeneratedTool(argv, tool.name, params)
+            await executeGeneratedTool(argv, subcommand.mcp_tool, params)
           }
         )
       }

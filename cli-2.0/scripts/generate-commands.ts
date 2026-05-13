@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename)
 const CLI_ROOT = path.resolve(__dirname, '..')
 const MCP_ROOT = path.resolve(CLI_ROOT, '../services/mcp')
 const SCHEMA_FILE = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
+const COMMAND_MAPPINGS_FILE = path.resolve(CLI_ROOT, 'schema/command-mappings.json')
 const GENERATED_DIR = path.resolve(CLI_ROOT, 'src/generated')
 
 interface ToolDefinition {
@@ -34,6 +35,23 @@ interface ToolDefinition {
   }
 }
 
+interface CommandMapping {
+  commands: Record<string, {
+    aliases: string[]
+    description: string
+    subcommands: Record<string, {
+      mcp_tool: string
+      description: string
+      aliases?: string[]
+    }>
+  }>
+  product_groups: Record<string, {
+    name: string
+    description: string
+    commands: string[]
+  }>
+}
+
 // No longer needed - MCP tools handle their own API mappings
 
 function loadDefinitions(): Record<string, ToolDefinition> {
@@ -41,147 +59,189 @@ function loadDefinitions(): Record<string, ToolDefinition> {
   return JSON.parse(content)
 }
 
+function loadCommandMappings(): CommandMapping {
+  const content = fs.readFileSync(COMMAND_MAPPINGS_FILE, 'utf8')
+  return JSON.parse(content)
+}
+
+function loadEnhancedMappings(): any {
+  const enhancedFile = path.resolve(CLI_ROOT, 'schema/command-mappings-enhanced.json')
+  if (!fs.existsSync(enhancedFile)) {
+    throw new Error('Enhanced mappings not found. Run generate-command-mappings-v2.ts first.')
+  }
+  const content = fs.readFileSync(enhancedFile, 'utf8')
+  return JSON.parse(content)
+}
+
 // This function is no longer needed - we import MCP tools directly
 
 function generateCommandsFile(): void {
   const definitions = loadDefinitions()
+  const enhancedMappings = loadEnhancedMappings()
   
   // Create generated directory
   if (!fs.existsSync(GENERATED_DIR)) {
     fs.mkdirSync(GENERATED_DIR, { recursive: true })
   }
   
-  const commandGroups: Record<string, { tools: Array<{ name: string, description?: string }> }> = {}
-  
-  // Group tools by feature - all tools are included since MCP tools handle their own endpoints
-  for (const [toolName, tool] of Object.entries(definitions)) {
-    const feature = tool.feature.toLowerCase().replace(/\s+/g, '-')
-    
-    // Initialize feature group if not exists
-    if (!commandGroups[feature]) {
-      commandGroups[feature] = { tools: [] }
+  // Validate that all mapped MCP tools exist
+  const missingTools: string[] = []
+  for (const [commandName, command] of Object.entries(enhancedMappings.commands)) {
+    for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
+      if (!definitions[subcommand.mcp_tool]) {
+        missingTools.push(`${commandName}.${subcommandName} -> ${subcommand.mcp_tool}`)
+      }
     }
-    
-    // Add all tools since they will be handled by MCP tool imports
-    commandGroups[feature].tools.push({
-      name: toolName,
-      description: tool.summary || tool.description
-    })
+  }
+  
+  if (missingTools.length > 0) {
+    console.warn('⚠️  Warning: Some mapped MCP tools do not exist:')
+    missingTools.forEach(tool => console.warn(`   ${tool}`))
   }
   
   // Generate the commands file
-  const allToolNames = Object.keys(definitions)
-  const commandsContent = `// Auto-generated CLI commands from MCP tool definitions
+  const commandsContent = `// Auto-generated CLI commands from command mappings
 // Do not edit manually - run 'npm run generate:commands' to regenerate
 
 import type { Context } from '../mcp-context.js'
 
-// Command group definitions
-export const commandGroups = ${JSON.stringify(commandGroups, null, 2)}
+interface SubCommand {
+  name: string
+  humanName: string
+  description: string
+  category: string
+  endpoint?: string
+  method?: string
+  inputs: any
+  mcp_tool: string
+  aliases?: string[]
+}
 
-// Simple API call based on tool name and common patterns
+interface Command {
+  aliases?: string[]
+  description: string
+  subcommands: Record<string, SubCommand>
+}
+
+interface ProductGroup {
+  name: string
+  description: string
+  commands: string[]
+}
+
+// Human-readable command structure
+export const commands: Record<string, Command> = ${JSON.stringify(enhancedMappings.commands, null, 2)}
+
+// Enhanced mappings metadata
+export const enhancedMappingsMeta = {
+  version: '${enhancedMappings.version}',
+  generated_at: '${enhancedMappings.generated_at}',
+  stats: ${JSON.stringify(enhancedMappings.stats, null, 2)}
+}
+
+// Execute a command by resolving human-readable name to MCP tool
+export async function executeCommand(context: Context, commandName: string, subcommandName: string, params: any) {
+  const command = commands[commandName]
+  if (!command) {
+    throw new Error('Unknown command: ' + commandName)
+  }
+  
+  const subcommand = command.subcommands[subcommandName]
+  if (!subcommand) {
+    throw new Error('Unknown subcommand: ' + commandName + ' ' + subcommandName)
+  }
+  
+  return await executeToolCall(context, subcommand.mcp_tool, params)
+}
+
+// Execute tool using enhanced mapping information
 export async function executeToolCall(context: Context, toolName: string, params: any) {
   const projectId = await context.stateManager.getProjectId()
   
-  // Extract the HTTP method and resource from tool name using simple patterns
-  const apiCall = getApiCallFromToolName(toolName, projectId, params)
+  // Find tool information from enhanced mappings
+  const toolInfo = findToolInEnhancedMappings(toolName)
   
-  if (!apiCall) {
-    throw new Error(\`Unable to determine API call for tool: \${toolName}\`)
+  if (!toolInfo) {
+    throw new Error('Tool not found in enhanced mappings: ' + toolName)
   }
+  
+  // Build API call from enhanced mapping data
+  const apiCall = buildAPICallFromMapping(toolInfo, projectId, params)
   
   return await context.api.request(apiCall)
 }
 
-// Extract API call info from tool name using the same patterns MCP tools use
-function getApiCallFromToolName(toolName: string, projectId: string, params: any) {
-  // Remove common prefixes to get the base resource and action
-  const parts = toolName.split('-')
-  
-  // Common patterns found in MCP tools:
-  if (toolName.includes('list') || toolName.includes('get-all')) {
-    const resource = extractResource(toolName)
-    return {
-      method: 'GET' as const,
-      path: \`/api/projects/\${projectId}/\${resource}/\`,
-      query: { limit: params.limit, offset: params.offset, search: params.search }
-    }
-  }
-  
-  if (toolName.includes('create')) {
-    const resource = extractResource(toolName)
-    return {
-      method: 'POST' as const,
-      path: \`/api/projects/\${projectId}/\${resource}/\`,
-      body: params
-    }
-  }
-  
-  if (toolName.includes('retrieve') || toolName.includes('get')) {
-    const resource = extractResource(toolName)
-    if (!params.id) throw new Error('ID required for retrieve operations')
-    return {
-      method: 'GET' as const,
-      path: \`/api/projects/\${projectId}/\${resource}/\${params.id}/\`,
-    }
-  }
-  
-  if (toolName.includes('update') || toolName.includes('partial-update')) {
-    const resource = extractResource(toolName)
-    if (!params.id) throw new Error('ID required for update operations')
-    const { id, ...body } = params
-    return {
-      method: 'PATCH' as const,
-      path: \`/api/projects/\${projectId}/\${resource}/\${id}/\`,
-      body
-    }
-  }
-  
-  if (toolName.includes('delete') || toolName.includes('destroy')) {
-    const resource = extractResource(toolName)
-    if (!params.id) throw new Error('ID required for delete operations')
-    return {
-      method: 'DELETE' as const,
-      path: \`/api/projects/\${projectId}/\${resource}/\${params.id}/\`,
+// Find tool information from enhanced mappings
+function findToolInEnhancedMappings(toolName: string): any | null {
+  for (const [commandName, command] of Object.entries(commands)) {
+    for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
+      if (subcommand.mcp_tool === toolName) {
+        return subcommand
+      }
     }
   }
   
   return null
 }
 
-// Extract resource name from tool name
-function extractResource(toolName: string): string {
-  // Handle special cases
-  const resourceMap: Record<string, string> = {
-    'feature-flag': 'feature_flags',
-    'feature_flag': 'feature_flags',
-    'batch-export': 'batch_exports',
-    'early-access-feature': 'early_access_features',
-    'experiment': 'experiments',
-    'cohort': 'cohorts',
-    'dashboard': 'dashboards',
-    'insight': 'insights',
-    'action': 'actions',
-    'survey': 'surveys',
-    'notebook': 'notebooks'
+// Build API call from enhanced mapping information
+function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) {
+  let endpoint = toolInfo.endpoint || '/api/unknown'
+  let method = toolInfo.method || 'GET'
+  
+  // Replace template placeholders
+  console.log(\`🔧 Original endpoint template: \${endpoint}\`)
+  console.log(\`🔧 Project ID: \${projectId}, Params:\`, JSON.stringify(params))
+  
+  endpoint = endpoint
+    .replace(/\\\{project_id\\\}/g, projectId)
+    .replace(/\\\{id\\\}/g, params.id || '')
+    // Handle the literal string case
+    .replace('\${encodeURIComponent(String(projectId))}', encodeURIComponent(String(projectId)))
+    
+  console.log(\`🔧 Final endpoint: \${endpoint}\`)
+  
+  const apiCall: any = {
+    method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: endpoint
   }
   
-  // Try exact matches first
-  for (const [key, value] of Object.entries(resourceMap)) {
-    if (toolName.includes(key)) {
-      return value
+  // Add request body/query based on method
+  if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+    if (params.id) {
+      const { id, ...data } = params
+      apiCall.data = data
+    } else {
+      apiCall.data = params
+    }
+  } else if (method === 'GET' && Object.keys(params).length > 0) {
+    // For GET requests, add query parameters (excluding id which is in path)
+    const { id, ...queryParams } = params
+    if (Object.keys(queryParams).length > 0) {
+      apiCall.query = queryParams
     }
   }
   
-  // Fallback: extract first part and convert to plural
-  const firstPart = toolName.split('-')[0]
-  return firstPart.endsWith('s') ? firstPart : firstPart + 's'
+  // Debug: Print the API call details
+  console.log('🌐 API Call: ' + method + ' ' + endpoint)
+  if (apiCall.data) {
+    console.log('📤 Request body:', JSON.stringify(apiCall.data, null, 2))
+  }
+  if (apiCall.query) {
+    console.log('🔍 Query params:', JSON.stringify(apiCall.query, null, 2))
+  }
+  console.log('🏗️  Project ID: ' + projectId)
+  
+  return apiCall
 }
+
 `
 
   fs.writeFileSync(path.join(GENERATED_DIR, 'commands.ts'), commandsContent)
-  console.log('✅ Generated commands.ts with', allToolNames.length, 'tools')
-  console.log('📊 Command groups:', Object.keys(commandGroups).join(', '))
+  console.log('✅ Generated commands.ts')
+  console.log('📊 Commands:', Object.keys(enhancedMappings.commands).join(', '))
+  console.log('📋 Enhanced mappings version:', enhancedMappings.version)
+  console.log('🔗 Total MCP tool mappings:', Object.values(enhancedMappings.commands).reduce((acc, cmd) => acc + Object.keys(cmd.subcommands).length, 0))
 }
 
 function main() {
