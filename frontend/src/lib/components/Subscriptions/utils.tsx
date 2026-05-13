@@ -1,7 +1,7 @@
 import { RRule } from 'rrule'
 
 import { IconLetter } from '@posthog/icons'
-import { LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
@@ -45,21 +45,24 @@ export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) 
 
 export type FrequencyOptionValue = 'hourly' | 'daily' | 'weekly' | 'monthly'
 
-export const frequencyOptionsSingular: LemonSelectOptions<FrequencyOptionValue> = [
+// Typed as the concrete `LemonSelectOption[]` (not the `LemonSelectOptions` union of
+// `Section[] | Option[]`) so callers can `[...hourly, ...daily-monthly]` without
+// the union widening to `(Section | Option)[]` and losing assignability.
+export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
     { value: 'monthly', label: 'month' },
 ]
-export const frequencyOptionsPlural: LemonSelectOptions<FrequencyOptionValue> = [
+export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'days' },
     { value: 'weekly', label: 'weeks' },
     { value: 'monthly', label: 'months' },
 ]
 
-export const hourlyFrequencyOptionSingular: LemonSelectOptions<FrequencyOptionValue> = [
+export const hourlyFrequencyOptionSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'hourly', label: 'hour' },
 ]
-export const hourlyFrequencyOptionPlural: LemonSelectOptions<FrequencyOptionValue> = [
+export const hourlyFrequencyOptionPlural: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'hourly', label: 'hours' },
 ]
 
