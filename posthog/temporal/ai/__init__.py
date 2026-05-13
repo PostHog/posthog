@@ -1,4 +1,10 @@
 from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflow, investigate_anomaly_activity
+from products.live_debugger.backend.temporal import (
+    LiveDebuggerWorkflow,
+    install_program_activity,
+    poll_program_events_activity,
+    uninstall_program_activity,
+)
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
@@ -54,6 +60,7 @@ AI_WORKFLOWS = [
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackTerminateTaskWorkflow,
     AnomalyInvestigationWorkflow,
+    LiveDebuggerWorkflow,
 ]
 
 AI_ACTIVITIES = [
@@ -79,6 +86,9 @@ AI_ACTIVITIES = [
     post_posthog_code_internal_error_activity,
     process_posthog_code_terminate_task_activity,
     investigate_anomaly_activity,
+    install_program_activity,
+    poll_program_events_activity,
+    uninstall_program_activity,
 ]
 
 __all__ = [
