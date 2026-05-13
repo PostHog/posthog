@@ -71,7 +71,7 @@ export function formatYValue(x: number): string {
   if (abs >= 999_500_000) {
     return `${(x / 1_000_000_000).toFixed(1)}B`
   }
-  if (abs >= 99_950_000) {
+  if (abs >= 9_500_000) {
     return `${(x / 1_000_000).toFixed(0)}M`
   }
   if (abs >= 999_500) {

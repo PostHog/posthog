@@ -72,8 +72,13 @@ describe('formatYValue', () => {
     { input: 1_500_000, expected: '1.5M' },
     { input: -2_000_000, expected: '-2.0M' },
     // larger millions without decimals
+    { input: 10_000_000, expected: '10M' },
     { input: 100_000_000, expected: '100M' },
     { input: 999_000_000, expected: '999M' },
+    // negatives in the larger-millions range previously overflowed to "-10.0M"
+    // / "-99.0M" (6 chars) — must stay ≤5 chars
+    { input: -10_000_000, expected: '-10M' },
+    { input: -99_000_000, expected: '-99M' },
     // billions with one decimal and "B" suffix
     { input: 1_000_000_000, expected: '1.0B' },
     { input: -2_500_000_000, expected: '-2.5B' },
@@ -83,7 +88,8 @@ describe('formatYValue', () => {
     { input: -9999, expected: '-10k' },
     { input: 999_999, expected: '1.0M' },
     { input: -999_999, expected: '-1.0M' },
-    { input: 99_950_000, expected: '100M' },
+    { input: 9_500_000, expected: '10M' },
+    { input: -9_500_000, expected: '-10M' },
     { input: 999_500_000, expected: '1.0B' },
     // non-finite values fall back to "0" (caller is responsible for padding)
     { input: Number.NaN, expected: '0' },
@@ -130,13 +136,6 @@ describe('buildLabelRow', () => {
     assert.equal(buildLabelRow([], 5), '')
   })
 
-  it('strips a trailing four-digit year from each label', () => {
-    const row = buildLabelRow(['13-Apr-2026', '14-Apr-2026'], 10)
-    assert.ok(row.includes('13-Apr'))
-    assert.ok(row.includes('14-Apr'))
-    assert.ok(!row.includes('2026'))
-  })
-
   it('renders labels in left-to-right input order', () => {
     const row = buildLabelRow(['Mon', 'Tue', 'Wed'], 10)
     const positions = ['Mon', 'Tue', 'Wed'].map((label) => row.indexOf(label))
@@ -147,25 +146,50 @@ describe('buildLabelRow', () => {
     assert.deepEqual(positions, [...positions].sort((a, b) => a - b))
   })
 
-  it('drops some labels when there is not enough room, keeping first and last', () => {
-    const labels = ['LblA01', 'LblB02', 'LblC03', 'LblD04', 'LblE05', 'LblF06', 'LblG07', 'LblH08', 'LblI09', 'LblJ10']
-    const row = buildLabelRow(labels, 2)
-    const visible = labels.filter((l) => row.includes(l))
-    assert.ok(visible.length < labels.length, 'cramped step should drop at least one label')
-    assert.ok(visible.includes('LblA01'), 'first label is always rendered')
-    assert.ok(visible.includes('LblJ10'), 'last label is always rendered')
-  })
+  const cases: Array<{
+    name: string
+    labels: unknown[]
+    step: number
+    mustInclude: string[]
+    mustExclude?: string[]
+  }> = [
+    {
+      name: 'strips a trailing four-digit year from each label',
+      labels: ['13-Apr-2026', '14-Apr-2026'],
+      step: 10,
+      mustInclude: ['13-Apr', '14-Apr'],
+      mustExclude: ['2026'],
+    },
+    {
+      name: 'drops some labels when there is not enough room, keeping first and last',
+      labels: ['LblA01', 'LblB02', 'LblC03', 'LblD04', 'LblE05', 'LblF06', 'LblG07', 'LblH08', 'LblI09', 'LblJ10'],
+      step: 2,
+      mustInclude: ['LblA01', 'LblJ10'],
+      mustExclude: ['LblB02', 'LblC03'],
+    },
+    {
+      name: 'coerces non-string label inputs via stringify',
+      labels: [1, 2, null, undefined],
+      step: 10,
+      mustInclude: ['1', '2'],
+    },
+    {
+      name: 'renders every label when step is large enough to avoid collisions',
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      step: 10,
+      mustInclude: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    },
+  ]
 
-  it('coerces non-string label inputs via stringify', () => {
-    const row = buildLabelRow([1, 2, null, undefined], 10)
-    assert.ok(row.includes('1'))
-    assert.ok(row.includes('2'))
-  })
-
-  it('renders every label when step is large enough to avoid collisions', () => {
-    const row = buildLabelRow(['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 10)
-    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']) {
-      assert.ok(row.includes(day), `${day} should be rendered with step=10`)
-    }
-  })
+  for (const { name, labels, step, mustInclude, mustExclude } of cases) {
+    it(name, () => {
+      const row = buildLabelRow(labels, step)
+      for (const needle of mustInclude) {
+        assert.ok(row.includes(needle), `${needle} should be present in row`)
+      }
+      for (const needle of mustExclude ?? []) {
+        assert.ok(!row.includes(needle), `${needle} should not be present in row`)
+      }
+    })
+  }
 })
