@@ -70,7 +70,7 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
+import { FEATURE_FLAG_COHORT_PICKER_PROPS } from './cohortPickerProps'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -569,7 +569,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
-                                            {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
+                                            {...FEATURE_FLAG_COHORT_PICKER_PROPS}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>

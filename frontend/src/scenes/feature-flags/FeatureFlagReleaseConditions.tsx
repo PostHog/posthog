@@ -43,7 +43,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
+import { FEATURE_FLAG_COHORT_PICKER_PROPS } from './cohortPickerProps'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -391,7 +391,7 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
+                                {...FEATURE_FLAG_COHORT_PICKER_PROPS}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
