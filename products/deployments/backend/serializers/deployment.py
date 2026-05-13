@@ -10,7 +10,7 @@ from __future__ import annotations
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..models import Deployment
+from ..models import Deployment, DeploymentProject
 
 
 class DeploymentSerializer(serializers.ModelSerializer):
@@ -172,13 +172,14 @@ class DeploymentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_current(self, obj: Deployment) -> bool:
-        # The viewset annotates the queryset with `is_current` via Exists().
-        # When the serializer is used outside that path (admin, direct calls),
-        # fall back to a model lookup.
+        # The list viewset annotates rows with `is_current` via Exists()
+        # for O(1) per-row reads. When the serializer is used outside that
+        # path (refresh_preview, detail actions, admin), fall back to a
+        # direct DB lookup so the field stays accurate.
         annotated = getattr(obj, "is_current", None)
         if annotated is not None:
             return bool(annotated)
-        return bool(getattr(obj, "_is_current_fallback", False))
+        return DeploymentProject.all_teams.filter(current_deployment_id=obj.pk).exists()
 
     @extend_schema_field(serializers.IntegerField())
     def get_duration_seconds(self, obj: Deployment) -> int:

@@ -7,6 +7,8 @@ clients. PATCH accepts it; GET responses omit it entirely.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -140,3 +142,16 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_is_ready_to_deploy(self, obj: DeploymentProject) -> bool:
         return obj.cloudflare_ready_at is not None and bool(obj.github_pat)
+
+    def validate_repo_url(self, value: str) -> str:
+        # v1 deploys from github.com only. Without this check the field
+        # would accept any URL — including http://169.254.169.254/... or
+        # other internal/link-local hosts the build worker / GitHub
+        # adapter would then connect to (SSRF). Restricting scheme +
+        # host is the smallest fix that closes that vector.
+        parsed = urlparse(value)
+        if parsed.scheme != "https":
+            raise serializers.ValidationError("repo_url must use HTTPS.")
+        if (parsed.hostname or "").lower() != "github.com":
+            raise serializers.ValidationError("repo_url must point to github.com.")
+        return value
