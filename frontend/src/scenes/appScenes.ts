@@ -74,6 +74,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.OAuthAuthorize]: () => import('./oauth/OAuthAuthorize'),
+    [Scene.FounderMode]: () => import('./founder-mode/FounderMode'),
+    [Scene.FounderModeBlank]: () => import('./founder-mode/FounderModeBlank'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
     [Scene.OnboardingCoupon]: () => import('./onboarding/coupon/OnboardingCouponRedemption'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),

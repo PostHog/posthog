@@ -103,6 +103,8 @@ export enum Scene {
     Notebook = 'Notebook',
     Notebooks = 'Notebooks',
     OAuthAuthorize = 'OAuthAuthorize',
+    FounderMode = 'FounderMode',
+    FounderModeBlank = 'FounderModeBlank',
     Onboarding = 'Onboarding',
     OnboardingCoupon = 'OnboardingCoupon',
     OrganizationCreateFirst = 'OrganizationCreate',

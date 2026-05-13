@@ -290,6 +290,7 @@ const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseT
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(),
+    urls.founderMode(),
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),

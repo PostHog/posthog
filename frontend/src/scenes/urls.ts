@@ -165,6 +165,8 @@ export const urls = {
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
+    founderMode: (): string => '/init',
+    founderModeBlank: (): string => '/init/founder',
     onboarding: ({
         campaign,
         productKey,

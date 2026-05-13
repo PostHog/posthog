@@ -331,6 +331,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         allowUnauthenticated: true,
     },
+    [Scene.FounderMode]: { projectBased: true, name: 'Founder mode', layout: 'plain' },
+    [Scene.FounderModeBlank]: { projectBased: true, name: 'Founder mode', layout: 'plain' },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
     [Scene.OrganizationCreateFirst]: {
@@ -866,6 +868,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
     [urls.twoFactorReset(':uuid', ':token')]: [Scene.TwoFactorReset, 'twoFactorReset'],
+    [urls.founderMode()]: [Scene.FounderMode, 'founderMode'],
+    [urls.founderModeBlank()]: [Scene.FounderModeBlank, 'founderModeBlank'],
     [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
     [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],

@@ -68,8 +68,22 @@ def verify_email_or_login(request: Request, user: User) -> None:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
+FOUNDER_MODE_ONBOARDING_FLAG = "founder-mode-onboarding"
+
+
+def _founder_mode_redirect_enabled(user: User) -> bool:
+    """Whether this user should land on /init (founder-mode splash) instead of the default route."""
+    return posthoganalytics.feature_enabled(
+        FOUNDER_MODE_ONBOARDING_FLAG,
+        str(user.distinct_id),
+    )
+
+
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
     user = User.objects.get(uuid=uuid)
+
+    if not next_url and _founder_mode_redirect_enabled(user):
+        next_url = "/init"
 
     require_email_verification = (
         is_email_available()
