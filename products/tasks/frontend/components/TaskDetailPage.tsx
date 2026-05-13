@@ -28,7 +28,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
-import { stripMentionTags } from '../lib/util-functions'
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { CollapsibleContent } from './CollapsibleContent'
 import { TaskRunItem } from './TaskRunItem'
@@ -126,7 +125,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
             </ScenePanel>
 
             <SceneTitleSection
-                name={stripMentionTags(task?.title)}
+                name={task?.title}
                 description={null}
                 resourceType={{ type: 'task' }}
                 isLoading={false}

@@ -20,7 +20,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { LogEntry, parseLogEvent } from '../lib/parse-logs'
-import { stripMentionTags } from '../lib/util-functions'
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 import { TaskLogicProps, taskLogic } from './taskLogic'
@@ -302,7 +301,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         title: [
             (s) => [s.task],
             (task): string => {
-                return stripMentionTags(task?.title) || task?.slug || 'Task'
+                return task?.title || task?.slug || 'Task'
             },
         ],
         logsLoading: [

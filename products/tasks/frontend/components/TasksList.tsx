@@ -20,7 +20,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { TASK_STATUS_CONFIG } from '../lib/task-status'
-import { stripMentionTags } from '../lib/util-functions'
 import { tasksLogic } from '../logics/tasksLogic'
 import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
 import { Task, TaskRunStatus } from '../types'
@@ -49,7 +48,7 @@ export function TasksList(): JSX.Element {
                         >
                             {task.slug}
                         </Link>
-                        <span className="text-default truncate">{stripMentionTags(task.title)}</span>
+                        <span className="text-default truncate">{task.title}</span>
                         {task.internal && (
                             <LemonTag type="warning" size="small">
                                 Internal
