@@ -1,3 +1,4 @@
+import re
 import logging
 from typing import Any
 
@@ -5,6 +6,22 @@ from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.types import CompletionRequest
 
 logger = logging.getLogger(__name__)
+
+# PostHog Code's desktop client serializes @-mentions of files, folders, symbols, etc.
+# as self-closing XML tags like `<folder path="products/foo" />`. Feeding these directly
+# into the title-generating LLM causes the model to echo the raw tag back inside the
+# generated title, which is then rendered as plain text in the UI. We normalize the tags
+# to their `path` attribute (or strip them when no `path` is present) before generation.
+_SELF_CLOSING_MENTION_TAG = re.compile(r"<\w+([^>]*?)\s*/>")
+_PATH_ATTR = re.compile(r"\bpath\s*=\s*\"([^\"]*)\"")
+
+
+def _normalize_mention_tags(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        path_match = _PATH_ATTR.search(match.group(1))
+        return path_match.group(1) if path_match else ""
+
+    return _SELF_CLOSING_MENTION_TAG.sub(replace, text)
 
 
 def generate_task_title(description: str) -> str:
@@ -14,6 +31,10 @@ def generate_task_title(description: str) -> str:
     Returns a generated title or falls back to truncated description if generation fails.
     """
     if not description or not description.strip():
+        return "Untitled Task"
+
+    description = _normalize_mention_tags(description)
+    if not description.strip():
         return "Untitled Task"
 
     try:
@@ -76,7 +97,7 @@ Output the title now:""",
             if chunk.type == "text":
                 response_text += chunk.data.get("text", "")
 
-        title = response_text.strip()
+        title = _normalize_mention_tags(response_text).strip()
 
         # Clean up common issues
         if title.lower().startswith(("task:", "title:")):
