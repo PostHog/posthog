@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
@@ -79,7 +80,7 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
     )
 
 
-_TEMPLATES = {
+_TEMPLATES: dict[str, Callable[[str], LLMMetric]] = {
     "cost": build_cost_metric,
     "latency": build_latency_metric,
     "eval_pass_rate": build_eval_pass_rate_metric,
