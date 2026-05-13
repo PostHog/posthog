@@ -1,0 +1,120 @@
+name: Deploy vojta branch to ph.vojtabartos.com
+
+on:
+    push:
+        branches:
+            - 'vojta/**'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    HOBBYCTL_URL: http://ph.vojtabartos.com:8765
+
+jobs:
+    wait-for-docker-image:
+        name: Wait for Docker image build
+        runs-on: ubuntu-24.04
+        timeout-minutes: 90
+        steps:
+            - name: Wait for container image build to complete
+              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
+              id: wait-for-image
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  checkName: Build Docker image
+                  ref: ${{ github.sha }}
+                  timeoutSeconds: 3600
+                  intervalSeconds: 30
+            - name: Verify image build succeeded
+              env:
+                  BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
+              run: |
+                  if [ "$BUILD_CONCLUSION" != "success" ]; then
+                    echo "Docker image build conclusion: $BUILD_CONCLUSION"
+                    exit 1
+                  fi
+
+    switch-and-monitor:
+        name: Switch hobby to ${{ github.ref_name }} and wait for healthy
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        needs: wait-for-docker-image
+        steps:
+            - name: Trigger async switch
+              id: switch
+              env:
+                  BRANCH: ${{ github.ref_name }}
+              run: |
+                  set -euo pipefail
+                  resp=$(curl -fsSL -X POST "$HOBBYCTL_URL/switch?async=true" \
+                      -H 'content-type: application/json' \
+                      -d "{\"branch\": \"$BRANCH\"}")
+                  echo "Switch response: $resp"
+                  task_id=$(echo "$resp" | jq -r '.id')
+                  if [ -z "$task_id" ] || [ "$task_id" = "null" ]; then
+                    echo "Did not receive task id from hobbyctl"
+                    exit 1
+                  fi
+                  echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
+
+            - name: Poll switch task until done
+              env:
+                  TASK_ID: ${{ steps.switch.outputs.task_id }}
+              run: |
+                  set -euo pipefail
+                  for i in $(seq 1 180); do
+                    info=$(curl -fsSL "$HOBBYCTL_URL/tasks/$TASK_ID")
+                    state=$(echo "$info" | jq -r '.state')
+                    echo "[$i] task state: $state"
+                    case "$state" in
+                      succeeded)
+                        echo "$info" | jq .
+                        exit 0
+                        ;;
+                      failed|cancelled)
+                        echo "Switch task ended in $state"
+                        echo "$info" | jq .
+                        exit 1
+                        ;;
+                    esac
+                    sleep 10
+                  done
+                  echo "Timed out waiting for switch task"
+                  exit 1
+
+            - name: Wait for services healthy
+              env:
+                  BRANCH: ${{ github.ref_name }}
+              run: |
+                  set -euo pipefail
+                  for i in $(seq 1 90); do
+                    status=$(curl -fsSL "$HOBBYCTL_URL/status")
+                    cur_branch=$(echo "$status" | jq -r '.branch')
+                    unhealthy=$(echo "$status" | jq -r '
+                      [.services[]
+                       | select(.health != null and .health != "healthy")
+                       | .name] | join(",")')
+                    starting=$(echo "$status" | jq -r '
+                      [.services[]
+                       | select(.state != "running")
+                       | .name] | join(",")')
+                    echo "[$i] branch=$cur_branch unhealthy=[$unhealthy] not-running=[$starting]"
+                    if [ "$cur_branch" = "$BRANCH" ] \
+                       && [ -z "$unhealthy" ] && [ -z "$starting" ]; then
+                      echo "All services healthy on $BRANCH"
+                      echo "$status" | jq .
+                      exit 0
+                    fi
+                    sleep 10
+                  done
+                  echo "Timed out waiting for healthy status"
+                  curl -fsSL "$HOBBYCTL_URL/status" | jq .
+                  exit 1
+
+            - name: Final ping
+              run: curl -fsSL "$HOBBYCTL_URL/health" | jq .
