@@ -226,6 +226,122 @@ class UpsertColumnInputSerializer(serializers.Serializer):
     )
 
 
+class UpdateNodeInputSerializer(serializers.Serializer):
+    """Body for catalog-nodes-partial-update. Every field optional; only supplied fields are written."""
+
+    name = serializers.CharField(
+        required=False,
+        max_length=400,
+        help_text="Rename the node. Must remain unique per (team, kind). Avoid renaming once agents have linked to it.",
+    )
+    synthetic_description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Markdown description of what this table contains, when to use it, caveats, and how it relates "
+            "to other tables. Becomes the primary signal future agent runs use to pick the right table."
+        ),
+    )
+    semantic_role = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=64,
+        help_text="Short tag for the table's role in the business model — e.g. `fact`, `dimension`, `bridge`.",
+    )
+    business_domain = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=64,
+        help_text="Domain this table belongs to — e.g. `billing`, `crm`, `product_usage`, `support`.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        help_text="Free-form lowercase tags. Replaces the existing tag list when supplied.",
+    )
+    confidence = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Agent confidence (0..1). Humans can override or clear to mark the row as verified.",
+    )
+    status = serializers.ChoiceField(
+        choices=["proposed", "approved", "official", "drift"],
+        required=False,
+        help_text=(
+            "Review state. `proposed` for AI-authored / unreviewed, `approved` once a human has confirmed it, "
+            "`official` for canonical definitions, `drift` when the agent detects schema or semantic drift."
+        ),
+    )
+
+
+class UpdateColumnInputSerializer(serializers.Serializer):
+    """Body for catalog-columns-partial-update. Every field optional."""
+
+    synthetic_description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What the column represents in business terms — meaning, units, valid values, gotchas.",
+    )
+    semantic_type = serializers.ChoiceField(
+        choices=[
+            "entity_id",
+            "foreign_key",
+            "timestamp",
+            "measure",
+            "dimension",
+            "monetary",
+            "free_text",
+            "enum",
+            "uuid",
+            "unknown",
+        ],
+        required=False,
+        allow_null=True,
+        help_text="Role of the column for query planning. See create endpoint for full semantics.",
+    )
+    pii_class = serializers.ChoiceField(
+        choices=["pii", "sensitive", "public", "unknown"],
+        required=False,
+        allow_null=True,
+        help_text="Sensitivity classification. `pii`, `sensitive`, `public`, or `unknown`.",
+    )
+    confidence = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Agent confidence (0..1) in the description and semantic typing.",
+    )
+
+
+class UpdateRelationshipInputSerializer(serializers.Serializer):
+    """Body for catalog-relationships-partial-update. Used by reviewers to accept/reject proposals."""
+
+    status = serializers.ChoiceField(
+        choices=["proposed", "accepted", "rejected", "stale"],
+        required=False,
+        help_text=(
+            "Review state. `proposed` is the initial state, `accepted` once a human confirms the edge, "
+            "`rejected` to dismiss it, `stale` when the underlying schema has moved on."
+        ),
+    )
+    confidence = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Reviewer's confidence (0..1) in the edge after manual inspection.",
+    )
+    reasoning = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-text justification, typically extended during human review.",
+    )
+
+
 class ProposeRelationshipInputSerializer(serializers.Serializer):
     """Body for catalog-relationships-create. Always lands in PROPOSED status until reviewed."""
 

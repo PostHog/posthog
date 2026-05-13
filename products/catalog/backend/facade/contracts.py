@@ -32,6 +32,8 @@ class CatalogNodeDTO:
     last_seen_at: datetime | None
     last_traversed_at: datetime | None
     confidence: float | None
+    status: str
+    reviewed_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,46 @@ class UpsertColumnParams:
     pii_class: str | None = None
     generator_model: str | None = None
     confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class UpdateNodeParams:
+    """Partial update of a CatalogNode. Only fields supplied are written."""
+
+    team_id: int
+    node_id: UUID
+    name: str | None = None
+    synthetic_description: str | None = None
+    semantic_role: str | None = None
+    business_domain: str | None = None
+    tags: tuple[str, ...] | None = None
+    confidence: float | None = None
+    status: str | None = None
+    reviewed_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class UpdateColumnParams:
+    """Partial update of a CatalogColumn. Only fields supplied are written."""
+
+    team_id: int
+    column_id: UUID
+    synthetic_description: str | None = None
+    semantic_type: str | None = None
+    pii_class: str | None = None
+    confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class UpdateRelationshipParams:
+    """Partial update of a CatalogRelationship — primarily for approving/rejecting proposals."""
+
+    team_id: int
+    relationship_id: UUID
+    status: str | None = None
+    confidence: float | None = None
+    reasoning: str | None = None
+    reviewed_by_id: int | None = None
 
 
 @dataclass(frozen=True)

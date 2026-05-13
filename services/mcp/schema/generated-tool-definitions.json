@@ -453,6 +453,51 @@
             "readOnlyHint": true
         }
     },
+    "catalog-columns-create": {
+        "description": "Upsert a column under an existing catalog node. Records the column's type, nullability, semantic role (entity_id / foreign_key / timestamp / measure / dimension / monetary / etc), PII classification, and a human-readable description of what the column means. Idempotent on (node_id, name). Always call catalog-nodes-create first to get the parent node id.",
+        "category": "Catalog",
+        "feature": "catalog",
+        "summary": "Upsert catalog column",
+        "title": "Upsert catalog column",
+        "required_scopes": ["catalog:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "catalog-nodes-create": {
+        "description": "Upsert a catalog node — a table-shaped entity in the semantic graph (warehouse table, saved query, system table, or PostHog first-party table). Use this to record what a table is, when to use it, and what business domain it belongs to. Idempotent: re-call with the same (kind, name) to update the description, semantic role, tags, or confidence without creating a duplicate. Typically called during catalog traversal after inspecting a table's schema and sample data. Returns the node's id, which you'll use when upserting columns or proposing relationships.",
+        "category": "Catalog",
+        "feature": "catalog",
+        "summary": "Upsert catalog node",
+        "title": "Upsert catalog node",
+        "required_scopes": ["catalog:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "catalog-relationships-create": {
+        "description": "Propose a relationship between two catalog nodes — declared join, foreign key, same-entity link, or inferred join candidate. Relationships land in `proposed` status until reviewed. Include `source_column_id` / `target_column_id` for column-level joins; leave null for table-level lineage. Confidence (0..1) gates downstream trust — low-confidence proposals surface for human review before agents rely on them for cross-source joins. Idempotent on (source, source_column, target, target_column, kind).",
+        "category": "Catalog",
+        "feature": "catalog",
+        "summary": "Propose catalog relationship",
+        "title": "Propose catalog relationship",
+        "required_scopes": ["catalog:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
