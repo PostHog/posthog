@@ -30,6 +30,7 @@ export function DashboardPublicAccessBanner({
         <LemonBanner
             type="warning"
             className="mb-4"
+            dismissKey={`dashboard-public-access-banner-${dashboard.id}`}
             action={{
                 children: 'Manage sharing',
                 onClick: () => push(urls.dashboardSharing(dashboard.id)),
