@@ -1,4 +1,7 @@
+import time
+import hashlib
 import logging
+from typing import Optional
 
 from django.db.models import QuerySet
 from django.http import HttpResponse
@@ -16,6 +19,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthen
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.permissions import ProjectSecretAPITokenPermission
 
+from products.live_debugger.backend._proto import bytecode_pb2 as _pb
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
 
 logger = logging.getLogger(__name__)
@@ -565,6 +569,52 @@ class LiveDebuggerProgramViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
 
+def _compile_and_serialize_program(program: LiveDebuggerProgram) -> Optional[bytes]:
+    """Compile a single LiveDebuggerProgram into hogtrace wire bytes with a real hash.
+
+    Returns the protobuf-serialized `HogTraceProgram` bytes (ready to embed in a
+    `ProgramList`), or `None` if compilation fails. Failures are logged at WARN
+    so a single broken program does not poison the team's poll cycle.
+
+    Hogtrace currently hardcodes `hash="test"` in its `package()` Rust binding; we
+    rewrite the field server-side rather than depend on the placeholder. The hash
+    is sha256 of the wire bytes hogtrace produces, which is fully determined by
+    the rest of the bytecode (the placeholder is constant), so it changes if and
+    only if the compiled program content changes.
+    """
+    import hogtrace
+
+    try:
+        bytecode = hogtrace.compile(program.code)
+        compiled = hogtrace.package(str(program.id), bytecode)
+        raw = compiled.to_bytes()
+    except (hogtrace.CompilationError, ValueError, RuntimeError):
+        logger.warning("Failed to compile live_debugger program %s; skipping", program.id, exc_info=True)
+        return None
+    except Exception:
+        logger.exception("Unexpected error compiling live_debugger program %s; skipping", program.id)
+        return None
+
+    digest = hashlib.sha256(raw).hexdigest()
+    msg = _pb.HogTraceProgram()
+    msg.ParseFromString(raw)
+    msg.hash = digest
+    return msg.SerializeToString()
+
+
+def _build_program_list_bytes(programs: list[LiveDebuggerProgram]) -> bytes:
+    """Compile each program and emit the wrapping `ProgramList` protobuf bytes."""
+    program_list = _pb.ProgramList()
+    program_list.retrieved_at = int(time.time())
+    for program in programs:
+        wire = _compile_and_serialize_program(program)
+        if wire is None:
+            continue
+        msg = program_list.programs.add()
+        msg.ParseFromString(wire)
+    return program_list.SerializeToString()
+
+
 class LiveDebuggerActiveProgramsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Machine-facing endpoint for the libdebugger runtime poller. Returns the team's
@@ -608,4 +658,12 @@ class LiveDebuggerActiveProgramsViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         url_path="active",
     )
     def active(self, request: Request, *args: object, **kwargs: object) -> HttpResponse:
-        return HttpResponse(b"", content_type="application/octet-stream")
+        tag_queries(product=Product.LIVE_DEBUGGER, feature=Feature.QUERY)
+        programs = list(
+            LiveDebuggerProgram.objects.filter(
+                team=self.team,
+                status=LiveDebuggerProgram.Status.INSTALLED,
+            )
+        )
+        payload = _build_program_list_bytes(programs)
+        return HttpResponse(payload, content_type="application/octet-stream")

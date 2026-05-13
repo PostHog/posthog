@@ -1240,3 +1240,56 @@ class TestLiveDebuggerActiveProgramsAPI(APIBaseTest):
         parsed = ProgramList()
         parsed.ParseFromString(response.content)
         self.assertEqual(list(parsed.programs), [])
+
+    HOGTRACE_SOURCE_A = "fn:myapp.users.create_user:entry { capture(x=arg0); }"
+    HOGTRACE_SOURCE_B = "fn:myapp.orders.checkout:entry { capture(y=arg0); }"
+
+    def _make_program(
+        self, code: str, team=None, status_value=LiveDebuggerProgram.Status.INSTALLED
+    ) -> LiveDebuggerProgram:
+        return LiveDebuggerProgram.objects.create(
+            team=team or self.team,
+            code=code,
+            description="test program",
+            status=status_value,
+        )
+
+    def test_happy_path_returns_compiled_programs(self):
+        from hogtrace import ProgramList
+
+        p_a = self._make_program(self.HOGTRACE_SOURCE_A)
+        p_b = self._make_program(self.HOGTRACE_SOURCE_B)
+
+        response = self.client.get(self.URL)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/octet-stream")
+
+        parsed = ProgramList.from_bytes(response.content)
+        ids = sorted(p.id for p in parsed.programs)
+        self.assertEqual(ids, sorted([str(p_a.id), str(p_b.id)]))
+
+        hashes = [p.hash for p in parsed.programs]
+        self.assertEqual(len(set(hashes)), 2, "distinct programs should have distinct hashes")
+        for h in hashes:
+            self.assertEqual(len(h), 64, "sha256 hex digest is 64 chars")
+            self.assertNotEqual(h, "test", "hogtrace placeholder hash must be overwritten")
+            int(h, 16)
+
+    def test_hash_is_stable_and_responds_to_code_changes(self):
+        from hogtrace import ProgramList
+
+        program = self._make_program(self.HOGTRACE_SOURCE_A)
+
+        resp1 = self.client.get(self.URL)
+        resp2 = self.client.get(self.URL)
+        hash1 = ProgramList.from_bytes(resp1.content).programs[0].hash
+        hash2 = ProgramList.from_bytes(resp2.content).programs[0].hash
+        self.assertEqual(hash1, hash2, "same code should produce the same hash")
+
+        program.code = self.HOGTRACE_SOURCE_B
+        program.save(update_fields=["code", "updated_at"])
+
+        resp3 = self.client.get(self.URL)
+        hash3 = ProgramList.from_bytes(resp3.content).programs[0].hash
+        self.assertNotEqual(hash1, hash3, "different code should produce a different hash")
