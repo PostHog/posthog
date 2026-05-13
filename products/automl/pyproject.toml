@@ -1,0 +1,27 @@
+[project]
+name = "automl"
+version = "0.1.0"
+description = "AutoML hackathon prototype: DuckDB → Polars → AutoGluon → MLflow"
+readme = "README.md"
+requires-python = "==3.12.12"
+dependencies = [
+    "autogluon-tabular[catboost,fastai,lightgbm,xgboost]>=1.2",
+    "mlflow>=2.18",
+    "polars>=1.37",
+    "duckdb>=1.5",
+    "pyarrow>=18.1",
+    "numpy>=2.0",
+    "click>=8.0",
+    "structlog>=25.4.0,<26.0.0",
+    "torch>=2.8.0,<3.0.0",
+]
+
+[project.scripts]
+automl = "products.automl.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
