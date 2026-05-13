@@ -22,7 +22,7 @@ export function FounderMode(): JSX.Element {
                         </p>
                         <span className="mt-6 inline-flex items-center text-sm font-medium">Set up onboarding →</span>
                     </LemonCard>
-                    <LemonCard className="p-6" hoverEffect onClick={() => push(urls.founderModeBlank())}>
+                    <LemonCard className="p-6" hoverEffect onClick={() => push(urls.founderModeLayout())}>
                         <h2 className="text-lg font-medium">I don't have a product yet</h2>
                         <p className="mt-2 text-sm text-text-secondary">
                             Start in founder mode — we'll help you go from idea to first users.

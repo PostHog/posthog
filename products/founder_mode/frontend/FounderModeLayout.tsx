@@ -1,28 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    Button,
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-    cn,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupButton,
-    InputGroupTextarea,
-    ScrollArea,
-    Separator,
-} from '@posthog/quill'
+import { cn, InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea, ScrollArea } from '@posthog/quill'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { founderModeLogic } from './founderModeLogic'
+import { Step1 } from './components/Step1'
+import { Step2 } from './components/Step2'
+import { Step3 } from './components/Step3'
+import { Step4 } from './components/Step4'
+import { founderLogic } from './scenes/founderLogic'
 
-export function FounderModeBlank(): JSX.Element {
-    const { steps, position, currentStep, currentSubStep, isFirstStep, isLastStep } = useValues(founderModeLogic)
-    const { nextStep, previousStep, setStep } = useActions(founderModeLogic)
+const STEPS = [
+    { key: 'ideation', title: 'Ideation' },
+    { key: 'validation', title: 'Validation' },
+    { key: 'gtm', title: 'Go-to-market' },
+    { key: 'launch', title: 'Launch' },
+]
+
+export function FounderModeLayout(): JSX.Element {
+    const { step } = useValues(founderLogic)
+    const { setStep } = useActions(founderLogic)
+    const activeStep = step < 1 ? 1 : step > STEPS.length ? STEPS.length : step
+    const activeIndex = activeStep - 1
 
     return (
         <main
@@ -37,30 +36,32 @@ export function FounderModeBlank(): JSX.Element {
                 <header className="shrink-0 px-3 py-2 border-b border-border">
                     <div className="flex items-center gap-2">
                         <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-text-primary bg-text-primary text-bg-primary text-[10px] leading-none shrink-0">
-                            {position.stepIndex + 1}
+                            {activeStep}
                         </span>
-                        <span className="text-xs font-semibold text-text-primary truncate">{currentStep.title}</span>
+                        <span className="text-xs font-semibold text-text-primary truncate">
+                            {STEPS[activeIndex].title}
+                        </span>
                         <span className="ml-auto text-[10px] text-text-secondary">
-                            {position.stepIndex + 1}/{steps.length}
+                            {activeStep}/{STEPS.length}
                         </span>
                     </div>
                     <ol className="mt-1 ml-6 flex flex-wrap gap-x-2 gap-y-0.5">
-                        {currentStep.subSteps.map((subStep, subStepIndex) => {
-                            const isSubCompleted = subStepIndex < position.subStepIndex
-                            const isSubCurrent = subStepIndex === position.subStepIndex
+                        {STEPS.map((s, index) => {
+                            const isCompleted = index < activeIndex
+                            const isCurrent = index === activeIndex
                             return (
-                                <li key={subStep.key}>
+                                <li key={s.key}>
                                     <button
                                         type="button"
-                                        onClick={() => setStep(position.stepIndex, subStepIndex)}
+                                        onClick={() => setStep(index + 1)}
                                         className={cn(
                                             'text-[11px] cursor-pointer hover:opacity-80 transition-opacity',
-                                            isSubCurrent && 'font-medium text-text-primary',
-                                            isSubCompleted && 'text-text-secondary line-through',
-                                            !isSubCurrent && !isSubCompleted && 'text-text-secondary'
+                                            isCurrent && 'font-medium text-text-primary',
+                                            isCompleted && 'text-text-secondary line-through',
+                                            !isCurrent && !isCompleted && 'text-text-secondary'
                                         )}
                                     >
-                                        {subStep.title}
+                                        {s.title}
                                     </button>
                                 </li>
                             )
@@ -81,27 +82,14 @@ export function FounderModeBlank(): JSX.Element {
                     </InputGroup>
                 </footer>
             </aside>
-            <section id="steps-wrapper" className="flex-1 flex items-center justify-center px-12 py-10 min-h-0">
-                <Card className="w-full max-w-xl shadow border ">
-                    <CardHeader>
-                        <CardDescription>
-                            Step {position.stepIndex + 1}.{position.subStepIndex + 1} · {currentStep.title}
-                        </CardDescription>
-                        <CardTitle>{currentSubStep.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-text-secondary">Hello world</p>
-                    </CardContent>
-                    <Separator />
-                    <CardContent className="flex justify-between">
-                        <Button variant="outline" onClick={previousStep} disabled={isFirstStep}>
-                            Back
-                        </Button>
-                        <Button variant="primary" onClick={nextStep} disabled={isLastStep}>
-                            Next
-                        </Button>
-                    </CardContent>
-                </Card>
+            <section
+                id="steps-wrapper"
+                className="flex-1 flex items-start justify-center px-12 py-10 min-h-0 overflow-y-auto"
+            >
+                {activeStep === 1 && <Step1 />}
+                {activeStep === 2 && <Step2 />}
+                {activeStep === 3 && <Step3 />}
+                {activeStep === 4 && <Step4 />}
             </section>
         </main>
     )
@@ -113,13 +101,6 @@ interface ChatMessage {
 }
 
 const DUMMY_MESSAGES: ChatMessage[] = [
-    { author: 'agent', text: "Hey! What's the problem you're trying to solve?" },
-    { author: 'user', text: 'Founders waste hours digging through analytics dashboards.' },
-    { author: 'agent', text: 'Got it. Who feels that pain the most — solo founders, small teams?' },
-    { author: 'user', text: "Solo founders and tiny teams who don't have a data person." },
-    { author: 'agent', text: 'Nice. Want to sketch the smallest possible version we could ship?' },
-    { author: 'user', text: 'Yeah — basically a chat that answers product questions from PostHog data.' },
-    { author: 'agent', text: 'Perfect starting point. Let me write up the scope cuts.' },
     { author: 'agent', text: "Hey! What's the problem you're trying to solve?" },
     { author: 'user', text: 'Founders waste hours digging through analytics dashboards.' },
     { author: 'agent', text: 'Got it. Who feels that pain the most — solo founders, small teams?' },
@@ -151,6 +132,6 @@ function ChatThread(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: FounderModeBlank,
-    logic: founderModeLogic,
+    component: FounderModeLayout,
+    logic: founderLogic,
 }

@@ -14,21 +14,21 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'plain',
         },
-        FounderModeBlank: {
+        FounderModeLayout: {
             name: 'Founder mode',
-            import: () => import('./frontend/FounderModeBlank'),
+            import: () => import('./frontend/FounderModeLayout'),
             projectBased: true,
             layout: 'plain',
         },
     },
     routes: {
         '/init': ['FounderMode', 'founderMode'],
-        '/init/founder': ['FounderModeBlank', 'founderModeBlank'],
+        '/founder': ['FounderModeLayout', 'founderModeLayout'],
     },
     redirects: {},
     urls: {
         founderMode: (): string => '/init',
-        founderModeBlank: (): string => '/init/founder',
+        founderModeLayout: (): string => '/founder',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
