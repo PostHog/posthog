@@ -48,11 +48,12 @@ from .automation_service import (
     sync_automation_schedule,
     update_automation_run_result,
 )
-from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskAutomation, TaskRun
+from .models import CodeInvite, CodeInviteRedemption, RenderingCanvas, SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    RenderingCanvasSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
@@ -2547,3 +2548,26 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
+
+
+class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """CRUD for LLM-generated React canvases rendered inside PostHog Code."""
+
+    serializer_class = RenderingCanvasSerializer
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    scope_object = "task"
+    queryset = RenderingCanvas.objects.filter(deleted=False).select_related("created_by", "task")
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def perform_create(self, serializer: RenderingCanvasSerializer) -> None:
+        serializer.save(team=self.team, created_by=self.request.user)
+
+    def perform_destroy(self, instance: RenderingCanvas) -> None:
+        instance.deleted = True
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=["deleted", "deleted_at"])

@@ -323,6 +323,12 @@ projects_router.register(
     "project_sandbox_environments",
     ["team_id"],
 )
+projects_router.register(
+    r"rendering_canvases",
+    tasks.RenderingCanvasViewSet,
+    "project_rendering_canvases",
+    ["team_id"],
+)
 
 # PostHog Code invites (not project-scoped)
 router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
