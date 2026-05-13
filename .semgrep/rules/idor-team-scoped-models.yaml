@@ -91,6 +91,7 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |Deployment
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -307,6 +308,7 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |Deployment
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
