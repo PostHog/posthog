@@ -3,6 +3,7 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -44,6 +45,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.mcpAnalyticsDashboard(),
+            flag: FEATURE_FLAGS.MCP_ANALYTICS,
             sceneKey: 'MCPAnalytics',
         },
     ],

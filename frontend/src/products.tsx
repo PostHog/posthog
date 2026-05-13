@@ -1595,6 +1595,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.mcpAnalyticsDashboard(),
+        flag: FEATURE_FLAGS.MCP_ANALYTICS,
         sceneKey: 'MCPAnalytics',
         sceneKeys: ['MCPAnalytics'],
     },
