@@ -52,22 +52,29 @@ def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
 
 
 def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
-    # $ai_evaluation_result is stored as a JSON boolean. The standard EventPropertyFilter
-    # path wraps the property in a Float64 cast, which can't be compared to a boolean
-    # literal. A raw HogQL filter matches the convention used elsewhere (e.g.
-    # eval_reports/report_agent/tools.py).
+    # Use explicit JSON extraction rather than `properties.X = true`. The latter goes through
+    # HogQL property type inference, which casts the property to Float64 if any event in the
+    # table has stored this key as a number — silently dropping JSON-boolean events. The
+    # JSONExtract* functions bypass the inference and read the JSON value directly.
+    # The applicable guard excludes N/A evaluations (applicable=false) but keeps events
+    # where the property isn't set at all (JSONExtractRaw returns '' for missing keys).
+    applicable_filter = HogQLPropertyFilter(key="JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'")
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
             event="$ai_evaluation",
             properties=[
                 _prompt_filter(prompt_name),
-                HogQLPropertyFilter(key="properties.$ai_evaluation_result = true"),
+                HogQLPropertyFilter(key="JSONExtractBool(properties, '$ai_evaluation_result')"),
+                applicable_filter,
             ],
         ),
         denominator=EventsNode(
             event="$ai_evaluation",
-            properties=[_prompt_filter(prompt_name)],
+            properties=[
+                _prompt_filter(prompt_name),
+                applicable_filter,
+            ],
         ),
     )
 
@@ -103,4 +110,7 @@ def apply_metric_to_experiment(
         next_metrics = [*(experiment.metrics or []), new_metric]
 
     service = ExperimentService(team=experiment.team, user=user)
-    return service.update_experiment(experiment, {"metrics": next_metrics})
+    # The templates hardcode known LLM event names, so the typo-guard validation in
+    # update_experiment adds no value but rejects the common case of attaching a
+    # metric before any matching event has been ingested.
+    return service.update_experiment(experiment, {"metrics": next_metrics}, allow_unknown_events=True)
