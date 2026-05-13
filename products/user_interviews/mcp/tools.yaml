@@ -13,7 +13,7 @@ tools:
         operation: user_interview_topics_create
         enabled: true
         scopes:
-            - user_interview_DO_NOT_USE:write
+            - user_interview:write
         annotations:
             readOnly: false
             destructive: false
@@ -40,7 +40,7 @@ tools:
         operation: user_interview_topics_list
         enabled: true
         scopes:
-            - user_interview_DO_NOT_USE:read
+            - user_interview:read
         annotations:
             readOnly: true
             destructive: false

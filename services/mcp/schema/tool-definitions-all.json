@@ -5197,7 +5197,7 @@
         "feature": "user_interviews",
         "summary": "Create user interview topic",
         "title": "Create user interview topic",
-        "required_scopes": ["user_interview_DO_NOT_USE:write"],
+        "required_scopes": ["user_interview:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -5212,7 +5212,7 @@
         "feature": "user_interviews",
         "summary": "List user interview topics",
         "title": "List user interview topics",
-        "required_scopes": ["user_interview_DO_NOT_USE:read"],
+        "required_scopes": ["user_interview:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

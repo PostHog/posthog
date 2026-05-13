@@ -92,7 +92,7 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
+    "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
     "visual_review",
     "warehouse_objects",
     "warehouse_table",

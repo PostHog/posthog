@@ -221,7 +221,7 @@ Record the agreed-upon next steps, including any additional actions that need to
 
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "user_interview_DO_NOT_USE"
+    scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
     parser_classes = [MultiPartParser, JSONParser]
@@ -309,7 +309,7 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Planned user interview topics: who we want to target (cohort) and what we want to ask about."""
 
-    scope_object = "user_interview_DO_NOT_USE"
+    scope_object = "user_interview"
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
     filter_backends = [filters.SearchFilter]
