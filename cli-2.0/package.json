@@ -6,10 +6,16 @@
         "ph": "./bin/ph.js"
     },
     "type": "module",
+    "files": [
+        "bin",
+        "dist"
+    ],
     "scripts": {
-        "build": "tsx scripts/generate-commands.ts && tsc",
-        "dev": "tsx scripts/generate-commands.ts && tsx src/index.ts",
+        "build": "pnpm run generate:commands && tsc",
+        "dev": "tsx src/index.ts",
         "generate:commands": "tsx scripts/generate-commands.ts",
+        "link:global": "pnpm run build && pnpm link --global",
+        "prepack": "pnpm run build",
         "start": "node ./bin/ph.js"
     },
     "dependencies": {

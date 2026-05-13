@@ -41,6 +41,7 @@ export const DEFAULT_OAUTH_SCOPES = [
   'feature_flag:write',
   'insight:read',
   'dashboard:read',
+  'experiment:read',
   'project:read',
   'organization:read',
   'user:read',
