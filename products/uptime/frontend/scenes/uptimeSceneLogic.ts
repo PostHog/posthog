@@ -1,6 +1,8 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -66,6 +68,10 @@ export interface OverallStats {
     avgLatencyMs: number | null
 }
 
+export type UptimeSceneActiveTab = 'monitors' | 'alerts'
+
+const DEFAULT_ACTIVE_TAB: UptimeSceneActiveTab = 'monitors'
+
 export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     path(['products', 'uptime', 'frontend', 'scenes', 'uptimeSceneLogic']),
 
@@ -74,6 +80,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     })),
 
     actions({
+        setActiveTab: (activeTab: UptimeSceneActiveTab) => ({ activeTab }),
         selectMonitor: (monitorId: string | null) => ({ monitorId }),
         pingNow: (monitorId: string) => ({ monitorId }),
         setCreateModalOpen: (open: boolean) => ({ open }),
@@ -84,6 +91,12 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     }),
 
     reducers({
+        activeTab: [
+            DEFAULT_ACTIVE_TAB as UptimeSceneActiveTab,
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
         selectedMonitorId: [
             null as string | null,
             {
@@ -251,6 +264,30 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 }
             },
         ],
+    }),
+
+    urlToAction(({ actions, values }) => ({
+        '**/uptime': (_, params) => {
+            if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
+                actions.setActiveTab(params.activeTab)
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [string, Record<string, any>, Record<string, any>] => {
+            const { currentLocation } = router.values
+            const searchParams = { ...currentLocation.searchParams }
+            if (values.activeTab === DEFAULT_ACTIVE_TAB) {
+                delete searchParams.activeTab
+            } else {
+                searchParams.activeTab = values.activeTab
+            }
+            return [currentLocation.pathname, searchParams, currentLocation.hashParams]
+        }
+        return {
+            setActiveTab: buildURL,
+        }
     }),
 
     afterMount(({ actions }) => {

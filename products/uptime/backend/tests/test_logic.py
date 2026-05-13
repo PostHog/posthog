@@ -1,9 +1,14 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
+from django.utils import timezone
+
+from products.uptime.backend import logic
 from products.uptime.backend.facade.enums import PingOutcome
 from products.uptime.backend.logic import (
     DAILY_BUCKETS,
@@ -255,3 +260,83 @@ class TestBulkCreateMonitors(UptimeTeamScopedTestMixin, BaseTest):
         created = bulk_create_monitors(team_id=self.team.id, items=[])
         assert created == []
         assert Monitor.objects.filter(team_id=self.team.id).count() == 0
+
+
+@pytest.mark.django_db
+class TestStatusChangeEmission:
+    def _make_monitor(self, team):
+        return logic.create_monitor(team_id=team.id, name="example", url="https://example.com")
+
+    @patch("products.uptime.backend.logic.produce_internal_event")
+    @patch("products.uptime.backend.logic.get_client")
+    def test_emits_on_first_ping_when_no_prior_status(self, mock_get_client, mock_produce, team):
+        monitor = self._make_monitor(team)
+        mock_redis = mock_get_client.return_value
+        mock_redis.get.return_value = None
+
+        logic._maybe_emit_status_change(
+            team_id=team.id,
+            monitor_id=monitor.id,
+            new_status=logic.STATUS_UP,
+            timestamp=timezone.now(),
+            latency_ms=100,
+            status_code=200,
+        )
+
+        mock_redis.set.assert_called_once_with(logic._status_redis_key(monitor.id), logic.STATUS_UP)
+        assert mock_produce.call_count == 1
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == logic.STATUS_CHANGED_EVENT
+        assert event.properties["previous_status"] == logic.STATUS_UNKNOWN
+        assert event.properties["new_status"] == logic.STATUS_UP
+        assert event.properties["monitor_id"] == str(monitor.id)
+        assert event.properties["monitor_name"] == "example"
+
+    @patch("products.uptime.backend.logic.produce_internal_event")
+    @patch("products.uptime.backend.logic.get_client")
+    def test_does_not_emit_when_status_unchanged(self, mock_get_client, mock_produce, team):
+        monitor = self._make_monitor(team)
+        mock_redis = mock_get_client.return_value
+        mock_redis.get.return_value = b"up"
+
+        logic._maybe_emit_status_change(
+            team_id=team.id,
+            monitor_id=monitor.id,
+            new_status=logic.STATUS_UP,
+            timestamp=timezone.now(),
+            latency_ms=100,
+            status_code=200,
+        )
+
+        mock_redis.set.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.uptime.backend.logic.produce_internal_event")
+    @patch("products.uptime.backend.logic.get_client")
+    def test_emits_on_up_to_down_transition(self, mock_get_client, mock_produce, team):
+        monitor = self._make_monitor(team)
+        mock_redis = mock_get_client.return_value
+        mock_redis.get.return_value = b"up"
+
+        logic._maybe_emit_status_change(
+            team_id=team.id,
+            monitor_id=monitor.id,
+            new_status=logic.STATUS_DOWN,
+            timestamp=timezone.now(),
+            latency_ms=12000,
+            status_code=503,
+        )
+
+        mock_redis.set.assert_called_once_with(logic._status_redis_key(monitor.id), logic.STATUS_DOWN)
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.properties["previous_status"] == logic.STATUS_UP
+        assert event.properties["new_status"] == logic.STATUS_DOWN
+        assert event.properties["status_code"] == 503
+        assert event.properties["latency_ms"] == 12000
+
+    @pytest.mark.parametrize(
+        "outcome,expected",
+        [(PingOutcome.SUCCESS, logic.STATUS_UP), (PingOutcome.FAILURE, logic.STATUS_DOWN)],
+    )
+    def test_outcome_to_status_mapping(self, outcome, expected):
+        assert logic._outcome_to_status(outcome) == expected

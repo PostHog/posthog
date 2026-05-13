@@ -73,7 +73,7 @@ export class NativeDestinationExecutorService {
                 throw new Error(`Native destination ${nativeDestinationId} not found`)
             }
 
-            const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
+            const isTestFunction = invocation.hogFunction.name?.includes(CDP_TEST_ID) ?? false
             const start = performance.now()
 
             // All native plugin options are done as inputs
@@ -219,6 +219,7 @@ export class NativeDestinationExecutorService {
                 },
                 {
                     payload: config,
+                    globals: invocation.state.globals,
                 }
             )
 

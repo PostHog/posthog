@@ -9,19 +9,39 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team.team import Team
+from posthog.redis import get_client
 
 from ..facade.enums import PingOutcome
 from ..models import Monitor
 
+logger = structlog.get_logger(__name__)
+
 DailyStatus = Literal["up", "degraded", "down", "no_data"]
 OverallStatus = Literal["up", "down", "no_data"]
 DAILY_BUCKETS = 30
+
+STATUS_UP = "up"
+STATUS_DOWN = "down"
+STATUS_UNKNOWN = "unknown"
+
+STATUS_CHANGED_EVENT = "$uptime_monitor_status_changed"
+
+
+def _status_redis_key(monitor_id: UUID) -> str:
+    return f"uptime:monitor_status:{monitor_id}"
+
+
+def _outcome_to_status(outcome: PingOutcome) -> str:
+    return STATUS_UP if outcome == PingOutcome.SUCCESS else STATUS_DOWN
 
 
 def create_monitor(*, team_id: int, name: str, url: str) -> Monitor:
@@ -148,6 +168,63 @@ def record_ping(
             }
         ],
     )
+    _maybe_emit_status_change(
+        team_id=team_id,
+        monitor_id=monitor_id,
+        new_status=_outcome_to_status(outcome),
+        timestamp=timestamp,
+        latency_ms=latency_ms,
+        status_code=status_code,
+    )
+
+
+def _maybe_emit_status_change(
+    *,
+    team_id: int,
+    monitor_id: UUID,
+    new_status: str,
+    timestamp: datetime,
+    latency_ms: int,
+    status_code: int | None,
+) -> None:
+    redis_client = get_client()
+    key = _status_redis_key(monitor_id)
+    previous_raw = redis_client.get(key)
+    if previous_raw is None:
+        previous_status = STATUS_UNKNOWN
+    elif isinstance(previous_raw, bytes):
+        previous_status = previous_raw.decode()
+    else:
+        previous_status = previous_raw
+
+    if previous_status == new_status:
+        return
+
+    redis_client.set(key, new_status)
+
+    try:
+        monitor = Monitor.objects.unscoped().filter(id=monitor_id).only("name", "url").first()
+        if monitor is None:
+            return
+        produce_internal_event(
+            team_id=team_id,
+            event=InternalEventEvent(
+                event=STATUS_CHANGED_EVENT,
+                distinct_id=f"uptime_monitor_{monitor_id}",
+                timestamp=timestamp.isoformat(),
+                properties={
+                    "monitor_id": str(monitor_id),
+                    "monitor_name": monitor.name,
+                    "monitor_url": monitor.url,
+                    "previous_status": previous_status,
+                    "new_status": new_status,
+                    "status_code": status_code,
+                    "latency_ms": latency_ms,
+                },
+            ),
+        )
+    except Exception:
+        logger.exception("Failed to emit uptime monitor status changed event", monitor_id=str(monitor_id))
 
 
 def list_monitor_summaries(*, team_id: int) -> list[dict]:

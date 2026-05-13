@@ -129,6 +129,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
         flag: FEATURE_FLAGS.LOGS_ALERTING,
     },
+    'uptime-monitor-status-changed': {
+        sub_template_id: 'uptime-monitor-status-changed',
+        type: 'internal_destination',
+        context_id: 'uptime',
+        filters: { events: [{ id: '$uptime_monitor_status_changed', type: 'events' }] },
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -1040,6 +1046,14 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: "Log alert '{event.properties.alert_name}' couldn't evaluate: {event.properties.error_message}",
                 },
             },
+        },
+    ],
+    'uptime-monitor-status-changed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['uptime-monitor-status-changed'],
+            template_id: 'native-discord-uptime',
+            name: 'Post to Discord on uptime status change',
+            description: 'Posts a Discord message when a monitor changes status (up/down)',
         },
     ],
 }

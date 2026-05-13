@@ -4,6 +4,7 @@ import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as discordUptimeTemplate } from './_destinations/discord_uptime/discord-uptime.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as firebasePushTemplate } from './_destinations/firebase_push/firebase_push.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
@@ -88,7 +89,10 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
+export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [
+    nativeWebhookTemplate,
+    discordUptimeTemplate,
+].map((plugin) => ({
     ...plugin,
     code_language: 'javascript',
     code: 'return event;',

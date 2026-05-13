@@ -7,7 +7,9 @@ import {
     LemonCheckbox,
     LemonInput,
     LemonModal,
+    LemonTab,
     LemonTable,
+    LemonTabs,
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
@@ -22,6 +24,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { UptimeAlerts } from './uptimeAlerts/UptimeAlerts'
 import {
     DailyBucket,
     DailyStatus,
@@ -30,6 +33,7 @@ import {
     OverallStats,
     Ping,
     SuggestedUrl,
+    UptimeSceneActiveTab,
     uptimeSceneLogic,
 } from './uptimeSceneLogic'
 
@@ -39,6 +43,62 @@ export const scene: SceneExport = {
 }
 
 export function UptimeScene(): JSX.Element {
+    const { activeTab, suggestedUrls } = useValues(uptimeSceneLogic)
+    const { setActiveTab, setCreateModalOpen, setSuggestModalOpen } = useActions(uptimeSceneLogic)
+
+    const hasSuggestions = suggestedUrls.length > 0
+    const onMonitorsTab = activeTab === 'monitors'
+
+    const tabs: LemonTab<UptimeSceneActiveTab>[] = [
+        {
+            key: 'monitors',
+            label: 'Monitors',
+            content: <MonitorsTab />,
+        },
+        {
+            key: 'alerts',
+            label: 'Alerts',
+            content: <UptimeAlerts />,
+        },
+    ]
+
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name="Uptime"
+                description="Monitor URLs and view their recent ping history."
+                resourceType={{ type: 'default_icon_type' }}
+                actions={
+                    onMonitorsTab ? (
+                        <div className="flex gap-2">
+                            {hasSuggestions && (
+                                <LemonButton
+                                    type="secondary"
+                                    data-attr="open-suggest-urls"
+                                    onClick={() => setSuggestModalOpen(true)}
+                                >
+                                    Add from traffic ({suggestedUrls.length})
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                type="primary"
+                                data-attr="create-monitor"
+                                onClick={() => setCreateModalOpen(true)}
+                            >
+                                Create monitor
+                            </LemonButton>
+                        </div>
+                    ) : null
+                }
+            />
+            <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />
+            <CreateMonitorModal />
+            <SuggestUrlsModal />
+        </SceneContent>
+    )
+}
+
+function MonitorsTab(): JSX.Element {
     const {
         monitorSummaries,
         monitorSummariesLoading,
@@ -48,38 +108,14 @@ export function UptimeScene(): JSX.Element {
         pings,
         pingsLoading,
     } = useValues(uptimeSceneLogic)
-    const { selectMonitor, pingNow, setCreateModalOpen, setSuggestModalOpen } = useActions(uptimeSceneLogic)
+    const { selectMonitor, pingNow, setSuggestModalOpen } = useActions(uptimeSceneLogic)
 
     const selectedMonitor = monitorSummaries.find((m) => m.id === selectedMonitorId) ?? null
     const hasSuggestions = suggestedUrls.length > 0
     const hasMonitors = monitorSummaries.length > 0
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Uptime"
-                description="Monitor URLs and view their recent ping history."
-                resourceType={{ type: 'default_icon_type' }}
-                actions={
-                    <div className="flex gap-2">
-                        {hasSuggestions && (
-                            <LemonButton
-                                type="secondary"
-                                data-attr="open-suggest-urls"
-                                onClick={() => setSuggestModalOpen(true)}
-                            >
-                                Add from traffic ({suggestedUrls.length})
-                            </LemonButton>
-                        )}
-                        <LemonButton type="primary" data-attr="create-monitor" onClick={() => setCreateModalOpen(true)}>
-                            Create monitor
-                        </LemonButton>
-                    </div>
-                }
-            />
-            <CreateMonitorModal />
-            <SuggestUrlsModal />
-
+        <>
             {hasMonitors && <OverallStatusBanner stats={overallStats} />}
 
             {!hasMonitors && !monitorSummariesLoading ? (
@@ -137,7 +173,7 @@ export function UptimeScene(): JSX.Element {
                     emptyState="No pings recorded yet."
                 />
             </LemonModal>
-        </SceneContent>
+        </>
     )
 }
 
