@@ -63,18 +63,7 @@ Opt out (`{ pauseOnPageHidden: false }`) only when the listener must keep firing
 
 ## Examples in the codebase
 
-**Unnamed `setInterval` poller** — `frontend/src/layout/navigation/noEventsBannerLogic.ts:14-21`
-
-```ts
-afterMount(({ actions, cache }) => {
-    cache.disposables.add(() => {
-        const pollTimer = window.setInterval(() => {
-            actions.loadCurrentTeam()
-        }, POLL_INTERVAL_MS)
-        return () => clearInterval(pollTimer)
-    })
-}),
-```
+**Unnamed `setInterval` poller** — see the canonical example in [The pattern](#the-pattern) (`frontend/src/layout/navigation/noEventsBannerLogic.ts:14-21`).
 
 **Keyed intervals with `dispose()` on hover-end / pause** — `frontend/src/lib/components/LiveUserCount/liveUserCountLogic.ts:94-118`
 
@@ -125,6 +114,9 @@ cache.disposables.add(() => {
   return () => window.removeEventListener('mousedown', clickListener)
 }, 'clickListener')
 
+// popstate only fires on user-initiated back/forward, so a hidden tab won't
+// generate events — pausing on hide (the default) is fine here. Opt out
+// only if you must observe popstates while the tab is in the background.
 cache.disposables.add(() => {
   const popstateHandler = (): void => actions.maybeSendNavigationMessage()
   window.addEventListener('popstate', popstateHandler)
