@@ -117,6 +117,9 @@ export const formatAggregationAxisValueWithShareOfTotal = (
     if (aggregationAxisFormat === 'percentage' || aggregationAxisFormat === 'percentage_scaled') {
         return formatted
     }
+    if (!total) {
+        return formatted
+    }
     const shareOfTotal = parseFloat(((Number(value) / total) * 100).toFixed(1))
     return `${formatted} (${shareOfTotal}%)`
 }

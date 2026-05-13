@@ -114,6 +114,9 @@ describe('formatAggregationAxisValueWithShareOfTotal', () => {
             filters: { aggregationAxisFormat: 'percentage' },
             expected: '37%',
         },
+        // When total is zero (or otherwise falsy), skip the share-of-total to avoid "NaN%".
+        { candidate: 0, total: 0, filters: {}, expected: '0' },
+        { candidate: 0, total: 0, filters: { aggregation_axis_format: 'currency' }, expected: '$0.00' },
     ]
 
     shareTestcases.forEach((testcase) => {
