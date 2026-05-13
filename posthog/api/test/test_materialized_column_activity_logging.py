@@ -167,7 +167,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            slot_index=12,
+            slot_index=7,
             state=MaterializedColumnSlotState.BACKFILL,
         )
 
@@ -198,7 +198,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            slot_index=12,
+            slot_index=7,
             state=MaterializedColumnSlotState.BACKFILL,
         )
 
