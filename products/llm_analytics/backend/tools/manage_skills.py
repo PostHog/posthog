@@ -512,6 +512,11 @@ class UpdateLLMSkillTool(MaxTool):
         if body is not None and edits is not None:
             return ("Pass either `body` or `edits`, not both.", None)
 
+        # publish_skill_version validates resulting size only when `edits` are applied; a raw
+        # `body` replacement bypasses that path, so guard it here to match the create-side check.
+        if body is not None and len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
+            return (f"Skill body exceeds the {MAX_SKILL_BODY_BYTES} byte size limit.", None)
+
         edits_payload: list[dict[str, str]] | None = (
             [{"old": e.old, "new": e.new} for e in edits] if edits is not None else None
         )

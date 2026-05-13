@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 from products.llm_analytics.backend.tools.manage_skills import (
@@ -12,6 +13,17 @@ from products.llm_analytics.backend.tools.manage_skills import (
     ListLLMSkillsTool,
     UpdateLLMSkillTool,
 )
+
+INVALID_SKILL_NAMES = [
+    ("uppercase", "Bad_Name"),
+    ("consecutive_hyphens", "foo--bar"),
+    ("leading_hyphen", "-foo"),
+    ("trailing_hyphen", "foo-"),
+    ("reserved_new", "new"),
+    ("too_long", "a" * 65),
+    ("contains_space", "foo bar"),
+    ("contains_underscore", "foo_bar"),
+]
 
 
 def _run(tool, **kwargs):
@@ -189,24 +201,20 @@ class TestCreateLLMSkillTool(BaseTest):
         assert skill.body == "# Steps\n1. ..."
         assert skill.created_by == self.user
 
-    def test_rejects_invalid_name(self):
+    @parameterized.expand(INVALID_SKILL_NAMES)
+    def test_rejects_invalid_name(self, _case, invalid_name):
+        # Validation must match the REST serializer so a name created via Max isn't later
+        # rejected by other clients (and vice versa). See _validate_skill_name in manage_skills.py.
         result, _ = _run(
             self._tool(),
-            name="Bad_Name",
+            name=invalid_name,
             description="d",
             body="b",
         )
-        assert "lowercase letters" in result
-
-    def test_rejects_consecutive_hyphens_in_name(self):
-        # Mirrors REST serializer's "--" rejection so validation is consistent across surfaces.
-        result, _ = _run(
-            self._tool(),
-            name="foo--bar",
-            description="d",
-            body="b",
-        )
-        assert "lowercase letters" in result
+        assert not LLMSkill.objects.filter(team=self.team, name=invalid_name).exists()
+        # All the error messages share these phrases — the reserved-name and too-long branches
+        # use slightly different wording but always include one of the two below.
+        assert "reserved" in result or "lowercase letters" in result or "64 characters" in result
 
     def test_rejects_oversized_file(self):
         from products.llm_analytics.backend.api.skill_services import MAX_SKILL_FILE_BYTES
@@ -341,6 +349,22 @@ class TestUpdateLLMSkillTool(BaseTest):
         result, _ = _run(self._tool(), name="nope", base_version=1, body="x")
         assert "not found" in result
 
+    def test_rejects_oversized_body(self):
+        from products.llm_analytics.backend.api.skill_services import MAX_SKILL_BODY_BYTES
+
+        self._seed()
+        oversized = "x" * (MAX_SKILL_BODY_BYTES + 1)
+        result, _ = _run(
+            self._tool(),
+            name="iter-skill",
+            base_version=1,
+            body=oversized,
+        )
+        assert "size limit" in result
+        # Nothing should have been published.
+        latest = LLMSkill.objects.get(team=self.team, name="iter-skill", is_latest=True)
+        assert latest.version == 1
+
 
 class TestArchiveLLMSkillTool(BaseTest):
     def _tool(self):
@@ -395,9 +419,11 @@ class TestDuplicateLLMSkillTool(BaseTest):
         assert new_skill.license == "MIT"
         assert list(new_skill.files.values_list("path", flat=True)) == ["a.txt"]
 
-    def test_rejects_invalid_new_name(self):
-        result, _ = _run(self._tool(), source_name="src", new_name="BAD NAME")
-        assert "lowercase letters" in result
+    @parameterized.expand(INVALID_SKILL_NAMES)
+    def test_rejects_invalid_new_name(self, _case, invalid_name):
+        result, _ = _run(self._tool(), source_name="src", new_name=invalid_name)
+        assert not LLMSkill.objects.filter(team=self.team, name=invalid_name).exists()
+        assert "reserved" in result or "lowercase letters" in result or "64 characters" in result
 
     def test_conflict_when_destination_exists(self):
         LLMSkill.objects.create(
