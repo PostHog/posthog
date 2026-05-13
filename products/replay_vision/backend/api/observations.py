@@ -11,7 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.lenses import VISION_TAG
+from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_lens import ReplayLens
 from products.replay_vision.backend.models.replay_observation import (
@@ -43,7 +43,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="The `ReplayLens.lens_version` value at the moment the workflow ran.",
     )
-    # TODO: type against the same Pydantic shape used to validate `ReplayLens.lens_config` (deferred to follow-up PR)
+    # TODO: type against the same Pydantic shape used to validate `ReplayLens.lens_config`.
     lens_config_snapshot = serializers.JSONField(
         read_only=True,
         help_text="Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations.",
@@ -145,8 +145,7 @@ class ReplayObservationViewSet(
         lens = ReplayLens.objects.filter(team_id=self.team_id, id=lens_id).first()
         if lens is None:
             raise NotFound()
-        # Inherit RBAC denies on the parent lens, plus require session_recording read since
-        # observations expose session_id and model output derived from the recording.
+        # Observations expose recording-derived output, so observe inherits the lens's RBAC and also requires session_recording read.
         self.check_object_permissions(self.request, lens)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
