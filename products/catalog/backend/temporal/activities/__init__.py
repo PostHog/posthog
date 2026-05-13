@@ -6,6 +6,11 @@ from products.catalog.backend.temporal.activities.enumerate import (
     enumerate_system_tables,
     enumerate_warehouse_tables,
 )
+from products.catalog.backend.temporal.activities.propose import (
+    propose_native_fks,
+    propose_saved_query_lineage,
+    propose_warehouse_joins,
+)
 from products.catalog.backend.temporal.activities.run import (
     complete_traversal_run,
     create_traversal_run,
@@ -29,5 +34,8 @@ __all__ = [
     "enumerate_system_tables",
     "enumerate_warehouse_tables",
     "fail_traversal_run",
+    "propose_native_fks",
+    "propose_saved_query_lineage",
+    "propose_warehouse_joins",
     "upsert_node_batch",
 ]

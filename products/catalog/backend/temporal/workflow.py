@@ -24,6 +24,11 @@ from products.catalog.backend.temporal.activities.enumerate import (
     enumerate_system_tables,
     enumerate_warehouse_tables,
 )
+from products.catalog.backend.temporal.activities.propose import (
+    propose_native_fks,
+    propose_saved_query_lineage,
+    propose_warehouse_joins,
+)
 from products.catalog.backend.temporal.activities.run import (
     CompleteRunArgs,
     CreateRunArgs,
@@ -40,6 +45,9 @@ from products.catalog.backend.temporal.constants import (
     ENUMERATE_ACTIVITY_TIMEOUT,
     ENUMERATE_HEARTBEAT_TIMEOUT,
     ENUMERATE_SCHEDULE_TO_CLOSE_TIMEOUT,
+    PROPOSE_ACTIVITY_TIMEOUT,
+    PROPOSE_HEARTBEAT_TIMEOUT,
+    PROPOSE_SCHEDULE_TO_CLOSE_TIMEOUT,
     RUN_LIFECYCLE_ACTIVITY_TIMEOUT,
     RUN_LIFECYCLE_HEARTBEAT_TIMEOUT,
     RUN_LIFECYCLE_SCHEDULE_TO_CLOSE_TIMEOUT,
@@ -125,7 +133,23 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
                     counts.nodes += batch_result.nodes
                     counts.columns += batch_result.columns
 
-            # --- Relationship declaration lands in commit 4 ---
+            # --- Deterministic relationship declaration ---
+            # All three activities use CatalogAPI.propose_relationship with
+            # confidence=1.0, which the facade auto-accepts on first insert.
+            for propose_activity in (
+                propose_native_fks,
+                propose_warehouse_joins,
+                propose_saved_query_lineage,
+            ):
+                counts.relationships += await workflow.execute_activity(
+                    propose_activity,
+                    inputs.team_id,
+                    start_to_close_timeout=PROPOSE_ACTIVITY_TIMEOUT,
+                    schedule_to_close_timeout=PROPOSE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    heartbeat_timeout=PROPOSE_HEARTBEAT_TIMEOUT,
+                    retry_policy=DEFAULT_RETRY_POLICY,
+                )
+
             # --- Agentic phase activities follow in a later iteration ---
 
             await workflow.execute_activity(

@@ -42,3 +42,10 @@ UPSERT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=600)
 # Number of tables (with their columns) processed per upsert activity. Keeps
 # activity inputs well under Temporal's 2MiB payload limit and bounds retry cost.
 BATCH_SIZE = 25
+
+# Relationship-proposal activities walk a few hundred FKs / joins / saved
+# queries at most. Each iteration is a single facade write — generous timeouts
+# accommodate slow Postgres during DEBUG.
+PROPOSE_ACTIVITY_TIMEOUT = timedelta(seconds=120)
+PROPOSE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
+PROPOSE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=300)

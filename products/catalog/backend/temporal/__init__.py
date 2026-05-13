@@ -14,6 +14,9 @@ from products.catalog.backend.temporal.activities import (
     enumerate_system_tables,
     enumerate_warehouse_tables,
     fail_traversal_run,
+    propose_native_fks,
+    propose_saved_query_lineage,
+    propose_warehouse_joins,
     upsert_node_batch,
 )
 from products.catalog.backend.temporal.workflow import CatalogTraversalWorkflow
@@ -29,6 +32,9 @@ ACTIVITIES = [
     enumerate_system_tables,
     enumerate_posthog_tables,
     upsert_node_batch,
+    propose_native_fks,
+    propose_warehouse_joins,
+    propose_saved_query_lineage,
 ]
 
 __all__ = [
@@ -42,5 +48,8 @@ __all__ = [
     "enumerate_system_tables",
     "enumerate_warehouse_tables",
     "fail_traversal_run",
+    "propose_native_fks",
+    "propose_saved_query_lineage",
+    "propose_warehouse_joins",
     "upsert_node_batch",
 ]
