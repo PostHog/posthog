@@ -60,11 +60,15 @@ Steps:
 Evidence:
 
 - GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` when generated
-- Screenshot: `<link-or-relative-path>`
+- Screenshots: `<one-or-two-human-readable-screenshot-paths>`
 - Console: `<scrubbed excerpt or "none">`
 
 Fix status: auto-fixed in `<commit>` and re-verified with the same MCP flow.
 ```
+
+For clean runs, keep evidence concise. Mention the GIF and one or two key
+screenshots. Do not list every local snapshot markdown file in the PR comment;
+those are local debugging artifacts.
 
 For suggested patches:
 

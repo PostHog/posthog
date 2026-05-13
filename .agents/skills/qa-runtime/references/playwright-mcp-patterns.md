@@ -77,25 +77,27 @@ Prefer the PostHog workspace's existing browser tooling for screenshots: capture
 frames through Playwright MCP or the repo's existing `@playwright/test`
 dependency. Do not add screenshot or GIF packages to `package.json`.
 
-For stitching, prefer `ffmpeg` when available:
+For stitching, prefer `ffmpeg` when available. Do not blindly include every PNG
+in the run directory: choose 2-5 meaningful same-size key frames. Full-page
+screenshots with different heights can make GIFs look stretched or huge. Copy or
+symlink the selected frames into a temporary frame sequence first:
 
 ```bash
-ffmpeg -y -framerate 0.5 -pattern_type glob \
-  -i ".qa-runtime/runs/<run-id>/[0-9][0-9][0-9]-*.png" \
-  -vf "scale=960:-1:flags=lanczos,palettegen" \
-  -frames:v 1 -update 1 \
-  ".qa-runtime/runs/<run-id>/runtime-qa-palette.png"
+mkdir -p /tmp/qa-runtime-gif-<run-id>
+ln -sf "$PWD/.qa-runtime/runs/<run-id>/003-state-a.png" /tmp/qa-runtime-gif-<run-id>/frame-001.png
+ln -sf "$PWD/.qa-runtime/runs/<run-id>/011-state-b.png" /tmp/qa-runtime-gif-<run-id>/frame-002.png
+ln -sf "$PWD/.qa-runtime/runs/<run-id>/014-state-c.png" /tmp/qa-runtime-gif-<run-id>/frame-003.png
 
-ffmpeg -y -framerate 0.5 -pattern_type glob \
-  -i ".qa-runtime/runs/<run-id>/[0-9][0-9][0-9]-*.png" \
-  -i ".qa-runtime/runs/<run-id>/runtime-qa-palette.png" \
-  -lavfi "scale=960:-1:flags=lanczos[x];[x][1:v]paletteuse" \
+ffmpeg -y -framerate 0.5 \
+  -i "/tmp/qa-runtime-gif-<run-id>/frame-%03d.png" \
+  -vf "scale=900:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
   -loop 0 \
   ".qa-runtime/runs/<run-id>/runtime-qa.gif"
 ```
 
-This command was verified against real `.qa-runtime` screenshots. If `ffmpeg` is
-not available but another local GIF tool is, use that. If no GIF tool is already
+This command was verified against real `.qa-runtime` screenshots and produced a
+small readable GIF (about 226 KB for three 1200x942 frames). If `ffmpeg` is not
+available but another local GIF tool is, use that. If no GIF tool is already
 available, skip the GIF and keep the screenshots as the evidence.
 
 Keep paths relative in PR comments. Upload the bundle as a secret gist if the
