@@ -56,8 +56,12 @@ export const frequencyOptionsPlural: LemonSelectOptions<FrequencyOptionValue> = 
     { value: 'monthly', label: 'months' },
 ]
 
-export const hourlyFrequencyOptionSingular: LemonSelectOptions<FrequencyOptionValue> = [{ value: 'hourly', label: 'hour' }]
-export const hourlyFrequencyOptionPlural: LemonSelectOptions<FrequencyOptionValue> = [{ value: 'hourly', label: 'hours' }]
+export const hourlyFrequencyOptionSingular: LemonSelectOptions<FrequencyOptionValue> = [
+    { value: 'hourly', label: 'hour' },
+]
+export const hourlyFrequencyOptionPlural: LemonSelectOptions<FrequencyOptionValue> = [
+    { value: 'hourly', label: 'hours' },
+]
 
 export const weekdayOptions: LemonSelectOptionLeaf<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'

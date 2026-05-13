@@ -596,19 +596,27 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "AI summary context" in response.json()["detail"]
 
-    def test_cannot_create_hourly_subscription_when_feature_flag_disabled(self):
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+    @parameterized.expand(
+        [
+            ("flag_disabled_rejects", False, status.HTTP_403_FORBIDDEN, "Hourly subscriptions"),
+            ("flag_enabled_allows", True, status.HTTP_201_CREATED, "hourly"),
+        ]
+    )
+    def test_hourly_subscription_create_respects_feature_flag(
+        self,
+        _case_name: str,
+        flag_value: bool,
+        expected_status: int,
+        expected_fragment: str,
+    ):
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=flag_value):
             response = self._create_subscription(frequency="hourly")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "Hourly subscriptions" in response.json()["detail"]
-
-    def test_can_create_hourly_subscription_when_feature_flag_enabled(self):
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            response = self._create_subscription(frequency="hourly")
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["frequency"] == "hourly"
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_201_CREATED:
+            assert response.json()["frequency"] == expected_fragment
+        else:
+            assert expected_fragment in response.json()["detail"]
 
     def test_cannot_create_second_active_hourly_subscription_in_org(self):
         with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
