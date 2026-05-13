@@ -52,8 +52,8 @@ class SendNotificationForm(forms.Form):
         initial=Priority.NORMAL.value,
     )
     notification_style = forms.ChoiceField(
-        choices=NOTIFICATION_STYLE_CHOICES,
-        initial="pirate",
+        choices=[("", "---------"), *NOTIFICATION_STYLE_CHOICES],
+        required=True,
     )
     call_to_action = forms.CharField(
         max_length=255,
