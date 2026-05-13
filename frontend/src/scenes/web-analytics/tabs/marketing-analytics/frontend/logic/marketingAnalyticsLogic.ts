@@ -40,11 +40,33 @@ import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLog
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
+    NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
     validColumnsForTiles,
 } from './utils'
+
+/** Reported per native source: which drill-down hierarchy levels are syncing, and
+ * which schemas the user still needs to enable for the rest. Drives the empty-state
+ * banner shown at AD_GROUP / AD when a source isn't fully synced. */
+export type NativeSourceHierarchyStatus = {
+    sourceId: string
+    sourceType: NativeMarketingSource
+    supportsAdGroup: boolean
+    supportsAd: boolean
+    /** Schemas needed for AD_GROUP support that aren't currently syncing. Empty when
+     * `adGroupUnsupported` is true — the platform schema doesn't define this slot. */
+    missingForAdGroup: string[]
+    /** Schemas needed for AD support that aren't currently syncing. */
+    missingForAd: string[]
+    /** True when the source's schema config doesn't declare adset-level fields, so
+     * AD_GROUP can't be enabled by syncing more — the data import pipeline itself
+     * needs to be extended first. */
+    adGroupUnsupported: boolean
+    /** Same idea for AD level (e.g. LinkedIn: creatives aren't synced). */
+    adUnsupported: boolean
+}
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
@@ -207,7 +229,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         actions: [
             sourceManagementLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadDatabase'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'loadDatabase'],
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
@@ -258,6 +280,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
+        /**
+         * Refresh the cached source list so the AD_GROUP/AD warning banner reflects the
+         * latest schema sync settings. Set `reloadTilesAfter` when the caller needs
+         * tiles re-queried too (visibility-change flow). Drill-down changes don't need
+         * it because changing `drillDownLevel` already regenerates the tile queries.
+         */
+        refreshSourcesForBanner: ({ reloadTilesAfter = false }: { reloadTilesAfter?: boolean } = {}) => ({
+            reloadTilesAfter,
+        }),
     }),
     reducers({
         activeTab: [
@@ -518,18 +549,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         nativeSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources): ExternalDataSource[] => {
-                const nativeSources =
-                    dataWarehouseSources?.results.filter((source) =>
-                        VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
-                    ) ?? []
-                nativeSources.forEach((source) => {
-                    const neededFieldsWithSync =
-                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
-                    source.schemas = source.schemas.filter((schema) => neededFieldsWithSync.includes(schema.name))
-                })
-                return nativeSources
-            },
+            (dataWarehouseSources): ExternalDataSource[] =>
+                // Keep the full schema list per source — consumers like
+                // `nativeSourcesHierarchyStatus` need ad-level / ad-group-level
+                // schemas to evaluate banner state, and filtering them out here
+                // would also leak into other selectors that read `dataWarehouseSources`
+                // (the forEach below used to mutate the upstream objects).
+                dataWarehouseSources?.results.filter((source) =>
+                    VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
+                ) ?? [],
         ],
         validNativeSources: [
             (s) => [s.nativeSources, s.dataWarehouseTables],
@@ -567,6 +595,67 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
                 return generateUniqueName(baseName, existingNames)
             },
+        ],
+        nativeSourcesHierarchyStatus: [
+            (s) => [s.validNativeSources],
+            (validNativeSources: NativeSource[]): NativeSourceHierarchyStatus[] =>
+                // Mirror of the backend's `supports_level(AD_GROUP/AD)` check on each
+                // adapter — a source can serve AD_GROUP only when both its adset entity
+                // and adset stats schemas are actively syncing, and AD only when both
+                // ad entity + ad stats are syncing. We also flag platform-level gaps
+                // (`adGroupUnsupported` / `adUnsupported`) for sources whose schema
+                // doesn't define those slots at all (e.g. LinkedIn doesn't sync
+                // creatives, so AD-level is permanently unavailable until the data
+                // pipeline gains that resource).
+                validNativeSources.map(({ source }): NativeSourceHierarchyStatus => {
+                    const sourceType = source.source_type as NativeMarketingSource
+                    const hierarchy = NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES[sourceType] ?? {}
+
+                    const isSyncing = (schemaName: string): boolean =>
+                        findSchemaByFieldName(source.schemas, schemaName, source.source_type)?.should_sync ?? false
+
+                    const hasAdsetMetadata = !!(hierarchy.adset && hierarchy.adsetStats)
+                    const hasAdMetadata = !!(hierarchy.ad && hierarchy.adStats)
+
+                    const adsetReady =
+                        hasAdsetMetadata && isSyncing(hierarchy.adset!) && isSyncing(hierarchy.adsetStats!)
+                    const adReady = hasAdMetadata && isSyncing(hierarchy.ad!) && isSyncing(hierarchy.adStats!)
+
+                    // Dedupe via Set: in unified-report sources (Bing) the entity and
+                    // stats schema names are the same string, so the user only needs
+                    // to enable one schema to unblock the level.
+                    const missingForAdGroup: string[] = []
+                    if (hasAdsetMetadata) {
+                        const seen = new Set<string>()
+                        for (const schema of [hierarchy.adset!, hierarchy.adsetStats!]) {
+                            if (!seen.has(schema) && !isSyncing(schema)) {
+                                seen.add(schema)
+                                missingForAdGroup.push(schema)
+                            }
+                        }
+                    }
+                    const missingForAd: string[] = []
+                    if (hasAdMetadata) {
+                        const seen = new Set<string>()
+                        for (const schema of [hierarchy.ad!, hierarchy.adStats!]) {
+                            if (!seen.has(schema) && !isSyncing(schema)) {
+                                seen.add(schema)
+                                missingForAd.push(schema)
+                            }
+                        }
+                    }
+
+                    return {
+                        sourceId: source.id,
+                        sourceType,
+                        supportsAdGroup: adsetReady,
+                        supportsAd: adReady,
+                        missingForAdGroup,
+                        missingForAd,
+                        adGroupUnsupported: !hasAdsetMetadata,
+                        adUnsupported: !hasAdMetadata,
+                    }
+                }),
         ],
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
@@ -838,7 +927,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     // Note: We don't use urlToAction here to avoid sync loops.
     // URL params are read once on mount in afterMount instead.
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         const trackDashboardInteraction = (): void => {
             // Only track after initialization to avoid tracking initial render/setup
             if (!values.initialized) {
@@ -858,8 +947,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,
             setTileColumnSelection: trackDashboardInteraction,
+            // We intentionally don't trigger `refreshSourcesForBanner` from here.
+            // `loadSources` flips the shared `loading` flag, which makes
+            // `campaignCostsBreakdown` return null and unmounts the table tile on
+            // every drill-down switch. The banner stays fresh via
+            // `usePageVisibilityCb` in MarketingAnalyticsTable, which fires when
+            // the user returns to the tab after enabling schemas elsewhere.
             setDrillDownLevel: trackDashboardInteraction,
             reloadAll: trackDashboardInteraction,
+            refreshSourcesForBanner: ({ reloadTilesAfter }) => {
+                // `loadSources` / `loadSourcesSuccess` are shared with mount, source
+                // updates, schema toggles, etc. We track a FIFO queue of pending
+                // banner refreshes so concurrent calls can each claim their own
+                // success and the queue doesn't get sticky on failure. The queue
+                // is decremented in both `loadSourcesSuccess` and
+                // `loadSourcesFailure` below.
+                cache.pendingBannerRefreshes = [...(cache.pendingBannerRefreshes ?? []), { reloadTilesAfter }]
+                actions.loadSources()
+            },
             applyConversionGoal: [
                 () => {
                     const goal = {
@@ -922,15 +1027,39 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                 }
 
-                // Refresh warehouse tables so newly added source tables are picked up
-                actions.loadDatabase()
-
-                // Reload all queries to reflect the updated sources
-                actions.reloadAll()
+                // Refresh path: banner-only fetch (e.g. visibility-change). Skip
+                // `loadDatabase` — the banner reads from `dataWarehouseSources`,
+                // not tables. Caller decides via `reloadTilesAfter` whether tiles
+                // need re-querying (visibility path opts in to catch newly-added
+                // sources). FIFO queue claim so concurrent banner refreshes each
+                // get their own success.
+                const pendingBanner = cache.pendingBannerRefreshes ?? []
+                if (pendingBanner.length > 0) {
+                    const [claimed, ...rest] = pendingBanner
+                    cache.pendingBannerRefreshes = rest
+                    if (claimed.reloadTilesAfter) {
+                        actions.reloadAll()
+                    }
+                } else {
+                    // Default path: refresh warehouse tables so newly added source tables
+                    // are picked up, then reload all queries to reflect the updated sources.
+                    actions.loadDatabase()
+                    actions.reloadAll()
+                }
 
                 // Mark as initialized after initial data load to enable interaction tracking
                 if (!values.initialized) {
                     actions.setInitialized()
+                }
+            },
+            loadSourcesFailure: () => {
+                // Pop the oldest pending banner refresh so a failure doesn't leave
+                // the queue stuck — otherwise the next successful (non-banner)
+                // `loadSourcesSuccess` would be wrongly claimed by the banner queue
+                // and skip the warehouse-table reload.
+                const pendingBanner = cache.pendingBannerRefreshes ?? []
+                if (pendingBanner.length > 0) {
+                    cache.pendingBannerRefreshes = pendingBanner.slice(1)
                 }
             },
         }

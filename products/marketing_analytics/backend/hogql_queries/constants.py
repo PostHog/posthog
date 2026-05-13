@@ -552,6 +552,45 @@ INTEGRATION_PRIMARY_SOURCE = {
     source: _get_field_default(config, "primarySource") for source, config in _CONFIG_MODELS.items()
 }
 
+
+class HierarchySchemaNames(TypedDict, total=False):
+    """Schema names for the optional ad-group / ad warehouse tables of a native source.
+
+    Each field is independent: a source may declare adset-level only (LinkedIn lacks
+    creatives, only campaign-as-ad-group), the adset and ad pair (Meta / Google /
+    TikTok / Reddit / Pinterest / Snapchat), or none (campaign-only). When ad_table /
+    ad_stats_table are absent, AD drill-down is skipped for that source.
+
+    The factory uses these to wire the matching warehouse tables into the adapter
+    config — when the schema name (output of `_extract_schema_name`) matches one of
+    these constants, the table is set on the corresponding slot.
+    """
+
+    adset_table: str
+    adset_stats_table: str
+    ad_table: str
+    ad_stats_table: str
+
+
+# Per-source hierarchy schema names. Sources whose generated config carries the
+# optional `*TableName` fields support those drill-down levels. Unset levels fall
+# back to the campaign-only default (Bing pre-implementation example, or LinkedIn
+# at AD level since creatives aren't synced).
+def _hierarchy_for(config: type[BaseModel]) -> HierarchySchemaNames | None:
+    result: HierarchySchemaNames = {}
+    if "adsetTableName" in config.model_fields and "adsetStatsTableName" in config.model_fields:
+        result["adset_table"] = _get_field_default(config, "adsetTableName")
+        result["adset_stats_table"] = _get_field_default(config, "adsetStatsTableName")
+    if "adTableName" in config.model_fields and "adStatsTableName" in config.model_fields:
+        result["ad_table"] = _get_field_default(config, "adTableName")
+        result["ad_stats_table"] = _get_field_default(config, "adStatsTableName")
+    return result or None
+
+
+NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES: dict[NativeMarketingSource, HierarchySchemaNames] = {
+    source: hierarchy for source, config in _CONFIG_MODELS.items() if (hierarchy := _hierarchy_for(config)) is not None
+}
+
 INTEGRATION_DEFAULT_SOURCES = {
     source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
 }
