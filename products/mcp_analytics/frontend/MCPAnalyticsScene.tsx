@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
-import React from 'react'
 
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
@@ -10,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 
 export const scene: SceneExport = {
@@ -27,7 +27,7 @@ export function MCPAnalyticsScene(): JSX.Element {
         {
             key: 'dashboard',
             label: 'Dashboard',
-            content: <div>ABC</div>,
+            content: <MCPAnalyticsDashboard />,
             link: combineUrl(urls.mcpAnalyticsDashboard(), searchParams).url,
             'data-attr': 'mcp-analytics-dashboard-tab',
         },
