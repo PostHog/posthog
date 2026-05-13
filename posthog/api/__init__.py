@@ -74,6 +74,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
+from products.githog.backend.presentation.views import GitHogViewSet
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
     ClusteringJobViewSet,
@@ -1584,5 +1585,12 @@ environments_router.register(
     r"mcp_server_installations",
     mcp_store.MCPServerInstallationViewSet,
     "environment_mcp_server_installations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"githog",
+    GitHogViewSet,
+    "environment_githog",
     ["team_id"],
 )

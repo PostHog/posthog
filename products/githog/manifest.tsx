@@ -7,7 +7,7 @@ import { ProductItemCategory, ProductKey } from '../../frontend/src/queries/sche
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Githog',
+    name: 'GitHog',
     scenes: {
         GitHog: {
             name: 'GitHog',
@@ -15,13 +15,31 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/GitHogScene'),
             iconType: 'default_icon_type',
         },
+        GitHogRepo: {
+            name: 'GitHog repo',
+            projectBased: true,
+            import: () => import('./frontend/scenes/GitHogRepoScene'),
+            iconType: 'default_icon_type',
+        },
+        GitHogPullRequest: {
+            name: 'GitHog pull request',
+            projectBased: true,
+            import: () => import('./frontend/scenes/GitHogPullRequestScene'),
+            iconType: 'default_icon_type',
+        },
     },
     routes: {
         '/githog': ['GitHog', 'gitHog'],
+        '/githog/repos/:owner/:name': ['GitHogRepo', 'gitHogRepo'],
+        '/githog/repos/:owner/:name/pulls/:number': ['GitHogPullRequest', 'gitHogPullRequest'],
     },
     redirects: {},
     urls: {
         gitHog: (): string => '/githog',
+        gitHogRepo: (owner: string, name: string): string =>
+            `/githog/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+        gitHogPullRequest: (owner: string, name: string, number: number | string): string =>
+            `/githog/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

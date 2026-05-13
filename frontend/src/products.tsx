@@ -82,6 +82,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     GitHog: () => import('../../products/githog/frontend/scenes/GitHogScene'),
+    GitHogRepo: () => import('../../products/githog/frontend/scenes/GitHogRepoScene'),
+    GitHogPullRequest: () => import('../../products/githog/frontend/scenes/GitHogPullRequestScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -181,6 +183,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/githog': ['GitHog', 'gitHog'],
+    '/githog/repos/:owner/:name': ['GitHogRepo', 'gitHogRepo'],
+    '/githog/repos/:owner/:name/pulls/:number': ['GitHogPullRequest', 'gitHogPullRequest'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -391,6 +395,8 @@ export const productConfiguration: Record<string, any> = {
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     GitHog: { name: 'GitHog', projectBased: true, iconType: 'default_icon_type' },
+    GitHogRepo: { name: 'GitHog repo', projectBased: true, iconType: 'default_icon_type' },
+    GitHogPullRequest: { name: 'GitHog pull request', projectBased: true, iconType: 'default_icon_type' },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -794,6 +800,10 @@ export const productUrls = {
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     gitHog: (): string => '/githog',
+    gitHogRepo: (owner: string, name: string): string =>
+        `/githog/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+    gitHogPullRequest: (owner: string, name: string, number: number | string): string =>
+        `/githog/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     groupsNew: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}/new`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -1506,7 +1516,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: '/githog',
         iconType: 'default_icon_type',
         sceneKey: 'GitHog',
-        sceneKeys: ['GitHog'],
+        sceneKeys: ['GitHog', 'GitHogRepo', 'GitHogPullRequest'],
     },
     {
         path: 'Heatmaps',
