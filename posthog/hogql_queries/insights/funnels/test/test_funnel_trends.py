@@ -1391,7 +1391,17 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(results[1]["breakdown_value"], ["foo"])
             self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-    def test_funnel_hogql_breakdown_with_alias(self):
+    @parameterized.expand(
+        [
+            ("bare", "IF(distinct_id = 'user_two', NULL, 'foo') AS Label"),
+            ("double_quoted", "IF(distinct_id = 'user_two', NULL, 'foo') AS \"Some Group\""),
+            ("backticked", "IF(distinct_id = 'user_two', NULL, 'foo') AS `Some Group`"),
+            ("nested", "IF(distinct_id = 'user_two', NULL, 'foo') AS Inner AS \"Outer\""),
+            ("inside_call", "coalesce(IF(distinct_id = 'user_two', NULL, 'foo') AS Inner) AS \"Outer\""),
+            ("system_alias_collision", "IF(distinct_id = 'user_two', NULL, 'foo') AS value"),
+        ]
+    )
+    def test_funnel_hogql_breakdown_with_alias(self, _name: str, breakdown_expr: str):
         journeys_for(
             {
                 "user_one": [
@@ -1413,7 +1423,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        def _build_query(breakdown_expr: str) -> FunnelsQuery:
+        def _build_query(expr: str) -> FunnelsQuery:
             return FunnelsQuery(
                 dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-13 23:59:59"),
                 interval="day",
@@ -1422,7 +1432,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
                     EventsNode(event="step two"),
                     EventsNode(event="step three"),
                 ],
-                breakdownFilter=BreakdownFilter(breakdown=breakdown_expr, breakdown_type="hogql"),
+                breakdownFilter=BreakdownFilter(breakdown=expr, breakdown_type="hogql"),
                 funnelsFilter=FunnelsFilter(
                     funnelVizType="trends",
                     funnelWindowInterval=7,
@@ -1431,19 +1441,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
 
-        aliased = (
-            FunnelsQueryRunner(
-                query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo') AS \"Group\""),
-                team=self.team,
-            )
-            .calculate()
-            .results
-        )
+        aliased = FunnelsQueryRunner(query=_build_query(breakdown_expr), team=self.team).calculate().results
         baseline = (
-            FunnelsQueryRunner(
-                query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo')"),
-                team=self.team,
-            )
+            FunnelsQueryRunner(query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo')"), team=self.team)
             .calculate()
             .results
         )

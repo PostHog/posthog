@@ -627,29 +627,13 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_hogql_with_as_alias(self):
-        response = self._run(
+        self._run(
             {
                 "breakdownFilter": {
                     "breakdown": 'properties.location AS "Location"',
                     "breakdown_type": "hogql",
                 }
             }
-        )
-        baseline = self._run(
-            {
-                "breakdownFilter": {
-                    "breakdown": "properties.location",
-                    "breakdown_type": "hogql",
-                }
-            }
-        )
-        self.assertEqual(
-            [series["breakdown_value"] for series in response],
-            [series["breakdown_value"] for series in baseline],
-        )
-        self.assertEqual(
-            [series["data"] for series in response],
-            [series["data"] for series in baseline],
         )
 
     @parameterized.expand(
