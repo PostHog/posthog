@@ -433,6 +433,9 @@ SPECTACULAR_SETTINGS = {
         "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        # `inference_cadence` and `retraining_cadence` share the same Cadence StrEnum;
+        # without this they'd auto-name as InferenceCadenceEnum / RetrainingCadenceEnum.
+        "CadenceEnum": "products.automl.backend.facade.enums.Cadence",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

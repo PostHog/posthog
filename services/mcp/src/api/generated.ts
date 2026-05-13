@@ -4311,6 +4311,105 @@ export namespace Schemas {
       baseline_content: string;
     }
 
+    export type AutoMLPipelineDTOConfig = { [key: string]: unknown };
+
+    export type AutoMLPipelineDTOTrainingPopulation = { [key: string]: unknown };
+
+    export type AutoMLPipelineDTOInferencePopulation = { [key: string]: unknown };
+
+    /**
+     * * `clustering` - CLUSTERING
+    * `classification` - CLASSIFICATION
+    * `regression` - REGRESSION
+    * `forecasting` - FORECASTING
+     */
+    export type TaskTypeEnum = typeof TaskTypeEnum[keyof typeof TaskTypeEnum];
+
+
+    export const TaskTypeEnum = {
+      Clustering: 'clustering',
+      Classification: 'classification',
+      Regression: 'regression',
+      Forecasting: 'forecasting',
+    } as const;
+
+    /**
+     * * `draft` - DRAFT
+    * `bootstrap_pending` - BOOTSTRAP_PENDING
+    * `bootstrap_running` - BOOTSTRAP_RUNNING
+    * `active` - ACTIVE
+    * `paused` - PAUSED
+    * `archived` - ARCHIVED
+    * `failed` - FAILED
+     */
+    export type AutoMLPipelineDTOStatusEnum = typeof AutoMLPipelineDTOStatusEnum[keyof typeof AutoMLPipelineDTOStatusEnum];
+
+
+    export const AutoMLPipelineDTOStatusEnum = {
+      Draft: 'draft',
+      BootstrapPending: 'bootstrap_pending',
+      BootstrapRunning: 'bootstrap_running',
+      Active: 'active',
+      Paused: 'paused',
+      Archived: 'archived',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `shadow_only` - SHADOW_ONLY
+    * `champion_only` - CHAMPION_ONLY
+    * `promote_eligible` - PROMOTE_ELIGIBLE
+     */
+    export type AutonomyEnum = typeof AutonomyEnum[keyof typeof AutonomyEnum];
+
+
+    export const AutonomyEnum = {
+      ShadowOnly: 'shadow_only',
+      ChampionOnly: 'champion_only',
+      PromoteEligible: 'promote_eligible',
+    } as const;
+
+    /**
+     * * `hourly` - HOURLY
+    * `daily` - DAILY
+    * `weekly` - WEEKLY
+    * `monthly` - MONTHLY
+    * `never` - NEVER
+     */
+    export type CadenceEnum = typeof CadenceEnum[keyof typeof CadenceEnum];
+
+
+    export const CadenceEnum = {
+      Hourly: 'hourly',
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Never: 'never',
+    } as const;
+
+    /**
+     * Output shape of an AutoML pipeline.
+     */
+    export interface AutoMLPipelineDTO {
+      id: string;
+      team_id: number;
+      name: string;
+      description: string;
+      task_type: TaskTypeEnum;
+      status: AutoMLPipelineDTOStatusEnum;
+      autonomy: AutonomyEnum;
+      config: AutoMLPipelineDTOConfig;
+      training_population: AutoMLPipelineDTOTrainingPopulation;
+      inference_population: AutoMLPipelineDTOInferencePopulation;
+      inference_cadence: CadenceEnum;
+      retraining_cadence: CadenceEnum;
+      output_property_name: string;
+      /** @nullable */
+      created_by_id: number | null;
+      created_at: string;
+      updated_at: string;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -8027,6 +8126,31 @@ export namespace Schemas {
       company_address: string;
       /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
+    }
+
+    export type CreatePipelineInputConfig = { [key: string]: unknown };
+
+    export type CreatePipelineInputTrainingPopulation = { [key: string]: unknown };
+
+    export type CreatePipelineInputInferencePopulation = { [key: string]: unknown };
+
+    /**
+     * Request body for ``POST /automl_pipelines/``.
+
+    ``team_id`` and ``created_by_id`` are injected by the view from the
+    request scope and aren't part of the DTO.
+     */
+    export interface CreatePipelineInput {
+      name: string;
+      task_type: TaskTypeEnum;
+      config: CreatePipelineInputConfig;
+      training_population: CreatePipelineInputTrainingPopulation;
+      inference_population: CreatePipelineInputInferencePopulation;
+      description?: string;
+      autonomy?: AutonomyEnum;
+      inference_cadence?: CadenceEnum;
+      retraining_cadence?: CadenceEnum;
+      output_property_name?: string;
     }
 
     /**
@@ -20807,6 +20931,15 @@ export namespace Schemas {
       results?: AsyncDeletionStatus[];
     }
 
+    export interface PaginatedAutoMLPipelineDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoMLPipelineDTO[];
+    }
+
     export interface PaginatedBatchExportBackfillList {
       /** @nullable */
       next?: string | null;
@@ -29678,6 +29811,49 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type PatchedUpdatePipelineInputConfig = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type PatchedUpdatePipelineInputTrainingPopulation = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type PatchedUpdatePipelineInputInferencePopulation = { [key: string]: unknown } | null;
+
+    export type PatchedUpdatePipelineInputExtra = { [key: string]: unknown };
+
+    /**
+     * Request body for ``PATCH /automl_pipelines/{id}/``.
+
+    All fields are optional; ``None`` means leave unchanged. Status
+    transitions go through the dedicated start / pause / resume / archive
+    actions instead of this endpoint.
+     */
+    export interface PatchedUpdatePipelineInput {
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      description?: string | null;
+      autonomy?: AutonomyEnum | null;
+      inference_cadence?: CadenceEnum | null;
+      retraining_cadence?: CadenceEnum | null;
+      /** @nullable */
+      output_property_name?: string | null;
+      /** @nullable */
+      config?: PatchedUpdatePipelineInputConfig;
+      /** @nullable */
+      training_population?: PatchedUpdatePipelineInputTrainingPopulation;
+      /** @nullable */
+      inference_population?: PatchedUpdatePipelineInputInferencePopulation;
+      extra?: PatchedUpdatePipelineInputExtra;
     }
 
     /**
@@ -40001,6 +40177,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AutomlPipelinesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type BatchExportsListParams = {
