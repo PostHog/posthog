@@ -1,9 +1,8 @@
 from unittest.mock import patch
 
-from posthog.temporal.mcp_analytics.labeling import (
-    _heuristic_gap_score,
-    label_cluster,
-)
+from parameterized import parameterized
+
+from posthog.temporal.mcp_analytics.labeling import _heuristic_gap_score, label_cluster
 from posthog.temporal.mcp_analytics.models import IntentStat
 
 
@@ -26,27 +25,36 @@ def _stat(
 
 
 class TestHeuristicGapScore:
-    def test_empty_samples_returns_zero(self) -> None:
-        assert _heuristic_gap_score([]) == 0.0
-
-    def test_low_signal_returns_low_score(self) -> None:
-        # All calls succeed, single dominant tool: this isn't a gap.
-        score = _heuristic_gap_score([_stat("query", total=10, errors=0, empty=0, distinct_tools=1)])
-        assert score < 0.1
-
-    def test_high_failure_returns_high_score(self) -> None:
-        # All calls fail, agent shopping across many tools: high gap signal.
-        score = _heuristic_gap_score(
-            [_stat("export dashboard as pdf", total=10, errors=10, empty=0, distinct_tools=5)]
-        )
-        assert score > 0.5
-
-    def test_empty_responses_contribute(self) -> None:
-        score = _heuristic_gap_score(
-            [_stat("send slack message", total=10, errors=0, empty=10, distinct_tools=2)]
-        )
-        # 0.3 * 1.0 (empty) + 0.3 * min(2/5, 1) = 0.3 + 0.12 = 0.42
-        assert 0.4 < score < 0.5
+    @parameterized.expand(
+        [
+            # (case_label, samples, min_inclusive, max_exclusive)
+            ("empty_samples", [], 0.0, 0.0001),
+            (
+                "low_signal_low_score",
+                [_stat("query", total=10, errors=0, empty=0, distinct_tools=1)],
+                0.0,
+                0.1,
+            ),
+            (
+                "high_failure_high_score",
+                [_stat("export dashboard as pdf", total=10, errors=10, empty=0, distinct_tools=5)],
+                0.5,
+                1.01,
+            ),
+            (
+                "empty_responses_contribute",
+                # 0.3 * 1.0 (empty rate) + 0.3 * min(2/5, 1) = 0.3 + 0.12 = 0.42
+                [_stat("send slack message", total=10, errors=0, empty=10, distinct_tools=2)],
+                0.4,
+                0.5,
+            ),
+        ]
+    )
+    def test_heuristic_gap_score_range(
+        self, _name: str, samples: list[IntentStat], min_inclusive: float, max_exclusive: float
+    ) -> None:
+        score = _heuristic_gap_score(samples)
+        assert min_inclusive <= score < max_exclusive, f"{score} not in [{min_inclusive}, {max_exclusive})"
 
 
 class TestLabelClusterFallback:
@@ -61,7 +69,6 @@ class TestLabelClusterFallback:
         ):
             label = label_cluster(samples)
 
-        # The fallback should preserve the dominant intent as title and produce a non-zero gap_score
         assert "export" in label.title.lower()
         assert label.gap_score > 0.0
         assert "fallback" in label.description.lower()

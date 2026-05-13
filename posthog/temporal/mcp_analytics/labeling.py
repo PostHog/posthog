@@ -9,10 +9,10 @@ import json
 import structlog
 from pydantic import BaseModel, Field
 
+from posthog.temporal.mcp_analytics.models import ClusterLabel, IntentStat
+
 from products.llm_analytics.backend.llm import Client, CompletionRequest
 from products.llm_analytics.backend.llm.config import get_eval_config
-
-from posthog.temporal.mcp_analytics.models import ClusterLabel, IntentStat
 
 logger = structlog.get_logger(__name__)
 

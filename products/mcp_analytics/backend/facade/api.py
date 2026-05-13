@@ -1,6 +1,4 @@
-from posthog.hogql_queries.mcp_analytics.missing_tools_query_runner import (
-    MissingToolsCandidatesRunner,
-)
+from posthog.hogql_queries.mcp_analytics.missing_tools_query_runner import MissingToolsCandidatesRunner
 from posthog.models.team.team import Team
 from posthog.models.user import User
 

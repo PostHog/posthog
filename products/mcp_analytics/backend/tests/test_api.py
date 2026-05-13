@@ -1,9 +1,10 @@
 import uuid
 from datetime import UTC, datetime
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from posthog.models.event.util import create_event
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission

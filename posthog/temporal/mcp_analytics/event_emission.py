@@ -1,7 +1,7 @@
 """Emit $mcp_intent_clusters events to ClickHouse."""
 
-import dataclasses
 import uuid
+import dataclasses
 from typing import Any
 
 from posthog.models.event.util import create_event
@@ -10,13 +10,12 @@ from posthog.temporal.mcp_analytics.constants import EVENT_NAME_INTENT_CLUSTERS
 from posthog.temporal.mcp_analytics.models import IntentClusteringResult
 
 
-def emit_intent_clusters_event(team_id: int, result: IntentClusteringResult) -> uuid.UUID:
+def emit_intent_clusters_event(team: Team, result: IntentClusteringResult) -> uuid.UUID:
     """Write the final clustering result as a single $mcp_intent_clusters event.
 
     The frontend reads this event as the latest snapshot of candidate missing tools,
     same pattern as $ai_trace_clusters for LLM analytics.
     """
-    team = Team.objects.get(id=team_id)
     event_uuid = uuid.uuid4()
 
     properties: dict[str, Any] = {
@@ -31,7 +30,7 @@ def emit_intent_clusters_event(team_id: int, result: IntentClusteringResult) -> 
         event_uuid=event_uuid,
         event=EVENT_NAME_INTENT_CLUSTERS,
         team=team,
-        distinct_id=f"mcp_analytics_clustering_{team_id}",
+        distinct_id=f"mcp_analytics_clustering_{team.id}",
         properties=properties,
     )
     return event_uuid

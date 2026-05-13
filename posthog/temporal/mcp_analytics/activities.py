@@ -13,9 +13,10 @@ fold those into the compute step since we already have the data joined).
 import asyncio
 from datetime import datetime
 
+from django.utils.dateparse import parse_datetime
+
 import numpy as np
 import structlog
-from django.utils.dateparse import parse_datetime
 from temporalio import activity
 
 from posthog.api.embedding_worker import emit_embedding_request
@@ -48,9 +49,9 @@ from posthog.temporal.mcp_analytics.models import (
     EmbeddingEmitActivityInputs,
     EmbeddingEmitResult,
     IntentCluster,
-    IntentClusterMember,
     IntentClusteringActivityInputs,
     IntentClusteringResult,
+    IntentClusterMember,
     IntentStat,
 )
 
@@ -79,6 +80,7 @@ def _emit_mcp_embedding_requests(inputs: EmbeddingEmitActivityInputs) -> Embeddi
         team=team,
         document_type=INTENT_DOCUMENT_TYPE,
         embedding_model=inputs.embedding_model,
+        since=window_start,
     )
     intents_emitted = 0
     for stat in intent_stats:
@@ -112,6 +114,7 @@ def _emit_mcp_embedding_requests(inputs: EmbeddingEmitActivityInputs) -> Embeddi
         team=team,
         document_type=AI_SPAN_REASONING_DOCUMENT_TYPE,
         embedding_model=inputs.embedding_model,
+        since=window_start,
     )
     spans_emitted = 0
     for document_id, content in span_snippets:
@@ -177,7 +180,7 @@ def _cluster_intents(inputs: IntentClusteringActivityInputs) -> IntentClustering
             num_intents_analyzed=len(intent_stats),
             clusters=[],
         )
-        emit_intent_clusters_event(inputs.team_id, result)
+        emit_intent_clusters_event(team, result)
         return result
 
     embeddings_map = fetch_intent_embeddings(
@@ -210,7 +213,7 @@ def _cluster_intents(inputs: IntentClusteringActivityInputs) -> IntentClustering
             num_intents_analyzed=len(aligned_stats),
             clusters=[],
         )
-        emit_intent_clusters_event(inputs.team_id, result)
+        emit_intent_clusters_event(team, result)
         return result
 
     embedding_array = np.array(aligned_embeddings, dtype=np.float32)
@@ -240,7 +243,7 @@ def _cluster_intents(inputs: IntentClusteringActivityInputs) -> IntentClustering
         num_intents_analyzed=len(aligned_stats),
         clusters=clusters,
     )
-    emit_intent_clusters_event(inputs.team_id, result)
+    emit_intent_clusters_event(team, result)
     return result
 
 
@@ -262,9 +265,12 @@ def _build_intent_clusters(
     Noise cluster (-1) is intentionally excluded — by definition those items don't
     form a coherent intent group and shouldn't surface as a "missing tool" candidate.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     non_noise_ids = sorted({int(c) for c in labels if c != NOISE_CLUSTER_ID})
 
-    clusters: list[IntentCluster] = []
+    # Pre-compute per-cluster member lists and aggregates without calling the LLM.
+    pending: list[tuple[int, list[IntentClusterMember], list[float], list[IntentStat]]] = []
     for cluster_id in non_noise_ids:
         member_indices = [int(i) for i, lab in enumerate(labels) if lab == cluster_id]
         if not member_indices:
@@ -287,14 +293,23 @@ def _build_intent_clusters(
             )
             for idx in order
         ]
+        pending.append((cluster_id, members, list(centroid_vec), member_stats))
 
-        # Label using up to 15 closest intents to the centroid (most representative).
-        label = label_cluster([m.stat for m in members[:15]])
+    # Fan out LLM labeling so the activity's wall time isn't N * one-call-latency.
+    # Each label_cluster() is a single blocking HTTP call; bounding concurrency keeps
+    # us inside provider rate limits.
+    label_inputs = [[m.stat for m in members[:15]] for _, members, _, _ in pending]
+    if not label_inputs:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(label_inputs), 8)) as executor:
+        labels_out = list(executor.map(label_cluster, label_inputs))
+
+    clusters: list[IntentCluster] = []
+    for (cluster_id, members, centroid_vec, member_stats), label in zip(pending, labels_out):
         total_calls = sum(s.total_calls for s in member_stats)
         total_errors = sum(s.error_count for s in member_stats)
         total_empty = sum(s.empty_response_count for s in member_stats)
         avg_distinct = sum(s.distinct_tools_attempted for s in member_stats) / len(member_stats)
-
         clusters.append(
             IntentCluster(
                 cluster_id=cluster_id,
@@ -302,7 +317,7 @@ def _build_intent_clusters(
                 title=label.title,
                 description=label.description,
                 gap_score=label.gap_score,
-                centroid=list(centroid_vec),
+                centroid=centroid_vec,
                 members=members,
                 aggregate_error_rate=(total_errors / total_calls) if total_calls else 0.0,
                 aggregate_empty_rate=(total_empty / total_calls) if total_calls else 0.0,

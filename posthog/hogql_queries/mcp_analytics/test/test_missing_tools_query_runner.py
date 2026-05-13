@@ -1,15 +1,15 @@
 import uuid
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import patch
 
-from posthog.models.event.util import create_event
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.hogql_queries.mcp_analytics.missing_tools_query_runner import (
     MissingToolsCandidatesParams,
     MissingToolsCandidatesRunner,
 )
+from posthog.models.event.util import create_event
 
 
 def _emit_intent_clusters_event(team, clusters_payload: dict[str, Any]) -> None:
@@ -138,21 +138,13 @@ class TestMissingToolsQueryRunner(ClickhouseTestMixin, BaseTest):
 
         gaps_by_probe = {
             "probe-a": [
-                LLMStatedGapDTO(
-                    probe_phrase="probe-a", matched_text="alpha", distance=0.1, document_id="doc-1"
-                ),
-                LLMStatedGapDTO(
-                    probe_phrase="probe-a", matched_text="beta", distance=0.3, document_id="doc-2"
-                ),
+                LLMStatedGapDTO(probe_phrase="probe-a", matched_text="alpha", distance=0.1, document_id="doc-1"),
+                LLMStatedGapDTO(probe_phrase="probe-a", matched_text="beta", distance=0.3, document_id="doc-2"),
             ],
             "probe-b": [
                 # Same document seen via a different probe at a closer distance — should win.
-                LLMStatedGapDTO(
-                    probe_phrase="probe-b", matched_text="alpha-v2", distance=0.05, document_id="doc-1"
-                ),
-                LLMStatedGapDTO(
-                    probe_phrase="probe-b", matched_text="gamma", distance=0.4, document_id="doc-3"
-                ),
+                LLMStatedGapDTO(probe_phrase="probe-b", matched_text="alpha-v2", distance=0.05, document_id="doc-1"),
+                LLMStatedGapDTO(probe_phrase="probe-b", matched_text="gamma", distance=0.4, document_id="doc-3"),
             ],
         }
 

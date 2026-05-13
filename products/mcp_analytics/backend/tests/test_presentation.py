@@ -1,12 +1,13 @@
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import patch
 
-from posthog.models.event.util import create_event
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models.event.util import create_event
 
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 

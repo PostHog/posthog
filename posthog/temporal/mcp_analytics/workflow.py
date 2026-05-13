@@ -6,10 +6,7 @@ from datetime import timedelta
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.mcp_analytics.activities import (
-    cluster_intents_activity,
-    emit_mcp_embedding_requests_activity,
-)
+from posthog.temporal.mcp_analytics.activities import cluster_intents_activity, emit_mcp_embedding_requests_activity
 from posthog.temporal.mcp_analytics.constants import (
     COMPUTE_ACTIVITY_TIMEOUT,
     DEFAULT_RETRY_POLICY,

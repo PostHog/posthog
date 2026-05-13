@@ -12,7 +12,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.mcp_analytics.constants import (
-    AI_SPAN_REASONING_DOCUMENT_TYPE,
     INTENT_DOCUMENT_TYPE,
     MAX_SPAN_REASONING_CHARS,
     MCP_ANALYTICS_PRODUCT,
@@ -45,7 +44,9 @@ def fetch_intent_stats(
             countIf(properties.$mcp_is_error = 'true' OR properties.$mcp_is_error = true) as error_count,
             countIf(empty(toString(properties.$mcp_response))) as empty_response_count,
             uniqExact(properties.$mcp_tool_name) as distinct_tools_attempted,
-            argMax(properties.$mcp_tool_name, count()) as dominant_tool,
+            -- ClickHouse rejects nested aggregates (`argMax(x, count())`), so use
+            -- topK(1) which returns an array of the most-frequent value.
+            topK(1)(properties.$mcp_tool_name)[1] as dominant_tool,
             groupArray(3)(properties.$session_id) as sample_session_ids
         FROM events
         WHERE event = 'mcp_tool_call'
@@ -161,12 +162,17 @@ def fetch_already_embedded_document_ids(
     team: Team,
     document_type: str,
     embedding_model: str,
+    since: datetime,
 ) -> set[str]:
     """Look up which document_ids the embedding worker has already processed.
 
     Used by the embedding-emit activity to skip re-emitting requests for documents
     we already have embeddings for. The lookup uses the model-specific indexed
     table via the document_embeddings lazy table.
+
+    `since` bounds the lookup so we don't scan months of accumulated embeddings on
+    every daily run — caller should pass the start of the current lookback window.
+    Anything older than that is outside the workflow's working set anyway.
     """
     query = parse_select(
         """
@@ -175,6 +181,7 @@ def fetch_already_embedded_document_ids(
         WHERE model_name = {model_name}
             AND product = {product}
             AND document_type = {document_type}
+            AND timestamp >= {since}
         """
     )
 
@@ -182,6 +189,7 @@ def fetch_already_embedded_document_ids(
         "model_name": ast.Constant(value=embedding_model),
         "product": ast.Constant(value=MCP_ANALYTICS_PRODUCT),
         "document_type": ast.Constant(value=document_type),
+        "since": ast.Constant(value=since),
     }
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
@@ -239,5 +247,3 @@ def fetch_intent_embeddings(
         if doc_id and embedding and len(embedding) > 0:
             embeddings[doc_id] = list(embedding)
     return embeddings
-
-

@@ -13,6 +13,7 @@ semantic search runs at query time (~1-2 s on the indexed embedding table).
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -200,11 +201,20 @@ class MissingToolsCandidatesRunner:
         )
 
     def _search_llm_stated_gaps(self) -> list[LLMStatedGapDTO]:
-        probes = self.params.probe_phrases or DEFAULT_GAP_PROBE_PHRASES
+        # `is None` rather than `or` so callers can opt out by passing []. Falling
+        # through to DEFAULT_GAP_PROBE_PHRASES on `[]` was a footgun: every test
+        # that thought it was disabling the semantic search was actually still
+        # hitting the embedding worker.
+        probes = DEFAULT_GAP_PROBE_PHRASES if self.params.probe_phrases is None else self.params.probe_phrases
+        if not probes:
+            return []
+        # Probes are independent network round-trips (embedText + ClickHouse). Fan
+        # them out so endpoint latency is bounded by the slowest single probe rather
+        # than the sum across all probes.
         results: list[LLMStatedGapDTO] = []
-        for probe in probes:
-            for row in self._search_one_probe(probe):
-                results.append(row)
+        with ThreadPoolExecutor(max_workers=min(len(probes), 5)) as executor:
+            for rows in executor.map(self._search_one_probe, probes):
+                results.extend(rows)
         # Deduplicate by document_id, keep the closest match across probes
         deduped: dict[str, LLMStatedGapDTO] = {}
         for r in results:

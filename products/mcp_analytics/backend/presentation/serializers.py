@@ -170,7 +170,9 @@ class MCPIntentClusterSerializer(serializers.Serializer):
 class MCPLLMStatedGapSerializer(serializers.Serializer):
     probe_phrase = serializers.CharField(help_text="The probe phrase whose semantic neighborhood produced this match.")
     matched_text = serializers.CharField(help_text="The $ai_span reasoning text fragment that matched the probe.")
-    distance = serializers.FloatField(help_text="Cosine distance between the probe and the matched text (lower = closer).")
+    distance = serializers.FloatField(
+        help_text="Cosine distance between the probe and the matched text (lower = closer)."
+    )
     document_id = serializers.CharField(help_text="UUID of the $ai_span event for linking back to its trace.")
     timestamp = serializers.DateTimeField(
         allow_null=True,

@@ -26,10 +26,7 @@ from posthog.temporal.mcp_analytics.constants import (
     INTENT_CLUSTERING_SCHEDULE_ID,
     INTENT_CLUSTERING_WORKFLOW_NAME,
 )
-from posthog.temporal.mcp_analytics.models import (
-    EmbeddingEmitWorkflowInputs,
-    IntentClusteringWorkflowInputs,
-)
+from posthog.temporal.mcp_analytics.models import EmbeddingEmitWorkflowInputs, IntentClusteringWorkflowInputs
 
 
 def _schedule_id_for_team(prefix: str, team_id: int) -> str:
