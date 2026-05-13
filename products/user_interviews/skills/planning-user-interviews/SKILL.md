@@ -1,6 +1,6 @@
 ---
 name: planning-user-interviews
-description: "Plan a user interview topic in PostHog — pick who to target (cohort, emails, or PostHog distinct IDs), draft what to ask about, and prepare the voice-agent context plus a question list. Use when the user asks to \"talk to users\", \"check how users feel about X\", \"interview some customers\", \"set up a user interview\", \"run a user-research call\", \"find users to ask about Y\", or otherwise wants qualitative feedback through a conversation. Walks the user through targeting (cohorts-list, persons-list, or accepting emails / distinct IDs directly), captures the topic, and prompts for agent context and questions before calling user-interview-topics-create. Do NOT trigger when the user is uploading a recorded interview audio file (that's the separate UserInterview/transcript flow) or only browsing existing topics with user-interview-topics-list."
+description: 'Plan a user interview topic in PostHog — pick who to target (cohort, emails, or PostHog distinct IDs), draft what to ask about, and prepare the voice-agent context plus a question list. Use when the user asks to "talk to users", "check how users feel about X", "interview some customers", "set up a user interview", "run a user-research call", "find users to ask about Y", or otherwise wants qualitative feedback through a conversation. Walks the user through targeting (cohorts-list, persons-list, or accepting emails / distinct IDs directly), captures the topic, and prompts for agent context and questions before calling user-interview-topics-create. Do NOT trigger when the user is uploading a recorded interview audio file (that''s the separate UserInterview/transcript flow) or only browsing existing topics with user-interview-topics-list.'
 ---
 
 # Planning user interviews
@@ -12,9 +12,9 @@ Use this skill when someone asks to set up a user interview — to talk to custo
 Before calling `user-interview-topics-create`, gather these:
 
 1. **Who to interview** — at least one of:
-    - `interviewee_cohort` — an existing cohort ID
-    - `interviewee_emails` — list of email addresses
-    - `interviewee_distinct_ids` — list of PostHog distinct IDs
+   - `interviewee_cohort` — an existing cohort ID
+   - `interviewee_emails` — list of email addresses
+   - `interviewee_distinct_ids` — list of PostHog distinct IDs
 2. **What to ask about** — `topic` (required free text)
 3. **How the agent should frame the conversation** — optional `agent_context` (extra system prompt)
 4. **The questions to work through** — optional ordered `questions` list
@@ -29,9 +29,9 @@ Map what the user said to one of three paths:
 - **They described the kind of person but no cohort exists** — offer to either create the cohort first (`cohorts-create`) or fall back to listing specific people.
 - **They gave email addresses or distinct IDs** — accept them directly. Skip the cohort lookup.
 - **They were vague** ("a few customers", "some power users") — ask which they prefer:
-    - Pick an existing cohort → `cohorts-list`
-    - Look up specific persons by name or email → `persons-list` with a search query
-    - Paste a list of email addresses
+  - Pick an existing cohort → `cohorts-list`
+  - Look up specific persons by name or email → `persons-list` with a search query
+  - Paste a list of email addresses
 
 Each email passes through DRF email validation (display-name format `Paul D'Ambra <paul@x.com>` is accepted alongside plain `paul@x.com`).
 
@@ -79,15 +79,15 @@ Once you have the pieces:
 
 ```json
 {
-    "topic": "Why trial users churned in week 2",
-    "interviewee_cohort": 42,
-    "interviewee_emails": ["paul@acme.com"],
-    "agent_context": "Be warm. The interviewee just churned — don't pitch.",
-    "questions": [
-        "What were you hoping PostHog would help with?",
-        "Where did you get stuck?",
-        "What would have made you stay?"
-    ]
+  "topic": "Why trial users churned in week 2",
+  "interviewee_cohort": 42,
+  "interviewee_emails": ["paul@acme.com"],
+  "agent_context": "Be warm. The interviewee just churned — don't pitch.",
+  "questions": [
+    "What were you hoping PostHog would help with?",
+    "Where did you get stuck?",
+    "What would have made you stay?"
+  ]
 }
 ```
 
