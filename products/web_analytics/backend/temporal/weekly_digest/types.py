@@ -34,7 +34,6 @@ class WAWeeklyDigestInput:
     dry_run: bool = False
     batch_size: int = 25
     max_concurrent: int = 4
-    rollout_percentage: float = 1.0
     failure_threshold: float = 0.2
     active_since_days: int | None = 30
     org_ids: list[str] | None = None

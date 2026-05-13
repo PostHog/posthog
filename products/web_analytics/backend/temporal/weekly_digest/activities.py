@@ -24,7 +24,6 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.rollout import filter_ids_for_rollout
 from posthog.user_permissions import UserPermissions
 
 from products.web_analytics.backend.temporal.weekly_digest.types import (
@@ -106,14 +105,8 @@ def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
         source = "configured"
     else:
         qs, cutoff = _get_org_queryset_for_digest(workflow_input)
-        if workflow_input.rollout_percentage < 1.0:
-            all_ids = [str(oid) for oid in qs.order_by("id").values_list("id", flat=True)]
-            filtered = filter_ids_for_rollout(all_ids, workflow_input.rollout_percentage)
-            page_org_ids, next_cursor = _paginate_index(filtered, input.cursor, input.page_size)
-            source = "rollout"
-        else:
-            page_org_ids, next_cursor = _paginate_keyset(qs, input.cursor, input.page_size)
-            source = "keyset"
+        page_org_ids, next_cursor = _paginate_keyset(qs, input.cursor, input.page_size)
+        source = "keyset"
 
     batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size)]
     logger.info(
@@ -126,7 +119,6 @@ def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
         next_cursor=next_cursor,
         active_since_days=workflow_input.active_since_days,
         cutoff=cutoff.isoformat() if cutoff else None,
-        rollout_pct=workflow_input.rollout_percentage if workflow_input.rollout_percentage < 1.0 else None,
     )
     return OrgBatchPageResult(batches=batches, cursor=next_cursor)
 

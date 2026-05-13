@@ -1,4 +1,3 @@
-import math
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -447,49 +446,6 @@ class TestGetOrgBatchPage(APIBaseTest):
         )
         assert [oid for batch in second_page.batches for oid in batch] == ["3333"]
         assert second_page.cursor is None
-
-    def test_admin_org_ids_override_bypasses_rollout(self):
-        override = [f"org-{i:04d}" for i in range(20)]
-        page = _get_org_batch_page(
-            OrgBatchPageInput(
-                workflow_input=WAWeeklyDigestInput(org_ids=override, rollout_percentage=0.1, batch_size=100)
-            )
-        )
-        flat = [oid for batch in page.batches for oid in batch]
-        assert flat == override
-
-    @parameterized.expand(
-        [
-            ("ten_percent", 0.1),
-            ("fifty_percent", 0.5),
-        ]
-    )
-    def test_rollout_filter_is_deterministic(self, _name, percentage):
-        all_org_ids = [f"org-{i:04d}" for i in range(100)]
-        with patch("products.web_analytics.backend.temporal.weekly_digest.activities.Organization") as mock_org_model:
-            mock_org_model.objects.all.return_value.order_by.return_value.values_list.return_value = all_org_ids
-            first = _get_org_batch_page(
-                OrgBatchPageInput(
-                    workflow_input=WAWeeklyDigestInput(
-                        rollout_percentage=percentage,
-                        batch_size=10,
-                        active_since_days=None,
-                    )
-                )
-            )
-            second = _get_org_batch_page(
-                OrgBatchPageInput(
-                    workflow_input=WAWeeklyDigestInput(
-                        rollout_percentage=percentage,
-                        batch_size=10,
-                        active_since_days=None,
-                    )
-                )
-            )
-        first_flat = [oid for batch in first.batches for oid in batch]
-        second_flat = [oid for batch in second.batches for oid in batch]
-        assert first_flat == second_flat
-        assert len(first_flat) == math.ceil(100 * percentage)
 
 
 class TestRunWaDigestBatch(APIBaseTest):
