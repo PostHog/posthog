@@ -67,7 +67,11 @@ class KeyringSecretStore implements SecretStore {
   }
 
   set(key: SecretKey, value: string): void {
-    this.entry(key).setPassword(value)
+    try {
+      this.entry(key).setPassword(value)
+    } catch (err) {
+      throw new Error(`Failed to store credential '${key}' in the OS keychain`, { cause: err })
+    }
   }
 
   delete(key: SecretKey): void {
@@ -123,7 +127,6 @@ function createSecretStore(conf: Conf<CLIConfig>): { store: SecretStore; backend
 export class ConfigManager {
   private conf: Conf<CLIConfig>
   private secrets: SecretStore
-  private secretBackend: 'keyring' | 'file'
 
   constructor() {
     this.conf = new Conf<CLIConfig>({
@@ -141,7 +144,6 @@ export class ConfigManager {
 
     const { store, backend } = createSecretStore(this.conf)
     this.secrets = store
-    this.secretBackend = backend
 
     if (backend === 'keyring') {
       this.migrateLegacySecrets()
