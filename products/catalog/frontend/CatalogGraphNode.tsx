@@ -49,7 +49,28 @@ export function CatalogGraphNode({ data }: NodeProps<{ data: CatalogGraphNodeDat
                 borderLeftColor: domainColor,
             }}
         >
-            <Handle type="target" position={Position.Top} className="!opacity-0" />
+            {/* Force-directed layouts pick edge angles freely, so we expose a
+                source+target handle on every side and let React Flow choose. */}
+            <Handle type="target" id="t-top" position={Position.Top} className="!opacity-0" isConnectable={false} />
+            <Handle type="source" id="s-top" position={Position.Top} className="!opacity-0" isConnectable={false} />
+            <Handle type="target" id="t-right" position={Position.Right} className="!opacity-0" isConnectable={false} />
+            <Handle type="source" id="s-right" position={Position.Right} className="!opacity-0" isConnectable={false} />
+            <Handle
+                type="target"
+                id="t-bottom"
+                position={Position.Bottom}
+                className="!opacity-0"
+                isConnectable={false}
+            />
+            <Handle
+                type="source"
+                id="s-bottom"
+                position={Position.Bottom}
+                className="!opacity-0"
+                isConnectable={false}
+            />
+            <Handle type="target" id="t-left" position={Position.Left} className="!opacity-0" isConnectable={false} />
+            <Handle type="source" id="s-left" position={Position.Left} className="!opacity-0" isConnectable={false} />
             <div className="flex flex-col gap-1 px-3 py-2 h-full">
                 <div className="flex items-center gap-2">
                     <span className="text-secondary text-sm shrink-0">{kindIcon}</span>
@@ -69,7 +90,6 @@ export function CatalogGraphNode({ data }: NodeProps<{ data: CatalogGraphNodeDat
                     {node.description || (node.business_domain ? node.business_domain : 'No description')}
                 </div>
             </div>
-            <Handle type="source" position={Position.Bottom} className="!opacity-0" />
         </div>
     )
 }

@@ -54,21 +54,46 @@ function buildReactFlowEdges(graph: CatalogGraphDTOApi): Edge<CatalogGraphEdgeDa
         graph.relationships
             // Hide rejected edges by default — toggle filter is v2.
             .filter((r) => r.status !== 'rejected')
-            .map((r) => ({
-                id: r.id,
-                source: r.source_node_id,
-                target: r.target_node_id,
-                data: { relationship: r },
-                animated: false,
-                markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--text-secondary)' },
-                style: {
-                    strokeWidth: 1.5,
-                    opacity: 0.3 + 0.7 * Math.max(0, Math.min(1, r.confidence)),
-                    strokeDasharray: r.status === 'proposed' ? '4 4' : undefined,
-                    stroke: r.status === 'stale' ? 'var(--warning)' : 'var(--text-secondary)',
-                },
-            }))
+            .map((r) => {
+                // Literal hex colours instead of CSS variables: React Flow renders
+                // edges inside an isolated SVG layer where var(--text-secondary)
+                // doesn't resolve, so the stroke would come out empty.
+                const stroke = r.status === 'stale' ? '#f59e0b' : '#71717a'
+                return {
+                    id: r.id,
+                    source: r.source_node_id,
+                    target: r.target_node_id,
+                    data: { relationship: r },
+                    animated: false,
+                    markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+                    style: {
+                        strokeWidth: 1.5,
+                        opacity: 0.3 + 0.7 * Math.max(0, Math.min(1, r.confidence)),
+                        strokeDasharray: r.status === 'proposed' ? '4 4' : undefined,
+                        stroke,
+                    },
+                }
+            })
     )
+}
+
+// Pick the source+target handle pair that minimises the angle the edge has to
+// travel — for a force-directed layout this is what makes edges look sensible
+// instead of always entering/exiting from the same side.
+function pickHandles(
+    source: Node<CatalogGraphNodeData>,
+    target: Node<CatalogGraphNodeData>
+): { sourceHandle: string; targetHandle: string } {
+    const dx = target.position.x - source.position.x
+    const dy = target.position.y - source.position.y
+    if (Math.abs(dx) > Math.abs(dy)) {
+        return dx > 0
+            ? { sourceHandle: 's-right', targetHandle: 't-left' }
+            : { sourceHandle: 's-left', targetHandle: 't-right' }
+    }
+    return dy > 0
+        ? { sourceHandle: 's-bottom', targetHandle: 't-top' }
+        : { sourceHandle: 's-top', targetHandle: 't-bottom' }
 }
 
 export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
@@ -103,8 +128,21 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
 
     selectors({
         reactFlowEdges: [
-            (s) => [s.graph],
-            (graph): Edge<CatalogGraphEdgeData>[] => (graph ? buildReactFlowEdges(graph) : []),
+            (s) => [s.graph, s.reactFlowNodes],
+            (graph, nodes): Edge<CatalogGraphEdgeData>[] => {
+                if (!graph) {
+                    return []
+                }
+                const byId = new Map(nodes.map((n) => [n.id, n]))
+                return buildReactFlowEdges(graph).map((e) => {
+                    const src = byId.get(e.source)
+                    const tgt = byId.get(e.target)
+                    if (!src || !tgt) {
+                        return e
+                    }
+                    return { ...e, ...pickHandles(src, tgt) }
+                })
+            },
         ],
         breadcrumbs: [
             () => [],
