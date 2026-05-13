@@ -24134,6 +24134,36 @@ export namespace Schemas {
       results: UserInterview[];
     }
 
+    export interface UserInterviewTopic {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Optional cohort ID identifying who to target. Not enforced as a foreign key.
+         * @nullable
+         */
+      interviewee_cohort?: number | null;
+      /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
+    }
+
+    export interface PaginatedUserInterviewTopicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserInterviewTopic[];
+    }
+
     /**
      * * `disabled` - disabled
     * `toolbar` - toolbar
@@ -29799,6 +29829,27 @@ export namespace Schemas {
       readonly transcript?: string;
       summary?: string;
       audio?: string;
+    }
+
+    export interface PatchedUserInterviewTopic {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Optional cohort ID identifying who to target. Not enforced as a foreign key.
+         * @nullable
+         */
+      interviewee_cohort?: number | null;
+      /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic?: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
     }
 
     export interface PatchedUserProductList {
@@ -39054,6 +39105,21 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
 
     export type UserInterviewsListParams = {
     /**
