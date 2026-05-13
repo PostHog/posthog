@@ -19,7 +19,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from .models import UserInterview, UserInterviewTopic
+from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic
 
 elevenlabs_client = ElevenLabs()
 
@@ -235,7 +235,7 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         help_text="Optional cohort ID identifying who to target. Not enforced as a foreign key.",
     )
     interviewee_emails = serializers.ListField(
-        child=serializers.CharField(max_length=254),
+        child=serializers.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
         required=False,
         help_text="Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.",
     )
