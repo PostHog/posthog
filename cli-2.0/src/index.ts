@@ -44,6 +44,7 @@ async function main() {
     // Auth commands
     .command('auth', 'Authentication commands', (yargs) => {
       return yargs
+        .demandCommand(1, 'You need to specify a subcommand')
         .command('login', 'Login to PostHog with OAuth', {}, async () => {
           config.clear()
           await config.login()
