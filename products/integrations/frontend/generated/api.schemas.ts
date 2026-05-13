@@ -179,6 +179,7 @@ export interface RoleLookupResponseApi {
  * `salesforce` - Salesforce
  * `slack` - Slack
  * `slack-posthog-code` - Slack Posthog Code
+ * `discord-posthog-code` - Discord Posthog Code
  * `snapchat` - Snapchat
  * `stripe` - Stripe
  * `tiktok-ads` - Tiktok Ads
@@ -218,6 +219,7 @@ export const IntegrationKindEnumApi = {
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
+    DiscordPosthogCode: 'discord-posthog-code',
     Snapchat: 'snapchat',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
@@ -460,6 +462,7 @@ export type IntegrationsListParams = {
      * `salesforce` - Salesforce
      * `slack` - Slack
      * `slack-posthog-code` - Slack Posthog Code
+     * `discord-posthog-code` - Discord Posthog Code
      * `snapchat` - Snapchat
      * `stripe` - Stripe
      * `tiktok-ads` - Tiktok Ads
@@ -489,6 +492,7 @@ export const IntegrationsListKind = {
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
+    DiscordPosthogCode: 'discord-posthog-code',
     Email: 'email',
     Firebase: 'firebase',
     Github: 'github',

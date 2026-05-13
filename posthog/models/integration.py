@@ -175,6 +175,7 @@ class Integration(models.Model):
         SALESFORCE = "salesforce"
         SLACK = "slack"
         SLACK_POSTHOG_CODE = "slack-posthog-code"
+        DISCORD_POSTHOG_CODE = "discord-posthog-code"
         SNAPCHAT = "snapchat"
         STRIPE = "stripe"
         TIKTOK_ADS = "tiktok-ads"
@@ -290,6 +291,7 @@ class OauthIntegration:
     supported_kinds = [
         "slack",
         "slack-posthog-code",
+        "discord-posthog-code",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -351,6 +353,26 @@ class OauthIntegration:
                 scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
+            )
+        elif kind == "discord-posthog-code":
+            if not settings.DISCORD_POSTHOG_CODE_CLIENT_ID or not settings.DISCORD_POSTHOG_CODE_CLIENT_SECRET:
+                raise NotImplementedError("PostHog Code Discord app not configured")
+
+            # Discord install flow: `bot` scope adds the app to a guild and returns the chosen
+            # guild in the token response (`guild.id`, `guild.name`). `applications.commands`
+            # lets us register slash commands; `identify` returns the installing user.
+            # `permissions` is a Discord-specific bitfield for the bot's role permissions
+            # (View Channels, Send Messages, Embed Links, Attach Files, Read Message History,
+            # Add Reactions, Use External Emojis, Send Messages in Threads).
+            return OauthConfig(
+                authorize_url="https://discord.com/oauth2/authorize",
+                token_url="https://discord.com/api/oauth2/token",
+                client_id=settings.DISCORD_POSTHOG_CODE_CLIENT_ID,
+                client_secret=settings.DISCORD_POSTHOG_CODE_CLIENT_SECRET,
+                scope="bot applications.commands identify",
+                additional_authorize_params={"permissions": "274878295104"},
+                id_path="guild.id",
+                name_path="guild.name",
             )
         elif kind == "salesforce":
             if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
@@ -639,6 +661,9 @@ class OauthIntegration:
         path_kind = "slack" if kind == "slack-posthog-code" else kind
         if settings.DEBUG and settings.NGROK_URL:
             return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
+        # Discord accepts http://localhost in OAuth redirects, so don't force https in local dev
+        if settings.DEBUG and kind == "discord-posthog-code":
+            return f"{settings.SITE_URL}/integrations/{path_kind}/callback"
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
@@ -1246,6 +1271,32 @@ class SlackIntegration:
             "SLACK_POSTHOG_CODE_CLIENT_ID": settings.SLACK_POSTHOG_CODE_CLIENT_ID,
             "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
             "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
+        }
+
+
+class DiscordIntegrationError(Exception):
+    pass
+
+
+DISCORD_INTEGRATION_KINDS: tuple[str, ...] = ("discord-posthog-code",)
+
+
+class DiscordIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind not in DISCORD_INTEGRATION_KINDS:
+            raise Exception("DiscordIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @classmethod
+    def posthog_code_discord_config(cls) -> dict[str, str]:
+        return {
+            "DISCORD_POSTHOG_CODE_CLIENT_ID": settings.DISCORD_POSTHOG_CODE_CLIENT_ID,
+            "DISCORD_POSTHOG_CODE_CLIENT_SECRET": settings.DISCORD_POSTHOG_CODE_CLIENT_SECRET,
+            "DISCORD_POSTHOG_CODE_BOT_TOKEN": settings.DISCORD_POSTHOG_CODE_BOT_TOKEN,
+            "DISCORD_POSTHOG_CODE_PUBLIC_KEY": settings.DISCORD_POSTHOG_CODE_PUBLIC_KEY,
         }
 
 

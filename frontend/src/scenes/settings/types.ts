@@ -143,6 +143,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-posthog-code-slack'
+    | 'integration-posthog-code-discord'
     | 'integration-error-tracking'
     | 'integration-linear'
     | 'integration-github'

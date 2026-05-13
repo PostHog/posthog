@@ -33,7 +33,7 @@ from posthog.health import is_clickhouse_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.integration import SlackIntegration
+from posthog.models.integration import DiscordIntegration, SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
@@ -184,6 +184,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
         posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
         posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
+    with tracer.start_as_current_span("preflight.posthog_code_discord_config"):
+        posthog_code_discord_config = DiscordIntegration.posthog_code_discord_config()
+        posthog_code_discord_client_id = posthog_code_discord_config.get("DISCORD_POSTHOG_CODE_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -219,6 +222,11 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             and bool(posthog_code_slack_signing_secret)
             and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
             "client_id": posthog_code_slack_client_id or None,
+        },
+        "posthog_code_discord_service": {
+            "available": bool(posthog_code_discord_client_id)
+            and bool(posthog_code_discord_config.get("DISCORD_POSTHOG_CODE_CLIENT_SECRET")),
+            "client_id": posthog_code_discord_client_id or None,
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},

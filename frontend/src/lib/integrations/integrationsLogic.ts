@@ -398,6 +398,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind === 'slack-posthog-code')
             },
         ],
+        posthogCodeDiscordIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind === 'discord-posthog-code')
+            },
+        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
@@ -416,6 +422,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.preflight],
             (preflight) => {
                 return preflight?.posthog_code_slack_service?.available
+            },
+        ],
+        posthogCodeDiscordAvailable: [
+            (s) => [s.preflight],
+            (preflight) => {
+                return preflight?.posthog_code_discord_service?.available
             },
         ],
         getGitHubRepositories: [

@@ -7,6 +7,7 @@ import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
+import IconDiscord from 'public/services/discord.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
@@ -34,6 +35,7 @@ import IconVercel from 'public/services/vercel.png'
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
     'slack-posthog-code': IconSlack,
+    'discord-posthog-code': IconDiscord,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
@@ -70,6 +72,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
         case 'slack-posthog-code':
             return 'PostHog Code (Slack)'
+        case 'discord-posthog-code':
+            return 'PostHog Code (Discord)'
         case 'google-pubsub':
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':
