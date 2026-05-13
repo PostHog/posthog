@@ -446,9 +446,10 @@ def _is_terminal_event(event_data: dict) -> bool:
 def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     """Schedule a push when an interactive run idles waiting on the user.
 
-    The dispatcher only does cheap work (feature-flag check, cache lookup,
-    Celery enqueue), so this is safe to call inline. Wrapped in a try so a
-    failed dispatch never bubbles into the relay loop.
+    Must be called via ``asyncio.to_thread`` (as the caller does) because the
+    dispatcher performs sync I/O: a Redis write (``cache.add``) and a potential
+    network call to the feature-flag service. Wrapped in a try so a failed
+    dispatch never bubbles into the relay loop.
     """
     try:
         from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
