@@ -61,6 +61,7 @@ PRODUCTS_APPS = [
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
+    "products.automl.backend.apps.AutomlConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.notifications.backend.apps.NotificationsConfig",
