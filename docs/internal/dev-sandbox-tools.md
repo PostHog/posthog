@@ -29,7 +29,7 @@ tools:
     install: |
       npm install -g @withgraphite/graphite-cli@stable
     mounts:
-      - ~/.graphite_user_config
+      - ~/.config/graphite
 
   - name: btop
     install: |
