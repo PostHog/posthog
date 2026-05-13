@@ -103,7 +103,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     label: 'View exports',
                     action: () => newInternalTab(urls.exports()),
                 },
-                autoClose: false,
+                autoClose: 8000,
             })
             actions.loadExports()
         },
