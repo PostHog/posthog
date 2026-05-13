@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
@@ -49,3 +49,42 @@ class CreateMissingCapabilitySubmission:
     missing_capability: str
     blocked: bool = True
     context: SubmissionContext = SubmissionContext()
+
+
+@dataclass(frozen=True)
+class IntentClusterSampleIntent:
+    intent: str
+    total_calls: int
+    error_rate: float
+    empty_rate: float
+
+
+@dataclass(frozen=True)
+class IntentCluster:
+    cluster_id: int
+    title: str
+    description: str
+    gap_score: float
+    size: int
+    aggregate_error_rate: float
+    aggregate_empty_rate: float
+    avg_distinct_tools_attempted: float
+    sample_intents: list[IntentClusterSampleIntent]
+
+
+@dataclass(frozen=True)
+class LLMStatedGap:
+    probe_phrase: str
+    matched_text: str
+    distance: float
+    document_id: str
+    timestamp: datetime | None
+
+
+@dataclass(frozen=True)
+class MissingToolsCandidates:
+    clustering_run_id: str
+    window_start: str
+    window_end: str
+    intent_clusters: list[IntentCluster] = field(default_factory=list)
+    llm_stated_gaps: list[LLMStatedGap] = field(default_factory=list)

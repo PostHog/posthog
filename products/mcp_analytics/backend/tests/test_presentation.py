@@ -1,4 +1,9 @@
-from posthog.test.base import APIBaseTest
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import patch
+
+from posthog.models.event.util import create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
 from rest_framework import status
@@ -199,3 +204,72 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["count"] == 101
         assert len(data["results"]) == 100
         assert data["next"] is not None
+
+
+class TestMCPAnalyticsMissingToolsEndpoint(ClickhouseTestMixin, APIBaseTest):
+    def test_endpoint_requires_authentication(self) -> None:
+        self.client.logout()
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/missing_tools/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_endpoint_is_staff_only_in_cloud(self) -> None:
+        with self.is_cloud(True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/missing_tools/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_endpoint_returns_clusters(self) -> None:
+        create_event(
+            event_uuid=uuid.uuid4(),
+            event="$mcp_intent_clusters",
+            team=self.team,
+            distinct_id=f"mcp_analytics_clustering_{self.team.id}",
+            properties={
+                "$mcp_clustering_run_id": "endpoint-run-1",
+                "$mcp_window_start": "2026-05-01T00:00:00Z",
+                "$mcp_window_end": "2026-05-08T00:00:00Z",
+                "$mcp_total_intents_analyzed": 5,
+                "$mcp_clusters": [
+                    {
+                        "cluster_id": 0,
+                        "title": "Send Slack notification",
+                        "description": "Users want PostHog to send Slack messages",
+                        "gap_score": 0.75,
+                        "size": 4,
+                        "aggregate_error_rate": 0.4,
+                        "aggregate_empty_rate": 0.0,
+                        "avg_distinct_tools_attempted": 2.5,
+                        "members": [
+                            {
+                                "intent": "send slack notification",
+                                "stat": {
+                                    "intent": "send slack notification",
+                                    "total_calls": 8,
+                                    "error_count": 3,
+                                    "empty_response_count": 0,
+                                    "distinct_tools_attempted": 3,
+                                    "dominant_tool": "alert_get",
+                                    "sample_session_ids": [],
+                                },
+                                "distance_to_centroid": 0.1,
+                            }
+                        ],
+                    }
+                ],
+            },
+            timestamp=datetime.now(UTC),
+        )
+
+        with patch(
+            "posthog.hogql_queries.mcp_analytics.missing_tools_query_runner.MissingToolsCandidatesRunner._search_llm_stated_gaps",
+            return_value=[],
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/missing_tools/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["clustering_run_id"] == "endpoint-run-1"
+        assert len(data["intent_clusters"]) == 1
+        cluster = data["intent_clusters"][0]
+        assert cluster["title"] == "Send Slack notification"
+        assert cluster["gap_score"] == 0.75
+        assert cluster["sample_intents"][0]["intent"] == "send slack notification"

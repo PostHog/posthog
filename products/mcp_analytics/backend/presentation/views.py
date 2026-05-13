@@ -20,6 +20,7 @@ from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPMissingToolsCandidatesSerializer,
 )
 
 
@@ -101,6 +102,29 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.FEEDBACK)
+
+
+@extend_schema(tags=["mcp_analytics"])
+class MCPMissingToolsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Read-only endpoint that surfaces candidate missing tools for the current team."""
+
+    serializer_class = MCPMissingToolsCandidatesSerializer
+    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
+    scope_object = "INTERNAL"
+
+    @extend_schema(
+        operation_id="mcp_analytics_missing_tools_list",
+        description=(
+            "Return candidate missing MCP tools for the current team. Combines intent clusters "
+            "from the latest $mcp_intent_clusters event with on-demand semantic search over "
+            "$ai_span reasoning text for LLM-stated tool gaps."
+        ),
+        responses={200: OpenApiResponse(response=MCPMissingToolsCandidatesSerializer)},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = api.get_missing_tools_candidates(self.team)
+        serializer = MCPMissingToolsCandidatesSerializer(instance=result)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):

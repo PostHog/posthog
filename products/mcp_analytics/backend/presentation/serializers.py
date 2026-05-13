@@ -133,3 +133,60 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
         default=True,
         help_text="Whether the missing capability blocked the user's progress.",
     )
+
+
+class MCPIntentClusterSampleIntentSerializer(serializers.Serializer):
+    intent = serializers.CharField(help_text="The natural-language intent string captured on the mcp_tool_call.")
+    total_calls = serializers.IntegerField(help_text="How many mcp_tool_call events had this intent in the window.")
+    error_rate = serializers.FloatField(help_text="Fraction (0-1) of those calls that errored.")
+    empty_rate = serializers.FloatField(
+        help_text="Fraction (0-1) of those calls where the tool returned an empty response.",
+    )
+
+
+class MCPIntentClusterSerializer(serializers.Serializer):
+    cluster_id = serializers.IntegerField(help_text="Stable cluster identifier within the clustering run.")
+    title = serializers.CharField(help_text="LLM-generated short title for this cluster.")
+    description = serializers.CharField(help_text="LLM-generated description of what this cluster of intents covers.")
+    gap_score = serializers.FloatField(
+        help_text="LLM-estimated likelihood (0-1) that this cluster represents a missing tool capability.",
+    )
+    size = serializers.IntegerField(help_text="Number of distinct intents in this cluster.")
+    aggregate_error_rate = serializers.FloatField(
+        help_text="Aggregated error rate across all mcp_tool_call events for intents in this cluster.",
+    )
+    aggregate_empty_rate = serializers.FloatField(
+        help_text="Aggregated empty-response rate across all mcp_tool_call events for intents in this cluster.",
+    )
+    avg_distinct_tools_attempted = serializers.FloatField(
+        help_text="Average number of distinct MCP tools attempted per intent in this cluster.",
+    )
+    sample_intents = MCPIntentClusterSampleIntentSerializer(
+        many=True,
+        help_text="A handful of representative intents from the cluster, closest to the centroid first.",
+    )
+
+
+class MCPLLMStatedGapSerializer(serializers.Serializer):
+    probe_phrase = serializers.CharField(help_text="The probe phrase whose semantic neighborhood produced this match.")
+    matched_text = serializers.CharField(help_text="The $ai_span reasoning text fragment that matched the probe.")
+    distance = serializers.FloatField(help_text="Cosine distance between the probe and the matched text (lower = closer).")
+    document_id = serializers.CharField(help_text="UUID of the $ai_span event for linking back to its trace.")
+    timestamp = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Timestamp of the $ai_span event, if available.",
+    )
+
+
+class MCPMissingToolsCandidatesSerializer(serializers.Serializer):
+    clustering_run_id = serializers.CharField(help_text="Identifier of the clustering run these results came from.")
+    window_start = serializers.CharField(help_text="ISO-8601 start of the window the clusters cover.")
+    window_end = serializers.CharField(help_text="ISO-8601 end of the window the clusters cover.")
+    intent_clusters = MCPIntentClusterSerializer(
+        many=True,
+        help_text="Intent clusters ranked by gap_score (highest first).",
+    )
+    llm_stated_gaps = MCPLLMStatedGapSerializer(
+        many=True,
+        help_text="LLM-stated gaps from $ai_span reasoning text, ranked by cosine distance (closest first).",
+    )
