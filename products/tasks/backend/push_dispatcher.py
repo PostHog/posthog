@@ -35,6 +35,11 @@ def notify_task_run_failed(task_run: TaskRun) -> None:
     _notify(task_run, body=f'"{_task_title(task_run)}" failed')
 
 
+def notify_task_run_cancelled(task_run: TaskRun) -> None:
+    """Fire a push notification when ``task_run`` is cancelled."""
+    _notify(task_run, body=f'"{_task_title(task_run)}" was cancelled')
+
+
 def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
     """Fire a push notification when an interactive run is waiting for user input."""
     _notify(task_run, body=f'"{_task_title(task_run)}" needs your input')
@@ -66,10 +71,10 @@ def _notify(task_run: TaskRun, *, body: str) -> None:
             body=body,
             data={"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)},
         )
-    except Exception as exc:
+    except Exception:
         logger.warning(
             "push_dispatcher.send_failed",
             run_id=str(task_run.id),
             task_id=str(task_run.task_id),
-            error=str(exc),
+            exc_info=True,
         )

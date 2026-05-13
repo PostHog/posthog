@@ -41,33 +41,21 @@ def send_push_to_user(
 
     Returns the number of messages the Expo service accepted (i.e. for which
     a non-error ticket was returned). Tokens flagged by Expo as
-    ``DeviceNotRegistered`` are deleted so we stop trying to deliver to dead
-    devices.
+    ``DeviceNotRegistered`` are deleted for this user so we stop trying to
+    deliver to dead devices.
     """
     tokens = list(UserPushToken.objects.filter(user=user).values_list("token", flat=True))
     if not tokens:
         return 0
-    return _send_to_tokens(tokens, title=title, body=body, data=data)
-
-
-def _send_to_tokens(
-    tokens: Iterable[str],
-    *,
-    title: str,
-    body: str,
-    data: dict[str, Any] | None,
-) -> int:
-    token_list = [t for t in tokens if t]
-    if not token_list:
-        return 0
 
     accepted = 0
-    for batch in _chunk(token_list, EXPO_PUSH_BATCH_SIZE):
-        accepted += _send_batch(batch, title=title, body=body, data=data)
+    for batch in _chunk(tokens, EXPO_PUSH_BATCH_SIZE):
+        accepted += _send_batch(user, batch, title=title, body=body, data=data)
     return accepted
 
 
 def _send_batch(
+    user: User,
     tokens: list[str],
     *,
     title: str,
@@ -142,8 +130,11 @@ def _send_batch(
             )
 
     if invalid_tokens:
-        UserPushToken.objects.filter(token__in=invalid_tokens).delete()
-        logger.info("expo_push.pruned_invalid_tokens", count=len(invalid_tokens))
+        # Scope pruning to this user — the same opaque token string could
+        # theoretically belong to another user (e.g. shared test device), and
+        # we should never delete a row we don't own the dispatch context for.
+        UserPushToken.objects.filter(user=user, token__in=invalid_tokens).delete()
+        logger.info("expo_push.pruned_invalid_tokens", count=len(invalid_tokens), user_id=user.id)
 
     return accepted
 

@@ -48,24 +48,38 @@ class TestUserPushTokenEndpoints(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_remove_deletes_row(self):
+    def test_unregister_deletes_row(self):
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[abc]", platform="ios")
 
-        response = self.client.delete(
-            "/api/users/@me/push_tokens/remove/",
+        response = self.client.post(
+            "/api/users/@me/push_tokens/unregister/",
             {"token": "ExponentPushToken[abc]"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]").exists())
 
-    def test_remove_unknown_token_is_a_noop(self):
-        response = self.client.delete(
-            "/api/users/@me/push_tokens/remove/",
+    def test_unregister_unknown_token_is_a_noop(self):
+        response = self.client.post(
+            "/api/users/@me/push_tokens/unregister/",
             {"token": "ExponentPushToken[never-registered]"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_unregister_does_not_touch_other_users_tokens(self):
+        other_user = self._create_user("other@example.com")
+        UserPushToken.objects.create(user=other_user, token="ExponentPushToken[shared]", platform="ios")
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[shared]", platform="ios")
+
+        response = self.client.post(
+            "/api/users/@me/push_tokens/unregister/",
+            {"token": "ExponentPushToken[shared]"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
+        self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
 
     def test_register_does_not_leak_across_users(self):
         other_user = self._create_user("other@example.com")
@@ -144,6 +158,19 @@ class TestPushNotifications(APIBaseTest):
         self.assertEqual(accepted, 1)
         remaining = list(UserPushToken.objects.filter(user=self.user).values_list("token", flat=True))
         self.assertEqual(remaining, ["ExponentPushToken[a]"])
+
+    @patch("posthog.push_notifications.requests.post")
+    def test_send_push_prune_is_scoped_to_user(self, mock_post):
+        """DeviceNotRegistered prune must not delete the same token if another user owns it."""
+        other_user = self._create_user("other@example.com")
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[shared]", platform="ios")
+        UserPushToken.objects.create(user=other_user, token="ExponentPushToken[shared]", platform="ios")
+        mock_post.return_value = self._stub_response(ok=[], not_registered=["shared"])
+
+        send_push_to_user(self.user, title="t", body="b")
+
+        self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
+        self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
 
     @patch("posthog.push_notifications.requests.post")
     def test_send_push_swallows_http_errors(self, mock_post):

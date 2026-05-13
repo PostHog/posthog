@@ -23,6 +23,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
+from posthog.rate_limit import UserAuthenticationThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +49,7 @@ class UserPushTokenItemSerializer(serializers.Serializer):
     last_seen_at = serializers.DateTimeField(help_text="Last time the mobile app re-registered this token.")
 
 
-class UserPushTokenDeleteRequestSerializer(serializers.Serializer):
+class UserPushTokenUnregisterRequestSerializer(serializers.Serializer):
     token = serializers.CharField(
         max_length=512,
         help_text="The opaque push token to remove for the authenticated user.",
@@ -62,7 +63,7 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
     scope_object = "user"
     required_scopes: list[str] | None = None
     scope_object_read_actions: list[str] = []
-    scope_object_write_actions = ["create", "remove"]
+    scope_object_write_actions = ["create", "unregister"]
 
     authentication_classes = [
         OAuthAccessTokenAuthentication,
@@ -70,7 +71,8 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         SessionAuthentication,
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    http_method_names = ["post", "delete"]
+    throttle_classes = [UserAuthenticationThrottle]
+    http_method_names = ["post"]
     serializer_class = UserPushTokenItemSerializer
 
     def _get_user(self) -> User:
@@ -114,8 +116,8 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         )
         return Response(UserPushTokenItemSerializer(push_token).data)
 
-    @extend_schema(
-        request=UserPushTokenDeleteRequestSerializer,
+    @validated_request(
+        request_serializer=UserPushTokenUnregisterRequestSerializer,
         responses={204: OpenApiResponse(description="Token removed (or never existed).")},
         summary="Unregister a push notification token",
         description=(
@@ -123,10 +125,8 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
             "the mobile client can call this unconditionally when the user opts out."
         ),
     )
-    @action(methods=["DELETE"], detail=False, url_path="remove")
-    def remove(self, request: Request, **_kwargs) -> Response:
-        serializer = UserPushTokenDeleteRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        token = serializer.validated_data["token"]
+    @action(methods=["POST"], detail=False, url_path="unregister")
+    def unregister(self, request: Request, **_kwargs) -> Response:
+        token = request.validated_data["token"]
         UserPushToken.objects.filter(user=self._get_user(), token=token).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

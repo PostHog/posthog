@@ -8,6 +8,7 @@ from posthog.models.user_push_token import UserPushToken
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
+    notify_task_run_cancelled,
     notify_task_run_completed,
     notify_task_run_failed,
 )
@@ -43,6 +44,12 @@ class TestPushDispatcher(TestCase):
         notify_task_run_failed(self.task_run)
         mock_send.assert_called_once()
         self.assertIn("failed", mock_send.call_args.kwargs["body"])
+
+    @patch("products.tasks.backend.push_dispatcher.send_push_to_user")
+    def test_notify_cancelled_sends_push(self, mock_send):
+        notify_task_run_cancelled(self.task_run)
+        mock_send.assert_called_once()
+        self.assertIn("cancelled", mock_send.call_args.kwargs["body"])
 
     @patch("products.tasks.backend.push_dispatcher.send_push_to_user")
     def test_notify_awaiting_input_sends_push(self, mock_send):
