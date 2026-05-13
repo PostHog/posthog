@@ -109,7 +109,7 @@ def execute(
         if "one_active_deployment_per_project" in str(exc):
             in_flight = (
                 Deployment.objects.filter(
-                    project_id=payload.project_id,
+                    project=project,
                     team_id=payload.team_id,
                     status__in=Deployment.NON_TERMINAL_STATUSES,
                 )

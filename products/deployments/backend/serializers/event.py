@@ -9,7 +9,7 @@ from ..models import DeploymentEvent
 
 class DeploymentEventSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for the event row.")
-    deployment = serializers.PrimaryKeyRelatedField(
+    deployment: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         help_text="The deployment this event belongs to.",
     )

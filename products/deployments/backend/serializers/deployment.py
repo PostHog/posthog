@@ -15,7 +15,7 @@ from ..models import Deployment
 
 class DeploymentSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for the deployment.")
-    project = serializers.PrimaryKeyRelatedField(
+    project: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         help_text="The deployment project this deployment belongs to.",
     )
@@ -89,7 +89,7 @@ class DeploymentSerializer(serializers.ModelSerializer):
         help_text="URL of the captured site screenshot, used in the list/card view.",
     )
 
-    triggered_by_deployment = serializers.PrimaryKeyRelatedField(
+    triggered_by_deployment: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         allow_null=True,
         help_text="The deployment this one was triggered from (for rollbacks and redeploys).",

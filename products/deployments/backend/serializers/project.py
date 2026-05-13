@@ -83,7 +83,7 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
         help_text="Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.",
     )
 
-    current_deployment = serializers.PrimaryKeyRelatedField(
+    current_deployment: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         allow_null=True,
         help_text="The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.",

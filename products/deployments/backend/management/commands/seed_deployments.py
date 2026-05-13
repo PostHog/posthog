@@ -194,7 +194,10 @@ class Command(BaseCommand):
                 Deployment.Status.ERROR,
                 Deployment.Status.CANCELLED,
             ):
-                finished_at = started_at + timedelta(seconds=rng.randint(45, 240))  # type: ignore[operator]
+                # Narrow `started_at`: every status that sets `finished_at` is also in
+                # the (READY|ERROR|CANCELLED|BUILDING) set above where `started_at` was set.
+                assert started_at is not None
+                finished_at = started_at + timedelta(seconds=rng.randint(45, 240))
             if target_status == Deployment.Status.READY:
                 deployment_url = f"https://{commit_sha[:7]}.{project.subdomain}"
                 cloudflare_deployment_id = f"cf-{commit_sha[:12]}"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
 
+from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -41,7 +42,7 @@ class TestInternalDeploymentTransitions(DeploymentsTeamScopedTestMixin, APIBaseT
             commit_sha="abc1234",
         )
 
-    def _post_transition(self, body: dict, *, secret: str | None = SECRET) -> object:
+    def _post_transition(self, body: dict, *, secret: str | None = SECRET) -> HttpResponse:
         headers: dict = {}
         if secret is not None:
             headers["x-internal-api-secret"] = secret
