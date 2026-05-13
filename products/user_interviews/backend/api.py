@@ -18,6 +18,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic
 
@@ -225,6 +226,8 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
     parser_classes = [MultiPartParser, JSONParser]
+    posthog_feature_flag = "user-interviews"
+    permission_classes = [PostHogFeatureFlagPermission]
 
 
 class UserInterviewTopicSerializer(serializers.ModelSerializer):
@@ -314,3 +317,5 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = UserInterviewTopicSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["topic"]
+    posthog_feature_flag = "user-interviews"
+    permission_classes = [PostHogFeatureFlagPermission]
