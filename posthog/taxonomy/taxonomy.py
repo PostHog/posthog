@@ -289,9 +289,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
         },
-        # Events emitted by the @posthog/mcp analytics SDK. While @posthog/mcp is in internal testing,
-        # these coexist with the older events further down — both code paths emit on every request.
-        # Once @posthog/mcp reaches general availability the older events will be retired.
+        # Events emitted by the @posthog/mcp analytics SDK. @posthog/mcp is rolled out behind a
+        # feature flag (currently enabled only for some PostHog staff for internal testing). For
+        # traffic where it's enabled, these events fire *alongside* the older events further down;
+        # for traffic where it's not, only the older events fire. Once @posthog/mcp reaches general
+        # availability the older events will be retired.
         "mcp_tool_call": {
             "label": "MCP tool call",
             "description": "Fires every time an MCP server tool is invoked. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent.",
@@ -328,34 +330,35 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP identify",
             "description": "Fires when an MCP session becomes associated with an identified user, or when the identity changes for an existing session. Used to attribute subsequent events to a real user instead of an anonymous session.",
         },
-        # Older MCP events emitted alongside the @posthog/mcp events above. Not deprecated today —
-        # @posthog/mcp is still in internal testing — but slated for removal once @posthog/mcp reaches
-        # general availability. They come from two sources:
-        #   - the mcpcat library that PostHog used before @posthog/mcp existed
-        #   - PostHog's own in-tree trackEvent path inside the MCP server (services/mcp/src/mcp.ts)
+        # Older MCP events. Today these are the only events that fire for traffic where @posthog/mcp
+        # isn't enabled yet, and they fire alongside the @posthog/mcp events for traffic where it is.
+        # Not deprecated today — @posthog/mcp is still in internal testing — but slated for removal
+        # once @posthog/mcp reaches general availability. They come from two sources:
+        #   - the mcpcat library PostHog used before @posthog/mcp existed
+        #   - PostHog's in-tree trackEvent path inside the MCP server
         "mcp init": {
             "label": "MCP init",
-            "description": "MCP initialization event emitted by the mcpcat library. Fires alongside mcp_initialize today. Will be retired once @posthog/mcp reaches general availability; until then, prefer filtering on mcp_initialize for new dashboards.",
+            "description": "MCP initialization event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_initialize where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_initialize if you only want the @posthog/mcp-enabled slice.",
         },
         "mcp_mcpcat:identify": {
             "label": "MCP identify (mcpcat)",
-            "description": "Identify event emitted by the mcpcat library. Fires alongside posthog_identify today. Will be retired once @posthog/mcp reaches general availability; until then, prefer filtering on posthog_identify for new dashboards.",
+            "description": "Identify event emitted by the mcpcat library. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
         },
         "mcp_posthog:identify": {
             "label": "MCP identify (in-tree)",
-            "description": "Identify event emitted by PostHog's in-tree MCP analytics path. Fires alongside posthog_identify today. Will be retired once @posthog/mcp reaches general availability; until then, prefer filtering on posthog_identify for new dashboards.",
+            "description": "Identify event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
         },
         "mcp_tool_called": {
             "label": "MCP tool called (in-tree)",
-            "description": "Tool-call event emitted by PostHog's in-tree MCP analytics path. Fires alongside mcp_tool_call today. Will be retired once @posthog/mcp reaches general availability; until then, prefer filtering on mcp_tool_call for new dashboards.",
+            "description": "Tool-call event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_tool_call if you only want the @posthog/mcp-enabled slice.",
         },
         "mcp tool call": {
             "label": "MCP tool call (mcpcat)",
-            "description": "Tool-call event emitted by the mcpcat library. Fires alongside mcp_tool_call today. Will be retired once @posthog/mcp reaches general availability; until then, prefer filtering on mcp_tool_call for new dashboards.",
+            "description": "Tool-call event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
         },
         "mcp tool response": {
             "label": "MCP tool response (mcpcat)",
-            "description": "Tool-response event emitted by the mcpcat library. Tool responses are also carried inline on mcp_tool_call (under $mcp_response). Will be retired once @posthog/mcp reaches general availability.",
+            "description": "Tool-response event emitted by the mcpcat library. Tool responses are also carried inline on mcp_tool_call (under $mcp_response) for @posthog/mcp-enabled traffic. Will be retired once @posthog/mcp reaches general availability.",
         },
         "mcp project switched": {
             "label": "MCP project switched",
