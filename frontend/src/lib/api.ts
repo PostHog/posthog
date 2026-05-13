@@ -6592,7 +6592,6 @@ const api = {
         },
 
         async compose(data: {
-            channel: 'email'
             message: string
             recipient_email: string
             email_config_id: string

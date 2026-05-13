@@ -9,7 +9,7 @@ import { SupportEditor, serializeToMarkdown } from '../Editor'
 import { composeTicketLogic } from './composeTicketLogic'
 
 export function ComposeTicketModal(): JSX.Element | null {
-    const { isOpen, recipientEmail, emailSubject, emailConfigId, emailConfigs, composingLoading } =
+    const { isOpen, recipientEmail, emailSubject, emailConfigId, emailConfigs, emailConfigsLoading, composingLoading } =
         useValues(composeTicketLogic)
     const { closeComposeModal, setRecipientEmail, setEmailSubject, setEmailConfigId, submitCompose } =
         useActions(composeTicketLogic)
@@ -51,7 +51,8 @@ export function ComposeTicketModal(): JSX.Element | null {
                         value={emailConfigId || undefined}
                         options={emailConfigOptions}
                         onChange={(value) => value && setEmailConfigId(value)}
-                        placeholder="Select sender address..."
+                        placeholder={emailConfigsLoading ? 'Loading...' : 'Select sender address...'}
+                        loading={emailConfigsLoading}
                         fullWidth
                     />
                 </div>

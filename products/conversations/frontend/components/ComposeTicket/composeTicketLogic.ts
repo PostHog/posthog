@@ -104,7 +104,6 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
 
             try {
                 const result = await api.conversationsTickets.compose({
-                    channel: 'email',
                     message,
                     recipient_email: recipientEmail,
                     email_config_id: emailConfigId,
