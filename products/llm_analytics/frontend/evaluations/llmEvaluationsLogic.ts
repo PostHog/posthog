@@ -1,13 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -298,7 +296,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsEvaluations()]: (_, searchParams, __, { method }) => {
             const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
 
@@ -341,7 +339,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(() => ({
+    actionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }) => [
             urls.llmAnalyticsEvaluations(),
             {

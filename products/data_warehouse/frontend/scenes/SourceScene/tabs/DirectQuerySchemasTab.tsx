@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -14,7 +15,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { groupBy, pluralize } from 'lib/utils'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -256,7 +256,7 @@ function DirectQuerySchemaGroups({
                                                         className="truncate"
                                                         onClick={(event) => {
                                                             event.preventDefault()
-                                                            newInternalTab(getPreviewUrl(qualifiedName))
+                                                            router.actions.push(getPreviewUrl(qualifiedName))
                                                         }}
                                                     >
                                                         {tableName}

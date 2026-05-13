@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -19,7 +20,6 @@ import {
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -211,7 +211,7 @@ function DetailsSection({
                             onClick={(event) => {
                                 event.preventDefault()
                                 const table = schema.table!
-                                newInternalTab(
+                                router.actions.push(
                                     urls.sqlEditor({ query: defaultQuery(table.name, table.columns).source.query })
                                 )
                             }}

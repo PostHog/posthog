@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconGear } from '@posthog/icons'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import {
@@ -87,7 +86,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     icon: option.iconSrc ? sourceIcon(option.iconSrc) : undefined,
                     sideAction: option.managementUrl
                         ? {
-                              onClick: () => newInternalTab(option.managementUrl),
+                              onClick: () => router.actions.push(option.managementUrl),
                               icon: <IconGear />,
                               tooltip: 'Open source settings',
                               'aria-label': `Open settings for ${option.label}`,

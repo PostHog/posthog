@@ -228,24 +228,6 @@ export interface LoadedScene extends SceneExport<SceneProps> {
     sceneParams: SceneParams
 }
 
-// Compatibility stub left behind after the scene tabs feature was removed.
-// A handful of callers still type-check against this; remove once those callers are inlined.
-export interface SceneTab {
-    id: string
-    pathname: string
-    search: string
-    hash: string
-    title: string
-    active: boolean
-    customTitle?: string
-    iconType: FileSystemIconType | 'loading' | 'blank'
-    pinned?: boolean
-    badge?: boolean
-    sceneId?: string
-    sceneKey?: string
-    sceneParams?: SceneParams
-}
-
 export interface SceneParams {
     params: Record<string, any>
     searchParams: Record<string, any>

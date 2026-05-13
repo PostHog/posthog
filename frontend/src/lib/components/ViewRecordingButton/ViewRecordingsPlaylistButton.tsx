@@ -1,9 +1,9 @@
+import { router } from 'kea-router'
 import { isValidElement, ReactNode } from 'react'
 
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { RecordingUniversalFilters, ReplayTabs } from '~/types'
@@ -33,7 +33,7 @@ export default function ViewRecordingsPlaylistButton({
     const onClick = (): void => {
         onClickCallback?.()
         const url = urls.replay(ReplayTabs.Home, filters)
-        newInternalTab(url)
+        router.actions.push(url)
     }
 
     const button = (

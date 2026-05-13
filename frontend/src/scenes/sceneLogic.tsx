@@ -28,7 +28,6 @@ import {
     SceneConfig,
     SceneExport,
     SceneParams,
-    SceneTab,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -163,13 +162,6 @@ export const sceneLogic = kea<sceneLogicType>([
             params,
         }),
         reloadBrowserDueToImportError: true,
-        // Compatibility shims left behind after the scene tabs feature was removed.
-        // These were previously the only entry points for opening URLs in a new
-        // internal tab; callers should be migrated to router.push and these shims dropped.
-        newTab: (href?: string | null) => ({ href }),
-        setTabs: () => ({}),
-        setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
-        setHomepage: (tab: SceneTab | null) => ({ tab }),
     }),
     reducers({
         exportedScenes: [
@@ -372,11 +364,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 return activeExportedScene?.productKey ?? null
             },
         ],
-        // Compatibility shims after the scene tabs feature was removed.
-        activeTabId: [() => [], (): string | null => null],
-        firstTabIsActive: [() => [], (): boolean => true],
-        tabs: [() => [], (): SceneTab[] => []],
-        homepage: [() => [], (): SceneTab | null => null],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         openScene: ({ sceneId, sceneKey, params, method }) => {
@@ -655,12 +642,6 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
-        },
-        newTab: ({ href }) => {
-            // Compatibility shim: callers used to open URLs in a new in-app tab; now we just navigate.
-            if (href) {
-                router.actions.push(href)
-            }
         },
     })),
 

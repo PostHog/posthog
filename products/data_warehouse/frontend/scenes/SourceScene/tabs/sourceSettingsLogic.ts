@@ -8,7 +8,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -592,10 +591,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return () => clearTimeout(timerId)
                 }, 'sourceRefreshTimeout')
 
-                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id, tabId })
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                    sourceSceneLogic.findMounted({ id: props.id })
 
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },

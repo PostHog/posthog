@@ -18,7 +18,6 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -248,7 +247,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         if (e.metaKey || e.ctrlKey) {
                             e.preventDefault()
                             e.stopPropagation()
-                            newInternalTab(ticketUrl)
+                            router.actions.push(ticketUrl)
                         } else {
                             push(ticketUrl)
                         }
@@ -257,7 +256,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         if (e.button === 1) {
                             e.preventDefault()
                             e.stopPropagation()
-                            newInternalTab(ticketUrl)
+                            router.actions.push(ticketUrl)
                         }
                     },
                 }

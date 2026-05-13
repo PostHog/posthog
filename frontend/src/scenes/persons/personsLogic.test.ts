@@ -187,27 +187,6 @@ describe('personsLogic', () => {
             logic.unmount()
 
             const unmountSceneLogic = sceneLogic({ scenes }).mount()
-            sceneLogic.actions.setTabs([
-                {
-                    id: 'tab-a',
-                    title: 'Person A',
-                    pathname: '/person/same-person',
-                    search: '',
-                    hash: '',
-                    active: true,
-                    iconType: 'persons',
-                },
-                {
-                    id: 'tab-b',
-                    title: 'Person B',
-                    pathname: '/person/same-person',
-                    search: '',
-                    hash: '',
-                    active: false,
-                    iconType: 'persons',
-                },
-            ])
-
             const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
             const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
             firstTabLogic.mount()

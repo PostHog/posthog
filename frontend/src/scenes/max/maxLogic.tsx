@@ -1,18 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { IconBook } from '@posthog/icons'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, uuid } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene, SceneTab } from 'scenes/sceneTypes'
+import { Scene } from 'scenes/sceneTypes'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -122,22 +117,9 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
 const CHAT_TITLE_NEW = 'New chat'
 const CHAT_TITLE_HISTORY = 'Chat history'
 
-function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
-    const scene = sceneLogic.findMounted()
-    if (!scene) {
-        return
-    }
-    const { tabs } = scene.values
-    const tab = tabs.find((t) => t.id === tabId)
-    if (tab && !tab.active) {
-        scene.actions.setTabs(tabs.map((t) => (t.id === tabId ? { ...t, ...props } : t)))
-    }
-}
-
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as { tabId: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }),
-    tabAwareScene(),
 
     connect(() => ({
         values: [
@@ -415,18 +397,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
-        incrActiveStreamingThreads: () => {
-            updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
-        },
-        decrActiveStreamingThreads: () => {
-            // Reducer runs before listener, so activeStreamingThreads is already decremented.
-            // If still > 0, other streams are active — don't show badge yet.
-            if (values.activeStreamingThreads > 0) {
-                return
-            }
-            updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
-        },
+    listeners(({ actions, values }) => ({
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
@@ -550,16 +521,6 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
-    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
-    subscriptions(({ props }) => ({
-        chatTitle: (title: string | null) => {
-            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY) {
-                updateInactiveTab(props.tabId, { title })
-            }
-        },
-    })),
-
     afterMount(({ actions, values }) => {
         // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
         if (!values.question) {
@@ -593,7 +554,7 @@ export const maxLogic = kea<maxLogicType>([
         actions.loadConversationHistory()
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiHistory()]: () => {
             if (!values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
@@ -640,7 +601,7 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    actionToUrl(({ values }) => ({
         toggleConversationHistory: () => {
             if (values.conversationHistoryVisible) {
                 return [urls.aiHistory(), {}, router.values.location.hash]

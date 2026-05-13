@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
@@ -38,7 +38,7 @@ export function PlayerShareMenu(): JSX.Element {
         setPause()
         setIsFullScreen(false)
         closeSessionPlayer()
-        newInternalTab(urls.replaySingle(sessionRecordingId))
+        router.actions.push(urls.replaySingle(sessionRecordingId))
     }
 
     const onOpenInBrowserTab = (): void => {

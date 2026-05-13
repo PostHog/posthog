@@ -10,9 +10,6 @@ import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { sceneLogic } from '~/scenes/sceneLogic'
-import { emptySceneParams } from '~/scenes/scenes'
-import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { DashboardBasicType } from '~/types'
 
 import type { aiFirstHomepageLogicType } from './aiFirstHomepageLogicType'
@@ -43,31 +40,6 @@ export interface HomepageGridItem {
 
 const GRID_LIMIT = 5
 
-const PREVIOUS_HOMEPAGE_KEY = 'ai-first-previous-homepage'
-
-function getStorageKey(): string {
-    const teamId = teamLogic.findMounted()?.values.currentTeamId ?? 'null'
-    return `${PREVIOUS_HOMEPAGE_KEY}-${teamId}`
-}
-
-function loadPreviousHomepage(): SceneTab | null {
-    try {
-        const stored = localStorage.getItem(getStorageKey())
-        return stored ? JSON.parse(stored) : null
-    } catch {
-        return null
-    }
-}
-
-function savePreviousHomepage(tab: SceneTab | null): void {
-    const key = getStorageKey()
-    if (tab) {
-        localStorage.setItem(key, JSON.stringify(tab))
-    } else {
-        localStorage.removeItem(key)
-    }
-}
-
 export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     path(['scenes', 'project-homepage', 'ai-first', 'aiFirstHomepageLogic']),
 
@@ -77,8 +49,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['threadLogicKey', 'conversationId'],
             teamLogic,
             ['currentTeam'],
-            sceneLogic,
-            ['homepage'],
             dashboardsModel,
             ['pinnedDashboards', 'dashboardsLoading'],
             recentItemsModel,
@@ -86,12 +56,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             projectTreeDataLogic,
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
         ],
-        actions: [
-            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
-            ['openConversation', 'startNewConversation', 'setQuestion'],
-            sceneLogic,
-            ['setHomepage'],
-        ],
+        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation', 'setQuestion']],
     })),
 
     actions({
@@ -100,8 +65,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
         returnToIdle: true,
-        setPreviousHomepage: (tab: SceneTab | null) => ({ tab }),
-        revertToPreviousHomepage: true,
     }),
 
     reducers({
@@ -141,12 +104,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             {
                 submitQuery: (_, { mode }) => mode === 'ai',
                 returnToIdle: () => false,
-            },
-        ],
-        previousHomepage: [
-            null as SceneTab | null,
-            {
-                setPreviousHomepage: (_, { tab }) => tab,
             },
         ],
     }),
@@ -234,17 +191,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 actions.setQuestion(trigger)
             }
         },
-        setPreviousHomepage: ({ tab }) => {
-            savePreviousHomepage(tab)
-        },
-        revertToPreviousHomepage: () => {
-            const prev = values.previousHomepage
-            if (prev) {
-                actions.setHomepage(prev)
-                actions.setPreviousHomepage(null)
-                router.actions.push(prev.pathname || '/', prev.search || '', prev.hash || '')
-            }
-        },
     })),
 
     actionToUrl(({ values }) => ({
@@ -289,39 +235,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        // Capture the previous homepage on first visit so we can revert later
-        const stored = loadPreviousHomepage()
-        if (stored) {
-            actions.setPreviousHomepage(stored)
-        } else {
-            // First time on AI-first homepage — snapshot what the user would have seen before
-            const currentHomepage = values.homepage
-            if (currentHomepage) {
-                // User had a custom homepage set
-                actions.setPreviousHomepage(currentHomepage)
-            } else {
-                // No custom homepage — they would have seen the primary dashboard or search
-                const dashboardId = values.currentTeam?.primary_dashboard
-                if (dashboardId) {
-                    actions.setPreviousHomepage({
-                        id: `homepage-dashboard-${dashboardId}`,
-                        pathname: urls.dashboard(dashboardId),
-                        search: '',
-                        hash: '',
-                        title: 'Default dashboard',
-                        iconType: 'dashboard',
-                        active: false,
-                        pinned: true,
-                        sceneId: Scene.Dashboard,
-                        sceneKey: `dashboard-${dashboardId}`,
-                        sceneParams: emptySceneParams,
-                    })
-                }
-                // If no dashboard either, previousHomepage stays null — no revert button shown
-            }
-        }
-
+    afterMount(({ actions }) => {
         const { searchParams } = router.values
         const urlMode = (searchParams.mode as HomepageMode) || 'idle'
         const urlQuery = (searchParams.q as string) || ''

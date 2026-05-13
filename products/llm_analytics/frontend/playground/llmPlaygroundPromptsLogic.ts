@@ -6,7 +6,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { isObject, uuid } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -846,16 +845,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         resetPlayground: () => {
             posthog.capture('llma playground reset')
-            const activeTabId = sceneLogic.findMounted()?.values.activeTabId
-            const isActiveTab = !activeTabId || activeTabId === props.tabId
-            if (isActiveTab) {
-                router.actions.replace(
-                    combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(router.values.searchParams)).url
-                )
-            }
+            router.actions.replace(
+                combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(router.values.searchParams)).url
+            )
         },
         addPromptConfig: () => {
             // New total after adding — listeners run post-reducer
@@ -1250,12 +1245,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     actions.setupPlaygroundFromEvent(pending)
                     return
                 }
-            }
-
-            // urlToAction fires on ALL mounted instances for the matching URL.
-            // Only process URL params for the active tab to avoid cross-tab interference.
-            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
-                return
             }
 
             const sourcePromptName =

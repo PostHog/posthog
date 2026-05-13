@@ -1,11 +1,9 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -252,7 +250,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }) => {
         const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
 
         function applySearchParams(
@@ -346,7 +344,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         }
     }),
 
-    tabAwareActionToUrl(() => {
+    actionToUrl(() => {
         // Only preserve params that belong to the shared logic — drop stale
         // params from other pages (e.g. event, timestamp, msg from trace view).
         function sharedSearchParams(): Record<string, unknown> {

@@ -1,14 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -896,7 +894,7 @@ export const clustersLogic = kea<clustersLogicType>([
         actions.loadClusteringRuns()
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/llm-analytics/clusters': () => {
             if (values.selectedRunId !== null) {
                 actions.setSelectedRunId(null)
@@ -916,7 +914,7 @@ export const clustersLogic = kea<clustersLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    actionToUrl(({ values }) => ({
         setSelectedRunId: () => {
             // Preserve any search params already on the URL — `setPropertyFilters` (in the
             // shared logic) writes `?filters=...` and `?filter_test_accounts=...`, and the

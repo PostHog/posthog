@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -33,7 +33,7 @@ export function useOpenAi(): UseOpenAiReturn {
                 // sessionStorage unavailable, silently fail, agent will handle it
             }
         }
-        newInternalTab(urls.ai(undefined, initialPrompt))
+        router.actions.push(urls.ai(undefined, initialPrompt))
     }
 
     return {

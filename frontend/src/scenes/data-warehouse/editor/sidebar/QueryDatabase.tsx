@@ -27,7 +27,6 @@ import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/Dropdow
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
@@ -272,7 +271,7 @@ export const QueryDatabase = ({
             item.record?.type === 'endpoint' ? getEndpointUrl(item) : urls.sqlEditor({ view_id: item.record?.view.id })
 
         if (newTab) {
-            newInternalTab(url)
+            router.actions.push(url)
             return
         }
 
@@ -586,7 +585,7 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    newInternalTab(urls.models())
+                                    router.actions.push(urls.models())
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Manage views</ButtonPrimitive>
@@ -595,7 +594,7 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    newInternalTab(urls.endpoints())
+                                    router.actions.push(urls.endpoints())
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Manage endpoints</ButtonPrimitive>
@@ -849,7 +848,7 @@ export const QueryDatabase = ({
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                newInternalTab(urls.dataWarehouseSourceNew())
+                                router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >

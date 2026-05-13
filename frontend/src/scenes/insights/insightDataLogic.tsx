@@ -264,7 +264,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         generateInsightMetadataSuccess: ({ generatedInsightMetadata }) => {
             if (generatedInsightMetadata) {
                 actions.setInsightMetadata({
@@ -297,20 +297,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
-            // If we have a tabId, then this is an insight scene on a tab. Sync the query to the URL
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
-                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
-                const { pathname, searchParams, hashParams } = router.values.currentLocation
-                if (query && (values.queryChanged || insightId === 'new' || insightId?.startsWith('new-'))) {
-                    const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
-                    router.actions.replace(pathname, searchParams, {
-                        ...hash,
-                        q: query,
-                    })
-                } else {
-                    const { q: _, ...hash } = hashParams // remove existing insight query hash param
-                    router.actions.replace(pathname, searchParams, hash)
-                }
+            // Sync the query to the URL
+            const insightId = insightSceneLogic.findMounted()?.values.insightId
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            if (query && (values.queryChanged || insightId === 'new' || insightId?.startsWith('new-'))) {
+                const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
+                router.actions.replace(pathname, searchParams, {
+                    ...hash,
+                    q: query,
+                })
+            } else {
+                const { q: _, ...hash } = hashParams // remove existing insight query hash param
+                router.actions.replace(pathname, searchParams, hash)
             }
 
             // if the query is not changed, don't save it
@@ -324,11 +322,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
 
             // don't save for saved insights
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
-                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
-                if (insightId && insightId !== 'new' && !insightId.startsWith('new-')) {
-                    return
-                }
+            if (insightId && insightId !== 'new' && !insightId.startsWith('new-')) {
+                return
             }
 
             if (isQueryTooLarge(query)) {
@@ -408,13 +403,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.loadData('force_blocking')
         }
     }),
-    actionToUrl(({ props }) => ({
+    actionToUrl(() => ({
         cancelChanges: () => {
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
-                const { pathname, searchParams, hashParams } = router.values.currentLocation
-                const { q: _, ...hash } = hashParams
-                return [pathname, searchParams, hash]
-            }
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            const { q: _, ...hash } = hashParams
+            return [pathname, searchParams, hash]
         },
     })),
 ])

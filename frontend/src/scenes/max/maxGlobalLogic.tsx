@@ -7,7 +7,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -177,7 +176,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
-            newInternalTab(urls.ai(undefined, prompt))
+            router.actions.push(urls.ai(undefined, prompt))
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {

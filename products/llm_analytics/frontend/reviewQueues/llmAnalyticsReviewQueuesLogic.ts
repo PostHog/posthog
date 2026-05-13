@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -8,8 +8,6 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
@@ -588,7 +586,7 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    actionToUrl(({ values }) => ({
         setQueueFilters: () => {
             const nextValues = getQueueUrlState(values.queueFilters, values.selectedQueueId, values.queueItemFilters)
             const urlValues = getQueueUrlState(
@@ -627,7 +625,7 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsReviews()]: (_, searchParams, __, { method }) => {
             if (searchParams.human_reviews_tab === 'reviews' || searchParams.human_reviews_tab === 'scorers') {
                 return

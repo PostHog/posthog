@@ -56,7 +56,6 @@ const apiMocks = {
         '/api/projects/:team/feature_flags/': () => [200, { results: [], count: 0 }],
         '/api/projects/:team/experiment_holdouts': () => [200, { results: [], count: 0 }],
         '/api/projects/:team/experiment_saved_metrics': () => [200, { results: [], count: 0 }],
-        '/api/user_home_settings/@me/': () => [200, {}],
     },
     post: {
         '/api/environments/:team/query/': () => [200, { results: [] }],

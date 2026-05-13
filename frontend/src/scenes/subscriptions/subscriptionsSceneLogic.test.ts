@@ -39,13 +39,10 @@ describe('subscriptionsSceneLogic', () => {
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         router.actions.push(urls.subscriptions())
-        logic = subscriptionsSceneLogic({ tabId: '1' })
+        logic = subscriptionsSceneLogic()
         logic.mount()
     })
 

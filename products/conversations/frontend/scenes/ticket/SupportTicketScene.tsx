@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconAI, IconChevronDown } from '@posthog/icons'
@@ -10,7 +11,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -207,7 +207,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         type="secondary"
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                            router.actions.push(urls.personByDistinctId(ticket.distinct_id))
                                         }}
                                     >
                                         View person

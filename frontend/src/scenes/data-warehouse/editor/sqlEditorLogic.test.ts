@@ -192,14 +192,11 @@ describe('sqlEditorLogic', () => {
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],
                 '/api/environments/:team_id/data_modeling_jobs/running/': [],
                 '/api/environments/:team_id/lineage/get_upstream/': { nodes: [], edges: [] },
-                '/api/user_home_settings/@me/': {},
             },
             post: {
                 '/api/environments/:team_id/query/': queryEndpointMock,
             },
-            patch: {
-                '/api/user_home_settings/@me/': [200],
-            },
+            patch: {},
             delete: {
                 '/api/environments/:team_id/query/:id/': [204],
             },
@@ -210,9 +207,6 @@ describe('sqlEditorLogic', () => {
         sceneLogic.mount()
         databaseLogic = databaseTableListLogic()
         databaseLogic.mount()
-        sceneLogic.actions.setTabs([
-            { id: TAB_ID, title: 'SQL', pathname: '/sql', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         await expectLogic(teamLogic).toFinishAllListeners()
     })
 

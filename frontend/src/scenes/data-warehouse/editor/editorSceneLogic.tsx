@@ -2,7 +2,6 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
@@ -61,7 +60,6 @@ export interface EditorSceneLogicProps {
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
-    tabAwareScene(),
     connect((props: EditorSceneLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),

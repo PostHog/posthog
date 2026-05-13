@@ -72,11 +72,7 @@ describe('dashboardsLogic', () => {
         dashboardsModel.mount()
         await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
-
-        logic = dashboardsLogic({ tabId: '1' })
+        logic = dashboardsLogic()
         logic.mount()
     })
 
@@ -280,7 +276,7 @@ describe('dashboardsLogic', () => {
         // Recreate logic with URL containing a search param
         logic.unmount()
         router.actions.push(urls.dashboards(), { search: 'needle' })
-        logic = dashboardsLogic({ tabId: '1' })
+        logic = dashboardsLogic()
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
@@ -291,7 +287,7 @@ describe('dashboardsLogic', () => {
     it('loads search from URL when the router coerces it to a number', async () => {
         logic.unmount()
         router.actions.push(urls.dashboards(), { search: 33333333 as unknown as string })
-        logic = dashboardsLogic({ tabId: '1' })
+        logic = dashboardsLogic()
         logic.mount()
 
         await expectLogic(logic).toMatchValues({

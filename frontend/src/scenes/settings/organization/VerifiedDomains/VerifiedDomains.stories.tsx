@@ -112,7 +112,6 @@ const meta: Meta<typeof App> = {
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
                 '/api/environments/:team_id/conversations/': { results: [] },
-                '/api/user_home_settings/@me/': {},
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {

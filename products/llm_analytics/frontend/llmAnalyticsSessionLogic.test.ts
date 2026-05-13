@@ -22,10 +22,7 @@ describe('llmAnalyticsSessionLogic', () => {
     beforeEach(async () => {
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
-        logic = llmAnalyticsSessionLogic({ tabId: '1' })
+        logic = llmAnalyticsSessionLogic()
         logic.mount()
     })
 

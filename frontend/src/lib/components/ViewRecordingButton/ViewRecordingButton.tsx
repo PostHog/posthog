@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { isValidElement, ReactNode, useEffect } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -9,7 +10,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
@@ -304,7 +304,7 @@ export function useRecordingButton({
         } else {
             const timestampMs = timestamp ? dayjs(timestamp).valueOf() - 5000 : undefined
             const urlParams = timestampMs ? { unixTimestampMillis: Math.max(timestampMs, 0) } : undefined
-            newInternalTab(urls.replaySingle(sessionId ?? '', urlParams))
+            router.actions.push(urls.replaySingle(sessionId ?? '', urlParams))
         }
     }
 

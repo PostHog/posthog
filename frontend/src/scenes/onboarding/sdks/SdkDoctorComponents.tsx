@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { ActivityTab } from '~/types'
@@ -126,7 +125,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                         sdkType: record.type,
                                         destination: 'activity_page',
                                     })
-                                    newInternalTab(activityPageUrlForSdkVersion(record.type, record.version))
+                                    router.actions.push(activityPageUrlForSdkVersion(record.type, record.version))
                                 },
                             },
                             {
@@ -136,7 +135,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                         sdkType: record.type,
                                         destination: 'sql_editor',
                                     })
-                                    newInternalTab(
+                                    router.actions.push(
                                         urls.sqlEditor({
                                             query: queryForSdkVersion(record.type, record.version),
                                         })

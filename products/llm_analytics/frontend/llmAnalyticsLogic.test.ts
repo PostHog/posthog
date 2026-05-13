@@ -17,7 +17,7 @@ describe('llmAnalyticsSharedLogic', () => {
         initKeaTests()
         sceneLogic.mount()
         router.actions.push(urls.llmAnalyticsTraces())
-        logic = llmAnalyticsSharedLogic({ tabId: sceneLogic.values.activeTabId || '' })
+        logic = llmAnalyticsSharedLogic()
         logic.mount()
     })
 
