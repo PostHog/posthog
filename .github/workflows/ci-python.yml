@@ -155,6 +155,8 @@ jobs:
 
             - name: Check static typing
               shell: bash -e {0}
+              env:
+                  MYPY_NUM_WORKERS: 4
               run: |
                   mypy --version && mypy --cache-fine-grained .
 

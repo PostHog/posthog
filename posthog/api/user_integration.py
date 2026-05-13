@@ -464,6 +464,8 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     user-to-server tokens, fetch installation token, create/update ``UserIntegration``.
     """
 
+    assert isinstance(request.user, User)  # narrowed by @session_auth_required; mypy cannot see through the decorator
+
     posthog_code_flow = False
 
     def _error(reason: str) -> HttpResponseRedirect:
