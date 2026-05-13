@@ -200,11 +200,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                         styledScrollbars
                         className="flex-1 overflow-y-auto max-h-[400px]"
                     >
-                        <div
-                            className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${
-                                !dialog && 'pt-0.5'
-                            }`}
-                        >
+                        <div className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}>
                             {/* Current Organization */}
                             {currentOrgItem && (
                                 <Combobox.Group items={[currentOrgItem]}>
