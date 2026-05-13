@@ -337,14 +337,14 @@ export const surveysLogic = kea<surveysLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteSurveySuccess: (_, __, action) => {
+        deleteSurveySuccess: ({ payload: surveyId }) => {
             lemonToast.success('Survey deleted')
             router.actions.push(urls.surveys())
             actions.addProductIntent({
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEY_DELETED,
                 metadata: {
-                    survey_id: String(action.payload),
+                    survey_id: String(surveyId),
                 },
             })
         },

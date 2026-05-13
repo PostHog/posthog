@@ -284,11 +284,7 @@ describe('surveysLogic', () => {
             })
         })
 
-        // TODO: This test reveals a potential bug in surveysLogic where action.payload
-        // in the deleteSurveySuccess listener is an object instead of the survey ID.
-        // The implementation uses String(action.payload) which would produce "[object Object]".
-        // This needs investigation - either the test setup is wrong or the implementation has a bug.
-        it.skip('should track SURVEY_DELETED intent when deleting survey', async () => {
+        it('should track SURVEY_DELETED intent when deleting survey', async () => {
             const surveyId = 'test-survey-123'
 
             useMocks({
