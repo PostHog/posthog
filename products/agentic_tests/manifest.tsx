@@ -5,7 +5,7 @@
  */
 import { combineUrl } from 'kea-router'
 
-import { FileSystemIconType, ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '../../frontend/src/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -53,6 +53,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Agentic tests',
+            intents: [ProductKey.AGENTIC_TESTS],
             category: ProductItemCategory.BEHAVIOR,
             type: 'agentic_tests',
             iconType: 'agentic_tests' as FileSystemIconType,

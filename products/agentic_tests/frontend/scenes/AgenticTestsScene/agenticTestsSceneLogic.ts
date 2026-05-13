@@ -11,10 +11,10 @@ import {
     agenticTestsRejectCreate,
     agenticTestsRunNowCreate,
 } from '../../generated/api'
-import {
-    AgenticTestApi as AgenticTest,
-    AgenticTestStatusEnumApi as AgenticTestStatus,
-} from '../../generated/api.schemas'
+import { AgenticTestApi, AgenticTestStatusEnumApi } from '../../generated/api.schemas'
+
+export type AgenticTest = AgenticTestApi
+export type AgenticTestStatus = AgenticTestStatusEnumApi
 import type { agenticTestsSceneLogicType } from './agenticTestsSceneLogicType'
 
 export type StatusFilter = 'all' | 'active' | 'paused' | 'rejected'

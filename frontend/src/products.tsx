@@ -20,7 +20,6 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
-    ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
@@ -33,7 +32,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from '../../products/llm_analytics/frontend/clusters/constants'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
-import { ProductItemCategory } from './queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from './queries/schema/schema-general'
 import {
     ActionType,
     DashboardType,
@@ -1342,6 +1341,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Agentic tests',
+        intents: [ProductKey.AGENTIC_TESTS],
         category: ProductItemCategory.BEHAVIOR,
         type: 'agentic_tests',
         iconType: 'agentic_tests' as FileSystemIconType,

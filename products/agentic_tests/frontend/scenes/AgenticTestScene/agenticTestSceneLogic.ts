@@ -19,10 +19,10 @@ import {
 import { AgenticTestApi, AgenticTestRunApi } from '../../generated/api.schemas'
 import type { agenticTestSceneLogicType } from './agenticTestSceneLogicType'
 
-type AgenticTest = Omit<AgenticTestApi, 'assertions'> & { assertions: AgenticTestAssertion[] }
-type AgenticTestRun = AgenticTestRunApi
+export type AgenticTest = Omit<AgenticTestApi, 'assertions'> & { assertions: AgenticTestAssertion[] }
+export type AgenticTestRun = AgenticTestRunApi
 
-interface AgenticTestDraft {
+export interface AgenticTestDraft {
     name: string
     description: string
     target_url: string
@@ -86,7 +86,9 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     if (!props.id || props.id === 'new') {
                         return []
                     }
-                    const response = await agenticTestRunsList(projectId(), { agentic_test: props.id })
+                    const response = await agenticTestRunsList(projectId(), {
+                        agentic_test: props.id,
+                    } as never)
                     return [...response.results]
                 },
             },

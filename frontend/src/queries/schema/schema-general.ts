@@ -6270,6 +6270,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AGENTIC_TESTS = 'agentic_tests',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
     COHORTS = 'cohorts',

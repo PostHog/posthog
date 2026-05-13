@@ -41,7 +41,8 @@ function runStatusFor(test: AgenticTest): { type: LemonTagType; label: string } 
     if (!test.last_run) {
         return { type: 'muted', label: 'Pending' }
     }
-    return RUN_STATUS_TAG[test.last_run.status] ?? { type: 'muted', label: test.last_run.status }
+    const lastRunStatus = String((test.last_run as { status?: string }).status ?? '')
+    return RUN_STATUS_TAG[lastRunStatus] ?? { type: 'muted', label: lastRunStatus || 'Unknown' }
 }
 
 export function AgenticTestsScene(): JSX.Element {
@@ -219,8 +220,11 @@ export function AgenticTestsScene(): JSX.Element {
                             key: 'status',
                             render: (_, test) => {
                                 const status = runStatusFor(test)
+                                const errorMessage = String(
+                                    (test.last_run as { error_message?: string } | null)?.error_message ?? ''
+                                )
                                 return (
-                                    <Tooltip title={test.last_run?.error_message || ''}>
+                                    <Tooltip title={errorMessage}>
                                         <LemonTag type={status.type}>{status.label}</LemonTag>
                                     </Tooltip>
                                 )
