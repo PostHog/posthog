@@ -19,7 +19,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { AgenticTestAssertion, AgenticTestAssertionType, ASSERTION_TYPE_LABELS, defaultAssertion } from '../../types'
+import {
+    AgenticTestAssertion,
+    AgenticTestAssertionType,
+    ASSERTION_TYPE_LABELS,
+    defaultAssertion,
+} from '../../assertions'
 import { agenticTestSceneLogic, AgenticTestSceneProps } from './agenticTestSceneLogic'
 
 const STATUS_TAG: Record<string, { type: LemonTagType; label: string }> = {

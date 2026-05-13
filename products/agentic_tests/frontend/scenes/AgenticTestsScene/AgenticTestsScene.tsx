@@ -20,7 +20,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { AgenticTest } from '../../types'
+import { AgenticTestApi as AgenticTest } from '../../generated/api.schemas'
 import { agenticTestsSceneLogic, StatusFilter } from './agenticTestsSceneLogic'
 
 const RUN_STATUS_TAG: Record<string, { type: LemonTagType; label: string }> = {

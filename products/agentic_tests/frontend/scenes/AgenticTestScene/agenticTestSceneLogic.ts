@@ -7,15 +7,22 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import {
-    AgenticTest,
-    AgenticTestAssertion,
-    AgenticTestAssertionType,
-    AgenticTestDraft,
-    AgenticTestRun,
-    defaultAssertion,
-} from '../../types'
+import { AgenticTestAssertion, AgenticTestAssertionType, defaultAssertion } from '../../assertions'
+import { AgenticTestApi, AgenticTestRunApi } from '../../generated/api.schemas'
 import type { agenticTestSceneLogicType } from './agenticTestSceneLogicType'
+
+type AgenticTest = Omit<AgenticTestApi, 'assertions'> & { assertions: AgenticTestAssertion[] }
+type AgenticTestRun = AgenticTestRunApi
+
+interface AgenticTestDraft {
+    name: string
+    description: string
+    target_url: string
+    prompt: string
+    status: AgenticTestApi['status']
+    assertions: AgenticTestAssertion[]
+    source_replay_id?: string | null
+}
 
 export interface AgenticTestSceneProps {
     id: string | 'new'

@@ -4,7 +4,10 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { AgenticTest, AgenticTestStatus } from '../../types'
+import {
+    AgenticTestApi as AgenticTest,
+    AgenticTestStatusEnumApi as AgenticTestStatus,
+} from '../../generated/api.schemas'
 import type { agenticTestsSceneLogicType } from './agenticTestsSceneLogicType'
 
 export type StatusFilter = 'all' | 'active' | 'paused' | 'rejected'
