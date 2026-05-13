@@ -1213,6 +1213,48 @@ export class ApiClient {
         }
     }
 
+    /**
+     * Rendering canvases — LLM-generated React/TSX persisted for rendering in PostHog Code.
+     */
+    canvases({ projectId }: { projectId: string }): Endpoint {
+        return {
+            /**
+             * Generate a new rendering canvas from a natural-language prompt.
+             * The Django endpoint runs the LLM call, validates the output, and persists.
+             */
+            generate: async ({
+                prompt,
+                name,
+                task,
+            }: {
+                prompt: string
+                name?: string
+                task?: string
+            }): Promise<
+                Result<{
+                    id: string
+                    name: string
+                    content: string
+                    task: string | null
+                    created_at: string
+                    updated_at: string
+                }>
+            > => {
+                const body: Record<string, unknown> = { prompt }
+                if (name !== undefined) {
+                    body.name = name
+                }
+                if (task !== undefined) {
+                    body.task = task
+                }
+                return this.fetchJson(`${this.baseUrl}/api/projects/${projectId}/rendering_canvases/generate/`, {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                })
+            },
+        }
+    }
+
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {

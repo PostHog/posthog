@@ -106,6 +106,22 @@
             "readOnlyHint": true
         }
     },
+    "generate-canvas": {
+        "description": "Generate a React/TSX rendering canvas from a natural-language prompt. The server runs the LLM call, validates that the generated TSX is safe to render, and persists it as a RenderingCanvas record scoped to the current project. Returns the canvas id, name, and content. Pass `task` whenever the agent has a current task UUID so the canvas surfaces in the right place in PostHog Code. The generated module must default-export a single React component, must not perform network or DOM side effects, and may only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — the server rejects anything else.",
+        "category": "Canvases",
+        "summary": "Generate a React/TSX rendering canvas from a prompt.",
+        "feature": "canvases",
+        "title": "Generate canvas",
+        "required_scopes": ["task:write"],
+        "new_mcp": false,
+        "requires_ai_consent": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
+    },
     "query-generate-hogql-from-question": {
         "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in easily readable format. You should also offer to save the query as an insight if the user wants to.",
         "category": "Insights & analytics",

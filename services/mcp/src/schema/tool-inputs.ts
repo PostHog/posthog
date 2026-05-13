@@ -452,6 +452,29 @@ export const InsightGenerateHogQLFromQuestionSchema = z.object({
         .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
 })
 
+export const GenerateCanvasSchema = z.object({
+    prompt: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe(
+            'Natural-language description of the UI to generate as a React/TSX module. The server runs the LLM call, validates the output, and persists the canvas.'
+        ),
+    name: z
+        .string()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe('Optional human-readable name for the canvas. If omitted, derived from the prompt.'),
+    task: z
+        .string()
+        .uuid()
+        .optional()
+        .describe(
+            'Optional task UUID to attach this canvas to — pass the current task so the canvas surfaces in PostHog Code in the right place.'
+        ),
+})
+
 export const InsightQueryInputSchema = z.object({
     insightId: z.string().describe('The insight ID or short_id to run.'),
     output_format: z

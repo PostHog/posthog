@@ -176,3 +176,108 @@ class TestRenderingCanvasAPI(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestRenderingCanvasGenerate(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    other_team: ClassVar[Team]
+    user: ClassVar[User]
+    feature_flag_patcher: MagicMock
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.organization = Organization.objects.create(name="Canvas Gen Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Team A")
+        cls.other_team = Team.objects.create(organization=cls.organization, name="Team B")
+        cls.user = User.objects.create_user(email="gen@example.com", first_name="G", password="p")
+        cls.organization.members.add(cls.user)
+        OrganizationMembership.objects.filter(user=cls.user, organization=cls.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
+        mock = self.feature_flag_patcher.start()
+        mock.side_effect = lambda flag, *a, **kw: flag == "tasks"
+
+    def tearDown(self) -> None:
+        self.feature_flag_patcher.stop()
+        super().tearDown()
+
+    def _generate_url(self) -> str:
+        return f"/api/projects/{self.team.id}/rendering_canvases/generate/"
+
+    @patch("products.tasks.backend.api.generate_canvas_tsx")
+    def test_generate_happy_path(self, mock_generate: MagicMock) -> None:
+        mock_generate.return_value = (VALID_CONTENT, "Generated UI")
+
+        response = self.client.post(
+            self._generate_url(),
+            {"prompt": "a card with the project name"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["name"], "Generated UI")
+        self.assertEqual(body["content"], VALID_CONTENT)
+
+        canvas = RenderingCanvas.objects.get(id=body["id"])
+        self.assertEqual(canvas.team_id, self.team.id)
+        self.assertEqual(canvas.created_by_id, self.user.id)
+
+        mock_generate.assert_called_once()
+        kwargs = mock_generate.call_args.kwargs
+        self.assertEqual(kwargs["team"].id, self.team.id)
+        self.assertEqual(kwargs["user"].id, self.user.id)
+        self.assertEqual(kwargs["prompt"], "a card with the project name")
+
+    @patch("products.tasks.backend.api.generate_canvas_tsx")
+    def test_generate_uses_name_hint_when_provided(self, mock_generate: MagicMock) -> None:
+        mock_generate.return_value = (VALID_CONTENT, "Derived From Prompt")
+
+        response = self.client.post(
+            self._generate_url(),
+            {"prompt": "anything", "name": "Explicit Name"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        # The action passes the hint through to generate_canvas_tsx; the function decides.
+        # We assert the hint reached the function — derivation behavior is unit-tested separately.
+        self.assertEqual(mock_generate.call_args.kwargs["name_hint"], "Explicit Name")
+
+    @patch("products.tasks.backend.api.generate_canvas_tsx")
+    def test_generate_rejects_unsafe_llm_output(self, mock_generate: MagicMock) -> None:
+        mock_generate.return_value = ("export default () => fetch('/x')", "Bad Output")
+
+        response = self.client.post(
+            self._generate_url(),
+            {"prompt": "something"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(RenderingCanvas.objects.count(), 0)
+
+    @patch("products.tasks.backend.api.generate_canvas_tsx")
+    def test_generate_rejects_cross_team_task(self, mock_generate: MagicMock) -> None:
+        other_task = Task.objects.create(
+            team=self.other_team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        response = self.client.post(
+            self._generate_url(),
+            {"prompt": "x", "task": str(other_task.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_generate.assert_not_called()
+        self.assertEqual(RenderingCanvas.objects.count(), 0)
+
+    def test_generate_requires_prompt(self) -> None:
+        response = self.client.post(self._generate_url(), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

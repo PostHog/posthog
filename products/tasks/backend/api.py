@@ -21,7 +21,7 @@ import jsonschema
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -49,10 +49,13 @@ from .automation_service import (
     update_automation_run_result,
 )
 from .models import CodeInvite, CodeInviteRedemption, RenderingCanvas, SandboxEnvironment, Task, TaskAutomation, TaskRun
+from .rendering_canvas_generation import generate_canvas_tsx
+from .rendering_canvas_validation import validate_canvas_content
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    RenderingCanvasGenerateSerializer,
     RenderingCanvasSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
@@ -2571,3 +2574,45 @@ class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.deleted = True
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted", "deleted_at"])
+
+    @validated_request(
+        request_serializer=RenderingCanvasGenerateSerializer,
+        responses={
+            201: OpenApiResponse(response=RenderingCanvasSerializer, description="Generated canvas"),
+        },
+        summary="Generate a rendering canvas from a prompt",
+        description=(
+            "Generate a React/TSX module from a natural-language prompt, validate it, "
+            "and persist it as a new RenderingCanvas. Returns the created canvas."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="generate",
+        required_scopes=["task:write"],
+    )
+    def generate(self, request, *args, **kwargs):
+        data = request.validated_data
+        task: Task | None = data.get("task")
+        if task is not None and task.team_id != self.team.id:
+            raise serializers.ValidationError({"task": "Task does not belong to this team."})
+
+        tsx, name = generate_canvas_tsx(
+            team=self.team,
+            user=request.user,
+            prompt=data["prompt"],
+            name_hint=data.get("name"),
+        )
+        validate_canvas_content(tsx)
+        canvas = RenderingCanvas.objects.create(
+            team=self.team,
+            created_by=request.user,
+            name=name,
+            content=tsx,
+            task=task,
+        )
+        return Response(
+            RenderingCanvasSerializer(canvas).data,
+            status=status.HTTP_201_CREATED,
+        )

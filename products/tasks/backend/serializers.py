@@ -1706,3 +1706,34 @@ class RenderingCanvasSerializer(serializers.ModelSerializer):
         if team is not None and value.team_id != team.id:
             raise serializers.ValidationError("Task does not belong to this team.")
         return value
+
+
+class RenderingCanvasGenerateSerializer(serializers.Serializer):
+    """Input for the `rendering_canvases/generate/` action."""
+
+    prompt = serializers.CharField(
+        max_length=4000,
+        trim_whitespace=False,
+        help_text="Natural-language description of the UI to generate.",
+    )
+    name = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the canvas. If omitted, derived from the prompt.",
+    )
+    task = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Optional task this canvas was generated from.",
+    )
+
+    def validate_task(self, value: Task | None) -> Task | None:
+        if value is None:
+            return None
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is not None and value.team_id != team.id:
+            raise serializers.ValidationError("Task does not belong to this team.")
+        return value
