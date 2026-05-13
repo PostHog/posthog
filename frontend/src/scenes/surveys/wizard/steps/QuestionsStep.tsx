@@ -194,9 +194,32 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
             } as Partial<MultipleSurveyQuestion>)
         }
 
+        const handlePasteIntoChoice = (event: React.ClipboardEvent<HTMLInputElement>, choiceIndex: number): void => {
+            const pasted = event.clipboardData.getData('text')
+            const segments = pasted
+                .split(/[\n\t]+/)
+                .map((segment) => segment.trim())
+                .filter((segment) => segment.length > 0)
+            if (segments.length <= 1) {
+                return
+            }
+            event.preventDefault()
+            const openTail = hasOpenChoice && choiceIndex !== choices.length - 1 ? [choices[choices.length - 1]] : []
+            const head = choices.slice(0, choiceIndex)
+            const tailStart = choiceIndex + 1
+            const tailEnd = hasOpenChoice ? choices.length - 1 : choices.length
+            const tail = choices.slice(tailStart, tailEnd)
+            onUpdate({
+                choices: [...head, ...segments, ...tail, ...openTail],
+            } as Partial<MultipleSurveyQuestion>)
+        }
+
         return (
             <div className="space-y-2 pt-2 border-t border-border mt-3">
-                <span className="text-xs text-secondary">Choices:</span>
+                <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-secondary">Choices:</span>
+                    <span className="text-[10px] text-muted">Paste a list to add many at once</span>
+                </div>
                 <div className="space-y-1.5">
                     {choices.map((choice, choiceIndex) => {
                         const isOpenChoice = hasOpenChoice && choiceIndex === choices.length - 1
@@ -207,6 +230,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                     value={choice}
                                     placeholder={isOpenChoice ? 'Other (open-ended)' : `Choice ${choiceIndex + 1}`}
                                     onChange={(val) => updateChoice(choiceIndex, val)}
+                                    onPaste={(event) => handlePasteIntoChoice(event, choiceIndex)}
                                     className="flex-1"
                                     suffix={
                                         isOpenChoice ? (

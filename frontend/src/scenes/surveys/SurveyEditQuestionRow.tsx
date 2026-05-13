@@ -685,7 +685,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name={getFieldName('choices')} label="Choices">
+                                <LemonField
+                                    name={getFieldName('choices')}
+                                    label="Choices"
+                                    info="Tip: paste a list of options separated by new lines (or from a spreadsheet column) to add them all at once."
+                                >
                                     {({ value, onChange }) => {
                                         const handleChoicesChange = (newChoices: string[]): void => {
                                             onChange(newChoices)
@@ -699,6 +703,37 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             if (!editingLanguage) {
                                                 syncChoicesInTranslations(newChoices)
                                             }
+                                        }
+
+                                        const handlePasteIntoChoice = (
+                                            event: React.ClipboardEvent<HTMLInputElement>,
+                                            choiceIndex: number
+                                        ): void => {
+                                            if (editingLanguage) {
+                                                return
+                                            }
+                                            const pasted = event.clipboardData.getData('text')
+                                            // Split on newlines or tabs (spreadsheet rows). Commas are intentionally
+                                            // not split on because they appear in regular answer text.
+                                            const segments = pasted
+                                                .split(/[\n\t]+/)
+                                                .map((segment) => segment.trim())
+                                                .filter((segment) => segment.length > 0)
+                                            if (segments.length <= 1) {
+                                                return
+                                            }
+                                            event.preventDefault()
+                                            const current = value || []
+                                            // Preserve the open-ended choice as the last entry if present.
+                                            const openTail =
+                                                hasOpenChoice && choiceIndex !== current.length - 1
+                                                    ? [current[current.length - 1]]
+                                                    : []
+                                            const head = current.slice(0, choiceIndex)
+                                            const tailStart = choiceIndex + 1
+                                            const tailEnd = hasOpenChoice ? current.length - 1 : current.length
+                                            const tail = current.slice(tailStart, tailEnd)
+                                            handleChoicesChange([...head, ...segments, ...tail, ...openTail])
                                         }
 
                                         return (
@@ -718,6 +753,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                         newChoices[index] = val
                                                                         handleChoicesChange(newChoices)
                                                                     }}
+                                                                    onPaste={(event) =>
+                                                                        handlePasteIntoChoice(event, index)
+                                                                    }
                                                                     placeholder={
                                                                         editingLanguage
                                                                             ? originalChoices[index]
