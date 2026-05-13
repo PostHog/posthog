@@ -1349,6 +1349,11 @@ export enum ResultCustomizationBy {
     Position = 'position',
 }
 
+export enum BreakdownSortBy {
+    AggregateValue = 'aggregate_value',
+    Name = 'name',
+}
+
 export type TrendsFormulaNode = {
     formula: string
     /** Optional user-defined name for the formula */
@@ -1395,6 +1400,14 @@ export type TrendsFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /**
+     * How breakdown series are ordered on the chart and in the legend.
+     * "aggregate_value" preserves the default order (largest first, with
+     * Other/null pushed to the end). "name" sorts alphabetically by
+     * breakdown_value so series stack the same way across insights.
+     * @default aggregate_value
+     **/
+    breakdownSortBy?: BreakdownSortBy
     /** Goal Lines */
     goalLines?: GoalLine[]
     showConfidenceIntervals?: boolean

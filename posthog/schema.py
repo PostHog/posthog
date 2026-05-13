@@ -900,6 +900,11 @@ class BreakdownAttributionType(StrEnum):
     STEP = "step"
 
 
+class BreakdownSortBy(StrEnum):
+    AGGREGATE_VALUE = "aggregate_value"
+    NAME = "name"
+
+
 class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
@@ -8780,6 +8785,15 @@ class TrendsFilter(BaseModel):
     aggregationAxisFormat: AggregationAxisFormat | None = AggregationAxisFormat.NUMERIC
     aggregationAxisPostfix: str | None = None
     aggregationAxisPrefix: str | None = None
+    breakdownSortBy: BreakdownSortBy | None = Field(
+        default=BreakdownSortBy.AGGREGATE_VALUE,
+        description=(
+            "How breakdown series are ordered on the chart and in the legend."
+            ' "aggregate_value" preserves the default order (largest first, with'
+            ' Other/null pushed to the end). "name" sorts alphabetically by'
+            " breakdown_value so series stack the same way across insights."
+        ),
+    )
     breakdown_histogram_bin_count: float | None = None
     confidenceLevel: float | None = None
     decimalPlaces: float | None = None

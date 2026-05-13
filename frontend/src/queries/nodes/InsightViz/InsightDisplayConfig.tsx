@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { BreakdownSortByPicker } from 'scenes/insights/EditorFilters/BreakdownSortByPicker'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -212,6 +213,21 @@ export function InsightDisplayConfig(): JSX.Element {
                           </>
                       ),
                       items: [{ label: () => <ResultCustomizationByPicker /> }],
+                  },
+              ]
+            : []),
+        ...(isTrends && hasBreakdownFilter(breakdownFilter)
+            ? [
+                  {
+                      title: (
+                          <h5 className="mx-2 my-1">
+                              Series order{' '}
+                              <Tooltip title="Pick how breakdown series are ordered on this chart. 'Aggregate value' shows the largest series first. 'Name (A–Z)' uses the breakdown value alphabetically, which keeps the order consistent across charts on a dashboard.">
+                                  <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                              </Tooltip>
+                          </h5>
+                      ),
+                      items: [{ label: () => <BreakdownSortByPicker /> }],
                   },
               ]
             : []),

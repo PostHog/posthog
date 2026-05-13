@@ -242,6 +242,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
+            breakdownSortBy: undefined,
             goalLines: undefined,
             dashboardDisplay: undefined,
             showConfidenceIntervals: undefined,

@@ -20,6 +20,7 @@ import {
 
 import {
     BreakdownFilter,
+    BreakdownSortBy,
     EventsNode,
     InsightQueryNode,
     LifecycleQuery,
@@ -46,6 +47,7 @@ import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
 
 export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value
+export const BREAKDOWN_SORT_BY_DEFAULT = BreakdownSortBy.AggregateValue
 
 /** All math types that can result in non-whole numbers. */
 const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
@@ -192,8 +194,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         indexedResults: [
-            (s) => [s.results, s.display, s.lifecycleFilter],
-            (results, display, lifecycleFilter): IndexedTrendResult[] => {
+            (s) => [s.results, s.display, s.lifecycleFilter, s.breakdownSortBy],
+            (results, display, lifecycleFilter, breakdownSortBy): IndexedTrendResult[] => {
                 const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
 
@@ -242,6 +244,26 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                             defaultLifecyclesOrder.indexOf(String(b.status)) -
                             defaultLifecyclesOrder.indexOf(String(a.status))
                     )
+                }
+
+                // Stable alphabetical order across charts when the user picks Name mode.
+                // Lifecycle has its own canonical order, so leave it alone.
+                if (breakdownSortBy === BreakdownSortBy.Name && !lifecycleFilter) {
+                    const specialRank = (bv: unknown): number =>
+                        bv === BREAKDOWN_OTHER_STRING_LABEL ? 1 : bv === BREAKDOWN_NULL_STRING_LABEL ? 2 : 0
+                    const stringify = (bv: unknown): string => (Array.isArray(bv) ? bv.join(',') : String(bv ?? ''))
+
+                    indexedResults.sort((a, b) => {
+                        const ra = specialRank(a.breakdown_value)
+                        const rb = specialRank(b.breakdown_value)
+                        if (ra !== rb) {
+                            return ra - rb
+                        }
+                        return stringify(a.breakdown_value).localeCompare(stringify(b.breakdown_value), undefined, {
+                            numeric: true,
+                            sensitivity: 'base',
+                        })
+                    })
                 }
 
                 const colorIndexMap = new Map<string, number>()
@@ -422,6 +444,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         resultCustomizationBy: [
             (s) => [s.resultCustomizationByRaw],
             (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
+        ],
+        breakdownSortBy: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | null) => trendsFilter?.breakdownSortBy ?? BREAKDOWN_SORT_BY_DEFAULT,
         ],
 
         getTrendsColorToken: [

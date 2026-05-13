@@ -100,6 +100,7 @@ def to_dict(query: BaseModel) -> dict:
                         "hiddenLegendBreakdowns",
                         "resultCustomizations",
                         "resultCustomizationBy",
+                        "breakdownSortBy",
                         "goalLines",
                         "dashboardDisplay",
                         "showConfidenceIntervals",
