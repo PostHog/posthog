@@ -5,9 +5,9 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { deploymentsLogicType } from './deploymentsLogicType'
 import { deploymentsList } from './generated/api'
 import type { DeploymentApi } from './generated/api.schemas'
-import type { deploymentsLogicType } from './deploymentsLogicType'
 
 export interface DeploymentsFilters {
     status: string | null

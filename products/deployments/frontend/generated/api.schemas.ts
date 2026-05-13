@@ -9,13 +9,7 @@
  * generated types.
  */
 
-export type DeploymentStatusEnumApi =
-    | 'queued'
-    | 'initializing'
-    | 'building'
-    | 'ready'
-    | 'error'
-    | 'cancelled'
+export type DeploymentStatusEnumApi = 'queued' | 'initializing' | 'building' | 'ready' | 'error' | 'cancelled'
 
 export type DeploymentTriggerKindEnumApi = 'git' | 'redeploy' | 'rollback' | 'seed'
 

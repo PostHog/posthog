@@ -9,7 +9,6 @@
  * generated client.
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
-
 import type { DeploymentApi, PaginatedDeploymentListApi } from './api.schemas'
 
 export const getDeploymentsListUrl = (projectId: string): string => {
