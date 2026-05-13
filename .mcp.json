@@ -7,6 +7,10 @@
         "traffic-sim": {
             "command": "uv",
             "args": ["run", "python", "tools/traffic-sim/mcp_server.py"]
+        },
+        "playwright": {
+            "command": "npx",
+            "args": ["-y", "@playwright/mcp@latest"]
         }
     }
 }
