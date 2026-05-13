@@ -1,10 +1,12 @@
 import re
 import json
 from functools import cached_property
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.files import File
+from django.db.models import QuerySet
 
 import posthoganalytics
 import posthoganalytics.ai.openai
@@ -20,7 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic
+from .models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 elevenlabs_client = ElevenLabs()
 
@@ -319,3 +321,76 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["topic"]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
+
+
+class IntervieweeContextSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    interviewee_identifier = serializers.CharField(
+        max_length=400,
+        help_text="Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.",
+    )
+    agent_context = serializers.CharField(
+        max_length=10000,
+        help_text="Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
+    )
+
+    class Meta:
+        model = IntervieweeContext
+        fields = (
+            "id",
+            "created_by",
+            "created_at",
+            "interviewee_identifier",
+            "agent_context",
+        )
+        read_only_fields = ("id", "created_by", "created_at")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        topic_id = self.context["topic_id"]
+        team = self.context["get_team"]()
+
+        if not UserInterviewTopic.objects.filter(id=topic_id, team_id=team.id).exists():
+            raise serializers.ValidationError({"topic": "Topic not found in this project."})
+
+        if self.instance is None:
+            interviewee_identifier = attrs.get("interviewee_identifier")
+            if IntervieweeContext.objects.filter(
+                topic_id=topic_id, interviewee_identifier=interviewee_identifier
+            ).exists():
+                raise serializers.ValidationError(
+                    {
+                        "interviewee_identifier": "A context row for this interviewee already exists on this topic. Update the existing row instead of creating a new one."
+                    }
+                )
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> IntervieweeContext:
+        request = self.context["request"]
+        team = self.context["get_team"]()
+        topic_id = self.context["topic_id"]
+        return IntervieweeContext.objects.create(
+            team=team,
+            topic_id=topic_id,
+            created_by=request.user,
+            **validated_data,
+        )
+
+
+@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
+class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier)."""
+
+    scope_object = "user_interview"
+    serializer_class = IntervieweeContextSerializer
+    queryset = IntervieweeContext.objects.select_related("created_by").all()
+    posthog_feature_flag = "user-interviews"
+    permission_classes = [PostHogFeatureFlagPermission]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(
+            topic_id=self.parents_query_dict["topic_id"],
+            team_id=self.parents_query_dict["team_id"],
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return {**super().get_serializer_context(), "topic_id": self.parents_query_dict["topic_id"]}
