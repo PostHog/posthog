@@ -749,7 +749,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             # Reverse join order (right table column before left table column in ON clause)
             # is not supported with enable_analyzer=0. See PR #45000.
-            with self.assertRaises(InternalCHQueryError):
+            with (
+                patch("posthog.clickhouse.client.execute._default_enable_analyzer_in_tests", return_value=False),
+                self.assertRaises(InternalCHQueryError),
+            ):
                 execute_hogql_query(
                     "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
                     team=self.team,
@@ -794,7 +797,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             # Reverse join order (right table column before left table column in ON clause)
             # is not supported with enable_analyzer=0. See PR #45000.
-            with self.assertRaises(InternalCHQueryError):
+            with (
+                patch("posthog.clickhouse.client.execute._default_enable_analyzer_in_tests", return_value=False),
+                self.assertRaises(InternalCHQueryError),
+            ):
                 execute_hogql_query(
                     "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
                     team=self.team,
@@ -1572,7 +1578,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Complex subqueries are not supported with `enable_analyzer=0` (see: https://github.com/PostHog/posthog/pull/45000)
         query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
-        with self.assertRaises(InternalCHQueryError):
+        with (
+            patch("posthog.clickhouse.client.execute._default_enable_analyzer_in_tests", return_value=False),
+            self.assertRaises(InternalCHQueryError),
+        ):
             execute_hogql_query(query, team=self.team)
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
