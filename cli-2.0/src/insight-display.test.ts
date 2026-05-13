@@ -82,6 +82,13 @@ describe('formatYValue', () => {
     // billions with one decimal and "B" suffix
     { input: 1_000_000_000, expected: '1.0B' },
     { input: -2_500_000_000, expected: '-2.5B' },
+    // larger billions without decimals — previously overflowed to "-10.0B" /
+    // "100.0B" (6 chars); must stay ≤5 chars
+    { input: 9_500_000_000, expected: '10B' },
+    { input: -9_500_000_000, expected: '-10B' },
+    { input: 50_000_000_000, expected: '50B' },
+    { input: 100_000_000_000, expected: '100B' },
+    { input: -100_000_000_000, expected: '-100B' },
     // boundary cases that previously rounded into the next magnitude and
     // overflowed the 5-char width budget for negatives — must stay ≤5 chars
     { input: 9999, expected: '10k' },

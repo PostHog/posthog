@@ -514,7 +514,14 @@ const CHART_COLORS = [
 ]
 
 function plotTrendsSeries(series: ChartSeries[]): void {
-  const points = series[0].data.length
+  if (series.length === 0) {
+    console.log(chalk.gray('Not enough data points to plot.'))
+    return
+  }
+  // Series may report different data lengths if any are sparse or partially
+  // filtered. Truncate everything to the shortest so asciichart receives a
+  // rectangular multi-series array and labels stay aligned with chart cells.
+  const points = Math.min(...series.map((s) => s.data.length))
   if (points < 2) {
     console.log(chalk.gray('Not enough data points to plot.'))
     return
@@ -523,7 +530,12 @@ function plotTrendsSeries(series: ChartSeries[]): void {
   const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 100, 200))
   const step = pickStep(points, termWidth)
 
-  const numericSeries = series.map((s) => widenSeries(s.data.map((v) => Number(v) || 0), step))
+  const numericSeries = series.map((s) =>
+    widenSeries(
+      s.data.slice(0, points).map((v) => Number(v) || 0),
+      step,
+    ),
+  )
 
   const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
     height: 12,
@@ -532,7 +544,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
   })
 
   console.log(chart)
-  console.log(buildLabelRow(series[0].labels, step))
+  console.log(buildLabelRow(series[0].labels.slice(0, points), step))
   console.log('')
 
   series.forEach((s, i) => {
