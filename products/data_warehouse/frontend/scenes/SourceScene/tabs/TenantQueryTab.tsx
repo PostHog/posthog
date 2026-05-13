@@ -38,10 +38,12 @@ interface TenantQueryTableRow {
     hasTenantColumn: boolean | null
 }
 
-function tenantColumnOptionsFromSchemas(
-    schemas: ExternalDataSourceSchema[],
-    selectedTenantColumn: string
-): LemonSelectOptions<string> {
+interface TenantColumnOption {
+    label: string
+    value: string
+}
+
+function tenantColumnOptionsFromSchemas(schemas: ExternalDataSourceSchema[]): TenantColumnOption[] {
     const enabledSchemas = schemas.filter((schema) => schema.should_sync)
     if (enabledSchemas.length === 0 || enabledSchemas.some((schema) => !schema.table?.columns?.length)) {
         return []
@@ -60,15 +62,7 @@ function tenantColumnOptionsFromSchemas(
         .filter((column) => otherColumnSets.every((columnSet) => columnSet.has(column)))
         .sort((columnA, columnB) => columnA.localeCompare(columnB))
 
-    const options = commonColumns.map((column) => ({ label: column, value: column }))
-    if (selectedTenantColumn && !commonColumns.includes(selectedTenantColumn)) {
-        options.unshift({
-            label: `${selectedTenantColumn} (configured)`,
-            value: selectedTenantColumn,
-        })
-    }
-
-    return options
+    return commonColumns.map((column) => ({ label: column, value: column }))
 }
 
 function tenantQueryTableRows(
@@ -192,7 +186,10 @@ function TenantQueryTabInner(): JSX.Element {
     }
 
     const selectedTenantColumn = tenantQueryConfigForm.tenant_column_name.trim()
-    const tenantColumnOptions = tenantColumnOptionsFromSchemas(source.schemas, selectedTenantColumn)
+    const tenantColumnOptions = tenantColumnOptionsFromSchemas(source.schemas)
+    const tenantColumnOptionValues = new Set(tenantColumnOptions.map((option) => option.value))
+    const shouldUseTenantColumnSelect =
+        tenantColumnOptions.length > 0 && (!selectedTenantColumn || tenantColumnOptionValues.has(selectedTenantColumn))
     const enabledTables = tenantQueryTableRows(source.schemas, selectedTenantColumn)
     const configuredTenantColumnType = tenantColumnTypeLabel(tenantQueryConfig?.tenant_column_type)
     const hasQueryableTables = enabledTables.length > 0
@@ -228,11 +225,11 @@ function TenantQueryTabInner(): JSX.Element {
                     help="The column must exist on every queryable table. It is hidden from schema exports and query results."
                 >
                     {({ value, onChange }) =>
-                        tenantColumnOptions.length > 0 ? (
+                        shouldUseTenantColumnSelect ? (
                             <LemonSelect
                                 value={value || undefined}
                                 onChange={(nextValue) => onChange(nextValue ?? '')}
-                                options={tenantColumnOptions}
+                                options={tenantColumnOptions as LemonSelectOptions<string>}
                                 placeholder="Select tenant column"
                                 fullWidth
                             />
@@ -240,6 +237,7 @@ function TenantQueryTabInner(): JSX.Element {
                             <LemonInput
                                 value={value}
                                 onChange={onChange}
+                                allowClear
                                 onKeyDown={(event) => {
                                     if (event.key === 'Enter') {
                                         event.preventDefault()
