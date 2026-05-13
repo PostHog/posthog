@@ -1,13 +1,16 @@
 # PostHog CLI 2.0
 
-Experimental PostHog CLI backed by generated MCP tool definitions.
+PostHog CLI with human-readable command names backed by enhanced MCP tool mappings.
 
-The package is intended to install a `ph` binary, so users can run commands like:
+The package provides a `ph` binary with semantic command names that reflect actual functionality:
 
 ```bash
 ph auth login
-ph actions get-all
-ph dashboards get-all
+ph feature-flags status --id 660245
+ph cohorts list
+ph cohorts add-persons --id 123
+ph insights list
+ph dashboards list
 ```
 
 ## Setup
@@ -64,8 +67,8 @@ Use this for the fastest local development loop when editing CLI source code:
 ```bash
 pnpm dev auth --help
 pnpm dev auth login
-pnpm dev actions --help
-pnpm dev actions get-all
+pnpm dev feature-flags --help
+pnpm dev cohorts list
 ```
 
 `dev` does not compile TypeScript and does not regenerate command definitions.
@@ -78,9 +81,16 @@ Regenerates CLI command definitions:
 pnpm generate:commands
 ```
 
-This reads MCP tool definitions from `../services/mcp/schema/tool-definitions-all.json` and writes `src/generated/commands.ts`.
+This reads MCP tool definitions from `../services/mcp/schema/tool-definitions-all.json`, generates enhanced command mappings in `schema/command-mappings-enhanced.json`, and writes `src/generated/commands.ts` with human-readable command names.
 
-Run this when MCP tool definitions change or when `src/generated/commands.ts` is missing/out of date.
+The enhanced mappings system:
+
+- Maps 312+ MCP tools to semantic command names
+- Extracts real API endpoints from MCP tool implementations
+- Uses simple template placeholders (`{project_id}`, `{id}`)
+- Groups commands logically (feature-flags, cohorts, insights, etc.)
+
+Run this when MCP tool definitions change or when generated files are missing/out of date.
 
 ### `pnpm build`
 
@@ -100,7 +110,7 @@ Runs the built CLI through the package binary wrapper:
 
 ```bash
 pnpm start auth --help
-pnpm start actions --help
+pnpm start feature-flags --help
 ```
 
 `start` does not rebuild. If `dist/` is missing or stale, run `pnpm build` first.
@@ -111,13 +121,13 @@ pnpm start actions --help
 
 ## Script responsibilities
 
-| Script | Purpose | Regenerates commands? | Compiles TypeScript? | Runs built `ph` path? |
-| --- | --- | --- | --- | --- |
-| `pnpm dev <command>` | Fast local development against `src/index.ts` | No | No | No |
-| `pnpm generate:commands` | Refresh `src/generated/commands.ts` from MCP schema | Yes | No | No |
-| `pnpm build` | Prepare compiled output in `dist/` | Yes | Yes | No |
-| `pnpm link:global` | Build and globally link the `ph` binary | Yes, via `build` | Yes, via `build` | Yes |
-| `pnpm start <command>` | Run production-like built CLI | No | No | Yes |
+| Script                   | Purpose                                             | Regenerates commands? | Compiles TypeScript? | Runs built `ph` path? |
+| ------------------------ | --------------------------------------------------- | --------------------- | -------------------- | --------------------- |
+| `pnpm dev <command>`     | Fast local development against `src/index.ts`       | No                    | No                   | No                    |
+| `pnpm generate:commands` | Refresh `src/generated/commands.ts` from MCP schema | Yes                   | No                   | No                    |
+| `pnpm build`             | Prepare compiled output in `dist/`                  | Yes                   | Yes                  | No                    |
+| `pnpm link:global`       | Build and globally link the `ph` binary             | Yes, via `build`      | Yes, via `build`     | Yes                   |
+| `pnpm start <command>`   | Run production-like built CLI                       | No                    | No                   | Yes                   |
 
 ## Authentication
 
@@ -147,16 +157,78 @@ Clear stored credentials:
 ph auth logout
 ```
 
-Help commands and bare command groups, such as `ph auth` or `ph actions`, do not require login and show their available subcommands.
+Help commands and bare command groups, such as `ph auth` or `ph feature-flags`, do not require login and show their available subcommands.
+
+## Available Commands
+
+The CLI provides 40+ command groups with 312+ subcommands:
+
+**Core Resources:**
+
+- `ph feature-flags` - Feature flag management (status, list, create, etc.)
+- `ph cohorts` - Cohort operations (list, add-persons, remove-persons, etc.)
+- `ph insights` - Insight and query management
+- `ph dashboards` - Dashboard operations
+- `ph experiments` - A/B test management
+- `ph persons` - Person and user data
+
+**Analytics & Tracking:**
+
+- `ph events` - Event data and definitions
+- `ph actions` - Action tracking configuration
+- `ph session-recordings` - Session replay management
+- `ph web-analytics` - Web analytics features
+
+**Platform Features:**
+
+- `ph organizations` - Organization management
+- `ph projects` - Project configuration
+- `ph users` - User management
+- `ph roles` - Access control
+
+Run `ph --help` to see all available command groups, or `ph <group> --help` for subcommands.
 
 ## Adding or changing commands
 
-Most CLI command groups are generated from MCP tool definitions, not handwritten.
+CLI command groups are generated from MCP tool definitions using an enhanced mapping system.
 
-1. Update the relevant MCP tool definition/source.
-2. Run `pnpm generate:commands` or `pnpm build`.
-3. Inspect `src/generated/commands.ts`.
-4. Test source mode with `pnpm dev <group> --help`.
-5. Test the installed-user path with `pnpm build && node ./bin/ph.js <group> --help`.
+### Command Generation Process
 
-Do not manually edit `src/generated/commands.ts` unless you are debugging generated output; regenerate it instead.
+1. **MCP Tool Definitions** - Source definitions from `../services/mcp/schema/tool-definitions-all.json`
+2. **Enhanced Mapping Generator** - `scripts/generate-command-mappings-v2.ts` creates semantic command mappings
+3. **Command Generator** - `scripts/generate-commands.ts` creates the final CLI structure
+
+### Making Changes
+
+**For new commands:**
+
+1. Add/modify MCP tool definitions in the services/mcp directory
+2. Run `pnpm generate:commands` to regenerate mappings and commands
+3. Test with `pnpm dev <group> <command> --help`
+
+**For command naming improvements:**
+
+1. Update patterns in `scripts/generate-command-mappings-v2.ts`
+2. Add specific mappings for tools that don't follow general patterns
+3. Regenerate with `pnpm generate:commands`
+
+**For endpoint/API issues:**
+
+1. Check enhanced mappings in `schema/command-mappings-enhanced.json`
+2. Verify endpoint extraction in `extractEndpointFromGeneratedTool()`
+3. Add specific mappings if needed
+
+### Testing Changes
+
+```bash
+# Test development version
+pnpm dev feature-flags status --id 123
+
+# Test built version
+pnpm build && node ./bin/ph.js feature-flags status --id 123
+
+# Check command structure
+pnpm dev feature-flags --help
+```
+
+Do not manually edit generated files (`src/generated/commands.ts`, `schema/command-mappings-enhanced.json`) - regenerate them instead.

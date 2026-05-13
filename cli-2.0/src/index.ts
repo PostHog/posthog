@@ -6,7 +6,7 @@ import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
 import { config } from './config.js'
-import { commandGroups, executeToolCall } from './generated/commands.js'
+import { commands, executeToolCall } from './generated/commands.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
 import { printResult } from './output.js'
 
@@ -16,73 +16,7 @@ function isTopLevelCommandGroupHelpRequest(argv: { _: Array<string | number> }):
     }
 
     const command = String(argv._[0])
-    return command === 'auth' || Object.prototype.hasOwnProperty.call(commandGroups, command)
-}
-
-function getGroupNameParts(groupName: string): { groupPrefix: string; groupSingular: string } {
-    const groupPrefix = groupName
-    return { groupPrefix, groupSingular: groupPrefix.replace(/s$/, '') }
-}
-
-function stripGroupPrefix(toolName: string, groupName: string): string {
-    const { groupPrefix, groupSingular } = getGroupNameParts(groupName)
-
-    if (toolName.startsWith(groupSingular + '-')) {
-        return toolName.substring(groupSingular.length + 1)
-    }
-
-    if (toolName.startsWith(groupPrefix + '-')) {
-        return toolName.substring(groupPrefix.length + 1)
-    }
-
-    return toolName
-}
-
-function getCommandName(toolName: string, groupName: string): string {
-    let commandName = stripGroupPrefix(toolName, groupName)
-    const { groupSingular } = getGroupNameParts(groupName)
-
-    if (commandName.startsWith('create-' + groupSingular)) {
-        commandName = commandName.replace('create-' + groupSingular, 'create')
-    } else if (commandName.startsWith('delete-' + groupSingular)) {
-        commandName = commandName.replace('delete-' + groupSingular, 'delete')
-    } else if (commandName.startsWith('update-' + groupSingular)) {
-        commandName = commandName.replace('update-' + groupSingular, 'update')
-    }
-
-    return commandName
-}
-
-function getCommandAliases(commandName: string): string[] {
-    if (commandName === 'list' || commandName.includes('get-all')) {
-        return ['ls']
-    }
-
-    if (commandName === 'get' || commandName.includes('retrieve')) {
-        return ['show']
-    }
-
-    if (commandName === 'create') {
-        return ['new']
-    }
-
-    if (commandName === 'update' || commandName.includes('partial-update')) {
-        return ['edit']
-    }
-
-    if (commandName === 'delete' || commandName === 'destroy') {
-        return ['remove', 'rm']
-    }
-
-    if (commandName === 'launch') {
-        return ['start']
-    }
-
-    if (commandName === 'end') {
-        return ['stop']
-    }
-
-    return []
+    return command === 'auth' || Object.prototype.hasOwnProperty.call(commands, command)
 }
 
 async function main() {
@@ -136,7 +70,6 @@ async function main() {
             (yargs) => {
                 const authCommands = yargs
                     .command('login', 'Login to PostHog with OAuth', {}, async () => {
-                        config.clear()
                         await config.login()
                     })
                     .command('logout', 'Clear stored credentials', {}, () => {
@@ -160,39 +93,39 @@ async function main() {
             }
         )
 
-    // Add generated commands dynamically
+    // Add human-readable commands from the new command mappings
 
-    // Add all command groups
-    for (const [groupName, group] of Object.entries(commandGroups)) {
-        if (group.tools.length === 0) continue // Skip empty groups
+    for (const [commandName, command] of Object.entries(commands)) {
+        if (Object.keys(command.subcommands).length === 0) continue // Skip empty commands
+
+        // Create the main command with aliases
+        const commandAliases = command.aliases || []
+        const commandSpec = [commandName, ...commandAliases]
 
         cli.command(
-            groupName,
-            `${groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ')} commands`,
+            commandSpec,
+            command.description,
             (yargs) => {
-                let subCommands = yargs
+                let subCommands = yargs.demandCommand(1, 'You need to specify a subcommand')
 
-                // Add each tool as a subcommand with friendly aliases
-                for (const tool of group.tools) {
-                    const commandName = getCommandName(tool.name, groupName)
-                    const aliases = getCommandAliases(commandName)
-                    const description = tool.description || `Execute ${tool.name}`
+                // Add each subcommand
+                for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
+                    const subcommandAliases = subcommand.aliases || []
 
-                    const requiresId = commandName === 'get' || commandName === 'delete' || commandName === 'update'
-                    const commandSpec = requiresId ? `${commandName} <id>` : commandName
+                    // Check if this subcommand requires an ID
+                    const requiresId = subcommand.endpoint && subcommand.endpoint.includes('{id}')
 
                     subCommands = subCommands.command(
-                        [commandSpec, ...aliases.map((alias) => (requiresId ? `${alias} <id>` : alias))],
-                        description.split('\n')[0], // Use first line of description
+                        [subcommandName, ...subcommandAliases],
+                        subcommand.description,
                         (yargs) => {
-                            if (requiresId) {
-                                return yargs.positional('id', {
+                            return yargs
+                                .option('id', {
                                     type: 'string',
                                     describe: 'Resource ID',
-                                    demandOption: true,
+                                    demandOption: requiresId,
                                 })
-                            }
-                            return yargs
+                                .strict(false) // Allow additional parameters
                         },
                         async (argv) => {
                             const params: any = {}
@@ -202,16 +135,16 @@ async function main() {
                                     params[key] = value
                                 }
                             }
-                            await executeGeneratedTool(argv, tool.name, params)
+                            await executeGeneratedTool(argv, subcommand.mcp_tool, params)
                         }
                     )
                 }
 
-                commandGroupHelp.set(groupName, () => subCommands.showHelp())
+                commandGroupHelp.set(commandName, () => subCommands.showHelp())
                 return subCommands
             },
             () => {
-                commandGroupHelp.get(groupName)?.() ?? cli.showHelp()
+                commandGroupHelp.get(commandName)?.() ?? cli.showHelp()
             }
         )
     }

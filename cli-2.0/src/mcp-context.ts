@@ -13,12 +13,20 @@ export interface Context {
     stateManager: {
         getProjectId: () => Promise<string>
         getUserEmail: () => Promise<string>
+        getUser: () => Promise<any>
+        getApiKey: () => Promise<any>
+        getCurrentProject: () => Promise<any>
+        getCurrentOrganization: () => Promise<any>
+        getAiConsentGiven: () => Promise<boolean | undefined>
+        getGroupTypes: () => Promise<any[]>
+        setProjectId: (id: string) => Promise<void>
+        setOrgId: (id: string) => Promise<void>
     }
     cache: any
     env: any
     sessionManager: any
     getDistinctId: () => Promise<string>
-    trackEvent: () => Promise<void>
+    trackEvent: (event: any, properties?: Record<string, unknown>) => Promise<void>
 }
 
 export function createMCPContext(config: AuthenticatedConfig): Context {
@@ -39,6 +47,18 @@ export function createMCPContext(config: AuthenticatedConfig): Context {
         stateManager: {
             getProjectId: async () => config.projectId,
             getUserEmail: async () => 'cli-user@posthog.com',
+            getUser: async () => ({ email: 'cli-user@posthog.com', id: 1 }),
+            getApiKey: async () => ({ scopes: ['read', 'write'] }),
+            getCurrentProject: async () => ({ id: config.projectId, name: 'CLI Project' }),
+            getCurrentOrganization: async () => ({ id: 'cli-org', name: 'CLI Organization' }),
+            getAiConsentGiven: async () => true,
+            getGroupTypes: async () => [],
+            setProjectId: async (id: string) => {
+                // No-op for CLI
+            },
+            setOrgId: async (id: string) => {
+                // No-op for CLI
+            },
         },
         cache: {
             // Minimal cache implementation for CLI

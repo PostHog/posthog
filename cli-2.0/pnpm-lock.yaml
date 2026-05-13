@@ -11,6 +11,9 @@ importers:
       '@napi-rs/keyring':
         specifier: ^1.3.0
         version: 1.3.0
+      asciichart:
+        specifier: ^1.5.25
+        version: 1.5.25
       chalk:
         specifier: ^5.3.0
         version: 5.6.2
@@ -486,6 +489,9 @@ packages:
 
   any-promise@1.3.0:
     resolution: {integrity: sha512-7UvmKalWRt1wgjL1RrGxoSJW/0QZFIegpeGvZG9kjp8vrRu55XTHbwnqq2GpXm9uLbcuhxm3IqX9OB4MZR1b2A==}
+
+  asciichart@1.5.25:
+    resolution: {integrity: sha512-PNxzXIPPOtWq8T7bgzBtk9cI2lgS4SJZthUHEiQ1aoIc3lNzGfUvIvo9LiAnq26TACo9t1/4qP6KTGAUbzX9Xg==}
 
   atomically@2.1.1:
     resolution: {integrity: sha512-P4w9o2dqARji6P7MHprklbfiArZAWvo07yW7qs3pdljb3BWr12FIB7W+p0zJiuiVsUpRO0iZn1kFFcpPegg0tQ==}
@@ -1141,6 +1147,8 @@ snapshots:
       color-convert: 2.0.1
 
   any-promise@1.3.0: {}
+
+  asciichart@1.5.25: {}
 
   atomically@2.1.1:
     dependencies:

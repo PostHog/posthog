@@ -1,16 +1,25 @@
+// @ts-expect-error — asciichart ships no type declarations
+import asciichart from 'asciichart'
 import chalk from 'chalk'
 import { highlight } from 'cli-highlight'
 import Table from 'cli-table3'
 
-type JsonRecord = Record<string, unknown>
+import {
+    buildLabelRow,
+    type ChartSeries,
+    formatYValue,
+    getInsightType,
+    isChartSeries,
+    isRecord,
+    type JsonRecord,
+    pickStep,
+    stringify,
+    widenSeries,
+} from './insight-display.js'
 
 type TableColumn = {
     header: string
     render: (item: JsonRecord) => string
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function getListItems(result: unknown): JsonRecord[] {
@@ -31,18 +40,6 @@ function getResultCount(result: unknown): number | undefined {
     }
 
     return result.count
-}
-
-function stringify(value: unknown): string {
-    if (value === null || value === undefined) {
-        return ''
-    }
-
-    if (typeof value === 'string') {
-        return value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-    }
-
-    return String(value)
 }
 
 function truncate(value: string, maxLength: number): string {
@@ -708,9 +705,115 @@ function printKnownList(toolName: string, result: unknown): boolean {
     return true
 }
 
+// asciichart wants raw SGR strings on its `colors` config; chalk 5 doesn't
+// expose `.open`, so we keep two parallel constants — one for asciichart, one
+// for legend bullets. Same ordering in both.
+const CHART_COLORS = [
+    { ansi: asciichart.blue, fn: chalk.blue },
+    { ansi: asciichart.green, fn: chalk.green },
+    { ansi: asciichart.yellow, fn: chalk.yellow },
+    { ansi: asciichart.magenta, fn: chalk.magenta },
+    { ansi: asciichart.cyan, fn: chalk.cyan },
+    { ansi: asciichart.red, fn: chalk.red },
+]
+
+function plotTrendsSeries(series: ChartSeries[]): void {
+    if (series.length === 0) {
+        console.log(chalk.gray('Not enough data points to plot.'))
+        return
+    }
+    // Series may report different data lengths if any are sparse or partially
+    // filtered. Truncate everything to the shortest so asciichart receives a
+    // rectangular multi-series array and labels stay aligned with chart cells.
+    const points = Math.min(...series.map((s) => s.data.length))
+    if (points < 2) {
+        console.log(chalk.gray('Not enough data points to plot.'))
+        return
+    }
+
+    const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 100, 200))
+    const step = pickStep(points, termWidth)
+
+    const numericSeries = series.map((s) =>
+        widenSeries(
+            s.data.slice(0, points).map((v) => Number(v) || 0),
+            step
+        )
+    )
+
+    const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
+        height: 12,
+        colors: numericSeries.map((_, i) => CHART_COLORS[i % CHART_COLORS.length].ansi),
+        format: (x: number) => formatYValue(x).padStart(5, ' '),
+    })
+
+    console.log(chart)
+    console.log(buildLabelRow(series[0].labels.slice(0, points), step))
+    console.log('')
+
+    series.forEach((s, i) => {
+        const { fn: color } = CHART_COLORS[i % CHART_COLORS.length]
+        const action = isRecord(s.action) ? s.action : null
+        const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
+        const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
+        console.log(`  ${color('●')} ${name}${total}`)
+    })
+}
+
+function printInsightDetail(result: unknown): void {
+    if (!isRecord(result)) {
+        printPrettyJson(result)
+        return
+    }
+
+    const name = stringify(result.name) || stringify(result.derived_name) || '(untitled insight)'
+    const description = stringify(result.description)
+
+    console.log('')
+    console.log(chalk.bold(name))
+    if (description) {
+        console.log(chalk.gray(description))
+    }
+    const meta: string[] = []
+    if (result.id !== undefined) {
+        meta.push(`id: ${stringify(result.id)}`)
+    }
+    if (result.short_id) {
+        meta.push(`short_id: ${stringify(result.short_id)}`)
+    }
+    meta.push(`type: ${getInsightType(result)}`)
+    if (isRecord(result.resolved_date_range)) {
+        const from = stringify(result.resolved_date_range.date_from).slice(0, 10)
+        const to = stringify(result.resolved_date_range.date_to).slice(0, 10)
+        if (from && to) {
+            meta.push(`range: ${from} → ${to}`)
+        }
+    }
+    console.log(chalk.gray(meta.join('  ·  ')))
+    console.log('')
+
+    const seriesData = Array.isArray(result.result) ? result.result : []
+    const plottable = seriesData.filter(isChartSeries)
+
+    if (plottable.length === 0) {
+        console.log(chalk.gray('No trends-style result to plot — showing JSON:'))
+        console.log('')
+        printPrettyJson(result)
+        return
+    }
+
+    plotTrendsSeries(plottable)
+    console.log('')
+}
+
 function printHumanResult(toolName: string, result: unknown): void {
     if (isEmptyResult(result)) {
         console.log(chalk.green('Done.'))
+        return
+    }
+
+    if (toolName === 'insight-get' || toolName === 'insights-get') {
+        printInsightDetail(result)
         return
     }
 
