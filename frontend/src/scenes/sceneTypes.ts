@@ -26,6 +26,8 @@ export enum Scene {
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
     Comments = 'Comments',
+    CSMHud = 'CSMHud',
+    CSMHudCustomer = 'CSMHudCustomer',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',

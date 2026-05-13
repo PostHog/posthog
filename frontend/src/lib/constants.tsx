@@ -446,6 +446,7 @@ export const FEATURE_FLAGS = {
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
+    SCENE_CSM_HUD: 'scene-csm-hud', // owner: #team-customer-success, gates the internal CSM HUD scene
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
     SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE: 'schedule-feature-flag-variants-update', // owner: @gustavo #team-feature-flags
     SCHEMA_ENFORCEMENT_REJECT: 'schema-enforcement-reject', // owner: @aspicer, gates the ability to set schema enforcement mode to "reject"

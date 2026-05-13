@@ -610,6 +610,9 @@ importers:
       '@posthog/products-conversations':
         specifier: workspace:*
         version: link:../products/conversations
+      '@posthog/products-csm-hud':
+        specifier: workspace:*
+        version: link:../products/csm_hud
       '@posthog/products-customer-analytics':
         specifier: workspace:*
         version: link:../products/customer_analytics
@@ -2204,6 +2207,8 @@ importers:
         version: 4.3.0
 
   products/core_events: {}
+
+  products/csm_hud: {}
 
   products/customer_analytics:
     dependencies:

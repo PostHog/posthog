@@ -56,6 +56,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
+    CSMHud: () => import('../../products/csm_hud/frontend/scenes/CSMHudScene'),
+    CSMHudCustomer: () => import('../../products/csm_hud/frontend/scenes/CSMHudCustomerScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
@@ -148,6 +150,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
+    '/csm-hud': ['CSMHud', 'csmHud'],
+    '/csm-hud/fleet': ['CSMHud', 'csmHudFleet'],
+    '/csm-hud/renewals': ['CSMHud', 'csmHudRenewals'],
+    '/csm-hud/engagement': ['CSMHud', 'csmHudEngagement'],
+    '/csm-hud/conversations': ['CSMHud', 'csmHudConversations'],
+    '/csm-hud/expansion': ['CSMHud', 'csmHudExpansion'],
+    '/csm-hud/customer/:externalId': ['CSMHudCustomer', 'csmHudCustomer'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
@@ -258,6 +267,7 @@ export const productRedirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/support': '/support/tickets',
+    '/csm-hud': '/csm-hud/fleet',
     '/customer_analytics': (_params, searchParams, hashParams) =>
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
@@ -328,6 +338,13 @@ export const productConfiguration: Record<string, any> = {
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
+    CSMHud: {
+        projectBased: true,
+        name: 'CSM HUD',
+        description: 'Customer Success Manager portfolio dashboard.',
+        layout: 'app-container',
+    },
+    CSMHudCustomer: { projectBased: true, name: 'CSM HUD customer', layout: 'app-container' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -637,6 +654,13 @@ export const productUrls = {
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
     supportSettings: (): string => '/support/settings',
+    csmHud: (): string => '/csm-hud/fleet',
+    csmHudFleet: (): string => '/csm-hud/fleet',
+    csmHudRenewals: (): string => '/csm-hud/renewals',
+    csmHudEngagement: (): string => '/csm-hud/engagement',
+    csmHudConversations: (): string => '/csm-hud/conversations',
+    csmHudExpansion: (): string => '/csm-hud/expansion',
+    csmHudCustomer: (externalId: string): string => `/csm-hud/customer/${encodeURIComponent(externalId)}`,
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
