@@ -6,7 +6,7 @@ import chalk from 'chalk'
 import ora from 'ora'
 import { config } from './config.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
-import { commands, enhancedMappingsMeta, executeCommand, executeToolCall } from './generated/commands.js'
+import { commands, executeToolCall } from './generated/commands.js'
 import { printResult } from './output.js'
 
 function isTopLevelCommandGroupHelpRequest(argv: { _: Array<string | number> }): boolean {
@@ -67,7 +67,6 @@ async function main() {
     .command('auth', 'Authentication commands', (yargs) => {
       const authCommands = yargs
         .command('login', 'Login to PostHog with OAuth', {}, async () => {
-          config.clear()
           await config.login()
         })
         .command('logout', 'Clear stored credentials', {}, () => {
@@ -104,7 +103,9 @@ async function main() {
       // Add each subcommand
       for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
         const subcommandAliases = subcommand.aliases || []
-        const subcommandSpec = [subcommandName, ...subcommandAliases]
+        
+        // Check if this subcommand requires an ID
+        const requiresId = subcommand.endpoint && subcommand.endpoint.includes('{id}')
         
         subCommands = subCommands.command(
           [subcommandName, ...subcommandAliases],
@@ -113,7 +114,8 @@ async function main() {
             return yargs
               .option('id', {
                 type: 'string',
-                describe: 'Resource ID'
+                describe: 'Resource ID',
+                demandOption: requiresId
               })
               .strict(false) // Allow additional parameters
           },

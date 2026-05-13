@@ -67,7 +67,7 @@ function loadCommandMappings(): CommandMapping {
 function loadEnhancedMappings(): any {
   const enhancedFile = path.resolve(CLI_ROOT, 'schema/command-mappings-enhanced.json')
   if (!fs.existsSync(enhancedFile)) {
-    throw new Error('Enhanced mappings not found. Run generate-command-mappings-v2.ts first.')
+    throw new Error('Enhanced mappings not found. Run: pnpm generate:commands')
   }
   const content = fs.readFileSync(enhancedFile, 'utf8')
   return JSON.parse(content)
@@ -190,16 +190,16 @@ function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) 
   let method = toolInfo.method || 'GET'
   
   // Replace template placeholders
-  console.log(\`🔧 Original endpoint template: \${endpoint}\`)
-  console.log(\`🔧 Project ID: \${projectId}, Params:\`, JSON.stringify(params))
+  // Check if ID is required but missing
+  if (endpoint.includes('{id}') && !params.id) {
+    throw new Error('ID parameter required for this command. Use --id <value>')
+  }
   
   endpoint = endpoint
     .replace(/\\\{project_id\\\}/g, projectId)
     .replace(/\\\{id\\\}/g, params.id || '')
     // Handle the literal string case
     .replace('\${encodeURIComponent(String(projectId))}', encodeURIComponent(String(projectId)))
-    
-  console.log(\`🔧 Final endpoint: \${endpoint}\`)
   
   const apiCall: any = {
     method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -210,9 +210,9 @@ function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) 
   if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
     if (params.id) {
       const { id, ...data } = params
-      apiCall.data = data
+      apiCall.body = data
     } else {
-      apiCall.data = params
+      apiCall.body = params
     }
   } else if (method === 'GET' && Object.keys(params).length > 0) {
     // For GET requests, add query parameters (excluding id which is in path)
@@ -222,15 +222,6 @@ function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) 
     }
   }
   
-  // Debug: Print the API call details
-  console.log('🌐 API Call: ' + method + ' ' + endpoint)
-  if (apiCall.data) {
-    console.log('📤 Request body:', JSON.stringify(apiCall.data, null, 2))
-  }
-  if (apiCall.query) {
-    console.log('🔍 Query params:', JSON.stringify(apiCall.query, null, 2))
-  }
-  console.log('🏗️  Project ID: ' + projectId)
   
   return apiCall
 }

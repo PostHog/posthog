@@ -1,6 +1,6 @@
 {
     "version": "2.0",
-    "generated_at": "2026-05-13T22:16:22.667Z",
+    "generated_at": "2026-05-13T22:43:29.870Z",
     "commands": {
         "actions": {
             "description": "Manage actions",
@@ -50,7 +50,7 @@
                     "humanName": "list",
                     "description": "Get all actions",
                     "category": "Actions",
-                    "endpoint": "/api/projects/{project_id}/actions/{id}/",
+                    "endpoint": "/api/projects/{project_id}/actions/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "actions-get-all"
@@ -170,8 +170,8 @@
                     "humanName": "logs",
                     "description": "Query logs",
                     "category": "Logs",
-                    "endpoint": "/api/projects/{project_id}/querys/",
-                    "method": "GET",
+                    "endpoint": "/api/projects/{project_id}/logs/query/",
+                    "method": "POST",
                     "inputs": {},
                     "mcp_tool": "query-logs"
                 }
@@ -876,7 +876,7 @@
                     "description": "Create feature flag",
                     "category": "Feature flags",
                     "endpoint": "/api/projects/{project_id}/feature_flags/",
-                    "method": "GET",
+                    "method": "POST",
                     "inputs": {},
                     "mcp_tool": "create-feature-flag"
                 },
@@ -885,8 +885,8 @@
                     "humanName": "delete",
                     "description": "Delete feature flag",
                     "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/feature_flags/",
-                    "method": "GET",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "method": "PATCH",
                     "inputs": {},
                     "mcp_tool": "delete-feature-flag"
                 },
@@ -895,7 +895,7 @@
                     "humanName": "list",
                     "description": "Get all feature flags",
                     "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "feature-flag-get-all"
@@ -1050,7 +1050,7 @@
                     "humanName": "list",
                     "description": "Get all dashboards",
                     "category": "Dashboards",
-                    "endpoint": "/api/projects/{project_id}/dashboards/{id}/",
+                    "endpoint": "/api/projects/{project_id}/dashboards/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "dashboards-get-all"
@@ -1602,7 +1602,7 @@
                     "humanName": "list",
                     "description": "Get all endpoints",
                     "category": "Endpoints",
-                    "endpoint": "/api/projects/{project_id}/endpoints/{id}/",
+                    "endpoint": "/api/projects/{project_id}/endpoints/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "endpoints-get-all"
@@ -2189,7 +2189,7 @@
                     "humanName": "list",
                     "description": "Deprecated alias for experiment-list.",
                     "category": "Experiments",
-                    "endpoint": "/api/projects/{project_id}/experiments/{id}/",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "experiment-get-all"
@@ -3320,7 +3320,7 @@
                     "humanName": "list-1",
                     "description": "List organizations.",
                     "category": "Platform Features",
-                    "endpoint": "/api/organizations/",
+                    "endpoint": "/api/projects/{project_id}/organizations/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "organizations-list"
@@ -3680,7 +3680,7 @@
                     "humanName": "list",
                     "description": "Get all surveys in the project with optional filtering.",
                     "category": "Surveys",
-                    "endpoint": "/api/projects/{project_id}/surveys/{id}/",
+                    "endpoint": "/api/projects/{project_id}/surveys/",
                     "method": "GET",
                     "inputs": {},
                     "mcp_tool": "surveys-get-all"

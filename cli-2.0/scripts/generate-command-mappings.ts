@@ -163,6 +163,27 @@ async function extractEndpointFromGeneratedTool(toolName: string): Promise<{ end
     'feature-flags-test-evaluation-create': {
       endpoint: '/api/projects/{project_id}/feature_flags/{id}/test_evaluation/',
       method: 'POST'
+    },
+    // Fix common problematic mappings
+    'create-feature-flag': {
+      endpoint: '/api/projects/{project_id}/feature_flags/',
+      method: 'POST'
+    },
+    'delete-feature-flag': {
+      endpoint: '/api/projects/{project_id}/feature_flags/{id}/',
+      method: 'PATCH'  // PostHog uses PATCH with { deleted: true }
+    },
+    'feature-flag-get-all': {
+      endpoint: '/api/projects/{project_id}/feature_flags/',
+      method: 'GET'
+    },
+    'actions-get-all': {
+      endpoint: '/api/projects/{project_id}/actions/',
+      method: 'GET'
+    },
+    'query-logs': {
+      endpoint: '/api/projects/{project_id}/logs/query/',
+      method: 'POST'
     }
   }
   
@@ -190,18 +211,21 @@ async function extractEndpointFromGeneratedTool(toolName: string): Promise<{ end
         
         // Look for the tool name in the file and try to extract endpoint patterns
         if (content.includes(`'${toolName}'`)) {
-          // Find the specific tool's handler function by looking for the tool name declaration
-          const toolFunctionRegex = new RegExp(`name:\\s*['"]${toolName}['"][^}]+handler:[^{]*{([^}]+context\\.api\\.request[^}]+)}`, 's')
-          const toolMatch = content.match(toolFunctionRegex)
+          // Look for context.api.request call in the tool's section
+          const toolSectionRegex = new RegExp(`name:\\s*['"]${toolName}['"]([\\s\\S]*?)(?=\\{\\s*name:|$)`, 's')
+          const toolSectionMatch = content.match(toolSectionRegex)
           
-          if (toolMatch) {
-            // Extract path and method from the specific tool's api.request call
-            const handlerCode = toolMatch[1]
-            const pathMatch = handlerCode.match(/path:\s*`([^`]+)`/)
-            const methodMatch = handlerCode.match(/method:\s*['"]([^'"]+)['"]/)
+          if (toolSectionMatch) {
+            const toolSection = toolSectionMatch[1]
+            const requestMatch = toolSection.match(/context\.api\.request\(\s*\{\s*([^}]+)\s*\}/)
             
-            if (pathMatch && methodMatch) {
-              let path = pathMatch[1]
+            if (requestMatch) {
+              const requestCode = requestMatch[1]
+              const pathMatch = requestCode.match(/path:\s*`([^`]+)`/)
+              const methodMatch = requestCode.match(/method:\s*['"]([^'"]+)['"]/)
+              
+              if (pathMatch && methodMatch) {
+                let path = pathMatch[1]
               const method = methodMatch[1]
             
             // Clean up template strings to simple placeholders
@@ -228,6 +252,7 @@ async function extractEndpointFromGeneratedTool(toolName: string): Promise<{ end
             }
             
               return { endpoint: path, method: method }
+            }
             }
           }
         }
@@ -258,6 +283,27 @@ function inferEndpointFromName(toolName: string): { endpoint?: string, method?: 
     },
     'feature-flags-test-evaluation-create': {
       endpoint: '/api/projects/{project_id}/feature_flags/{id}/test_evaluation/',
+      method: 'POST'
+    },
+    // Fix common problematic mappings
+    'create-feature-flag': {
+      endpoint: '/api/projects/{project_id}/feature_flags/',
+      method: 'POST'
+    },
+    'delete-feature-flag': {
+      endpoint: '/api/projects/{project_id}/feature_flags/{id}/',
+      method: 'PATCH'  // PostHog uses PATCH with { deleted: true }
+    },
+    'feature-flag-get-all': {
+      endpoint: '/api/projects/{project_id}/feature_flags/',
+      method: 'GET'
+    },
+    'actions-get-all': {
+      endpoint: '/api/projects/{project_id}/actions/',
+      method: 'GET'
+    },
+    'query-logs': {
+      endpoint: '/api/projects/{project_id}/logs/query/',
       method: 'POST'
     }
   }
@@ -318,9 +364,10 @@ function inferEndpointFromName(toolName: string): { endpoint?: string, method?: 
   // Build endpoint pattern
   let endpoint = `/api/projects/{project_id}/${resource}/`
   
-  // Add ID parameter for single resource operations
-  if (toolName.includes('-get') || toolName.includes('-update') || toolName.includes('-delete') || 
-      toolName.includes('-retrieve') || toolName.includes('-destroy') || toolName.includes('-status')) {
+  // Add ID parameter for single resource operations (but NOT for list/get-all operations)
+  if ((toolName.includes('-get') || toolName.includes('-update') || toolName.includes('-delete') || 
+      toolName.includes('-retrieve') || toolName.includes('-destroy') || toolName.includes('-status')) &&
+      !toolName.includes('-get-all') && !toolName.includes('-list')) {
     endpoint += '{id}/'
   }
   
