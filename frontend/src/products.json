@@ -187,6 +187,13 @@
             "intents": ["revenue_analytics"]
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
+        {
+            "path": "Synthetic tests",
+            "category": "Behavior",
+            "iconType": null,
+            "type": "synthetic_tests",
+            "intents": []
+        },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {

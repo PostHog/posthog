@@ -107,6 +107,7 @@ from products.notifications.backend.presentation.views import NotificationsViewS
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
+from products.synthetic_tests.backend.presentation import SyntheticTestRunViewSet, SyntheticTestViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
@@ -981,6 +982,20 @@ environments_router.register(
     ErrorTrackingSuppressionRuleViewSet,
     "environment_error_tracking_suppression_rule",
     ["team_id"],
+)
+
+projects_router.register(
+    r"synthetic_tests",
+    SyntheticTestViewSet,
+    "project_synthetic_tests",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"synthetic_test_runs",
+    SyntheticTestRunViewSet,
+    "project_synthetic_test_runs",
+    ["project_id"],
 )
 
 environments_router.register(

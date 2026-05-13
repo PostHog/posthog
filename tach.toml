@@ -575,3 +575,17 @@ expose = [
 from = [
     "products.business_knowledge",
 ]
+
+[[modules]]
+path = "products.synthetic_tests"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.synthetic_tests",
+]

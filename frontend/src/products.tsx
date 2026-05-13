@@ -118,6 +118,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    SyntheticTests: () =>
+        import('../../products/synthetic_tests/frontend/scenes/SyntheticTestsScene/SyntheticTestsScene'),
+    SyntheticTest: () => import('../../products/synthetic_tests/frontend/scenes/SyntheticTestScene/SyntheticTestScene'),
+    SyntheticTestNew: () =>
+        import('../../products/synthetic_tests/frontend/scenes/SyntheticTestScene/SyntheticTestScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
@@ -225,6 +230,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/synthetic_tests': ['SyntheticTests', 'syntheticTests'],
+    '/synthetic_tests/new': ['SyntheticTestNew', 'syntheticTestNew'],
+    '/synthetic_tests/:id': ['SyntheticTest', 'syntheticTest'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/tracing': ['Tracing', 'tracing'],
@@ -560,6 +568,13 @@ export const productConfiguration: Record<string, any> = {
         description: 'View detailed session group summary.',
         iconType: 'notebook',
     },
+    SyntheticTests: {
+        projectBased: true,
+        name: 'Synthetic tests',
+        description: 'Scheduled browser checks against your product, seeded by session replays.',
+    },
+    SyntheticTest: { projectBased: true, name: 'Synthetic test' },
+    SyntheticTestNew: { projectBased: true, name: 'New synthetic test' },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -973,6 +988,9 @@ export const productUrls = {
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
     surveyWizard: (id: string = 'new', template?: string): string =>
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
+    syntheticTests: (params: Record<string, string> = {}): string => combineUrl('/synthetic_tests', params).url,
+    syntheticTestNew: (params: Record<string, string> = {}): string => combineUrl('/synthetic_tests/new', params).url,
+    syntheticTest: (id: string): string => `/synthetic_tests/${id}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     toolbarLaunch: (): string => '/toolbar',
@@ -1295,6 +1313,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconType: 'survey',
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
+    { path: 'Synthetic test', type: 'synthetic_test', href: '/synthetic_tests/new' },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -1782,6 +1801,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         sceneKey: 'Surveys',
         sceneKeys: ['Survey', 'Surveys'],
+    },
+    {
+        path: 'Synthetic tests',
+        category: ProductItemCategory.BEHAVIOR,
+        type: 'synthetic_tests',
+        href: '/synthetic_tests',
+        sceneKey: 'SyntheticTests',
+        sceneKeys: ['SyntheticTests', 'SyntheticTest', 'SyntheticTestNew'],
     },
     {
         path: 'Tags',

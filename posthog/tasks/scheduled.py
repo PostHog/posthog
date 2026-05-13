@@ -173,6 +173,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
+
+    from products.synthetic_tests.backend.tasks.tasks import run_due_synthetic_tests
+
+    sender.add_periodic_task(
+        60,
+        run_due_synthetic_tests.s(),
+        name="run due synthetic tests",
+    )
     sender.add_periodic_task(
         QueryStatusManager.POLL_INTERVAL_SECONDS,
         start_poll_query_performance.s(),

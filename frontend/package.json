@@ -104,6 +104,7 @@
         "@posthog/products-revenue-analytics": "workspace:*",
         "@posthog/products-session-summaries": "workspace:*",
         "@posthog/products-surveys": "workspace:*",
+        "@posthog/products-synthetic-tests": "workspace:*",
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-tracing": "workspace:*",
         "@posthog/products-user-interviews": "workspace:*",

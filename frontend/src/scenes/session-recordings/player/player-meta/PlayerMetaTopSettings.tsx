@@ -152,6 +152,29 @@ function TTLWarning(): JSX.Element | null {
     )
 }
 
+function SaveAsSyntheticTestButton(): JSX.Element {
+    const {
+        logicProps: { sessionRecordingId },
+    } = useValues(sessionRecordingPlayerLogic)
+
+    return (
+        <SettingsButton
+            size="xsmall"
+            label="Save as synthetic test"
+            tooltip="Turn this recording into a scheduled synthetic test"
+            data-attr="save-as-synthetic-test"
+            onClick={() => {
+                if (!sessionRecordingId) {
+                    return
+                }
+                window.location.assign(
+                    `/synthetic_tests/new?source_replay_id=${encodeURIComponent(sessionRecordingId)}`
+                )
+            }}
+        />
+    )
+}
+
 export function PlayerMetaTopSettings(): JSX.Element {
     const {
         logicProps: { withSidebar, mode },
@@ -197,6 +220,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
                             label="View heatmap"
                             tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
                         />
+                        <SaveAsSyntheticTestButton />
                         {withSidebar && <InspectDOM />}
                         {withSidebar && <PlayerInspectorButton />}
                     </div>
