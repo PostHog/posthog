@@ -11,14 +11,15 @@ from django.utils import timezone
 import structlog
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import FieldOrTable, TableNode
+from posthog.hogql.database.models import BooleanDatabaseField, FieldOrTable, StringDatabaseField, Table, TableNode
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -276,35 +277,179 @@ def _metadata_filter_matches(row: dict[str, object], expr: ast.Expr | None) -> b
     if isinstance(expr, ast.And):
         return all(_metadata_filter_matches(row, child_expr) for child_expr in expr.exprs)
     if isinstance(expr, ast.CompareOperation) and expr.op == ast.CompareOperationOp.Eq:
-        if isinstance(expr.left, ast.Field) and isinstance(expr.right, ast.Constant) and len(expr.left.chain) == 1:
-            return row.get(str(expr.left.chain[0])) == expr.right.value
-        if isinstance(expr.right, ast.Field) and isinstance(expr.left, ast.Constant) and len(expr.right.chain) == 1:
-            return row.get(str(expr.right.chain[0])) == expr.left.value
+        left = expr.left.expr if isinstance(expr.left, ast.Alias) else expr.left
+        right = expr.right.expr if isinstance(expr.right, ast.Alias) else expr.right
+        if isinstance(left, ast.Field) and isinstance(right, ast.Constant) and left.chain:
+            return row.get(str(left.chain[-1])) == right.value
+        if isinstance(right, ast.Field) and isinstance(left, ast.Constant) and right.chain:
+            return row.get(str(right.chain[-1])) == left.value
     raise ExposedHogQLError("Tenant metadata queries only support equality filters joined with AND.")
 
 
-def _selected_metadata_columns(select_query: ast.SelectQuery, table_name: str) -> list[tuple[str, str]]:
-    available_columns = TENANT_METADATA_COLUMNS[table_name]
-    if len(select_query.select) == 1:
-        expr = select_query.select[0]
-        if isinstance(expr, ast.Field) and expr.chain in (["*"], [table_name, "*"]):
-            return [(column, column) for column in available_columns]
+def _tenant_metadata_database_field(name: str, metadata_type: str) -> FieldOrTable:
+    if metadata_type == "boolean":
+        return BooleanDatabaseField(name=name)
+    return StringDatabaseField(name=name)
 
-    selected_columns: list[tuple[str, str]] = []
-    for expr in select_query.select:
-        alias: str | None = None
-        if isinstance(expr, ast.Alias):
-            alias = expr.alias
-            expr = expr.expr
-        if not isinstance(expr, ast.Field) or len(expr.chain) != 1:
-            raise ExposedHogQLError("Tenant metadata queries only support selecting metadata columns.")
 
-        column_name = str(expr.chain[0])
-        if column_name not in available_columns:
-            raise ExposedHogQLError(f"Unknown tenant metadata column `{column_name}`.")
-        selected_columns.append((column_name, alias or column_name))
+def _tenant_metadata_database() -> Database:
+    database = Database(include_posthog_tables=False)
+    system_node = TableNode(
+        name="system",
+        children={
+            table_name: TableNode(
+                name=table_name,
+                table=Table(
+                    name=f"system.{table_name}",
+                    fields={
+                        column: _tenant_metadata_database_field(column, TENANT_METADATA_COLUMN_TYPES[column])
+                        for column in columns
+                    },
+                ),
+            )
+            for table_name, columns in TENANT_METADATA_COLUMNS.items()
+        },
+    )
+    database.tables.add_child(system_node)
+    return database
 
-    return selected_columns
+
+def _metadata_query_references_table(node: ast.SelectQuery | ast.SelectSetQuery | ast.JoinExpr | None) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, ast.SelectSetQuery):
+        return _metadata_query_references_table(node.initial_select_query) or any(
+            _metadata_query_references_table(select_node.select_query) for select_node in node.subsequent_select_queries
+        )
+    if isinstance(node, ast.SelectQuery):
+        return any(_metadata_query_references_table(cte.expr) for cte in (node.ctes or {}).values()) or (
+            _metadata_query_references_table(node.select_from)
+        )
+
+    if isinstance(node.table, ast.Field):
+        if TENANT_METADATA_TABLE_ALIASES.get(tuple(str(part) for part in node.table.chain)) is not None:
+            return True
+    elif isinstance(node.table, ast.SelectQuery | ast.SelectSetQuery):
+        return _metadata_query_references_table(node.table)
+
+    return _metadata_query_references_table(node.next_join)
+
+
+def _tenant_metadata_base_rows(
+    source: ExternalDataSource,
+    config: DataWarehouseTenantQueryConfig,
+) -> dict[str, tuple[list[dict[str, object]], dict[str, str]]]:
+    return {
+        "tables": (
+            _tenant_metadata_table_rows(source),
+            {column: TENANT_METADATA_COLUMN_TYPES[column] for column in TENANT_METADATA_COLUMNS["tables"]},
+        ),
+        "fields": (
+            _tenant_metadata_field_rows(source, config),
+            {column: TENANT_METADATA_COLUMN_TYPES[column] for column in TENANT_METADATA_COLUMNS["fields"]},
+        ),
+    }
+
+
+def _metadata_source_rows(
+    join_expr: ast.JoinExpr | None,
+    base_rows: dict[str, tuple[list[dict[str, object]], dict[str, str]]],
+    ctes: dict[str, tuple[list[dict[str, object]], dict[str, str]]],
+    max_result_limit: int,
+) -> tuple[list[dict[str, object]], dict[str, str]]:
+    if join_expr is None:
+        return [{}], {}
+    if join_expr.next_join is not None:
+        raise ExposedHogQLError("Tenant metadata queries do not support joins.")
+
+    table = join_expr.table
+    if isinstance(table, ast.Field):
+        table_chain = tuple(str(part) for part in table.chain)
+        cte_name = ".".join(table_chain)
+        if cte_name in ctes:
+            return ctes[cte_name]
+
+        table_name = TENANT_METADATA_TABLE_ALIASES.get(table_chain)
+        if table_name is None:
+            raise ExposedHogQLError(f"Unknown tenant metadata table `{cte_name}`.")
+        return base_rows[table_name]
+
+    if isinstance(table, ast.SelectQuery):
+        rows, column_types, _has_more, _offset, _limit = _evaluate_tenant_metadata_select(
+            table, base_rows, max_result_limit, ctes
+        )
+        return rows, column_types
+
+    raise ExposedHogQLError("Tenant metadata queries only support metadata tables and subqueries.")
+
+
+def _metadata_selected_column(
+    expr: ast.Expr,
+    input_column_types: dict[str, str],
+) -> tuple[str, str, str]:
+    alias: str | None = None
+    if isinstance(expr, ast.Alias):
+        alias = expr.alias
+        expr = expr.expr
+
+    if not isinstance(expr, ast.Field) or not expr.chain:
+        raise ExposedHogQLError("Tenant metadata queries only support selecting metadata columns.")
+
+    column_name = str(expr.chain[-1])
+    if column_name not in input_column_types:
+        raise ExposedHogQLError(f"Unknown tenant metadata column `{column_name}`.")
+    return column_name, alias or column_name, input_column_types[column_name]
+
+
+def _metadata_order_key(row: dict[str, object], order_expr: ast.OrderExpr) -> object:
+    if not isinstance(order_expr.expr, ast.Field) or not order_expr.expr.chain:
+        raise ExposedHogQLError("Tenant metadata queries only support ordering by metadata columns.")
+    return row.get(str(order_expr.expr.chain[-1]))
+
+
+def _evaluate_tenant_metadata_select(
+    select_query: ast.SelectQuery,
+    base_rows: dict[str, tuple[list[dict[str, object]], dict[str, str]]],
+    max_result_limit: int,
+    ctes: dict[str, tuple[list[dict[str, object]], dict[str, str]]] | None = None,
+) -> tuple[list[dict[str, object]], dict[str, str], bool, int, int]:
+    if (
+        select_query.distinct
+        or select_query.array_join_list
+        or select_query.group_by
+        or select_query.having
+        or select_query.qualify
+        or select_query.window_exprs
+    ):
+        raise ExposedHogQLError("Tenant metadata queries only support simple SELECT queries.")
+
+    resolved_ctes = dict(ctes or {})
+    for cte_name, cte in (select_query.ctes or {}).items():
+        if not isinstance(cte.expr, ast.SelectQuery):
+            raise ExposedHogQLError("Tenant metadata CTEs only support SELECT queries.")
+        cte_rows, cte_column_types, _has_more, _offset, _limit = _evaluate_tenant_metadata_select(
+            cte.expr, base_rows, max_result_limit, resolved_ctes
+        )
+        resolved_ctes[cte_name] = (cte_rows, cte_column_types)
+
+    source_rows, source_column_types = _metadata_source_rows(
+        select_query.select_from, base_rows, resolved_ctes, max_result_limit
+    )
+    rows = [row for row in source_rows if _metadata_filter_matches(row, select_query.where)]
+
+    for order_expr in reversed(select_query.order_by or []):
+        rows = sorted(rows, key=lambda row: _metadata_order_key(row, order_expr), reverse=order_expr.order == "DESC")
+
+    selected_columns = [_metadata_selected_column(expr, source_column_types) for expr in select_query.select]
+    projected_rows = [
+        {alias: row[column_name] for column_name, alias, _metadata_type in selected_columns} for row in rows
+    ]
+    projected_column_types = {alias: metadata_type for _column_name, alias, metadata_type in selected_columns}
+
+    offset = _metadata_offset(select_query)
+    limit = _metadata_limit(select_query, max_result_limit)
+    page = projected_rows[offset : offset + limit]
+    return page, projected_column_types, offset + limit < len(projected_rows), offset, limit
 
 
 def execute_tenant_metadata_query(
@@ -317,36 +462,37 @@ def execute_tenant_metadata_query(
     if not isinstance(select_query, ast.SelectQuery):
         return None
 
-    table_name = _metadata_table_name(select_query)
-    if table_name is None:
+    if not _metadata_query_references_table(select_query):
         return None
 
-    if table_name == "tables":
-        rows = _tenant_metadata_table_rows(source)
-    else:
-        rows = _tenant_metadata_field_rows(source, config)
+    resolved_query = resolve_types(
+        select_query,
+        HogQLContext(database=_tenant_metadata_database(), limit_top_select=False),
+        "hogql",
+    )
+    if not isinstance(resolved_query, ast.SelectQuery):
+        raise ExposedHogQLError("Tenant metadata queries only support SELECT queries.")
 
-    rows = [row for row in rows if _metadata_filter_matches(row, select_query.where)]
-    selected_columns = _selected_metadata_columns(select_query, table_name)
-    offset = _metadata_offset(select_query)
-    limit = _metadata_limit(select_query, config.max_result_limit or DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT)
-    page = rows[offset : offset + limit]
+    page, column_types, has_more, offset, limit = _evaluate_tenant_metadata_select(
+        resolved_query,
+        _tenant_metadata_base_rows(source, config),
+        config.max_result_limit or DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT,
+    )
 
-    columns = [alias for _column, alias in selected_columns]
-    results = [[row[column] for column, _alias in selected_columns] for row in page]
+    columns = list(column_types.keys())
     return (
         {
             "query": query,
             "hogql": query,
             "columns": columns,
-            "types": [[alias, TENANT_METADATA_COLUMN_TYPES[column]] for column, alias in selected_columns],
-            "results": results,
+            "types": [[column, column_types[column]] for column in columns],
+            "results": [[row[column] for column in columns] for row in page],
             "timings": [],
             "limit": limit,
             "offset": offset,
-            "hasMore": offset + limit < len(rows),
+            "hasMore": has_more,
         },
-        len(results),
+        len(page),
     )
 
 
@@ -903,6 +1049,28 @@ def _timeout_ms(config: DataWarehouseTenantQueryConfig, requested_timeout_ms: in
     return min(timeout_ms, max_timeout_ms)
 
 
+def _apply_top_level_tenant_query_limit(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    max_result_limit: int,
+) -> None:
+    if query.limit_percent:
+        return
+
+    default_limit = get_default_limit_for_context(LimitContext.TENANT_QUERY)
+    if query.limit is None:
+        query.limit = ast.Constant(value=min(default_limit, max_result_limit))
+        return
+
+    if isinstance(query.limit, ast.Constant) and isinstance(query.limit.value, int):
+        query.limit.value = min(query.limit.value, max_result_limit)
+        return
+
+    query.limit = ast.Call(
+        name="least",
+        args=[ast.Constant(value=max_result_limit), query.limit],
+    )
+
+
 def _referenced_direct_postgres_tables(executor: HogQLQueryExecutor) -> list[str]:
     try:
         query_type = executor._get_select_query_type()
@@ -1007,6 +1175,10 @@ def execute_tenant_query(
     try:
         parsed_query = parse_select(query)
         reject_tenant_column_outputs(parsed_query, config.tenant_column_name)
+        _apply_top_level_tenant_query_limit(
+            parsed_query,
+            config.max_result_limit or DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT,
+        )
     except Exception as error:
         duration_ms = round((perf_counter() - started_at) * 1000, 2)
         logger.info(
@@ -1036,10 +1208,10 @@ def execute_tenant_query(
         team=team,
         user=user,
         database=database,
-        max_limit_override=config.max_result_limit or DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT,
+        limit_top_select=False,
     )
     executor = HogQLQueryExecutor(
-        query=query,
+        query=parsed_query,
         team=team,
         query_type="TenantQuery",
         settings=HogQLGlobalSettings(max_execution_time=max((effective_timeout_ms + 999) // 1000, 1)),
@@ -1090,6 +1262,7 @@ def execute_tenant_query(
     )
 
     response_data = response.model_dump(by_alias=True, exclude_none=True)
+    response_data["query"] = query
     if postgres_sql is not None:
         response_data["postgres_sql"] = postgres_sql
     return {key: value for key, value in response_data.items() if key in TENANT_QUERY_RESPONSE_FIELDS}, row_count

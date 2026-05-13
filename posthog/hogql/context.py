@@ -50,8 +50,6 @@ class HogQLContext:
     limit_top_select: bool = True
     # Context for determining the appropriate limit to apply
     limit_context: Optional[LimitContext] = None
-    # Optional per-query maximum for top-level SELECT limits.
-    max_limit_override: Optional[int] = None
     # Apply a FORMAT clause to output data in given format.
     output_format: str | None = None
     # Globals that will be resolved in the context of the query

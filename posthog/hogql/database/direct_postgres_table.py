@@ -16,6 +16,9 @@ class DirectPostgresTable(FunctionCallTable):
     predicates: list[Expr] = PydanticField(default_factory=list)
 
     def get_predicates(self) -> list[Expr]:
+        # Predicates are table-owned guards that the SQL printer applies to every reference
+        # of this direct Postgres table. The tenant query service uses this to enforce the
+        # configured tenant column without trusting the user's submitted WHERE clause.
         return self.predicates
 
     def to_printed_hogql(self) -> str:

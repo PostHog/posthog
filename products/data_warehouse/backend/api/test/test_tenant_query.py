@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models.organization import OrganizationMembership
@@ -16,6 +17,7 @@ from products.data_warehouse.backend.models import DataWarehouseTable, ExternalD
 from products.data_warehouse.backend.models.tenant_query_config import DataWarehouseTenantQueryConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns
 from products.data_warehouse.backend.tenant_query import (
+    _apply_top_level_tenant_query_limit,
     apply_tenant_query_config,
     configure_tenant_query,
     execute_tenant_query,
@@ -98,16 +100,18 @@ class TestTenantQuery(APIBaseTest):
         query: str,
         tenant_value: object = 42,
     ) -> str:
+        parsed_query = parse_select(query)
+        _apply_top_level_tenant_query_limit(parsed_query, config.max_result_limit)
         database = Database.create_for(team=self.team, connection_id=str(source.id))
         apply_tenant_query_config(database, config, tenant_value)
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
             database=database,
-            max_limit_override=config.max_result_limit,
+            limit_top_select=False,
         )
         executor = HogQLQueryExecutor(
-            query=query,
+            query=parsed_query,
             team=self.team,
             settings=HogQLGlobalSettings(max_execution_time=30),
             limit_context=LimitContext.TENANT_QUERY,
@@ -391,6 +395,41 @@ class TestTenantQuery(APIBaseTest):
         assert result["columns"] == ["table", "name", "postgres_type"]
         assert ["trips", "id", "bigint"] in result["results"]
         assert ["trips", "name", "text"] in result["results"]
+        assert all(row[1] != "customer_id" for row in result["results"])
+
+    def test_metadata_nested_asterisk_query_uses_resolved_subquery_columns(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_config(source)
+
+        result, row_count = execute_tenant_query(
+            team=self.team,
+            user=self.user,
+            connection_id=str(source.id),
+            tenant_value=None,
+            query="select * from (select * from system.tables) as tables",
+        )
+
+        assert row_count == 1
+        assert result["columns"] == ["name", "source_schema", "source_table_name"]
+        assert result["results"] == [["trips", "public", "trips"]]
+
+    def test_metadata_cte_asterisk_query_uses_resolved_cte_columns(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_config(source)
+
+        result, _row_count = execute_tenant_query(
+            team=self.team,
+            user=self.user,
+            connection_id=str(source.id),
+            tenant_value=None,
+            query="with fields as (select * from system.fields) select * from fields where table = 'trips'",
+        )
+
+        assert result["columns"] == ["table", "name", "postgres_type", "nullable"]
+        assert ["trips", "id", "bigint", False] in result["results"]
+        assert ["trips", "name", "text", True] in result["results"]
         assert all(row[1] != "customer_id" for row in result["results"])
 
     def test_query_errors_are_logged(self):

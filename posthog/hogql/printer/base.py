@@ -430,9 +430,7 @@ class BasePrinter(Visitor[str]):
         limit = node.limit
         # TODO: We skip the 50k limit guard when LIMIT % is present. Revisit if we can cap percent limits safely.
         if self.context.limit_top_select and is_top_level_query and not node.limit_percent:
-            max_limit = self.context.max_limit_override or get_max_limit_for_context(
-                self.context.limit_context or LimitContext.QUERY
-            )
+            max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
             min_function = self._min_function_name()
 
             if limit is not None:

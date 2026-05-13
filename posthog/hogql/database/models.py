@@ -204,6 +204,12 @@ class Table(FieldOrTable):
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
     def get_predicates(self) -> list[Expr]:
+        """System-owned filters that are applied whenever this table is referenced.
+
+        These predicates are not user-supplied WHERE clauses. SQL printers resolve them in
+        the table's scope and append them to the generated query so table definitions can
+        enforce invariants such as soft-delete filters or tenant isolation.
+        """
         return []
 
     def avoid_asterisk_fields(self) -> list[str]:
