@@ -141,6 +141,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
 
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_SCHEMA_OPTION, DIRECT_POSTGRES_TABLE_OPTION
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -672,6 +673,7 @@ class Database(BaseModel):
                     connection_id=cast(str, self._connection_id),
                 )
             ]
+        direct_query_table_aliases = _direct_query_unqualified_table_aliases(warehouse_tables_with_data)
         allowed_warehouse_table_names = set(warehouse_table_names) if self._is_direct_query() else None
 
         # Process warehouse tables
@@ -710,7 +712,11 @@ class Database(BaseModel):
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
                 )
 
-            for table_key in _get_warehouse_table_keys(warehouse_table, direct_query=self._is_direct_query()):
+            for table_key in _get_warehouse_table_keys(
+                warehouse_table,
+                direct_query=self._is_direct_query(),
+                direct_query_table_aliases=direct_query_table_aliases,
+            ):
                 if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
                     continue
 
@@ -1127,6 +1133,7 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
+                direct_query_table_aliases = _direct_query_unqualified_table_aliases(tables)
             for table in tables:
                 if (
                     not database._is_direct_query()
@@ -1153,7 +1160,11 @@ class Database(BaseModel):
 
                     if table.external_data_source:
                         for index, table_key in enumerate(
-                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                            _get_warehouse_table_keys(
+                                table,
+                                direct_query=database._is_direct_query(),
+                                direct_query_table_aliases=direct_query_table_aliases,
+                            )
                         ):
                             table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
                             table_chain = table_key.split(".")
@@ -1679,10 +1690,95 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
     return table_name_stripped
 
 
-def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
+def _direct_postgres_schema_metadata_value(warehouse_table: DataWarehouseTable, key: str) -> str | None:
+    for schema in _get_active_external_data_schemas(warehouse_table):
+        schema_metadata = schema.schema_metadata
+        value = schema_metadata.get(key) if isinstance(schema_metadata, dict) else None
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _direct_postgres_source_schema_name(warehouse_table: DataWarehouseTable) -> str | None:
+    source = warehouse_table.external_data_source
+    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+        return None
+
+    table_schema = warehouse_table.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
+    if isinstance(table_schema, str) and table_schema:
+        return table_schema
+
+    schema_metadata_value = _direct_postgres_schema_metadata_value(warehouse_table, "source_schema")
+    if schema_metadata_value is not None:
+        return schema_metadata_value
+
+    source_schema = (source.job_inputs or {}).get("schema")
+    if isinstance(source_schema, str) and source_schema.strip():
+        return source_schema.strip()
+
+    if "." in warehouse_table.name:
+        return warehouse_table.name.split(".", 1)[0]
+
+    return "public"
+
+
+def _direct_postgres_source_table_name(warehouse_table: DataWarehouseTable) -> str:
+    schema_metadata_value = _direct_postgres_schema_metadata_value(warehouse_table, "source_table_name")
+    if schema_metadata_value is not None:
+        return schema_metadata_value
+
+    table_name = warehouse_table.options.get(DIRECT_POSTGRES_TABLE_OPTION)
+    if isinstance(table_name, str) and table_name:
+        return table_name
+
+    if "." in warehouse_table.name:
+        return warehouse_table.name.split(".", 1)[1]
+
+    return warehouse_table.name
+
+
+def _direct_query_unqualified_table_aliases(warehouse_tables: list[DataWarehouseTable]) -> dict[str, str]:
+    direct_postgres_tables = [
+        warehouse_table
+        for warehouse_table in warehouse_tables
+        if warehouse_table.external_data_source is not None
+        and warehouse_table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+    ]
+    source_schema_names = {
+        source_schema_name
+        for warehouse_table in direct_postgres_tables
+        if (source_schema_name := _direct_postgres_source_schema_name(warehouse_table)) is not None
+    }
+    if len(source_schema_names) != 1:
+        return {}
+
+    table_names = {warehouse_table.name for warehouse_table in direct_postgres_tables}
+    aliases_by_table_name: dict[str, str] = {}
+    alias_counts: dict[str, int] = defaultdict(int)
+    for warehouse_table in direct_postgres_tables:
+        alias = _direct_postgres_source_table_name(warehouse_table)
+        if alias == warehouse_table.name or alias in table_names:
+            continue
+
+        aliases_by_table_name[warehouse_table.name] = alias
+        alias_counts[alias] += 1
+
+    return {table_name: alias for table_name, alias in aliases_by_table_name.items() if alias_counts[alias] == 1}
+
+
+def _get_warehouse_table_keys(
+    warehouse_table: DataWarehouseTable,
+    *,
+    direct_query: bool,
+    direct_query_table_aliases: dict[str, str] | None = None,
+) -> list[str]:
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
-        return [warehouse_table.name]
+        table_keys = [warehouse_table.name]
+        table_alias = (direct_query_table_aliases or {}).get(warehouse_table.name)
+        if table_alias is not None:
+            table_keys.append(table_alias)
+        return table_keys
 
     return [get_data_warehouse_table_name(source, warehouse_table.name)]
 

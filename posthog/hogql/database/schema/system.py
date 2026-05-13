@@ -225,6 +225,25 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     },
 )
 
+tenant_query_configs: PostgresTable = PostgresTable(
+    name="tenant_query_configs",
+    postgres_table_name="posthog_datawarehousetenantqueryconfig",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_data_source_id": StringDatabaseField(name="external_data_source_id"),
+        "enabled": BooleanDatabaseField(name="enabled"),
+        "tenant_column_name": StringDatabaseField(name="tenant_column_name"),
+        "tenant_column_type": StringDatabaseField(name="tenant_column_type"),
+        "default_timeout_ms": IntegerDatabaseField(name="default_timeout_ms"),
+        "max_timeout_ms": IntegerDatabaseField(name="max_timeout_ms"),
+        "max_result_limit": IntegerDatabaseField(name="max_result_limit"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 data_modeling_views: PostgresTable = PostgresTable(
     name="data_modeling_views",
     postgres_table_name="posthog_datawarehousesavedquery",
@@ -1141,6 +1160,7 @@ class SystemTables(TableNode):
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+        "tenant_query_configs": TableNode(name="tenant_query_configs", table=tenant_query_configs),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),

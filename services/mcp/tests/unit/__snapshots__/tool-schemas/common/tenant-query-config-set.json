@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "connection_id": {
+            "description": "Direct Postgres connection ID to configure.",
+            "type": "string"
+        },
+        "default_timeout_ms": {
+            "description": "Default statement timeout in milliseconds when a request does not provide timeout_ms.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "enabled": {
+            "description": "Whether tenant-scoped querying is enabled for this connection.",
+            "type": "boolean"
+        },
+        "max_result_limit": {
+            "description": "Maximum result row limit. Explicit query limits above this value are clamped.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "max_timeout_ms": {
+            "description": "Maximum allowed statement timeout in milliseconds.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "tenant_column_name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Column name that must exist on every enabled table and will be enforced as the tenant key."
+        }
+    },
+    "required": ["connection_id", "enabled"],
+    "type": "object"
+}

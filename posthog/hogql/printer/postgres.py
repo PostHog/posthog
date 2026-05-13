@@ -202,11 +202,9 @@ class PostgresPrinter(BasePrinter):
         # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
         # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
         # defaults to ``on``), allowing statement-terminator SQL injection.
-        if (
-            node.value is None
-            or isinstance(node.value, bool)
-            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
-        ):
+        if isinstance(node.value, (UUID, UUIDT)):
+            return f"'{node.value}'::uuid"
+        if node.value is None or isinstance(node.value, bool) or isinstance(node.value, (int, float, datetime, date)):
             value = self._print_escaped_string(node.value)
             if "%" in value:
                 # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.

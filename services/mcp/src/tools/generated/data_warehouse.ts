@@ -37,6 +37,12 @@ import {
     InsightVariablesDestroyParams,
     InsightVariablesPartialUpdateBody,
     InsightVariablesPartialUpdateParams,
+    TenantQueryConfigCreateBody,
+    TenantQueryCreateBody,
+    TenantQueryErrorsSummaryCreateBody,
+    TenantQueryExecutionCreateBody,
+    TenantQueryExecutionsCreateBody,
+    TenantQueryUsageSummaryCreateBody,
     WarehouseSavedQueriesCreateBody,
     WarehouseSavedQueriesDestroyParams,
     WarehouseSavedQueriesListQueryParams,
@@ -71,6 +77,204 @@ const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/data_health_issues/`,
         })
         return result
+    },
+})
+
+const TenantQueryConfigSetSchema = TenantQueryConfigCreateBody
+
+const tenantQueryConfigSet = (): ToolBase<typeof TenantQueryConfigSetSchema, Schemas.TenantQueryConfigResponse> => ({
+    name: 'tenant-query-config-set',
+    schema: TenantQueryConfigSetSchema,
+    handler: async (context: Context, params: z.infer<typeof TenantQueryConfigSetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.connection_id !== undefined) {
+            body['connection_id'] = params.connection_id
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.tenant_column_name !== undefined) {
+            body['tenant_column_name'] = params.tenant_column_name
+        }
+        if (params.default_timeout_ms !== undefined) {
+            body['default_timeout_ms'] = params.default_timeout_ms
+        }
+        if (params.max_timeout_ms !== undefined) {
+            body['max_timeout_ms'] = params.max_timeout_ms
+        }
+        if (params.max_result_limit !== undefined) {
+            body['max_result_limit'] = params.max_result_limit
+        }
+        const result = await context.api.request<Schemas.TenantQueryConfigResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tenant_query/config/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TenantQueryErrorsSummarySchema = TenantQueryErrorsSummaryCreateBody
+
+const tenantQueryErrorsSummary = (): ToolBase<
+    typeof TenantQueryErrorsSummarySchema,
+    WithPostHogUrl<Schemas.TenantQueryErrorSummaryResponse>
+> => ({
+    name: 'tenant-query-errors-summary',
+    schema: TenantQueryErrorsSummarySchema,
+    handler: async (context: Context, params: z.infer<typeof TenantQueryErrorsSummarySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.connection_id !== undefined) {
+            body['connection_id'] = params.connection_id
+        }
+        if (params.tenant_value !== undefined) {
+            body['tenant_value'] = params.tenant_value
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        if (params.date_to !== undefined) {
+            body['date_to'] = params.date_to
+        }
+        if (params.limit !== undefined) {
+            body['limit'] = params.limit
+        }
+        const result = await context.api.request<Schemas.TenantQueryErrorSummaryResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tenant_query/errors/summary/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, '/sql')
+    },
+})
+
+const TenantQueryExecutionGetSchema = TenantQueryExecutionCreateBody
+
+const tenantQueryExecutionGet = (): ToolBase<
+    typeof TenantQueryExecutionGetSchema,
+    Schemas.TenantQueryExecutionDetailResponse
+> => ({
+    name: 'tenant-query-execution-get',
+    schema: TenantQueryExecutionGetSchema,
+    handler: async (context: Context, params: z.infer<typeof TenantQueryExecutionGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.execution_id !== undefined) {
+            body['execution_id'] = params.execution_id
+        }
+        if (params.timestamp !== undefined) {
+            body['timestamp'] = params.timestamp
+        }
+        const result = await context.api.request<Schemas.TenantQueryExecutionDetailResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tenant_query/execution/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TenantQueryExecutionsListSchema = TenantQueryExecutionsCreateBody
+
+const tenantQueryExecutionsList = (): ToolBase<
+    typeof TenantQueryExecutionsListSchema,
+    WithPostHogUrl<Schemas.TenantQueryExecutionsResponse>
+> => ({
+    name: 'tenant-query-executions-list',
+    schema: TenantQueryExecutionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof TenantQueryExecutionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.connection_id !== undefined) {
+            body['connection_id'] = params.connection_id
+        }
+        if (params.tenant_value !== undefined) {
+            body['tenant_value'] = params.tenant_value
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        if (params.date_to !== undefined) {
+            body['date_to'] = params.date_to
+        }
+        if (params.limit !== undefined) {
+            body['limit'] = params.limit
+        }
+        if (params.success !== undefined) {
+            body['success'] = params.success
+        }
+        const result = await context.api.request<Schemas.TenantQueryExecutionsResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tenant_query/executions/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, '/sql')
+    },
+})
+
+const TenantQueryRunSchema = TenantQueryCreateBody
+
+const tenantQueryRun = (): ToolBase<typeof TenantQueryRunSchema, WithPostHogUrl<Schemas.TenantQueryResponse>> => ({
+    name: 'tenant-query-run',
+    schema: TenantQueryRunSchema,
+    handler: async (context: Context, params: z.infer<typeof TenantQueryRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.connection_id !== undefined) {
+            body['connection_id'] = params.connection_id
+        }
+        if (params.tenant_value !== undefined) {
+            body['tenant_value'] = params.tenant_value
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.timeout_ms !== undefined) {
+            body['timeout_ms'] = params.timeout_ms
+        }
+        const result = await context.api.request<Schemas.TenantQueryResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tenant_query/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, '/sql')
+    },
+})
+
+const TenantQueryUsageSummarySchema = TenantQueryUsageSummaryCreateBody
+
+const tenantQueryUsageSummary = (): ToolBase<
+    typeof TenantQueryUsageSummarySchema,
+    WithPostHogUrl<Schemas.TenantQueryUsageSummaryResponse>
+> => ({
+    name: 'tenant-query-usage-summary',
+    schema: TenantQueryUsageSummarySchema,
+    handler: async (context: Context, params: z.infer<typeof TenantQueryUsageSummarySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.connection_id !== undefined) {
+            body['connection_id'] = params.connection_id
+        }
+        if (params.tenant_value !== undefined) {
+            body['tenant_value'] = params.tenant_value
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        if (params.date_to !== undefined) {
+            body['date_to'] = params.date_to
+        }
+        if (params.limit !== undefined) {
+            body['limit'] = params.limit
+        }
+        const result = await context.api.request<Schemas.TenantQueryUsageSummaryResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tenant_query/usage/summary/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -1094,6 +1298,12 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
+    'tenant-query-config-set': tenantQueryConfigSet,
+    'tenant-query-errors-summary': tenantQueryErrorsSummary,
+    'tenant-query-execution-get': tenantQueryExecutionGet,
+    'tenant-query-executions-list': tenantQueryExecutionsList,
+    'tenant-query-run': tenantQueryRun,
+    'tenant-query-usage-summary': tenantQueryUsageSummary,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,

@@ -68,6 +68,8 @@ class PostgresTable(FunctionCallTable):
     predicates: list[Expr] = []
 
     def get_predicates(self) -> list[Expr]:
+        # Predicates are table-owned guards that the SQL printer applies to every reference
+        # of this Postgres table, for example soft-delete or time-window constraints.
         return self.predicates
 
     def to_printed_hogql(self):

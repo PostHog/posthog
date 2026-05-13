@@ -2,6 +2,7 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal, Optional, cast
+from uuid import UUID
 
 import pytest
 from posthog.test.base import (
@@ -4863,6 +4864,13 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_null_comparisons_in_postgres(self, _name: str, expr: str, expected: str):
         self.assertEqual(self._expr(expr), expected)
+
+    def test_uuid_constant_renders_as_postgres_cast(self):
+        # ``ast.Constant`` wrapping a Python ``UUID`` is the shape produced by
+        # ``_coerce_tenant_value`` in tenant_query, and previously rendered as
+        # ``toUUID('…')`` — a ClickHouse builtin Postgres doesn't have.
+        uuid_value = UUID("11111111-1111-4111-8111-111111111111")
+        self.assertEqual(self._expr(ast.Constant(value=uuid_value)), f"'{uuid_value}'::uuid")
 
     @parameterized.expand(
         [

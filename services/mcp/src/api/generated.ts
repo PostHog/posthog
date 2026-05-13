@@ -34754,6 +34754,383 @@ export namespace Schemas {
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
     }
 
+    /**
+     * * `integer` - integer
+    * `string` - string
+    * `uuid` - uuid
+     */
+    export type TenantColumnTypeEnum = typeof TenantColumnTypeEnum[keyof typeof TenantColumnTypeEnum];
+
+
+    export const TenantColumnTypeEnum = {
+      Integer: 'integer',
+      String: 'string',
+      Uuid: 'uuid',
+    } as const;
+
+    export interface TenantQueryConfigLoadRequest {
+      /** Direct Postgres connection ID to inspect. */
+      connection_id: string;
+    }
+
+    /**
+     * Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column.
+     */
+    export type TenantQueryConfigRequestTenantColumnNamesByTable = {[key: string]: string};
+
+    export interface TenantQueryConfigRequest {
+      /** Direct Postgres connection ID to configure. */
+      connection_id: string;
+      /** Whether tenant-scoped querying is enabled for this connection. */
+      enabled: boolean;
+      /**
+       * Column name that must exist on every enabled table and will be enforced as the tenant key.
+       * @nullable
+       */
+      tenant_column_name?: string | null;
+      /** Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column. */
+      tenant_column_names_by_table?: TenantQueryConfigRequestTenantColumnNamesByTable;
+      /**
+       * Default statement timeout in milliseconds when a request does not provide timeout_ms.
+       * @minimum 1
+       */
+      default_timeout_ms?: number;
+      /**
+       * Maximum allowed statement timeout in milliseconds.
+       * @minimum 1
+       */
+      max_timeout_ms?: number;
+      /**
+       * Maximum result row limit. Explicit query limits above this value are clamped.
+       * @minimum 1
+       */
+      max_result_limit?: number;
+    }
+
+    /**
+     * Per-table tenant column overrides keyed by direct Postgres table name.
+     */
+    export type TenantQueryConfigResponseTenantColumnNamesByTable = {[key: string]: string};
+
+    export interface TenantQueryConfigResponse {
+      /** Direct Postgres connection ID. */
+      connection_id: string;
+      /** Whether tenant-scoped querying is enabled for this connection. */
+      enabled: boolean;
+      /**
+       * Configured tenant column name.
+       * @nullable
+       */
+      tenant_column_name?: string | null;
+      /** Tenant column type inferred from direct Postgres schema metadata.
+
+    * `integer` - integer
+    * `string` - string
+    * `uuid` - uuid */
+      tenant_column_type?: TenantColumnTypeEnum | NullEnum | null;
+      /** Per-table tenant column overrides keyed by direct Postgres table name. */
+      tenant_column_names_by_table: TenantQueryConfigResponseTenantColumnNamesByTable;
+      /** Default statement timeout in milliseconds. */
+      default_timeout_ms: number;
+      /** Maximum allowed statement timeout in milliseconds. */
+      max_timeout_ms: number;
+      /** Maximum result row limit. */
+      max_result_limit: number;
+      /** Enabled direct Postgres tables available to tenant-scoped queries. */
+      enabled_tables: string[];
+      /** Previously enabled tables disabled during configuration because they lacked the tenant column. */
+      disabled_tables: string[];
+    }
+
+    export interface TenantQueryErrorSummary {
+      /** Direct Postgres connection ID. */
+      connection_id: string;
+      /** Tenant value enforced for the failed query. */
+      tenant_value: string;
+      /** Direct Postgres tables referenced by the failed query. */
+      referenced_tables: string[];
+      /** Original HogQL query submitted to the tenant query service. */
+      original_query: string;
+      /** Execution error message. */
+      error: string;
+      /** Number of matching failed executions. */
+      count: number;
+      /**
+       * Most recent matching failure timestamp.
+       * @nullable
+       */
+      last_seen_at: string | null;
+      /**
+       * Average failed execution duration in milliseconds.
+       * @nullable
+       */
+      average_duration_ms: number | null;
+    }
+
+    export interface TenantQueryErrorSummaryResponse {
+      /** Grouped tenant query execution errors. */
+      errors: TenantQueryErrorSummary[];
+      /** Number of groups returned. */
+      count: number;
+    }
+
+    export interface TenantQueryExecution {
+      /** Execution log UUID. */
+      id: string;
+      /**
+       * Execution log timestamp.
+       * @nullable
+       */
+      timestamp: string | null;
+      /** Direct Postgres connection ID. */
+      connection_id: string;
+      /** Tenant value enforced for the query. */
+      tenant_value: string;
+      /** Original HogQL query submitted to the tenant query service. */
+      original_query: string;
+      /**
+       * Prepared SQL executed against the direct Postgres connection.
+       * @nullable
+       */
+      postgres_sql?: string | null;
+      /** Whether the execution completed successfully. */
+      success: boolean;
+      /**
+       * Execution error message, when present.
+       * @nullable
+       */
+      error?: string | null;
+      /**
+       * Execution duration in milliseconds.
+       * @nullable
+       */
+      duration_ms?: number | null;
+      /**
+       * Number of result rows returned.
+       * @nullable
+       */
+      row_count?: number | null;
+      /** Direct Postgres tables referenced by the query. */
+      referenced_tables: string[];
+      /** Whether the request was served from metadata system tables. */
+      metadata_only: boolean;
+    }
+
+    export type TenantQueryExecutionDetailReferencedTableMetadataItem = {[key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null};
+
+    /**
+     * Direct Postgres connection metadata captured at execution time.
+     */
+    export type TenantQueryExecutionDetailConnectionMetadata = {[key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null};
+
+    /**
+     * Raw structured log attributes for this execution.
+     */
+    export type TenantQueryExecutionDetailAttributes = {[key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null};
+
+    export interface TenantQueryExecutionDetail {
+      /** Execution log UUID. */
+      id: string;
+      /**
+       * Execution log timestamp.
+       * @nullable
+       */
+      timestamp: string | null;
+      /** Direct Postgres connection ID. */
+      connection_id: string;
+      /** Tenant value enforced for the query. */
+      tenant_value: string;
+      /** Original HogQL query submitted to the tenant query service. */
+      original_query: string;
+      /**
+       * Prepared SQL executed against the direct Postgres connection.
+       * @nullable
+       */
+      postgres_sql?: string | null;
+      /** Whether the execution completed successfully. */
+      success: boolean;
+      /**
+       * Execution error message, when present.
+       * @nullable
+       */
+      error?: string | null;
+      /**
+       * Execution duration in milliseconds.
+       * @nullable
+       */
+      duration_ms?: number | null;
+      /**
+       * Number of result rows returned.
+       * @nullable
+       */
+      row_count?: number | null;
+      /** Direct Postgres tables referenced by the query. */
+      referenced_tables: string[];
+      /** Whether the request was served from metadata system tables. */
+      metadata_only: boolean;
+      /** Postgres table metadata captured for referenced tables. */
+      referenced_table_metadata?: TenantQueryExecutionDetailReferencedTableMetadataItem[];
+      /** Direct Postgres connection metadata captured at execution time. */
+      connection_metadata?: TenantQueryExecutionDetailConnectionMetadata;
+      /** Raw structured log attributes for this execution. */
+      attributes?: TenantQueryExecutionDetailAttributes;
+    }
+
+    export interface TenantQueryExecutionDetailRequest {
+      /** Execution log UUID returned by the executions list. */
+      execution_id: string;
+      /** Optional execution timestamp to narrow the Logs search window. */
+      timestamp?: string;
+    }
+
+    export interface TenantQueryExecutionDetailResponse {
+      /** Tenant query execution detail. */
+      execution: TenantQueryExecutionDetail;
+    }
+
+    export interface TenantQueryExecutionsRequest {
+      /** Optional direct Postgres connection ID to filter executions. */
+      connection_id?: string;
+      /** Optional tenant value to filter executions. */
+      tenant_value?: string | number | null;
+      /** Start timestamp for the execution log search. Defaults to 24 hours before date_to. */
+      date_from?: string;
+      /** End timestamp for the execution log search. Defaults to now. */
+      date_to?: string;
+      /**
+       * Maximum number of executions or summary rows to return.
+       * @minimum 1
+       * @maximum 1000
+       */
+      limit?: number;
+      /**
+       * Optional success status to filter executions.
+       * @nullable
+       */
+      success?: boolean | null;
+    }
+
+    export interface TenantQueryExecutionsResponse {
+      /** Tenant query executions. */
+      executions: TenantQueryExecution[];
+      /** Number of executions returned. */
+      count: number;
+    }
+
+    export interface TenantQueryObservabilityRequest {
+      /** Optional direct Postgres connection ID to filter executions. */
+      connection_id?: string;
+      /** Optional tenant value to filter executions. */
+      tenant_value?: string | number | null;
+      /** Start timestamp for the execution log search. Defaults to 24 hours before date_to. */
+      date_from?: string;
+      /** End timestamp for the execution log search. Defaults to now. */
+      date_to?: string;
+      /**
+       * Maximum number of executions or summary rows to return.
+       * @minimum 1
+       * @maximum 1000
+       */
+      limit?: number;
+    }
+
+    export interface TenantQueryRequest {
+      /** Direct Postgres connection ID to query. */
+      connection_id: string;
+      /** Tenant value to enforce against the configured tenant column. */
+      tenant_value?: string | number | null;
+      /** HogQL SELECT query to execute against the tenant-scoped connection. */
+      query: string;
+      /**
+       * Optional statement timeout in milliseconds, capped by the connection tenant-query config.
+       * @minimum 1
+       */
+      timeout_ms?: number;
+    }
+
+    /**
+     * One result cell returned by the tenant-scoped query.
+     */
+    export type TenantQueryResponseResultsItemItem = string | number | number | boolean | { [key: string]: unknown } | unknown[] | null;
+
+    export interface TenantQueryTiming {
+      /** Timing key. */
+      k: string;
+      /** Elapsed time in seconds. */
+      t: number;
+    }
+
+    export interface TenantQueryResponse {
+      /**
+       * Original query string.
+       * @nullable
+       */
+      query?: string | null;
+      /**
+       * Prepared HogQL query.
+       * @nullable
+       */
+      hogql?: string | null;
+      /**
+       * Prepared SQL executed against the direct Postgres connection.
+       * @nullable
+       */
+      postgres_sql?: string | null;
+      /**
+       * Execution error, when debug mode is used.
+       * @nullable
+       */
+      error?: string | null;
+      /** Whether the query has more rows available. */
+      hasMore?: boolean;
+      /** Effective result limit. */
+      limit?: number;
+      /** Effective result offset. */
+      offset?: number;
+      /** HogQL execution timing entries. */
+      timings?: TenantQueryTiming[];
+      /** Result rows. */
+      results?: TenantQueryResponseResultsItemItem[][];
+      /** Result column names. */
+      columns?: string[];
+      /** Result column type metadata. */
+      types?: string[][];
+    }
+
+    export interface TenantQueryUsageSummary {
+      /** Direct Postgres connection ID. */
+      connection_id: string;
+      /** Tenant value enforced for the query group. */
+      tenant_value: string;
+      /** Direct Postgres tables referenced by the query group. */
+      referenced_tables: string[];
+      /** Total matching executions. */
+      count: number;
+      /** Number of successful executions. */
+      success_count: number;
+      /** Number of failed executions. */
+      error_count: number;
+      /** Total result rows returned by matching executions. */
+      total_rows: number;
+      /**
+       * Average execution duration in milliseconds.
+       * @nullable
+       */
+      average_duration_ms: number | null;
+      /**
+       * Most recent matching execution timestamp.
+       * @nullable
+       */
+      last_seen_at: string | null;
+    }
+
+    export interface TenantQueryUsageSummaryResponse {
+      /** Grouped tenant query execution usage. */
+      usage: TenantQueryUsageSummary[];
+      /** Number of groups returned. */
+      count: number;
+    }
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogRequest {
