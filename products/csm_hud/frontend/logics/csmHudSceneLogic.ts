@@ -123,13 +123,7 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
         ],
     }),
     selectors({
-        canAccess: [
-            (s) => [s.user, s.featureFlags],
-            (user, featureFlags): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SCENE_CSM_HUD] &&
-                !!user?.is_staff &&
-                !!user?.email?.endsWith('@posthog.com'),
-        ],
+        canAccess: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.SCENE_CSM_HUD]],
     }),
     loaders(({ values, actions }) => ({
         fleet: [
