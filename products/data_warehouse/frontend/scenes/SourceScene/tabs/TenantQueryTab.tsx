@@ -165,6 +165,17 @@ function tenantQueryTableRows(
         .sort((rowA, rowB) => rowA.qualifiedName.localeCompare(rowB.qualifiedName))
 }
 
+function tenantQueryTableMatchesSearch(row: TenantQueryTableRow, search: string): boolean {
+    const normalizedSearch = search.trim().toLowerCase()
+    if (!normalizedSearch) {
+        return true
+    }
+
+    return [row.displayName, row.qualifiedName, row.queryName, row.schemaName].some((value) =>
+        value.toLowerCase().includes(normalizedSearch)
+    )
+}
+
 function tenantColumnTypeLabel(tenantColumnType: unknown): string | null {
     return typeof tenantColumnType === 'string' ? tenantColumnType : null
 }
@@ -262,7 +273,8 @@ function TenantQueryTableColumns({ columns }: { columns: TenantQueryTableColumn[
 }
 
 export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element {
-    const logic = tenantQueryConfigLogic({ id })
+    const connectionId = source?.id || id
+    const logic = tenantQueryConfigLogic({ id: connectionId })
     const {
         tenantQueryConfig,
         tenantQueryConfigError,
@@ -273,6 +285,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         isTenantQueryConfigFormSubmitting,
         expandedTenantQueryTableIds,
         tenantQueryTableVisibility,
+        tenantQueryTableSearch,
         editingTenantQueryTableColumnId,
         tenantQueryTableColumnDrafts,
         savingTenantQueryTableColumnOverride,
@@ -285,6 +298,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         setTenantQueryTableExpanded,
         toggleTenantQueryTableExpanded,
         setTenantQueryTableVisibility,
+        setTenantQueryTableSearch,
         startEditingTenantQueryTableColumn,
         setTenantQueryTableColumnDraft,
         cancelEditingTenantQueryTableColumn,
@@ -312,8 +326,10 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
     )
     const queryableTableRows = tableRows.filter((row) => row.isQueryable)
     const nonQueryableTableRows = tableRows.filter((row) => !row.isQueryable)
-    const visibleTableRows = tableRows.filter((row) =>
-        row.isQueryable ? tenantQueryTableVisibility.queryable : tenantQueryTableVisibility.non_queryable
+    const visibleTableRows = tableRows.filter(
+        (row) =>
+            (row.isQueryable ? tenantQueryTableVisibility.queryable : tenantQueryTableVisibility.non_queryable) &&
+            tenantQueryTableMatchesSearch(row, tenantQueryTableSearch)
     )
     const configuredTenantColumnTypeLabel = tenantColumnTypeLabel(tenantQueryConfig?.tenant_column_type)
     const hasQueryableTables = queryableTableRows.length > 0
@@ -352,7 +368,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
 
             <Form
                 logic={tenantQueryConfigLogic}
-                props={{ id }}
+                props={{ id: connectionId }}
                 formKey="tenantQueryConfigForm"
                 enableFormOnSubmit
                 className="space-y-4"
@@ -448,6 +464,13 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                             />
                         </div>
                     </div>
+                    <LemonInput
+                        value={tenantQueryTableSearch}
+                        onChange={setTenantQueryTableSearch}
+                        allowClear
+                        placeholder="Search tables"
+                        className="max-w-md"
+                    />
                     <LemonTable
                         dataSource={visibleTableRows}
                         rowKey="id"
@@ -514,6 +537,17 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                             <div
                                                 className="flex items-center gap-2 min-w-64"
                                                 onClick={(event) => event.stopPropagation()}
+                                                onBlur={(event) => {
+                                                    const nextFocusedElement = event.relatedTarget
+                                                    if (
+                                                        nextFocusedElement instanceof Node &&
+                                                        event.currentTarget.contains(nextFocusedElement)
+                                                    ) {
+                                                        return
+                                                    }
+
+                                                    window.setTimeout(cancelEditingTenantQueryTableColumn, 150)
+                                                }}
                                             >
                                                 <LemonSelect<string>
                                                     value={draftTenantColumn || undefined}
@@ -641,7 +675,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
 
                 <Form
                     logic={tenantQueryConfigLogic}
-                    props={{ id }}
+                    props={{ id: connectionId }}
                     formKey="tenantQueryPlayground"
                     enableFormOnSubmit
                     className="space-y-4"

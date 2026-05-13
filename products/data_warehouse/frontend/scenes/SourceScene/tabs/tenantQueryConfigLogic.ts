@@ -94,19 +94,20 @@ function positiveInteger(value: number | string): number | null {
 }
 
 function formToRequestPayload(
-    connectionId: string,
+    connectionId: string | null | undefined,
     formValues: TenantQueryConfigFormValues
 ): TenantQueryConfigRequestApi | null {
+    const trimmedConnectionId = connectionId?.trim()
     const defaultTimeoutMs = positiveInteger(formValues.default_timeout_ms)
     const maxTimeoutMs = positiveInteger(formValues.max_timeout_ms)
     const maxResultLimit = positiveInteger(formValues.max_result_limit)
 
-    if (defaultTimeoutMs === null || maxTimeoutMs === null || maxResultLimit === null) {
+    if (!trimmedConnectionId || defaultTimeoutMs === null || maxTimeoutMs === null || maxResultLimit === null) {
         return null
     }
 
     return {
-        connection_id: connectionId,
+        connection_id: trimmedConnectionId,
         enabled: formValues.enabled,
         tenant_column_name: formValues.tenant_column_name.trim() || null,
         tenant_column_names_by_table: Object.fromEntries(
@@ -121,16 +122,17 @@ function formToRequestPayload(
 }
 
 function playgroundFormToRequestPayload(
-    connectionId: string,
+    connectionId: string | null | undefined,
     formValues: TenantQueryPlaygroundFormValues
 ): TenantQueryRequestApi | null {
+    const trimmedConnectionId = connectionId?.trim()
     const timeoutMs = formValues.timeout_ms === '' ? undefined : positiveInteger(formValues.timeout_ms)
-    if (timeoutMs === null) {
+    if (!trimmedConnectionId || timeoutMs === null) {
         return null
     }
 
     return {
-        connection_id: connectionId,
+        connection_id: trimmedConnectionId,
         tenant_value: formValues.tenant_value.trim(),
         query: formValues.query,
         ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
@@ -195,6 +197,7 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             visibility,
             visible,
         }),
+        setTenantQueryTableSearch: (search: string) => ({ search }),
         startEditingTenantQueryTableColumn: (tableId: string, tenantColumnName: string) => ({
             tableId,
             tenantColumnName,
@@ -280,6 +283,12 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 }),
             },
         ],
+        tenantQueryTableSearch: [
+            '',
+            {
+                setTenantQueryTableSearch: (_, { search }) => search,
+            },
+        ],
         editingTenantQueryTableColumnId: [
             null as string | null,
             {
@@ -344,6 +353,9 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
 
                 const payload = formToRequestPayload(props.id, formValues)
                 if (!payload) {
+                    if (!props.id?.trim()) {
+                        lemonToast.error('Connection is still loading')
+                    }
                     return
                 }
 
@@ -385,6 +397,9 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
 
                 const payload = playgroundFormToRequestPayload(props.id, formValues)
                 if (!payload) {
+                    if (!props.id?.trim()) {
+                        lemonToast.error('Connection is still loading')
+                    }
                     return
                 }
 
@@ -400,7 +415,7 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadTenantQueryConfigSuccess: ({ tenantQueryConfig }) => {
             if (!values.tenantQueryConfigFormChanged) {
                 actions.resetTenantQueryConfigForm(configToForm(tenantQueryConfig))
@@ -446,6 +461,9 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 tenant_column_names_by_table: tenantColumnNamesByTable,
             })
             if (!payload) {
+                if (!props.id?.trim()) {
+                    lemonToast.error('Connection is still loading')
+                }
                 return
             }
 
