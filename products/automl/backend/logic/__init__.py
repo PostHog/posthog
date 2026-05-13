@@ -13,6 +13,17 @@ from uuid import UUID
 from ..facade import contracts
 from ..facade.enums import PipelineStatus
 from ..models import AutoMLPipeline
+from .validation import run_validation
+
+__all__ = [
+    "create_pipeline",
+    "list_pipelines",
+    "get_pipeline",
+    "update_pipeline",
+    "transition_pipeline",
+    "set_runtime",
+    "run_validation",
+]
 
 # Allowed status transitions: source -> set of allowed destinations.
 # Lifecycle helpers below funnel writes through this map so the state

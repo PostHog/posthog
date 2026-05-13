@@ -35053,6 +35053,63 @@ export namespace Schemas {
       all_utm_events: UtmEvent[];
     }
 
+    export type ValidationFindingDetails = { [key: string]: unknown };
+
+    /**
+     * * `info` - INFO
+    * `warn` - WARN
+    * `block` - BLOCK
+     */
+    export type ValidationFindingSeverityEnum = typeof ValidationFindingSeverityEnum[keyof typeof ValidationFindingSeverityEnum];
+
+
+    export const ValidationFindingSeverityEnum = {
+      Info: 'info',
+      Warn: 'warn',
+      Block: 'block',
+    } as const;
+
+    export interface ValidationFinding {
+      severity: ValidationFindingSeverityEnum;
+      code: string;
+      message: string;
+      details?: ValidationFindingDetails;
+    }
+
+    export interface ValidationSummary {
+      task_type: TaskTypeEnum;
+      training_population_kind: string;
+      /** @nullable */
+      estimated_training_rows?: number | null;
+      /** @nullable */
+      estimated_inference_rows?: number | null;
+      /** @nullable */
+      estimated_inference_events_per_day?: number | null;
+      /** @nullable */
+      estimated_positive_count?: number | null;
+      /** @nullable */
+      estimated_positive_rate?: number | null;
+      /** @nullable */
+      target_event?: string | null;
+      /** @nullable */
+      estimated_series_count?: number | null;
+      /** @nullable */
+      estimated_rows_per_cluster?: number | null;
+    }
+
+    /**
+     * Response shape for ``POST /automl_pipelines/validate/``.
+
+    ``ok`` is true iff no findings have ``block`` severity. The same body shape
+    as the create endpoint goes in; this report comes out without persisting
+    anything.
+     */
+    export interface ValidationReport {
+      ok: boolean;
+      findings: ValidationFinding[];
+      summary: ValidationSummary;
+    }
+
     export interface ViewLinkValidation {
       /** @maxLength 255 */
       joining_table_name: string;

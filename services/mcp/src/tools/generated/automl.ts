@@ -12,6 +12,7 @@ import {
     AutomlPipelinesResumeCreateParams,
     AutomlPipelinesRetrieveParams,
     AutomlPipelinesStartCreateParams,
+    AutomlPipelinesValidateCreateBody,
 } from '@/generated/automl/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -228,6 +229,81 @@ const automlResume = (): ToolBase<typeof AutomlResumeSchema, WithPostHogUrl<Sche
     },
 })
 
+const AutomlValidateSchema = AutomlPipelinesValidateCreateBody.extend({
+    name: AutomlPipelinesValidateCreateBody.shape['name'].describe(
+        'Human-readable label for the pipeline (only used by structural checks like output property name conventions). Use the same value you intend to pass to automl-create.'
+    ),
+    task_type: AutomlPipelinesValidateCreateBody.shape['task_type'].describe(
+        'Task type the pipeline targets. Validation rules dispatch on this — classification runs the positive base-rate check, forecasting counts distinct series, clustering sanity-checks cluster_count against training-set size.'
+    ),
+    config: AutomlPipelinesValidateCreateBody.shape['config'].describe(
+        'Task-type-specific configuration to validate. Classification expects target_event + horizon_days. Regression expects target_expression + horizon_days. Forecasting expects series_expression + grain + horizon_steps. Clustering accepts cluster_count.'
+    ),
+    training_population: AutomlPipelinesValidateCreateBody.shape['training_population'].describe(
+        'Population definition to size for training. Only kind="hogql" populations are sized by data-touching checks; other shapes are accepted but flagged as not-counted.'
+    ),
+    inference_population: AutomlPipelinesValidateCreateBody.shape['inference_population'].describe(
+        'Population definition used to estimate events-per-day output. Same kind="hogql" constraint as training_population.'
+    ),
+    inference_cadence: AutomlPipelinesValidateCreateBody.shape['inference_cadence'].describe(
+        'How often inference runs. Used to project daily prediction event volume against the inference population size.'
+    ),
+    retraining_cadence: AutomlPipelinesValidateCreateBody.shape['retraining_cadence'].describe(
+        'How often the model is refit. Compared against inference_cadence — info finding when retraining is more frequent than inference.'
+    ),
+    autonomy: AutomlPipelinesValidateCreateBody.shape['autonomy'].describe(
+        "Output gate. Validation doesn't gate on autonomy itself; it's accepted as part of the request body so the same payload works for automl-create."
+    ),
+    output_property_name: AutomlPipelinesValidateCreateBody.shape['output_property_name'].describe(
+        'Property name predictions are written to. Validation checks the naming convention (recommended "automl_" prefix; reserved "$" prefix is blocked).'
+    ),
+})
+
+const automlValidate = (): ToolBase<typeof AutomlValidateSchema, Schemas.ValidationReport> => ({
+    name: 'automl-validate',
+    schema: AutomlValidateSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlValidateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.task_type !== undefined) {
+            body['task_type'] = params.task_type
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        if (params.training_population !== undefined) {
+            body['training_population'] = params.training_population
+        }
+        if (params.inference_population !== undefined) {
+            body['inference_population'] = params.inference_population
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.autonomy !== undefined) {
+            body['autonomy'] = params.autonomy
+        }
+        if (params.inference_cadence !== undefined) {
+            body['inference_cadence'] = params.inference_cadence
+        }
+        if (params.retraining_cadence !== undefined) {
+            body['retraining_cadence'] = params.retraining_cadence
+        }
+        if (params.output_property_name !== undefined) {
+            body['output_property_name'] = params.output_property_name
+        }
+        const result = await context.api.request<Schemas.ValidationReport>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/validate/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AutomlArchiveSchema = AutomlPipelinesArchiveCreateParams.omit({ project_id: true })
 
 const automlArchive = (): ToolBase<typeof AutomlArchiveSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
@@ -251,5 +327,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'automl-start': automlStart,
     'automl-pause': automlPause,
     'automl-resume': automlResume,
+    'automl-validate': automlValidate,
     'automl-archive': automlArchive,
 }

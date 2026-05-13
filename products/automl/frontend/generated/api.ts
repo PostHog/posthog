@@ -14,6 +14,7 @@ import type {
     CreatePipelineInputApi,
     PaginatedAutoMLPipelineDTOListApi,
     PatchedUpdatePipelineInputApi,
+    ValidationReportApi,
 } from './api.schemas'
 
 export const getAutomlPipelinesListUrl = (projectId: string, params?: AutomlPipelinesListParams) => {
@@ -178,5 +179,30 @@ export const automlPipelinesStartCreate = async (
     return apiMutator<AutoMLPipelineDTOApi>(getAutomlPipelinesStartCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutomlPipelinesValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/validate/`
+}
+
+/**
+ * Run preflight validation against a proposed pipeline config.
+
+Side-effect-free: nothing is written, no pipeline is created. Same body
+shape as the create endpoint; call this first so the user can see the
+validation report (volume, base rate, leakage warnings, sample plan)
+before committing to a pipeline.
+ */
+export const automlPipelinesValidateCreate = async (
+    projectId: string,
+    createPipelineInputApi: CreatePipelineInputApi,
+    options?: RequestInit
+): Promise<ValidationReportApi> => {
+    return apiMutator<ValidationReportApi>(getAutomlPipelinesValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createPipelineInputApi),
     })
 }

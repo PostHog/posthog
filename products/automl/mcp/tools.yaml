@@ -152,6 +152,61 @@ tools:
             Resume a paused pipeline. Scheduled inference and retraining restart on the configured cadence.
             Idempotent — resuming an already active pipeline is a no-op.
         enrich_url: '{id}'
+    automl-validate:
+        operation: automl_pipelines_validate_create
+        enabled: true
+        scopes:
+            - automl:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate AutoML pipeline config
+        description: >
+            Run preflight validation against a proposed pipeline config. Side-effect-free — no pipeline is
+            created. Same body shape as automl-create; returns a structured report with findings tagged
+            info / warn / block plus a summary of estimated training rows, inference rows, predicted
+            events-per-day, and (for classification) positive base rate. Call this before automl-create
+            so the user can see and acknowledge any warnings first.
+        param_overrides:
+            name:
+                description: >
+                    Human-readable label for the pipeline (only used by structural checks like
+                    output property name conventions). Use the same value you intend to pass to automl-create.
+            task_type:
+                description: >
+                    Task type the pipeline targets. Validation rules dispatch on this — classification
+                    runs the positive base-rate check, forecasting counts distinct series, clustering
+                    sanity-checks cluster_count against training-set size.
+            config:
+                description: >
+                    Task-type-specific configuration to validate. Classification expects target_event +
+                    horizon_days. Regression expects target_expression + horizon_days. Forecasting
+                    expects series_expression + grain + horizon_steps. Clustering accepts cluster_count.
+            training_population:
+                description: >
+                    Population definition to size for training. Only kind="hogql" populations are sized
+                    by data-touching checks; other shapes are accepted but flagged as not-counted.
+            inference_population:
+                description: >
+                    Population definition used to estimate events-per-day output. Same kind="hogql"
+                    constraint as training_population.
+            inference_cadence:
+                description: >
+                    How often inference runs. Used to project daily prediction event volume against
+                    the inference population size.
+            retraining_cadence:
+                description: >
+                    How often the model is refit. Compared against inference_cadence — info finding
+                    when retraining is more frequent than inference.
+            autonomy:
+                description: >
+                    Output gate. Validation doesn't gate on autonomy itself; it's accepted as part
+                    of the request body so the same payload works for automl-create.
+            output_property_name:
+                description: >
+                    Property name predictions are written to. Validation checks the naming convention
+                    (recommended "automl_" prefix; reserved "$" prefix is blocked).
     automl-archive:
         operation: automl_pipelines_archive_create
         enabled: true

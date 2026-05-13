@@ -7,10 +7,23 @@ No Django imports. Used by the facade as inputs/outputs.
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from .enums import AutonomyLevel, Cadence, PipelineStatus, TaskType
+
+
+class ValidationSeverity(StrEnum):
+    """Severity tier for a validation finding.
+
+    ``block`` findings prevent pipeline creation; ``warn`` surfaces requires-acknowledgement
+    issues; ``info`` is annotative and never gates anything.
+    """
+
+    INFO = "info"
+    WARN = "warn"
+    BLOCK = "block"
 
 
 @dataclass(frozen=True)
@@ -84,3 +97,52 @@ class PipelineNotFoundError(Exception):
 
 class PipelineStateTransitionError(Exception):
     """Raised when a status transition isn't allowed from the current state."""
+
+
+@dataclass(frozen=True)
+class ValidationFinding:
+    """One result from preflight validation.
+
+    Findings are emitted by the validate facade method against a proposed pipeline
+    config. Callers should treat ``block`` as a hard gate before creating the pipeline,
+    ``warn`` as an issue that requires user acknowledgement, and ``info`` as advisory.
+    """
+
+    severity: ValidationSeverity
+    code: str
+    message: str
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ValidationSummary:
+    """Quantitative summary of a validation run.
+
+    Fields are best-effort: any number derived from a HogQL count query may be
+    ``None`` if the underlying query failed or the population kind isn't supported.
+    """
+
+    task_type: TaskType
+    training_population_kind: str
+    estimated_training_rows: int | None = None
+    estimated_inference_rows: int | None = None
+    estimated_inference_events_per_day: int | None = None
+    estimated_positive_count: int | None = None
+    estimated_positive_rate: float | None = None
+    target_event: str | None = None
+    estimated_series_count: int | None = None
+    estimated_rows_per_cluster: float | None = None
+
+
+@dataclass(frozen=True)
+class ValidationReport:
+    """Result of running preflight validation against a proposed pipeline config.
+
+    ``ok`` is derived from findings — true iff zero ``block`` findings are present.
+    Callers should not mutate findings or summary; both are intended for direct
+    serialization to the API response.
+    """
+
+    ok: bool
+    findings: list[ValidationFinding]
+    summary: ValidationSummary

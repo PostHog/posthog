@@ -25,7 +25,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
 from ..facade.contracts import CreatePipelineInput, UpdatePipelineInput
-from .serializers import AutoMLPipelineSerializer, CreatePipelineInputSerializer, UpdatePipelineInputSerializer
+from .serializers import (
+    AutoMLPipelineSerializer,
+    CreatePipelineInputSerializer,
+    UpdatePipelineInputSerializer,
+    ValidationReportSerializer,
+)
 
 AUTOML_TAG = "automl"
 
@@ -43,7 +48,7 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "automl"
     scope_object_write_actions = ["create", "partial_update", "start", "pause", "resume", "archive"]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "validate"]
     serializer_class = AutoMLPipelineSerializer
 
     @extend_schema(responses={200: AutoMLPipelineSerializer(many=True)})
@@ -151,6 +156,22 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def archive(self, request: Request, pk: str, **kwargs) -> Response:
         """Soft-archive a pipeline. Inference stops; history is preserved."""
         return self._run_transition(pk, "archive")
+
+    @validated_request(
+        request_serializer=CreatePipelineInputSerializer,
+        responses={200: OpenApiResponse(response=ValidationReportSerializer)},
+    )
+    @action(detail=False, methods=["post"])
+    def validate(self, request: TypedRequest[CreatePipelineInput], **kwargs) -> Response:
+        """Run preflight validation against a proposed pipeline config.
+
+        Side-effect-free: nothing is written, no pipeline is created. Same body
+        shape as the create endpoint; call this first so the user can see the
+        validation report (volume, base rate, leakage warnings, sample plan)
+        before committing to a pipeline.
+        """
+        report = api.validate(team_id=self.team_id, params=request.validated_data)
+        return Response(ValidationReportSerializer(instance=report).data)
 
     def _run_transition(self, pk: str, transition: str) -> Response:
         """Dispatch a status transition. Maps facade exceptions to HTTP responses."""

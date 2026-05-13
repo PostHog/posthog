@@ -183,6 +183,63 @@ export interface PatchedUpdatePipelineInputApi {
     extra?: PatchedUpdatePipelineInputApiExtra
 }
 
+/**
+ * * `info` - INFO
+ * `warn` - WARN
+ * `block` - BLOCK
+ */
+export type ValidationFindingSeverityEnumApi =
+    (typeof ValidationFindingSeverityEnumApi)[keyof typeof ValidationFindingSeverityEnumApi]
+
+export const ValidationFindingSeverityEnumApi = {
+    Info: 'info',
+    Warn: 'warn',
+    Block: 'block',
+} as const
+
+export type ValidationFindingApiDetails = { [key: string]: unknown }
+
+export interface ValidationFindingApi {
+    severity: ValidationFindingSeverityEnumApi
+    code: string
+    message: string
+    details?: ValidationFindingApiDetails
+}
+
+export interface ValidationSummaryApi {
+    task_type: TaskTypeEnumApi
+    training_population_kind: string
+    /** @nullable */
+    estimated_training_rows?: number | null
+    /** @nullable */
+    estimated_inference_rows?: number | null
+    /** @nullable */
+    estimated_inference_events_per_day?: number | null
+    /** @nullable */
+    estimated_positive_count?: number | null
+    /** @nullable */
+    estimated_positive_rate?: number | null
+    /** @nullable */
+    target_event?: string | null
+    /** @nullable */
+    estimated_series_count?: number | null
+    /** @nullable */
+    estimated_rows_per_cluster?: number | null
+}
+
+/**
+ * Response shape for ``POST /automl_pipelines/validate/``.
+
+``ok`` is true iff no findings have ``block`` severity. The same body shape
+as the create endpoint goes in; this report comes out without persisting
+anything.
+ */
+export interface ValidationReportApi {
+    ok: boolean
+    findings: ValidationFindingApi[]
+    summary: ValidationSummaryApi
+}
+
 export type AutomlPipelinesListParams = {
     /**
      * Number of results to return per page.

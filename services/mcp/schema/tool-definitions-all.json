@@ -515,6 +515,21 @@
             "readOnlyHint": false
         }
     },
+    "automl-validate": {
+        "description": "Run preflight validation against a proposed pipeline config. Side-effect-free — no pipeline is created. Same body shape as automl-create; returns a structured report with findings tagged info / warn / block plus a summary of estimated training rows, inference rows, predicted events-per-day, and (for classification) positive base rate. Call this before automl-create so the user can see and acknowledge any warnings first.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Validate AutoML pipeline config",
+        "title": "Validate AutoML pipeline config",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "batch-export-create": {
         "description": "Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination types are permitted by the API but typically must be created via the PostHog UI because their credentials are stored in the destination config. Always specify the model field (events, persons, or sessions) — omitting it defaults to events but the field should be set explicitly.",
         "category": "Data pipelines",

@@ -122,3 +122,48 @@ class TestAutoMLPipelineViewSet(APIBaseTest):
             status.HTTP_409_CONFLICT,
             status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+    def test_validate_returns_structured_report(self):
+        """POST /validate/ runs preflight checks and returns the report — no pipeline is created."""
+        stub_responses = [
+            type("Stub", (), {"results": [[50_000]]})(),  # training count
+            type("Stub", (), {"results": [[20_000]]})(),  # inference count
+            type("Stub", (), {"results": [[1_500]]})(),  # positives count
+        ]
+        with patch(
+            "products.automl.backend.logic.validation.execute_hogql_query",
+            side_effect=stub_responses,
+        ):
+            response = self.client.post(self._url("validate/"), VALID_BODY, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        body = response.json()
+        assert "ok" in body
+        assert "findings" in body
+        assert "summary" in body
+        assert body["ok"] is True
+        assert body["summary"]["estimated_training_rows"] == 50_000
+        assert body["summary"]["target_event"] == "uploaded_file"
+        # No pipeline was created — list should be empty.
+        listed = self.client.get(self._url()).json()
+        results = listed.get("results", listed)
+        assert results == []
+
+    def test_validate_surfaces_block_findings(self):
+        """Low training volume produces a block finding and ok=False without creating anything."""
+        stub_responses = [
+            type("Stub", (), {"results": [[1_000]]})(),  # under-floor training pop
+            type("Stub", (), {"results": [[500]]})(),  # inference pop
+            type("Stub", (), {"results": [[50]]})(),  # positives (already blocked by volume)
+        ]
+        with patch(
+            "products.automl.backend.logic.validation.execute_hogql_query",
+            side_effect=stub_responses,
+        ):
+            response = self.client.post(self._url("validate/"), VALID_BODY, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["ok"] is False
+        codes = {f["code"] for f in body["findings"]}
+        assert "training_volume_too_low" in codes

@@ -7,6 +7,13 @@ from products.automl.backend.facade import api, contracts
 from products.automl.backend.facade.enums import AutonomyLevel, Cadence, PipelineStatus, TaskType
 
 
+def _stub_hogql_results(rows: list[int]):
+    class _Stub:
+        results = [[row] for row in rows]
+
+    return _Stub()
+
+
 def _create_pipeline(team_id: int, *, name: str = "lifecycle_test") -> contracts.AutoMLPipelineDTO:
     return api.create(
         team_id=team_id,
@@ -99,6 +106,30 @@ def test_facade_disallowed_transition_raises(team):
     # DRAFT cannot be paused
     with pytest.raises(api.PipelineStateTransitionError):
         api.pause(team_id=team.id, pipeline_id=dto.id)
+
+
+@pytest.mark.django_db
+def test_facade_validate_returns_report(team):
+    """Facade-level validate wires through to logic and returns a ValidationReport."""
+    params = contracts.CreatePipelineInput(
+        name="validate_facade_test",
+        task_type=TaskType.CLASSIFICATION,
+        config={"target_event": "uploaded_file", "horizon_days": 14},
+        training_population={"kind": "hogql", "query": "SELECT person_id FROM events"},
+        inference_population={"kind": "hogql", "query": "SELECT person_id FROM events"},
+        output_property_name="automl_p_test",
+    )
+    # 3 HogQL calls expected: training pop, inference pop, classification positives.
+    with patch(
+        "products.automl.backend.logic.validation.execute_hogql_query",
+        side_effect=[_stub_hogql_results([50_000]), _stub_hogql_results([20_000]), _stub_hogql_results([1_500])],
+    ):
+        report = api.validate(team_id=team.id, params=params)
+
+    assert isinstance(report, contracts.ValidationReport)
+    assert report.ok is True
+    assert report.summary.estimated_training_rows == 50_000
+    assert report.summary.target_event == "uploaded_file"
 
 
 @pytest.mark.django_db

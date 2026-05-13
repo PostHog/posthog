@@ -6,7 +6,14 @@ auto-derived from the frozen dataclasses in ``facade/contracts.py``.
 
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import AutoMLPipelineDTO, CreatePipelineInput, UpdatePipelineInput
+from ..facade.contracts import (
+    AutoMLPipelineDTO,
+    CreatePipelineInput,
+    UpdatePipelineInput,
+    ValidationFinding,
+    ValidationReport,
+    ValidationSummary,
+)
 
 
 class AutoMLPipelineSerializer(DataclassSerializer):
@@ -37,3 +44,29 @@ class UpdatePipelineInputSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = UpdatePipelineInput
+
+
+class ValidationFindingSerializer(DataclassSerializer):
+    """One finding in a validation report (severity + code + message + details)."""
+
+    class Meta:
+        dataclass = ValidationFinding
+
+
+class ValidationSummarySerializer(DataclassSerializer):
+    """Quantitative summary returned alongside validation findings."""
+
+    class Meta:
+        dataclass = ValidationSummary
+
+
+class ValidationReportSerializer(DataclassSerializer):
+    """Response shape for ``POST /automl_pipelines/validate/``.
+
+    ``ok`` is true iff no findings have ``block`` severity. The same body shape
+    as the create endpoint goes in; this report comes out without persisting
+    anything.
+    """
+
+    class Meta:
+        dataclass = ValidationReport

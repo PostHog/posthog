@@ -123,3 +123,25 @@ def archive(*, team_id: int, pipeline_id: UUID) -> contracts.AutoMLPipelineDTO:
     """Soft-delete a pipeline by transitioning to ``ARCHIVED``. Raises if not found or already archived."""
     obj = logic.transition_pipeline(team_id=team_id, pipeline_id=pipeline_id, new_status=PipelineStatus.ARCHIVED)
     return _to_dto(obj)
+
+
+def validate(
+    *,
+    team_id: int,
+    params: contracts.CreatePipelineInput,
+) -> contracts.ValidationReport:
+    """Run preflight validation against a proposed pipeline config.
+
+    Side-effect-free: nothing is written, no pipeline is created. Same body shape
+    as ``create``; call this first so the user can see the validation report
+    (volume, base rate, leakage warnings, sample plan) before committing to a
+    pipeline. Returns a ``ValidationReport`` with findings tagged
+    info/warn/block plus a summary of estimated sizes.
+
+    Findings include both structural checks (config-shape, cadence ordering,
+    naming) and data-touching checks (HogQL count queries for training /
+    inference population size and the classification positive base rate). Data
+    queries fail open — exceptions become ``info`` findings rather than blocking
+    validation, so the caller always gets a structured response.
+    """
+    return logic.run_validation(team_id=team_id, params=params)
