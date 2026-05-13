@@ -71,12 +71,20 @@ describe('formatYValue', () => {
     // millions with one decimal and "M" suffix
     { input: 1_500_000, expected: '1.5M' },
     { input: -2_000_000, expected: '-2.0M' },
+    // larger millions without decimals
+    { input: 100_000_000, expected: '100M' },
+    { input: 999_000_000, expected: '999M' },
+    // billions with one decimal and "B" suffix
+    { input: 1_000_000_000, expected: '1.0B' },
+    { input: -2_500_000_000, expected: '-2.5B' },
     // boundary cases that previously rounded into the next magnitude and
     // overflowed the 5-char width budget for negatives — must stay ≤5 chars
     { input: 9999, expected: '10k' },
     { input: -9999, expected: '-10k' },
     { input: 999_999, expected: '1.0M' },
     { input: -999_999, expected: '-1.0M' },
+    { input: 99_950_000, expected: '100M' },
+    { input: 999_500_000, expected: '1.0B' },
     // non-finite values fall back to "0" (caller is responsible for padding)
     { input: Number.NaN, expected: '0' },
     { input: Number.POSITIVE_INFINITY, expected: '0' },

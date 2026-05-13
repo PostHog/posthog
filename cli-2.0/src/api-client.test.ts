@@ -7,28 +7,20 @@ function makeClient(): ApiClient {
   return new ApiClient({ apiToken: 'test-token', baseUrl: 'https://us.posthog.com' })
 }
 
+const rejectCases = [
+  { name: 'protocol-relative paths that would leak the Authorization header', path: '//attacker.com/capture' },
+  { name: 'absolute http URLs', path: 'http://attacker.com/capture' },
+  { name: 'absolute https URLs regardless of case', path: 'HTTPS://attacker.com/capture' },
+]
+
 describe('ApiClient.request URL safety', () => {
-  it('rejects protocol-relative paths that would leak the Authorization header', async () => {
-    const client = makeClient()
-    await assert.rejects(
-      () => client.request({ method: 'GET', path: '//attacker.com/capture' }),
-      /must be relative/,
-    )
-  })
-
-  it('rejects absolute http URLs', async () => {
-    const client = makeClient()
-    await assert.rejects(
-      () => client.request({ method: 'GET', path: 'http://attacker.com/capture' }),
-      /must be relative/,
-    )
-  })
-
-  it('rejects absolute https URLs regardless of case', async () => {
-    const client = makeClient()
-    await assert.rejects(
-      () => client.request({ method: 'GET', path: 'HTTPS://attacker.com/capture' }),
-      /must be relative/,
-    )
-  })
+  for (const { name, path } of rejectCases) {
+    it(`rejects ${name}`, async () => {
+      const client = makeClient()
+      await assert.rejects(
+        () => client.request({ method: 'GET', path }),
+        /must be relative/,
+      )
+    })
+  }
 })

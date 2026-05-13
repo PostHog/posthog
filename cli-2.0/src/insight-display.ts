@@ -68,6 +68,12 @@ export function formatYValue(x: number): string {
   // result into the next magnitude — e.g. -9999 would round to "-10.0k" (6
   // chars), overflowing the 5-char Y-axis width budget. Promoting to the
   // wider bucket early keeps every output within budget.
+  if (abs >= 999_500_000) {
+    return `${(x / 1_000_000_000).toFixed(1)}B`
+  }
+  if (abs >= 99_950_000) {
+    return `${(x / 1_000_000).toFixed(0)}M`
+  }
   if (abs >= 999_500) {
     return `${(x / 1_000_000).toFixed(1)}M`
   }
