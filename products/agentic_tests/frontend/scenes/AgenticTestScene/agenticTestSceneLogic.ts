@@ -39,7 +39,7 @@ export interface AgenticTestSceneProps {
 const projectId = (): string => String(getCurrentTeamId())
 
 const emptyDraft: AgenticTestDraft = {
-    name: '',
+    name: 'New agentic test',
     description: '',
     target_url: '',
     prompt: '',
@@ -96,10 +96,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         testForm: {
             defaults: emptyDraft as AgenticTestDraft,
             submit: async (draft) => {
-                if (!draft.name?.trim()) {
-                    lemonToast.error('Name is required')
-                    return
-                }
+                const name = draft.name?.trim() || 'New agentic test'
                 if (!draft.target_url?.trim()) {
                     lemonToast.error('Target URL is required')
                     return
@@ -108,6 +105,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     lemonToast.error('Prompt is required')
                     return
                 }
+                draft = { ...draft, name }
                 const isNew = !props.id || props.id === 'new'
                 const saved = (isNew
                     ? await agenticTestsCreate(projectId(), draft as any)

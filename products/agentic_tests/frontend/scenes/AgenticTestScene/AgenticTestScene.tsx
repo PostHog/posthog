@@ -133,7 +133,7 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={isNew ? 'New agentic test' : (testForm.name ?? '')}
+                name={testForm.name ?? ''}
                 description={testForm.description ?? ''}
                 resourceType={{ type: 'agentic_tests' }}
                 canEdit
