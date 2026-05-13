@@ -44,11 +44,13 @@ tools:
   tool that only declares `mounts` is valid (useful for wiring auth into a
   tool already in the base image).
 - `install` is plain shell run as the sandbox user at image build time.
-  It must not need root — install tools into the user's home (`~/.local`,
-  `~/.npm-global` via `npm install -g`, `~/.cargo` via `cargo install`,
-  etc.). Anything that genuinely needs system-wide install (`apt-get`,
-  writes under `/usr`) belongs in the base `Dockerfile.sandbox`, not in
-  a per-user recipe.
+  Prefer user-mode install: drop binaries into `~/.local`, use `npm
+install -g` (the prefix points at `~/.npm-global`), `pip install --user`,
+  `cargo install`, etc. NOPASSWD `sudo` is available as an escape hatch
+  for cases that genuinely need it (`apt-get install`, writes under
+  `/usr`). If a tool needs root and several contributors will use it,
+  consider adding it to the base `Dockerfile.sandbox` instead so the
+  install isn't repeated in everyone's personal layer.
 - Mount short form (string): host absolute path under `$HOME`, copied to the
   same `$HOME`-relative path inside the sandbox.
 - Mount long form (`{source, target}`): use when source isn't under `$HOME`,
