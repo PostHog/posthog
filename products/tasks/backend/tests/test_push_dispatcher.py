@@ -5,7 +5,7 @@ from django.test import TransactionTestCase
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
@@ -24,6 +24,9 @@ class TestPushDispatcher(TransactionTestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="push@example.com", first_name="Push", password="password")
+        # Push dispatch requires the recipient to still be a member of the team's org —
+        # see the access check in push_dispatcher._enqueue.
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.task = Task.objects.create(
             team=self.team,
             title="My Task",
@@ -83,6 +86,24 @@ class TestPushDispatcher(TransactionTestCase):
         notify_task_run_completed(self.task_run)
         notify_task_run_awaiting_input(self.task_run)
         self.assertEqual(mock_delay.call_count, 2)
+
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_recipient_without_team_access_is_skipped(self, mock_delay, _flag):
+        """A user who has been removed from the task's organization must not receive
+        pushes carrying that task's title — losing access should mean losing notifications."""
+        outsider = User.objects.create_user(email="outsider@example.com", first_name="Out", password="x")
+        outsider_task = Task.objects.create(
+            team=self.team,
+            title="Sensitive Task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=outsider,
+        )
+        outsider_run = TaskRun.objects.create(task=outsider_task, team=self.team)
+
+        notify_task_run_completed(outsider_run)
+        mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

@@ -80,6 +80,18 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     if user is None:
         return
 
+    # If the user has lost access to the task's team (e.g. removed from the
+    # organization), don't push them task titles for runs they shouldn't see
+    # anymore. The push body and data payload both carry the task identity.
+    if not user.organization_memberships.filter(organization__teams=task_run.team_id).exists():
+        logger.debug(
+            "push_dispatcher.recipient_lost_access",
+            user_id=user.id,
+            run_id=str(task_run.id),
+            team_id=task_run.team_id,
+        )
+        return
+
     distinct_id = user.distinct_id or f"user_{user.id}"
     try:
         flag_enabled = posthoganalytics.feature_enabled(
