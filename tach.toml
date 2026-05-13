@@ -44,6 +44,7 @@ depends_on = [
     "products.feature_flags",
     "products.llm_analytics",
     "products.mcp_store",
+    "products.mindmap",
     "products.notebooks",
     "products.posthog_ai",
     "products.replay",
