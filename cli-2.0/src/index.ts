@@ -14,6 +14,7 @@ async function main() {
     .usage('$0 <command> [options]')
     .help()
     .version('0.1.0')
+    .wrap(120)
     .demandCommand(1, 'You need at least one command before moving on')
     .fail((msg, err, yargs) => {
       if (err) throw err
@@ -119,17 +120,30 @@ async function main() {
         
         const description = tool.description || `Execute ${tool.name}`
         
+        const requiresId = commandName === 'get' || commandName === 'delete' || commandName === 'update'
+        const commandSpec = requiresId ? `${commandName} <id>` : commandName
+        
         subCommands = subCommands.command(
-          [commandName, ...aliases], 
+          [commandSpec, ...aliases.map(alias => requiresId ? `${alias} <id>` : alias)], 
           description.split('\n')[0], // Use first line of description
-          {
-            id: commandName === 'get' || commandName === 'delete' || commandName === 'update' ? 
-              { type: 'string', describe: 'Resource ID', demandOption: true } : 
-              { type: 'string', describe: 'Resource ID (optional)' }
+          (yargs) => {
+            if (requiresId) {
+              return yargs.positional('id', {
+                type: 'string',
+                describe: 'Resource ID',
+                demandOption: true
+              })
+            }
+            return yargs
           },
           async (argv) => {
             const params: any = {}
-            if (argv.id) params.id = argv.id
+            // Pass through all arguments except the internal ones
+            for (const [key, value] of Object.entries(argv)) {
+              if (key !== '_' && key !== '$0' && key !== 'mcpContext') {
+                params[key] = value
+              }
+            }
             await executeGeneratedTool(argv, tool.name, params)
           }
         )
