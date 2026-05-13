@@ -34,6 +34,7 @@ import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
 import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
@@ -108,6 +109,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
@@ -1150,6 +1152,13 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
+    r"business_knowledge/sources",
+    business_knowledge.KnowledgeSourceViewSet,
+    "environment_business_knowledge_sources",
+    ["team_id"],
+)
+
+projects_router.register(
     r"conversations/tickets",
     conversations.TicketViewSet,
     "environment_conversations_tickets",
@@ -1529,6 +1538,19 @@ environments_router.register(
     EvaluationReportViewSet,
     "environment_llm_analytics_evaluation_reports",
     ["team_id"],
+)
+
+environment_vision_lenses_router = environments_router.register(
+    r"vision/lenses",
+    ReplayLensViewSet,
+    "environment_vision_lenses",
+    ["team_id"],
+)
+environment_vision_lenses_router.register(
+    r"observations",
+    ReplayObservationViewSet,
+    "environment_vision_lens_observations",
+    ["team_id", "lens_id"],
 )
 
 environments_router.register(

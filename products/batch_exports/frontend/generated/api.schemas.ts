@@ -152,13 +152,40 @@ export interface AzureBlobDestinationConfigApi {
     type: AzureBlobDestinationConfigApiType
 }
 
-export type BatchExportDestinationConfigApi = DatabricksDestinationConfigApi | AzureBlobDestinationConfigApi
+export type BigQueryDestinationConfigApiType =
+    (typeof BigQueryDestinationConfigApiType)[keyof typeof BigQueryDestinationConfigApiType]
+
+export const BigQueryDestinationConfigApiType = {
+    BigQuery: 'BigQuery',
+} as const
+
+/**
+ * Typed configuration for a BigQuery batch-export destination.
+
+Credentials live in the linked Integration, not in this config. Mirrors the
+non-credential fields of `BigQueryBatchExportInputs` in
+`products/batch_exports/backend/service.py`.
+ */
+export interface BigQueryDestinationConfigApi {
+    /** BigQuery dataset ID to write to. */
+    dataset_id: string
+    /** BigQuery table ID inside the dataset. */
+    table_id?: string
+    /** Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created. */
+    use_json_type?: boolean
+    type: BigQueryDestinationConfigApiType
+}
+
+export type BatchExportDestinationConfigApi =
+    | DatabricksDestinationConfigApi
+    | AzureBlobDestinationConfigApi
+    | BigQueryDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
 
 The `config` field is polymorphic and typed only for destinations that keep
-credentials in the linked Integration (currently Databricks and AzureBlob).
+credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
 Other destination types accept the same JSON shape but without a typed
 OpenAPI schema. Secret fields are stripped from `config` on read.
  */
@@ -177,7 +204,7 @@ export interface BatchExportDestinationApi {
   * `NoOp` - Noop
   * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -185,7 +212,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -1027,7 +1054,27 @@ export interface AzureBlobDestinationRequestApi {
     config: AzureBlobDestinationConfigApi
 }
 
-export type BatchExportDestinationRequestApi = DatabricksDestinationRequestApi | AzureBlobDestinationRequestApi
+export type BigQueryDestinationRequestApiType =
+    (typeof BigQueryDestinationRequestApiType)[keyof typeof BigQueryDestinationRequestApiType]
+
+export const BigQueryDestinationRequestApiType = {
+    BigQuery: 'BigQuery',
+} as const
+
+/**
+ * Request shape for creating or updating a BigQuery batch-export destination.
+ */
+export interface BigQueryDestinationRequestApi {
+    type: BigQueryDestinationRequestApiType
+    /** ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: BigQueryDestinationConfigApi
+}
+
+export type BatchExportDestinationRequestApi =
+    | DatabricksDestinationRequestApi
+    | AzureBlobDestinationRequestApi
+    | BigQueryDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1258,6 +1305,16 @@ export type AzureBlobDestinationRequestTypeEnumApi =
 
 export const AzureBlobDestinationRequestTypeEnumApi = {
     AzureBlob: 'AzureBlob',
+} as const
+
+/**
+ * * `BigQuery` - BigQuery
+ */
+export type BigQueryDestinationRequestTypeEnumApi =
+    (typeof BigQueryDestinationRequestTypeEnumApi)[keyof typeof BigQueryDestinationRequestTypeEnumApi]
+
+export const BigQueryDestinationRequestTypeEnumApi = {
+    BigQuery: 'BigQuery',
 } as const
 
 export type BatchExportsListParams = {
