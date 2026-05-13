@@ -55,7 +55,7 @@ export const InlineStart: Story = {
             <FieldLabel htmlFor="inline-end-input">Input</FieldLabel>
             <InputGroup>
                 <InputGroupInput id="inline-end-input" type="password" placeholder="Enter password" />
-                <InputGroupAddon align="inline-start">
+                <InputGroupAddon align="block-end">
                     <SearchIcon />
                 </InputGroupAddon>
             </InputGroup>
