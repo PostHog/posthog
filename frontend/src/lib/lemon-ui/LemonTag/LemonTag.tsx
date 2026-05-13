@@ -37,6 +37,8 @@ export interface LemonTagProps {
     'data-attr'?: string
     /** When true, the icon will swap to a close icon on hover and the entire tag becomes clickable to close */
     closeOnClick?: boolean
+    /** Keep the cursor-pointer / role="button" affordance even when wrapped in a `<Tooltip>` (Base UI's tooltip injects its own onClick which would otherwise suppress it). */
+    forceClickable?: boolean
 }
 
 export const LemonTag: React.FunctionComponent<
@@ -55,14 +57,15 @@ export const LemonTag: React.FunctionComponent<
         disabledReason,
         closeOnClick,
         onClick,
+        forceClickable,
         ...props
     },
     ref
 ): JSX.Element {
-    // Base UI's Tooltip injects an onClick onto its trigger child; don't treat that as dev intent.
+    // Base UI's Tooltip injects an onClick onto its trigger child; don't treat that as dev intent unless forceClickable is set.
     const isTooltipTrigger = 'data-base-ui-tooltip-trigger' in props
     const isCloseClickable = !!(closeOnClick && icon && onClose)
-    const isClickable = (!!onClick && !isTooltipTrigger) || isCloseClickable
+    const isClickable = (!!onClick && (!isTooltipTrigger || forceClickable)) || isCloseClickable
     return (
         <div
             ref={ref}
