@@ -46,3 +46,7 @@ def create_missing_capability_submission(
     team: Team, created_by: User | None, submission: contracts.CreateMissingCapabilitySubmission
 ) -> contracts.Submission:
     return _to_submission(logic.create_missing_capability_submission(team, created_by, submission))
+
+
+def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCPSession]:
+    return logic.list_mcp_sessions(team, limit=limit, offset=offset)

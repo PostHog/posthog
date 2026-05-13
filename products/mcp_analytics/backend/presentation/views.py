@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from django.db.models import QuerySet
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.pagination import LimitOffsetPagination
@@ -15,11 +17,13 @@ from posthog.permissions import SingleTenancyOrAdmin
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPSessionSerializer,
 )
 
 
@@ -101,6 +105,32 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.FEEDBACK)
+
+
+@extend_schema(tags=["mcp_analytics"])
+class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPSessionSerializer
+    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
+    scope_object = "INTERNAL"
+    pagination_class = MCPAnalyticsPagination
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # Sessions are aggregated from ClickHouse events, not from a Django model.
+        # Returning an empty queryset satisfies DRF's GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_list",
+        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $session_id. Ordered by most recent activity first.",
+        responses={200: MCPSessionSerializer(many=True)},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        paginator = self.pagination_class()
+        limit = paginator.get_limit(request) or paginator.default_limit
+        offset = paginator.get_offset(request)
+        sessions = api.list_mcp_sessions(self.team, limit=limit, offset=offset)
+        serializer = self.get_serializer(sessions, many=True)
+        return Response({"results": serializer.data})
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):

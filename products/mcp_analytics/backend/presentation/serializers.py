@@ -122,6 +122,30 @@ class MCPFeedbackCreateSerializer(MCPAnalyticsSubmissionContextSerializer):
     )
 
 
+class MCPSessionSerializer(serializers.Serializer):
+    session_id = serializers.CharField(
+        read_only=True, help_text="PostHog $session_id grouping all mcp_tool_call events."
+    )
+    event_count = serializers.IntegerField(read_only=True, help_text="Number of mcp_tool_call events in the session.")
+    first_seen = serializers.DateTimeField(
+        read_only=True, help_text="Timestamp of the first mcp_tool_call event in the session."
+    )
+    last_seen = serializers.DateTimeField(
+        read_only=True, help_text="Timestamp of the most recent mcp_tool_call event in the session."
+    )
+    distinct_id_count = serializers.IntegerField(
+        read_only=True, help_text="Number of distinct PostHog distinct_ids that produced events in the session."
+    )
+    tools_used = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Distinct $mcp_tool_name values seen in the session.",
+    )
+    mcp_client_name = serializers.CharField(
+        read_only=True, help_text="Most recent $mcp_client_name observed in the session."
+    )
+
+
 class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializer):
     goal = serializers.CharField(max_length=MAX_GOAL_LENGTH, help_text="The user's intended outcome when using MCP.")
     missing_capability = serializers.CharField(

@@ -49,3 +49,14 @@ class CreateMissingCapabilitySubmission:
     missing_capability: str
     blocked: bool = True
     context: SubmissionContext = SubmissionContext()
+
+
+@dataclass(frozen=True)
+class MCPSession:
+    session_id: str
+    event_count: int
+    first_seen: datetime
+    last_seen: datetime
+    distinct_id_count: int
+    tools_used: list[str]
+    mcp_client_name: str
