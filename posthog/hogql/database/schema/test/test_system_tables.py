@@ -31,6 +31,7 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.catalog.backend.models import CatalogColumn, CatalogNode, CatalogRelationship
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
@@ -510,6 +511,27 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
     )
 
 
+def _create_catalog_node(team: Team, label: str) -> CatalogNode:
+    return CatalogNode.objects.create(team=team, kind=CatalogNode.Kind.POSTHOG_TABLE, name=f"events_{label}")
+
+
+def _create_catalog_column(team: Team, label: str) -> CatalogColumn:
+    node = CatalogNode.objects.create(team=team, kind=CatalogNode.Kind.POSTHOG_TABLE, name=f"events_col_{label}")
+    return CatalogColumn.objects.create(node=node, name="distinct_id")
+
+
+def _create_catalog_relationship(team: Team, label: str) -> CatalogRelationship:
+    source = CatalogNode.objects.create(team=team, kind=CatalogNode.Kind.WAREHOUSE_TABLE, name=f"orders_{label}")
+    target = CatalogNode.objects.create(team=team, kind=CatalogNode.Kind.WAREHOUSE_TABLE, name=f"customers_{label}")
+    return CatalogRelationship.objects.create(
+        team=team,
+        source_node=source,
+        target_node=target,
+        kind=CatalogRelationship.Kind.JOIN_CANDIDATE,
+        confidence=0.5,
+    )
+
+
 SYSTEM_TABLE_FACTORIES = [
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
@@ -519,6 +541,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("batch_exports", _create_batch_export),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
+    ("columns", _create_catalog_column),
     ("dashboards", _create_dashboard),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
@@ -551,6 +574,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("notebooks", _create_notebook),
     ("review_queue_items", _create_review_queue_item),
     ("review_queues", _create_review_queue),
+    ("relationships", _create_catalog_relationship),
     ("sandbox_environments", _create_sandbox_environment),
     ("score_definitions", _create_score_definition),
     ("session_recording_playlists", _create_session_recording_playlist),
@@ -558,6 +582,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("tables", _create_catalog_node),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
     ("teams", _create_team),

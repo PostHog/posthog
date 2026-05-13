@@ -589,3 +589,19 @@ expose = [
 from = [
     "products.business_knowledge",
 ]
+
+[[modules]]
+path = "products.catalog"
+# data_warehouse is needed for the model classes that the post_delete signal listeners bind to —
+# Django signal `sender=` requires the actual model, not a string label.
+depends_on = ["posthog", "products.data_warehouse"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade\\.api.*",
+    "backend\\.facade\\.contracts.*",
+]
+from = [
+    "products.catalog",
+]

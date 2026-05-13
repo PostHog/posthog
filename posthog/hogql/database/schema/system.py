@@ -1082,6 +1082,69 @@ sandbox_environments: PostgresTable = PostgresTable(
 )
 
 
+tables: PostgresTable = PostgresTable(
+    name="tables",
+    postgres_table_name="catalog_catalognode",
+    access_scope="catalog",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "kind": StringDatabaseField(name="kind"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="synthetic_description", nullable=True),
+        "semantic_role": StringDatabaseField(name="semantic_role", nullable=True),
+        "business_domain": StringDatabaseField(name="business_domain", nullable=True),
+        "tags": StringArrayDatabaseField(name="tags"),
+        "first_seen_at": DateTimeDatabaseField(name="first_seen_at"),
+        "last_seen_at": DateTimeDatabaseField(name="last_seen_at"),
+        "last_traversed_at": DateTimeDatabaseField(name="last_traversed_at", nullable=True),
+        "confidence": FloatDatabaseField(name="confidence", nullable=True),
+    },
+)
+
+columns: PostgresTable = PostgresTable(
+    name="columns",
+    postgres_table_name="catalog_catalogcolumn",
+    access_scope="catalog",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "node_id": StringDatabaseField(name="node_id"),
+        "name": StringDatabaseField(name="name"),
+        "position": IntegerDatabaseField(name="position"),
+        "clickhouse_type": StringDatabaseField(name="clickhouse_type", nullable=True),
+        "hogql_type": StringDatabaseField(name="hogql_type", nullable=True),
+        "nullable": BooleanDatabaseField(name="nullable"),
+        "description": StringDatabaseField(name="synthetic_description", nullable=True),
+        "semantic_type": StringDatabaseField(name="semantic_type", nullable=True),
+        "pii_class": StringDatabaseField(name="pii_class", nullable=True),
+        "last_seen_at": DateTimeDatabaseField(name="last_seen_at"),
+        "confidence": FloatDatabaseField(name="confidence", nullable=True),
+    },
+)
+
+relationships: PostgresTable = PostgresTable(
+    name="relationships",
+    postgres_table_name="catalog_catalogrelationship",
+    access_scope="catalog",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_node_id": StringDatabaseField(name="source_node_id"),
+        "source_column_id": StringDatabaseField(name="source_column_id", nullable=True),
+        "target_node_id": StringDatabaseField(name="target_node_id"),
+        "target_column_id": StringDatabaseField(name="target_column_id", nullable=True),
+        "kind": StringDatabaseField(name="kind"),
+        "confidence": FloatDatabaseField(name="confidence"),
+        "reasoning": StringDatabaseField(name="reasoning"),
+        "status": StringDatabaseField(name="status"),
+        "discovered_at": DateTimeDatabaseField(name="discovered_at"),
+        "last_seen_at": DateTimeDatabaseField(name="last_seen_at"),
+        "discovered_in_run_id": StringDatabaseField(name="discovered_in_run_id", nullable=True),
+    },
+)
+
+
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
@@ -1093,6 +1156,7 @@ class SystemTables(TableNode):
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
+        "columns": TableNode(name="columns", table=columns),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
@@ -1134,6 +1198,7 @@ class SystemTables(TableNode):
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
+        "relationships": TableNode(name="relationships", table=relationships),
         "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
@@ -1143,6 +1208,7 @@ class SystemTables(TableNode):
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "tables": TableNode(name="tables", table=tables),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),

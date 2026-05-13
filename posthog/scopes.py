@@ -23,6 +23,7 @@ APIScopeObject = Literal[
     "batch_export",
     "batch_import",
     "business_knowledge",
+    "catalog",
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
