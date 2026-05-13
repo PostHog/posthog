@@ -39,13 +39,7 @@ except ImportError:
     sys.exit(1)
 
 import sandbox_tools
-from sandbox_tools import (
-    TOOLS_FILE,
-    CatalogEntry,
-    Tool,
-    ToolCopy,
-    ToolsError,
-)
+from sandbox_tools import TOOLS_FILE, Tool, ToolCopy, ToolsError
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -58,14 +52,15 @@ GIT_HELPER_IMAGE = "alpine/git:latest"
 SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
 
 
-def _resolve_host_git_dir() -> Path:
-    """Path to bind-mount as /host-git for the in-container clone helper.
+@functools.cache
+def _host_git_dir() -> Path:
+    """Path to mount as /host-git for the in-container clone helper.
 
-    For a regular checkout this is `<repo>/.git`. For a git worktree, that
-    path is a gitdir pointer file rather than a real directory, so we
-    resolve the common .git dir via `rev-parse --git-common-dir` and mount
-    that instead. The container only needs refs/objects, which both layouts
-    expose from the common dir.
+    For a regular checkout this is `<repo>/.git`. In a git worktree, that
+    path is a gitdir pointer file rather than a directory, so we resolve
+    the common .git dir via `rev-parse --git-common-dir` instead. The
+    in-container clone only needs refs/objects, which both layouts expose
+    from the common dir.
     """
     git_path = REPO_ROOT / ".git"
     if git_path.is_dir():
@@ -77,9 +72,6 @@ def _resolve_host_git_dir() -> Path:
         text=True,
     ).stdout.strip()
     return Path(common).resolve()
-
-
-HOST_GIT_DIR = _resolve_host_git_dir()
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
@@ -320,40 +312,6 @@ class Registry:
 
 
 # ---------------------------------------------------------------------------
-# User tool management (~/.posthog-sandboxes/tools.yaml)
-#
-# Schema, parsing, persistence, and the compose-override generator live in
-# bin/sandbox_tools.py. The wrappers below translate ToolsError -> fatal()
-# so call sites keep the script's fail-loud-with-message convention.
-# ---------------------------------------------------------------------------
-
-
-def _parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
-    try:
-        return sandbox_tools.parse_tool_copy(entry, source_label=source_label)
-    except ToolsError as e:
-        fatal(str(e))
-
-
-def _load_user_tools() -> list[Tool]:
-    try:
-        return sandbox_tools.load_user_tools()
-    except ToolsError as e:
-        fatal(str(e))
-
-
-def _save_user_tools(tools: list[Tool]) -> None:
-    sandbox_tools.save_user_tools(tools)
-
-
-def _load_catalog() -> dict[str, CatalogEntry]:
-    try:
-        return sandbox_tools.load_catalog(CATALOG_FILE)
-    except ToolsError as e:
-        fatal(str(e))
-
-
-# ---------------------------------------------------------------------------
 # Sandbox image management (base + per-user layers)
 # ---------------------------------------------------------------------------
 
@@ -383,15 +341,18 @@ def _image_exists(tag: str) -> bool:
     return run(["docker", "image", "inspect", tag], check=False, capture=True).returncode == 0
 
 
-def _image_label(tag: str, label: str) -> str:
+def _image_label(tag: str, label: str) -> str | None:
+    """Read a label from an image. Returns None if the label isn't set.
+
+    Caller is expected to have already confirmed the image exists; a docker
+    inspect failure here raises rather than silently masking a daemon problem.
+    """
     result = run(
         ["docker", "image", "inspect", "--format", f'{{{{ index .Config.Labels "{label}" }}}}', tag],
-        check=False,
         capture=True,
     )
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
+    value = result.stdout.strip()
+    return value if value and value != "<no value>" else None
 
 
 
@@ -460,49 +421,73 @@ def _user_image_tag(tools: list[Tool]) -> str:
     return f"{USER_IMAGE_PREFIX}:{h}"
 
 
-def _generate_personal_dockerfile(tools: list[Tool], base_tag: str) -> str:
-    """Materialize the personal image Dockerfile.
+_DOCKERFILE_PROLOGUE = """\
+# syntax=docker/dockerfile:1.4
+FROM {base_tag}
 
-    One RUN per tool's install snippet so layers cache independently:
-    appending a tool reuses prior layers; editing a snippet invalidates
-    only that layer onward. The image reverts to USER root at the end
-    so the entrypoint's root_phase (creates /tmp/sandbox-home, copies
-    host auth, starts sshd, then gosu's down to the sandbox user) still
-    has the privileges it needs.
+ARG SANDBOX_UID
+ARG SANDBOX_GID
+
+# Bake the sandbox user at build time so install snippets run as the same
+# identity that the runtime container does. groupadd may fail when the host
+# GID matches a stock system group; the trailing || true keeps the build
+# going since useradd will reuse that group.
+RUN groupadd -g ${{SANDBOX_GID}} sandbox 2>/dev/null || true \\
+ && useradd  -u ${{SANDBOX_UID}} -g ${{SANDBOX_GID}} -m -s /bin/bash sandbox
+
+USER sandbox
+ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global
+ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${{PATH}}
+RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin
+"""
+
+
+def _generate_dockerfile(installs: list[tuple[str, str]], base_tag: str, *, end_as_root: bool) -> str:
+    """Materialize a sandbox image Dockerfile.
+
+    `installs` is `(tool_name, install_snippet)` pairs, one RUN per pair so
+    layers cache independently: appending a tool reuses prior layers; editing
+    a snippet invalidates only that layer onward. `end_as_root` controls
+    whether the image reverts to USER root before exit. The personal image
+    needs it (the entrypoint's root_phase creates /tmp/sandbox-home, copies
+    host auth, starts sshd, then gosu's down to the sandbox user); the
+    throwaway test image does not.
     """
-    lines = [
-        "# syntax=docker/dockerfile:1.4",
-        f"FROM {base_tag}",
-        "",
-        "ARG SANDBOX_UID",
-        "ARG SANDBOX_GID",
-        "",
-        "# Bake the sandbox user at build time so install snippets run as the same",
-        "# identity that the runtime container does. groupadd may fail when the",
-        "# host GID matches a stock system group; the trailing || true keeps the",
-        "# build going since useradd will reuse that group.",
-        "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\",
-        " && useradd  -u ${SANDBOX_UID} -g ${SANDBOX_GID} -m -s /bin/bash sandbox",
-        "",
-        "USER sandbox",
-        "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
-        "ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${PATH}",
-        "RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin",
-        "",
-    ]
-    for tool in tools:
-        if not tool.install or not tool.install.strip():
+    parts = [_DOCKERFILE_PROLOGUE.format(base_tag=base_tag), "\n"]
+    for name, install in installs:
+        snippet = install.strip()
+        if not snippet:
             continue
-        snippet = tool.install.strip()
-        lines.append(f"# Tool: {tool.name}")
-        lines.append("RUN <<'__POSTHOG_SANDBOX_EOF__'")
-        lines.append("set -e")
-        lines.extend(snippet.splitlines())
-        lines.append("__POSTHOG_SANDBOX_EOF__")
-        lines.append("")
-    lines.append("# root_phase in the entrypoint expects to start as root.")
-    lines.append("USER root")
-    return "\n".join(lines) + "\n"
+        parts.append(f"# Tool: {name}\n")
+        parts.append("RUN <<'__POSTHOG_SANDBOX_EOF__'\nset -e\n")
+        parts.append(snippet + "\n")
+        parts.append("__POSTHOG_SANDBOX_EOF__\n\n")
+    if end_as_root:
+        parts.append("# root_phase in the entrypoint expects to start as root.\nUSER root\n")
+    return "".join(parts)
+
+
+def _docker_build_from_stdin(dockerfile: str, tag: str, *, extra_args: tuple[str, ...] = ()) -> int:
+    """Run `docker build` with a Dockerfile piped on stdin. Returns the exit code.
+
+    Build context is an empty temp directory; the Dockerfile never COPYs from
+    the repo. SANDBOX_UID/GID are baked in as build args so the same image
+    works regardless of which compose project invokes it.
+    """
+    with tempfile.TemporaryDirectory(prefix="sandbox-build-") as ctx:
+        proc = subprocess.Popen(
+            [
+                "docker", "build", *extra_args,
+                "--build-arg", f"SANDBOX_UID={os.getuid()}",
+                "--build-arg", f"SANDBOX_GID={os.getgid()}",
+                "-t", tag,
+                "-f", "-", ctx,
+            ],
+            stdin=subprocess.PIPE,
+            env={**os.environ, "DOCKER_BUILDKIT": "1"},
+        )
+        proc.communicate(input=dockerfile.encode())
+        return proc.returncode
 
 
 @contextmanager
@@ -515,36 +500,6 @@ def _tools_build_lock():
             yield
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
-
-
-def _docker_build_personal_image(dockerfile_text: str, tag: str) -> None:
-    """Build a personal image layer from a generated Dockerfile on stdin.
-
-    Build context is an empty temp directory because the Dockerfile never
-    COPYs from the repo. SANDBOX_UID/GID are passed as build args so the
-    same image works regardless of which compose project invokes it.
-    """
-    with tempfile.TemporaryDirectory(prefix="sandbox-build-") as ctx:
-        proc = subprocess.Popen(
-            [
-                "docker",
-                "build",
-                "--build-arg",
-                f"SANDBOX_UID={os.getuid()}",
-                "--build-arg",
-                f"SANDBOX_GID={os.getgid()}",
-                "-t",
-                tag,
-                "-f",
-                "-",
-                ctx,
-            ],
-            stdin=subprocess.PIPE,
-            env={**os.environ, "DOCKER_BUILDKIT": "1"},
-        )
-        proc.communicate(input=dockerfile_text.encode())
-        if proc.returncode != 0:
-            fatal(f"Image build failed (exit {proc.returncode}).")
 
 
 def _ensure_user_image(tools: list[Tool], base_tag: str) -> str:
@@ -560,11 +515,14 @@ def _ensure_user_image(tools: list[Tool], base_tag: str) -> str:
         return tag
 
     info(f"Building your sandbox tools image {tag} (~30-90s)...")
-    dockerfile = _generate_personal_dockerfile(tools, base_tag)
+    installs = [(t.name, t.install) for t in tools if t.install]
+    dockerfile = _generate_dockerfile(installs, base_tag, end_as_root=True)
     with _tools_build_lock():
         if _image_exists(tag):
             return tag
-        _docker_build_personal_image(dockerfile, tag)
+        rc = _docker_build_from_stdin(dockerfile, tag)
+        if rc != 0:
+            fatal(f"Image build failed (exit {rc}).")
     success(f"Built user image {tag}.")
     _prune_old_user_images()
     return tag
@@ -575,34 +533,26 @@ def _prune_old_user_images() -> None:
     result = run(
         ["docker", "images", "--format", "{{.Tag}}\t{{.CreatedAt}}", USER_IMAGE_PREFIX],
         capture=True,
-        check=False,
     )
-    if result.returncode != 0:
-        return
-    entries: list[tuple[str, str]] = []
-    for line in result.stdout.strip().splitlines():
-        parts = line.split("\t", 1)
-        if len(parts) != 2:
-            continue
-        entries.append((parts[0], parts[1]))
-    # CreatedAt format is sortable lexicographically (ISO-ish: "2024-01-02 03:04:05 +0000 UTC").
-    entries.sort(key=lambda e: e[1], reverse=True)
+    # CreatedAt is lexicographically sortable: "2024-01-02 03:04:05 +0000 UTC".
+    entries = sorted(
+        (line.split("\t", 1) for line in result.stdout.strip().splitlines() if "\t" in line),
+        key=lambda e: e[1],
+        reverse=True,
+    )
+    # rmi may fail when a stopped container still references the tag; that's
+    # an "OK, try again next prune" case rather than a hard error.
     for tag_part, _ in entries[KEEP_USER_IMAGES:]:
-        full = f"{USER_IMAGE_PREFIX}:{tag_part}"
-        run(["docker", "rmi", "-f", full], capture=True, check=False)
+        run(["docker", "rmi", "-f", f"{USER_IMAGE_PREFIX}:{tag_part}"], capture=True, check=False)
 
 
 def _ensure_images_built() -> tuple[str, list[Tool]]:
     """Build whatever images the next compose up needs. Idempotent."""
     base_tag = _ensure_base_image()
-    tools = _load_user_tools()
+    tools = sandbox_tools.load_user_tools()
     if tools:
         _ensure_user_image(tools, base_tag)
     return base_tag, tools
-
-
-def _write_tool_auth_compose() -> Path:
-    return sandbox_tools.write_tool_auth_compose(_load_user_tools())
 
 
 # ---------------------------------------------------------------------------
@@ -983,26 +933,6 @@ def _host_compose_env() -> dict[str, str]:
     return env
 
 
-def _compose_env(port: int) -> dict[str, str]:
-    """Env vars threaded through every docker compose invocation.
-
-    Pure resolution (no docker calls), so callers that only
-    `stop` / `destroy` / `logs` don't end up triggering image builds
-    just by computing compose env. Tool-auth bind mounts are not handled
-    here; they live in a generated override file (see _write_tool_auth_compose).
-    """
-    tools = _load_user_tools()
-    user_image = _user_image_tag(tools) if tools else BASE_IMAGE_TAG
-
-    return {
-        **_host_compose_env(),
-        "SANDBOX_PORT": str(port),
-        "SANDBOX_VITE_PORT": str(port + 1000),
-        "SANDBOX_SSH_PORT": str(port + 2000),
-        "SANDBOX_USER_IMAGE": user_image,
-    }
-
-
 def compose(
     project: str,
     port: int,
@@ -1014,17 +944,26 @@ def compose(
 ) -> subprocess.CompletedProcess:
     """Run `docker compose` with sandbox env vars.
 
-    `env_overrides` is layered on top of `_compose_env(port)`. Used by
-    cache-init to pin SANDBOX_USER_IMAGE to the base tag even when the
-    caller has personal tools configured.
+    `env_overrides` overrides individual env keys (used by cache-init to pin
+    SANDBOX_USER_IMAGE to the base tag even when the caller has personal
+    tools configured). tools.yaml is loaded once and threaded through the
+    generated tool-auth override and the SANDBOX_USER_IMAGE env var so we
+    don't re-parse it.
     """
+    tools = sandbox_tools.load_user_tools()
+    env = {
+        **_host_compose_env(),
+        "SANDBOX_PORT": str(port),
+        "SANDBOX_VITE_PORT": str(port + 1000),
+        "SANDBOX_SSH_PORT": str(port + 2000),
+        "SANDBOX_USER_IMAGE": _user_image_tag(tools) if tools else BASE_IMAGE_TAG,
+    }
+    if env_overrides:
+        env.update(env_overrides)
+    tool_auth_file = sandbox_tools.write_tool_auth_compose(tools)
     profile_flags: list[str] = []
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
-    env = _compose_env(port)
-    if env_overrides:
-        env.update(env_overrides)
-    tool_auth_file = _write_tool_auth_compose()
     return run(
         [
             "docker",
@@ -1143,7 +1082,7 @@ def _populate_workspace_volume(
             "-e",
             "GIT_LFS_SKIP_SMUDGE=1",
             "-v",
-            f"{HOST_GIT_DIR}:/host-git:ro",
+            f"{_host_git_dir()}:/host-git:ro",
             "-v",
             f"{volume_name}:/workspace",
             "-e",
@@ -1450,7 +1389,7 @@ def check_migration_staleness(branch_sha: str) -> str | None:
             "-v",
             f"{DB_CACHE_VOLUME}:/cache:ro",
             "-v",
-            f"{HOST_GIT_DIR}:/host-git:ro",
+            f"{_host_git_dir()}:/host-git:ro",
             "-e",
             f"BRANCH_SHA={branch_sha}",
             "--entrypoint",
@@ -2050,8 +1989,8 @@ def cmd_rebuild_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _read_multiline_block(prompt_text: str, prompt_help: str) -> str:
-    """Prompt for a multi-line block, ending on blank line or EOF."""
+def _prompt_lines(prompt_text: str, prompt_help: str, *, strip: bool = False) -> list[str]:
+    """Read lines from stdin until blank or EOF; return them as a list."""
     print(prompt_text)
     print(prompt_help)
     lines: list[str] = []
@@ -2060,94 +1999,36 @@ def _read_multiline_block(prompt_text: str, prompt_help: str) -> str:
             line = input("> ")
         except EOFError:
             break
+        if strip:
+            line = line.strip()
         if not line:
             break
         lines.append(line)
-    return "\n".join(lines).strip()
+    return lines
 
 
-def _read_path_list(prompt_text: str, prompt_help: str) -> list[str]:
-    """Prompt for a list of paths, one per line, ending on blank line or EOF."""
-    print(prompt_text)
-    print(prompt_help)
-    items: list[str] = []
-    while True:
-        try:
-            line = input("> ").strip()
-        except EOFError:
-            break
-        if not line:
-            break
-        items.append(line)
-    return items
-
-
-def _build_test_dockerfile(install: str, base_tag: str) -> str:
-    """Single-tool throwaway Dockerfile used by `sandbox tools add --test`.
-
-    Mirrors _generate_personal_dockerfile so a passing test means the
-    install snippet will work inside the real personal image. Built
-    line-by-line because Dockerfile heredoc terminators are sensitive
-    to leading whitespace: a textwrap.dedent template misindents the
-    closing marker once the user's unindented snippet is interpolated.
-    """
-    lines = [
-        "# syntax=docker/dockerfile:1.4",
-        f"FROM {base_tag}",
-        "",
-        "ARG SANDBOX_UID",
-        "ARG SANDBOX_GID",
-        "",
-        "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\",
-        " && useradd  -u ${SANDBOX_UID} -g ${SANDBOX_GID} -m -s /bin/bash sandbox",
-        "",
-        "USER sandbox",
-        "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
-        "ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${PATH}",
-        "RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin",
-        "",
-        "RUN <<'__POSTHOG_SANDBOX_EOF__'",
-        "set -e",
-    ]
-    lines.extend(install.strip().splitlines())
-    lines.append("__POSTHOG_SANDBOX_EOF__")
-    return "\n".join(lines) + "\n"
+def _run_install_test(name: str, install: str) -> None:
+    """Throw-away build of a single install snippet; fatal on failure."""
+    info("Building a throwaway test layer on top of the current base image...")
+    if not _test_install_snippet(install):
+        fatal(f"Install snippet for '{name}' failed; not added to {TOOLS_FILE}.")
+    success("install succeeded.")
 
 
 def _test_install_snippet(install: str) -> bool:
     """Build a single-tool throwaway image to verify the install snippet.
 
-    Returns True on success and removes the test tag; on failure leaves
-    Docker's build log on the terminal (the build was streamed) so the
-    user can see exactly which step blew up.
+    Returns True on success. On failure docker's streamed build log is
+    already on the terminal so the user can see exactly which step blew up.
+    The test tag is always cleaned up, even on Ctrl-C or unexpected exit.
     """
     base_tag = _ensure_base_image()
     test_tag = f"posthog-sandbox-tools-test:{int(time.time())}-{os.getpid()}"
-    dockerfile = _build_test_dockerfile(install, base_tag)
-    with tempfile.TemporaryDirectory(prefix="sandbox-tools-test-") as ctx:
-        proc = subprocess.Popen(
-            [
-                "docker",
-                "build",
-                "--rm",
-                "--build-arg",
-                f"SANDBOX_UID={os.getuid()}",
-                "--build-arg",
-                f"SANDBOX_GID={os.getgid()}",
-                "-t",
-                test_tag,
-                "-f",
-                "-",
-                ctx,
-            ],
-            stdin=subprocess.PIPE,
-            env={**os.environ, "DOCKER_BUILDKIT": "1"},
-        )
-        proc.communicate(input=dockerfile.encode())
-    if proc.returncode != 0:
-        return False
-    run(["docker", "rmi", "-f", test_tag], capture=True, check=False)
-    return True
+    dockerfile = _generate_dockerfile([("test", install)], base_tag, end_as_root=False)
+    try:
+        return _docker_build_from_stdin(dockerfile, test_tag, extra_args=("--rm",)) == 0
+    finally:
+        run(["docker", "rmi", "-f", test_tag], capture=True, check=False)
 
 
 def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
@@ -2165,8 +2046,8 @@ def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
 
 
 def _tools_list() -> None:
-    tools = _load_user_tools()
-    catalog = _load_catalog()
+    tools = sandbox_tools.load_user_tools()
+    catalog = sandbox_tools.load_catalog(CATALOG_FILE)
     configured_names = {t.name for t in tools}
 
     if tools:
@@ -2190,7 +2071,7 @@ def _tools_list() -> None:
         for name in sorted(catalog):
             entry = catalog[name]
             marker = "  [installed]" if name in configured_names else ""
-            print(f"  {name}{marker}: {entry.description}")
+            print(f"  {name}{marker}: {entry.description or ''}")
         print()
 
 
@@ -2202,94 +2083,60 @@ def _confirm(prompt: str, *, default_yes: bool = True) -> bool:
     return answer in ("y", "yes")
 
 
-def _add_from_catalog(entry: CatalogEntry, tools: list[Tool], *, run_test: bool) -> None:
-    """Append a catalog entry to the user's tools list after confirmation."""
-    print(f"\n'{entry.name}' is in the sandbox tool catalog:")
-    print(f"  {entry.description}")
-    if entry.install:
-        print("  install:")
-        for ln in entry.install.strip().splitlines():
-            print(f"    {ln}")
-    for c in entry.copy:
-        print(f"  copy: {c.source} -> {c.target}")
-    print()
-    if not _confirm("Add this recipe to your tools.yaml?"):
-        info("Aborted.")
-        sys.exit(0)
-
-    if entry.install and run_test:
-        info("Building a throwaway test layer on top of the current base image...")
-        if not _test_install_snippet(entry.install):
-            fatal(f"Catalog install snippet for '{entry.name}' failed against your local base image.")
-        success("install succeeded.")
-
-    tools.append(Tool(name=entry.name, install=entry.install, copy=list(entry.copy)))
-    _save_user_tools(tools)
-    success(f"Added '{entry.name}' from catalog to {TOOLS_FILE}.")
-    print("Next `sandbox create` will pick it up (image rebuilds once).")
-
-
 def _tools_add(args) -> None:
-    tools = _load_user_tools()
+    tools = sandbox_tools.load_user_tools()
     if any(t.name == args.name for t in tools):
         fatal(f"Tool '{args.name}' is already defined. Run 'sandbox tools remove {args.name}' first.")
 
-    non_interactive = args.install is not None or bool(args.copy)
+    explicit = args.install is not None or args.copy
+    catalog_hit = None if explicit else sandbox_tools.load_catalog(CATALOG_FILE).get(args.name)
 
-    # Catalog hit: if the user didn't override with their own install/copy
-    # flags, treat the catalog entry as the intended recipe and skip the
-    # write-it-from-scratch flow entirely.
-    catalog = _load_catalog()
-    catalog_entry = catalog.get(args.name)
-    if catalog_entry and not non_interactive:
-        _add_from_catalog(catalog_entry, tools, run_test=args.test)
-        return
-
-    install: str | None
-    copy_strs: list[str]
-
-    if non_interactive:
-        install = args.install
-        copy_strs = list(args.copy or [])
-        if install and args.test:
-            info("Building a throwaway test layer on top of the current base image...")
-            if not _test_install_snippet(install):
-                fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
-            success("install succeeded.")
+    if catalog_hit:
+        print(f"\n'{catalog_hit.name}' is in the sandbox tool catalog:")
+        if catalog_hit.description:
+            print(f"  {catalog_hit.description}")
+        _print_tool_summary(catalog_hit)
+        if not _confirm("\nAdd this recipe to your tools.yaml?"):
+            info("Aborted.")
+            sys.exit(0)
+        new_tool = Tool(name=catalog_hit.name, install=catalog_hit.install, copy=list(catalog_hit.copy))
+        if new_tool.install and args.test:
+            _run_install_test(new_tool.name, new_tool.install)
+    elif explicit:
+        copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in args.copy or []]
+        new_tool = Tool(name=args.name, install=args.install, copy=copy_entries)
+        if new_tool.install and args.test:
+            _run_install_test(new_tool.name, new_tool.install)
     else:
-        install_block = _read_multiline_block(
+        install_lines = _prompt_lines(
             f"\nWhat install command(s) does '{args.name}' need?",
             "  Runs as the sandbox user at image build time. Use `sudo` for apt-get etc.\n"
             "  Multi-line allowed. Empty line to finish.",
         )
-        install = install_block or None
+        install = "\n".join(install_lines).strip() or None
         if install and _confirm("\nTest this snippet now?"):
-            info("Building a throwaway test layer on top of the current base image...")
-            if not _test_install_snippet(install):
-                fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
-            success("install succeeded.")
-        copy_strs = _read_path_list(
+            _run_install_test(args.name, install)
+        copy_strs = _prompt_lines(
             f"\nWhere does '{args.name}' store auth/config on your host?",
             "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",
+            strip=True,
         )
+        copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in copy_strs]
+        new_tool = Tool(name=args.name, install=install, copy=copy_entries)
 
-    copy_entries = [_parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in copy_strs]
-
-    new_tool = Tool(name=args.name, install=install, copy=copy_entries)
     tools.append(new_tool)
-
-    _save_user_tools(tools)
-    success(f"Added '{args.name}' to {TOOLS_FILE}.")
+    sandbox_tools.save_user_tools(tools)
+    success(f"Added '{new_tool.name}' to {TOOLS_FILE}.")
     print("Next `sandbox create` will pick it up (image rebuilds once).")
 
 
 def _tools_remove(name: str) -> None:
-    tools = _load_user_tools()
+    tools = sandbox_tools.load_user_tools()
     remaining = [t for t in tools if t.name != name]
     if len(remaining) == len(tools):
         warn(f"No tool named '{name}' in {TOOLS_FILE}.")
         return
-    _save_user_tools(remaining)
+    sandbox_tools.save_user_tools(remaining)
     success(f"Removed '{name}' from {TOOLS_FILE}.")
     if remaining:
         print("Next `sandbox create` will rebuild the personal image without it.")
@@ -2470,6 +2317,8 @@ def main() -> None:
     except (KeyboardInterrupt, EOFError):
         print()
         sys.exit(130)
+    except ToolsError as e:
+        fatal(str(e))
     except subprocess.CalledProcessError as e:
         cmd_str = " ".join(str(a) for a in e.cmd)
         error(f"Command failed (exit {e.returncode}): {cmd_str}")

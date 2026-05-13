@@ -47,14 +47,9 @@ class Tool:
     name: str
     install: str | None = None
     copy: list[ToolCopy] = field(default_factory=list)
-
-
-@dataclass
-class CatalogEntry:
-    name: str
-    description: str = ""
-    install: str | None = None
-    copy: list[ToolCopy] = field(default_factory=list)
+    # Catalog-only metadata. None in user tools.yaml; populated when loaded
+    # from bin/sandbox-tools.yaml. save_user_tools never persists it.
+    description: str | None = None
 
 
 class _BlockLiteralDumper(yaml.SafeDumper):
@@ -118,7 +113,7 @@ def parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
     raise ToolsError(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
 
 
-def _parse_entry(raw: dict, *, label: str, with_description: bool) -> Tool | CatalogEntry:
+def _parse_entry(raw: dict, *, label: str) -> Tool:
     # Migration guard: 'mounts' was renamed to 'copy' in a recent commit.
     if "mounts" in raw:
         raise ToolsError(
@@ -128,44 +123,36 @@ def _parse_entry(raw: dict, *, label: str, with_description: bool) -> Tool | Cat
     name = raw.get("name")
     if not isinstance(name, str) or not name.strip():
         raise ToolsError(f"{label}: 'name' is required and must be a non-empty string.")
-    install = raw.get("install")
     copy = [parse_tool_copy(c, source_label=f"{label}.copy[{i}]") for i, c in enumerate(raw.get("copy") or [])]
-    if with_description:
-        return CatalogEntry(name=name, description=raw.get("description", "") or "", install=install, copy=copy)
-    return Tool(name=name, install=install, copy=copy)
+    return Tool(name=name, install=raw.get("install"), copy=copy, description=raw.get("description") or None)
 
 
-def _load_entries(path: Path) -> list[dict]:
+def _load_tools(path: Path) -> list[Tool]:
     if not path.is_file():
         return []
     raw = yaml.safe_load(path.read_text()) or {}
-    return raw.get("tools") or []
-
-
-def load_user_tools() -> list[Tool]:
-    """Parse ~/.posthog-sandboxes/tools.yaml, or return [] if missing."""
     tools: list[Tool] = []
     seen: set[str] = set()
-    for i, entry in enumerate(_load_entries(TOOLS_FILE)):
-        tool = _parse_entry(entry, label=f"{TOOLS_FILE}: tools[{i}]", with_description=False)
-        assert isinstance(tool, Tool)
+    for i, entry in enumerate(raw.get("tools") or []):
+        tool = _parse_entry(entry, label=f"{path}: tools[{i}]")
         if tool.name in seen:
-            raise ToolsError(f"{TOOLS_FILE}: duplicate tool name {tool.name!r}.")
+            raise ToolsError(f"{path}: duplicate tool name {tool.name!r}.")
         seen.add(tool.name)
         tools.append(tool)
     return tools
 
 
-def load_catalog(catalog_file: Path) -> dict[str, CatalogEntry]:
-    """Parse the checked-in catalog file into a {name: entry} mapping."""
-    catalog: dict[str, CatalogEntry] = {}
-    for i, entry in enumerate(_load_entries(catalog_file)):
-        item = _parse_entry(entry, label=f"{catalog_file}: tools[{i}]", with_description=True)
-        assert isinstance(item, CatalogEntry)
-        if item.name in catalog:
-            raise ToolsError(f"{catalog_file}: duplicate catalog entry {item.name!r}.")
-        catalog[item.name] = item
-    return catalog
+def load_user_tools() -> list[Tool]:
+    """Parse ~/.posthog-sandboxes/tools.yaml, or return [] if missing."""
+    return _load_tools(TOOLS_FILE)
+
+
+def load_catalog(catalog_file: Path) -> dict[str, Tool]:
+    """Parse the checked-in catalog file into a {name: tool} mapping.
+
+    Catalog entries are `Tool` instances with `description` set.
+    """
+    return {t.name: t for t in _load_tools(catalog_file)}
 
 
 def _format_copy(c: ToolCopy, host_home: Path) -> str | dict[str, str]:
