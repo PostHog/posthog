@@ -322,8 +322,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'agentic_tests',
         description: 'LLM-driven browser checks, seeded by your session replays.',
     },
-    AgenticTest: { projectBased: true, name: 'Agentic test' },
-    AgenticTestNew: { projectBased: true, name: 'New agentic test' },
+    AgenticTest: { projectBased: true, name: 'Agentic test', iconType: 'agentic_tests' },
+    AgenticTestNew: { projectBased: true, name: 'New agentic test', iconType: 'agentic_tests' },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,

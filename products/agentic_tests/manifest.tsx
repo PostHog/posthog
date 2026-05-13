@@ -22,11 +22,13 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/AgenticTestScene/AgenticTestScene'),
             projectBased: true,
             name: 'Agentic test',
+            iconType: 'agentic_tests',
         },
         AgenticTestNew: {
             import: () => import('./frontend/scenes/AgenticTestScene/AgenticTestScene'),
             projectBased: true,
             name: 'New agentic test',
+            iconType: 'agentic_tests',
         },
     },
     routes: {
