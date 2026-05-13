@@ -12,6 +12,7 @@ import type {
     BulkCreateMonitorApi,
     CreateMonitorApi,
     MonitorDTOApi,
+    MonitorSummaryDTOApi,
     PaginatedMonitorDTOListApi,
     PaginatedMonitorSummaryDTOListApi,
     PaginatedPingDTOListApi,
@@ -65,6 +66,24 @@ export const uptimeMonitorsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createMonitorApi),
+    })
+}
+
+export const getUptimeMonitorsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/monitors/${id}/`
+}
+
+/**
+ * Same data as the summary list, but for one monitor by id.
+ */
+export const uptimeMonitorsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MonitorSummaryDTOApi> => {
+    return apiMutator<MonitorSummaryDTOApi>(getUptimeMonitorsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

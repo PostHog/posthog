@@ -38,6 +38,16 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summaries = api.list_monitor_summaries(team_id=self.team_id)
         return Response(MonitorSummarySerializer(summaries, many=True).data)
 
+    @extend_schema(
+        responses={200: MonitorSummarySerializer, 404: OpenApiResponse(description="Monitor not found.")},
+        description="Same data as the summary list, but for one monitor by id.",
+    )
+    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        summary = api.retrieve_monitor_summary(team_id=self.team_id, monitor_id=UUID(str(pk)))
+        if summary is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(MonitorSummarySerializer(summary).data)
+
     @extend_schema(request=CreateMonitorSerializer, responses={201: MonitorSerializer})
     def create(self, request: Request, **kwargs) -> Response:
         serializer = CreateMonitorSerializer(data=request.data)

@@ -50,10 +50,18 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
                     if (!values.monitorId) {
                         return null
                     }
-                    const all = await api.get<MonitorSummary[]>(
-                        `api/projects/${values.currentProjectId}/uptime/monitors/summary/`
-                    )
-                    return all.find((m) => m.id === values.monitorId) ?? null
+                    try {
+                        return await api.get<MonitorSummary>(
+                            `api/projects/${values.currentProjectId}/uptime/monitors/${values.monitorId}/`
+                        )
+                    } catch (err: any) {
+                        // 404 from retrieve = monitor genuinely gone (deleted, wrong id). Render the
+                        // not-found state rather than letting the loader explode.
+                        if (err?.status === 404) {
+                            return null
+                        }
+                        throw err
+                    }
                 },
             },
         ],

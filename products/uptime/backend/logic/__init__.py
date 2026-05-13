@@ -55,8 +55,13 @@ def bulk_create_monitors(*, team_id: int, items: list[dict[str, str]]) -> list[M
 
 
 def update_monitor(*, team_id: int, monitor_id: UUID, name: str | None = None, url: str | None = None) -> Monitor:
-    """Update a monitor's display name and/or URL. Pings are not rewritten — the monitor_id is stable."""
-    monitor = Monitor.objects.get(team_id=team_id, id=monitor_id)
+    """Update a monitor's display name and/or URL. Pings are not rewritten — the monitor_id is stable.
+
+    The team_id param is unused at the query level — the manager auto-scopes by the canonical
+    team in the request scope. Pinning to a raw team_id can miss rows when the URL's project_id
+    differs from the canonical team_id the row was actually saved under.
+    """
+    monitor = Monitor.objects.get(id=monitor_id)
     if name is not None:
         monitor.name = name
     if url is not None:
@@ -68,7 +73,14 @@ def update_monitor(*, team_id: int, monitor_id: UUID, name: str | None = None, u
 def delete_monitor(*, team_id: int, monitor_id: UUID) -> None:
     """Delete a monitor. Historical pings in uptime_pings are intentionally retained for audit;
     the monitor_id is a UUID so there's no reuse risk."""
-    Monitor.objects.filter(team_id=team_id, id=monitor_id).delete()
+    Monitor.objects.filter(id=monitor_id).delete()
+
+
+def retrieve_monitor_summary(*, team_id: int, monitor_id: UUID) -> dict | None:
+    """Single-monitor variant of list_monitor_summaries. Used by the detail page so it can fetch
+    one row directly instead of pulling the whole list and filtering client-side."""
+    summaries = list_monitor_summaries(team_id=team_id)
+    return next((s for s in summaries if s["id"] == monitor_id), None)
 
 
 def list_monitors() -> list[Monitor]:
@@ -84,7 +96,7 @@ def list_suggested_urls(*, team_id: int, days: int = 30, limit: int = 20) -> lis
     tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_suggested_urls")
 
     already_monitored_hosts: set[str] = set()
-    for url in Monitor.objects.filter(team_id=team_id).values_list("url", flat=True):
+    for url in Monitor.objects.values_list("url", flat=True):
         host = _host_from_url(url)
         if host:
             already_monitored_hosts.add(host.lower())
@@ -252,7 +264,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
     """
     tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_monitor_summaries")
 
-    monitors = list(Monitor.objects.filter(team_id=team_id).order_by("-created_at"))
+    monitors = list(Monitor.objects.order_by("-created_at"))
     if not monitors:
         return []
 

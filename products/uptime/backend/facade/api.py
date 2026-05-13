@@ -30,6 +30,32 @@ def delete(*, team_id: int, monitor_id: UUID) -> None:
     logic.delete_monitor(team_id=team_id, monitor_id=monitor_id)
 
 
+def retrieve_monitor_summary(*, team_id: int, monitor_id: UUID) -> contracts.MonitorSummaryDTO | None:
+    row = logic.retrieve_monitor_summary(team_id=team_id, monitor_id=monitor_id)
+    if row is None:
+        return None
+    return contracts.MonitorSummaryDTO(
+        id=row["id"],
+        name=row["name"],
+        url=row["url"],
+        created_at=row["created_at"],
+        status=row["status"],
+        uptime_30d=row["uptime_30d"],
+        avg_latency_24h_ms=row["avg_latency_24h_ms"],
+        last_ping_at=row["last_ping_at"],
+        last_ping_outcome=row["last_ping_outcome"],
+        daily_buckets=[
+            contracts.DailyBucketDTO(
+                date=bucket["date"],
+                total=bucket["total"],
+                failed=bucket["failed"],
+                status=bucket["status"],
+            )
+            for bucket in row["daily_buckets"]
+        ],
+    )
+
+
 def bulk_create(input: contracts.BulkCreateMonitorInput) -> list[contracts.MonitorDTO]:
     objs = logic.bulk_create_monitors(
         team_id=input.team_id,

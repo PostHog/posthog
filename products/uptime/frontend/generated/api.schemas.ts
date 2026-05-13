@@ -36,6 +36,69 @@ export interface CreateMonitorApi {
     url: string
 }
 
+/**
+ * * `up` - up
+ * `down` - down
+ * `no_data` - no_data
+ */
+export type MonitorSummaryDTOStatusEnumApi =
+    (typeof MonitorSummaryDTOStatusEnumApi)[keyof typeof MonitorSummaryDTOStatusEnumApi]
+
+export const MonitorSummaryDTOStatusEnumApi = {
+    Up: 'up',
+    Down: 'down',
+    NoData: 'no_data',
+} as const
+
+/**
+ * * `success` - SUCCESS
+ * `failure` - FAILURE
+ */
+export type PingOutcomeApi = (typeof PingOutcomeApi)[keyof typeof PingOutcomeApi]
+
+export const PingOutcomeApi = {
+    Success: 'success',
+    Failure: 'failure',
+} as const
+
+/**
+ * * `up` - up
+ * `degraded` - degraded
+ * `down` - down
+ * `no_data` - no_data
+ */
+export type DailyBucketDTOStatusEnumApi = (typeof DailyBucketDTOStatusEnumApi)[keyof typeof DailyBucketDTOStatusEnumApi]
+
+export const DailyBucketDTOStatusEnumApi = {
+    Up: 'up',
+    Degraded: 'degraded',
+    Down: 'down',
+    NoData: 'no_data',
+} as const
+
+export interface DailyBucketDTOApi {
+    date: string
+    total: number
+    failed: number
+    status: DailyBucketDTOStatusEnumApi
+}
+
+export interface MonitorSummaryDTOApi {
+    id: string
+    name: string
+    url: string
+    created_at: string
+    status: MonitorSummaryDTOStatusEnumApi
+    /** @nullable */
+    uptime_30d: number | null
+    /** @nullable */
+    avg_latency_24h_ms: number | null
+    /** @nullable */
+    last_ping_at: string | null
+    last_ping_outcome: PingOutcomeApi | null
+    daily_buckets: DailyBucketDTOApi[]
+}
+
 export interface PatchedUpdateMonitorApi {
     /**
      * New human-readable name of the monitor.
@@ -48,17 +111,6 @@ export interface PatchedUpdateMonitorApi {
      */
     url?: string
 }
-
-/**
- * * `success` - SUCCESS
- * `failure` - FAILURE
- */
-export type PingOutcomeApi = (typeof PingOutcomeApi)[keyof typeof PingOutcomeApi]
-
-export const PingOutcomeApi = {
-    Success: 'success',
-    Failure: 'failure',
-} as const
 
 export interface PingDTOApi {
     monitor_id: string
@@ -111,58 +163,6 @@ export interface PaginatedSuggestedUrlDTOListApi {
     /** @nullable */
     previous?: string | null
     results: SuggestedUrlDTOApi[]
-}
-
-/**
- * * `up` - up
- * `down` - down
- * `no_data` - no_data
- */
-export type MonitorSummaryDTOStatusEnumApi =
-    (typeof MonitorSummaryDTOStatusEnumApi)[keyof typeof MonitorSummaryDTOStatusEnumApi]
-
-export const MonitorSummaryDTOStatusEnumApi = {
-    Up: 'up',
-    Down: 'down',
-    NoData: 'no_data',
-} as const
-
-/**
- * * `up` - up
- * `degraded` - degraded
- * `down` - down
- * `no_data` - no_data
- */
-export type DailyBucketDTOStatusEnumApi = (typeof DailyBucketDTOStatusEnumApi)[keyof typeof DailyBucketDTOStatusEnumApi]
-
-export const DailyBucketDTOStatusEnumApi = {
-    Up: 'up',
-    Degraded: 'degraded',
-    Down: 'down',
-    NoData: 'no_data',
-} as const
-
-export interface DailyBucketDTOApi {
-    date: string
-    total: number
-    failed: number
-    status: DailyBucketDTOStatusEnumApi
-}
-
-export interface MonitorSummaryDTOApi {
-    id: string
-    name: string
-    url: string
-    created_at: string
-    status: MonitorSummaryDTOStatusEnumApi
-    /** @nullable */
-    uptime_30d: number | null
-    /** @nullable */
-    avg_latency_24h_ms: number | null
-    /** @nullable */
-    last_ping_at: string | null
-    last_ping_outcome: PingOutcomeApi | null
-    daily_buckets: DailyBucketDTOApi[]
 }
 
 export interface PaginatedMonitorSummaryDTOListApi {
