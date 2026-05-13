@@ -8,7 +8,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { founderLogic } from '../scenes/founderLogic'
 import { founderValidationLogic } from './founderValidationLogic'
+import { ValidationNextStep } from './ValidationNextStep'
 import { ValidationReportView } from './ValidationReportView'
+import { ValidationRunningCard } from './ValidationRunningCard'
 
 export function Step2(): JSX.Element {
     const { currentProjectId } = useValues(founderLogic)
@@ -26,10 +28,14 @@ export function Step2(): JSX.Element {
 
 function Step2Inner({ projectId }: { projectId: string }): JSX.Element {
     const logic = founderValidationLogic({ projectId })
-    const { projectLoading, report, ideation, status, errorMessage, isRunning } = useValues(logic)
+    // Reading `project` directly (not `projectLoading`) so the UI doesn't flicker between
+    // skeletons and content every 2s as poll requests fire. Skeletons only on the very first
+    // mount before any project has loaded.
+    const { project, report, ideation, validation, status, errorMessage, isRunning } = useValues(logic)
     const { regenerate } = useActions(logic)
+    const { setStep } = useActions(founderLogic)
 
-    if (projectLoading && !report) {
+    if (!project) {
         return (
             <div className="flex flex-col gap-3">
                 <LemonSkeleton className="h-8 w-1/3" />
@@ -65,11 +71,7 @@ function Step2Inner({ projectId }: { projectId: string }): JSX.Element {
                 </LemonBanner>
             )}
 
-            {isRunning && (
-                <LemonBanner type="info">
-                    Researching competitors and synthesizing the report. This usually takes 20-60 seconds.
-                </LemonBanner>
-            )}
+            {isRunning && <ValidationRunningCard startedAt={validation?.started_at} />}
 
             {!report && !isRunning && status !== 'failed' && (
                 <LemonBanner type="info">
@@ -79,6 +81,14 @@ function Step2Inner({ projectId }: { projectId: string }): JSX.Element {
             )}
 
             {report && <ValidationReportView report={report} />}
+
+            {report && !isRunning && (
+                <ValidationNextStep
+                    verdict={report.verdict}
+                    onRefine={() => setStep(1)}
+                    onContinue={() => setStep(3)}
+                />
+            )}
         </div>
     )
 }
