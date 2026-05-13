@@ -106,6 +106,7 @@ from products.llm_analytics.backend.api.skills import LLMSkillViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
+from products.mindmap.backend.api import MindMapPostItViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
@@ -949,6 +950,13 @@ project_notebooks_router.register(
     sharing.SharingConfigurationViewSet,
     "project_notebook_sharing",
     ["project_id", "notebook_id"],
+)
+
+projects_router.register(
+    r"mindmap_postits",
+    MindMapPostItViewSet,
+    "project_mindmap_postits",
+    ["project_id"],
 )
 
 projects_router.register(
