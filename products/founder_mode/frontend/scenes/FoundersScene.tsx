@@ -7,6 +7,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { Mindmap } from 'products/mindmap/frontend/Mindmap'
+
 import { Step1 } from '../components/Step1'
 import { Step2 } from '../components/Step2'
 import { Step3 } from '../components/Step3'
@@ -22,6 +24,9 @@ export function FoundersScene(): JSX.Element {
     const { setStep } = useActions(founderLogic)
     return (
         <>
+            <div className="fixed inset-0 opacity-80 pointer-events-none" style={{ zIndex: 0 }}>
+                <Mindmap />
+            </div>
             <SceneTitleSection name="Founder mode" resourceType={{ type: 'founder_mode' }} />
             <SceneContent>
                 <div className="space-y-4">
