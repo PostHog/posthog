@@ -58,7 +58,7 @@ const DEFAULT_TENANT_QUERY_CONFIG_FORM: TenantQueryConfigFormValues = {
 }
 
 const DEFAULT_TENANT_QUERY_PLAYGROUND_FORM: TenantQueryPlaygroundFormValues = {
-    tenant_value: '',
+    tenant_value: '1',
     query: 'select * from system.tables',
     timeout_ms: '',
 }
@@ -81,6 +81,16 @@ function configToForm(config: TenantQueryConfigResponseApi | null): TenantQueryC
         max_timeout_ms: config.max_timeout_ms,
         max_result_limit: config.max_result_limit,
     }
+}
+
+function defaultTenantValueForType(tenantColumnType: unknown): string {
+    if (tenantColumnType === 'uuid') {
+        return '00000000-0000-0000-0000-000000000001'
+    }
+    if (tenantColumnType === 'string') {
+        return 'tenant_1'
+    }
+    return '1'
 }
 
 function positiveInteger(value: number | string): number | null {
@@ -419,6 +429,12 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
         loadTenantQueryConfigSuccess: ({ tenantQueryConfig }) => {
             if (!values.tenantQueryConfigFormChanged) {
                 actions.resetTenantQueryConfigForm(configToForm(tenantQueryConfig))
+            }
+            if (!values.tenantQueryPlaygroundTouches.tenant_value) {
+                actions.setTenantQueryPlaygroundValue(
+                    'tenant_value',
+                    defaultTenantValueForType(tenantQueryConfig?.tenant_column_type)
+                )
             }
         },
         selectTenantQueryTableInPlayground: ({ tableName }) => {

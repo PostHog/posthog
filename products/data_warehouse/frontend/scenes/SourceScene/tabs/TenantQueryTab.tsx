@@ -19,7 +19,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { type HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type {
@@ -253,6 +252,36 @@ function TenantQueryResultPreview({ response }: { response: TenantQueryResponseA
     )
 }
 
+function TenantQueryPlaygroundOutput({
+    error,
+    isLoading,
+    response,
+}: {
+    error: string | null
+    isLoading: boolean
+    response: TenantQueryResponseApi | null
+}): JSX.Element {
+    if (error) {
+        return <LemonBanner type="error">{error}</LemonBanner>
+    }
+
+    if (response) {
+        return (
+            <div className="space-y-4">
+                <QueryTransformBlock title="Prepared HogQL" value={response.hogql} />
+                <QueryTransformBlock title="Postgres SQL" value={response.postgres_sql} />
+                <TenantQueryResultPreview response={response} />
+            </div>
+        )
+    }
+
+    return (
+        <div className="min-h-64 rounded border bg-bg-light flex items-center justify-center text-sm text-muted">
+            {isLoading ? 'Running query...' : 'Results will appear here'}
+        </div>
+    )
+}
+
 function TenantQueryTableColumns({ columns }: { columns: TenantQueryTableColumn[] }): JSX.Element {
     if (columns.length === 0) {
         return <div className="py-2 text-sm text-muted">No queryable columns available</div>
@@ -271,14 +300,6 @@ function TenantQueryTableColumns({ columns }: { columns: TenantQueryTableColumn[
             </div>
         </div>
     )
-}
-
-function tenantQueryPlaygroundSourceQuery(query: string, connectionId: string): HogQLQuery {
-    return {
-        kind: NodeKind.HogQLQuery,
-        query,
-        connectionId,
-    }
 }
 
 export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element {
@@ -708,8 +729,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                     queryKey={`tenant-query-playground/${connectionId}`}
                                     value={query}
                                     onChange={(newValue) => onChange(newValue ?? '')}
-                                    language="hogQL"
-                                    sourceQuery={tenantQueryPlaygroundSourceQuery(query, connectionId)}
+                                    language="sql"
                                     minHeight="180px"
                                     maxHeight="60vh"
                                     onPressCmdEnter={() => submitTenantQueryPlayground()}
@@ -718,7 +738,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                         }}
                     </LemonField>
 
-                    <div className="flex justify-end">
+                    <div className="flex justify-start">
                         <LemonButton
                             type="secondary"
                             center
@@ -736,17 +756,13 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                             Run query
                         </LemonButton>
                     </div>
+
+                    <TenantQueryPlaygroundOutput
+                        error={tenantQueryPlaygroundError}
+                        isLoading={isTenantQueryPlaygroundSubmitting}
+                        response={tenantQueryPlaygroundResponse}
+                    />
                 </Form>
-
-                {tenantQueryPlaygroundError && <LemonBanner type="error">{tenantQueryPlaygroundError}</LemonBanner>}
-
-                {tenantQueryPlaygroundResponse && (
-                    <div className="space-y-4">
-                        <QueryTransformBlock title="Prepared HogQL" value={tenantQueryPlaygroundResponse.hogql} />
-                        <QueryTransformBlock title="Postgres SQL" value={tenantQueryPlaygroundResponse.postgres_sql} />
-                        <TenantQueryResultPreview response={tenantQueryPlaygroundResponse} />
-                    </div>
-                )}
             </div>
         </div>
     )
