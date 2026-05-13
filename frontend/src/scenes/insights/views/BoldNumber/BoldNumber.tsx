@@ -311,7 +311,7 @@ export function HogQLBoldNumber(): JSX.Element {
     const firstCell = tabularData[0]?.[0]
     const firstColumn = sourceTabularColumns[0]
     const sourceColumnName = firstCell?.sourceColumnName ?? firstColumn?.column.name ?? ''
-    const sourceColumnType = firstColumn?.column.type.name ?? firstCell?.type ?? ''
+    const sourceColumnType = firstColumn?.column.type.name ?? firstCell?.type ?? 'UNKNOWN'
 
     const matchedRule = sourceColumnName
         ? matchConditionalFormattingRule(

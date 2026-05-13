@@ -6,6 +6,7 @@ import { lightenDarkenColor } from 'lib/utils'
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
 import { convertTableValue } from './dataVisualizationLogic'
+import { ColumnScalar } from './types'
 
 /**
  * Evaluate conditional-formatting rules against a single cell value and return the first matching
@@ -16,7 +17,7 @@ export function matchConditionalFormattingRule(
     rules: ConditionalFormattingRule[],
     sourceColumnName: string,
     cellValue: unknown,
-    cellType: string
+    cellType: ColumnScalar
 ): ConditionalFormattingRule | undefined {
     for (const rule of rules) {
         if (rule.columnName !== sourceColumnName) {

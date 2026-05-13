@@ -107,7 +107,9 @@ class QuickFilterSerializer(serializers.ModelSerializer):
             # Disallow setting group_type_index for non-group property types — silently ignoring it
             # would produce a filter that doesn't match user intent.
             raise ValidationError(
-                {"group_type_index": f"group_type_index is only valid when property_type is 'group' (got {property_type!r})"}
+                {
+                    "group_type_index": f"group_type_index is only valid when property_type is 'group' (got {property_type!r})"
+                }
             )
         return attrs
 
