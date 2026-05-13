@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from posthog.settings import TEST
+
 type ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
 type ConstantSupportedPrimitive = int | float | str | bool | date | datetime | UUID | None
 type ConstantSupportedData = (
@@ -136,7 +138,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
-    enable_analyzer: Optional[bool] = None
+    enable_analyzer: Optional[bool] = True if TEST else None
     transform_null_in: Optional[bool] = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
