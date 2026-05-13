@@ -26,7 +26,6 @@ services:
             - 'capture:host-gateway'
             - 'capture-ai:host-gateway'
             - 'capture-logs:host-gateway'
-            - 'capture-metrics:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
             - 'hypercache-server:host-gateway'
@@ -60,9 +59,7 @@ services:
 
                     @capture-logs {
                         path /i/v1/logs
-                    }
-
-                    @capture-metrics {
+                        path /i/v1/traces
                         path /i/v1/metrics
                     }
 
@@ -99,10 +96,6 @@ services:
 
                     handle @capture-logs {
                         reverse_proxy capture-logs:4320
-                    }
-
-                    handle @capture-metrics {
-                        reverse_proxy capture-metrics:4319
                     }
 
                     handle @replay-capture {

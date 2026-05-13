@@ -85,7 +85,7 @@ exporters:
             # special "local" token is automatically mapped to team_id 1 in dev environments
             authorization: Bearer phc_local
     otlphttp/metrics:
-        endpoint: 'http://host.docker.internal:4319'
+        endpoint: 'http://host.docker.internal:4320'
         compression: none
         tls:
             insecure: true

@@ -146,12 +146,7 @@ capabilities:
         docker_profiles: [observability]
 
     logs_ingestion:
-        description: 'OTEL logs capture service'
-        requires: [event_ingestion]
-        docker_profiles: [observability]
-
-    metrics_ingestion:
-        description: 'OTEL metrics capture service'
+        description: 'OTEL logs, traces, and metrics capture service'
         requires: [event_ingestion]
         docker_profiles: [observability]
 
@@ -311,7 +306,7 @@ intents:
 
     metrics:
         description: 'Metric ingestion and viewing'
-        capabilities: [event_ingestion, property_definitions, metrics_ingestion, nodejs_metrics]
+        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'

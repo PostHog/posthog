@@ -324,12 +324,6 @@ procs:
             bin/start-rust-service capture-logs
         capability: logs_ingestion
 
-    capture-metrics:
-        shell: |-
-            bin/wait-for-docker && \
-            bin/start-rust-service capture-metrics
-        capability: metrics_ingestion
-
     batch-import-worker:
         shell: |-
             bin/wait-for-docker && \
