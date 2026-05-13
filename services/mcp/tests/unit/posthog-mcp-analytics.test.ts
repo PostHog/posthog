@@ -39,6 +39,8 @@ describe('initPostHogMcpAnalytics', () => {
             getTransport: vi.fn().mockResolvedValue('streamable-http'),
             getMcpConsumer: vi.fn().mockResolvedValue('posthog-code'),
             getMcpMode: vi.fn().mockResolvedValue('cli'),
+            getMcpSessionId: vi.fn().mockResolvedValue('mcp-session-abc'),
+            getMcpConversationId: vi.fn().mockResolvedValue('mcp-conversation-xyz'),
             ...overrides,
         }
     }
@@ -202,6 +204,8 @@ describe('initPostHogMcpAnalytics', () => {
             $mcp_transport: 'streamable-http',
             $mcp_consumer: 'posthog-code',
             $mcp_mode: 'cli',
+            $mcp_session_id: 'mcp-session-abc',
+            $mcp_conversation_id: 'mcp-conversation-xyz',
             $groups: {
                 organization: 'org-789',
                 project: 'proj-uuid-101',
