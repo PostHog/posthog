@@ -189,16 +189,17 @@ class DeploymentViewSet(
     """
 
     scope_object = "deployment"
+    # The TeamAndOrgViewSetMixin appends class-level permission_classes to its
+    # mandatory set (IsAuthenticated + APIScopePermission + AccessControlPermission
+    # + TeamMemberAccessPermission), so we get the feature-flag gate on top of
+    # all the standard checks without overriding get_permissions (which the mixin
+    # protects via __init_subclass__).
+    permission_classes = [DeploymentsAccessPermission]
     serializer_class = DeploymentSerializer
     # Use `all_teams` (the unscoped sibling manager) at class-definition
     # time — `objects` is fail-closed and would raise without a team
     # context. `safely_get_queryset` re-applies the team filter explicitly.
     queryset = Deployment.all_teams.all()
-
-    def get_permissions(self) -> list[BasePermission]:
-        # Layer the feature-flag gate on top of whatever the mixin chain
-        # provides (IsAuthenticated + scope/access-control permissions).
-        return [*super().get_permissions(), DeploymentsAccessPermission()]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         # TODO(deployments-v1): wire filters (status, author, search) once
