@@ -14,6 +14,7 @@ import { ConversationsTab } from '../components/ConversationsTab'
 import { EngagementTab } from '../components/EngagementTab'
 import { ExpansionTab } from '../components/ExpansionTab'
 import { FleetTab } from '../components/FleetTab'
+import { MissingSourcesBanner } from '../components/MissingSourcesBanner'
 import { RenewalsTab } from '../components/RenewalsTab'
 import { csmHudSceneLogic } from '../logics/csmHudSceneLogic'
 
@@ -103,6 +104,7 @@ export function CSMHudScene(): JSX.Element {
                     </div>
                 }
             />
+            <MissingSourcesBanner />
             <LemonTabs activeKey={activeTab} tabs={tabs} sceneInset />
         </SceneContent>
     )

@@ -8,6 +8,7 @@ import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { AccountActivity, loadActivity } from '../queries/activity'
 import { loadProjection } from '../queries/projection'
+import { detectMissingSources, MissingSourceKind } from '../utils/missingSources'
 import type { ProjectionRow } from '../utils/projection'
 import type { csmHudSceneLogicType } from './csmHudSceneLogicType'
 
@@ -97,16 +98,32 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
     actions({
         setRenewalsPlanFilter: (filter: 'all' | 'annual') => ({ filter }),
         setCsmFilter: (email: string) => ({ email }),
+        recordMissingSources: (sources: MissingSourceKind[]) => ({ sources }),
+        clearMissingSources: true,
     }),
     reducers({
         renewalsPlanFilter: ['annual' as 'all' | 'annual', { setRenewalsPlanFilter: (_, { filter }) => filter }],
         csmFilter: ['', { setCsmFilter: (_, { email }) => email }],
+        missingSources: [
+            [] as MissingSourceKind[],
+            {
+                recordMissingSources: (state, { sources }) => {
+                    const next = new Set(state)
+                    for (const s of sources) {
+                        next.add(s)
+                    }
+                    return Array.from(next)
+                },
+                clearMissingSources: () => [],
+                loadFleet: () => [],
+            },
+        ],
     }),
     selectors({
         // TODO restore before merge: gate behind FEATURE_FLAGS.SCENE_CSM_HUD + is_staff + @posthog.com
         canAccess: [() => [], (): boolean => true],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         fleet: [
             [] as FleetRow[],
             {
@@ -122,8 +139,17 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                         tags: { productKey: 'internal', scene: 'CSMHud', name: 'csm_hud_fleet' },
                         ...(queryValues ? { values: queryValues } : {}),
                     }
-                    const response = await api.query(node)
-                    return (response.results ?? []).map(mapFleetRow)
+                    try {
+                        const response = await api.query(node)
+                        return (response.results ?? []).map(mapFleetRow)
+                    } catch (err) {
+                        const missing = detectMissingSources(err)
+                        if (missing.length > 0) {
+                            actions.recordMissingSources(missing)
+                            return []
+                        }
+                        throw err
+                    }
                 },
             },
         ],
@@ -147,7 +173,11 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                             stripeByOrg[row.externalId] = row.stripeCustomerId
                         }
                     }
-                    return loadProjection({ orgIds, nameByOrg, stripeByOrg })
+                    const { data, missingSources } = await loadProjection({ orgIds, nameByOrg, stripeByOrg })
+                    if (missingSources.length > 0) {
+                        actions.recordMissingSources(missingSources)
+                    }
+                    return data
                 },
             },
         ],
@@ -171,7 +201,11 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                             zendeskByAccount[row.externalId] = n
                         }
                     }
-                    return loadActivity({ accountIds, zendeskByAccount })
+                    const { data, missingSources } = await loadActivity({ accountIds, zendeskByAccount })
+                    if (missingSources.length > 0) {
+                        actions.recordMissingSources(missingSources)
+                    }
+                    return data
                 },
             },
         ],

@@ -2,6 +2,7 @@ import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
+import { detectMissingSources, MissingSourceKind } from '../utils/missingSources'
 import type { ProjectionRow } from '../utils/projection'
 
 // Strict allowlist: identifiers we're willing to interpolate into `IN (...)` literals.
@@ -71,6 +72,24 @@ async function runHogQL<T>(name: string, query: string, mapRow: (row: unknown[])
     }
     const response = await api.query(node)
     return (response.results ?? []).map(mapRow)
+}
+
+/**
+ * Run a single slice query, swallowing only "Unknown table" errors. Detected
+ * missing sources are pushed into the shared accumulator so the orchestrator
+ * can report all of them at once instead of stopping at the first failure.
+ */
+async function tolerantSlice<T>(missing: Set<MissingSourceKind>, fn: () => Promise<T[]>): Promise<T[]> {
+    try {
+        return await fn()
+    } catch (err) {
+        const ms = detectMissingSources(err)
+        if (ms.length === 0) {
+            throw err
+        }
+        ms.forEach((s) => missing.add(s))
+        return []
+    }
 }
 
 const toFloat = (v: unknown): number => {
@@ -264,63 +283,79 @@ export interface ProjectionInputs {
     stripeByOrg: Record<string, string>
 }
 
-export async function loadProjection({
-    orgIds,
-    nameByOrg,
-    stripeByOrg,
-}: ProjectionInputs): Promise<Record<string, ProjectionRow>> {
+export interface ProjectionResult {
+    data: Record<string, ProjectionRow>
+    missingSources: MissingSourceKind[]
+}
+
+export async function loadProjection({ orgIds, nameByOrg, stripeByOrg }: ProjectionInputs): Promise<ProjectionResult> {
     if (orgIds.length === 0) {
-        return {}
+        return { data: {}, missingSources: [] }
     }
     const stripeIds = Object.values(stripeByOrg).filter(Boolean)
+    const missing = new Set<MissingSourceKind>()
 
     // Sequential — PostHog's HogQL concurrency guard rejects parallel submits
     // on the same project. Each slice is sub-second; total bound is ~6s.
-    const billing = await runHogQL<BillingRow>('projection_billing', billingSql(orgIds), (row) => ({
-        organizationId: String(row[0] ?? ''),
-        periodStarts: toStringOrNull(row[1]),
-        periodEnds: toStringOrNull(row[2]),
-        priorMonthMrr: toFloat(row[3]),
-        currentMonthSpend: toFloat(row[4]),
-    }))
-    const contracts = await runHogQL<ContractsRow>('projection_contracts', contractsSql(orgIds), (row) => ({
-        organizationId: String(row[0] ?? ''),
-        contractStart: toStringOrNull(row[1]),
-        contractEnd: toStringOrNull(row[2]),
-        termMonths: toFloatOrNull(row[3]),
-        arrDiscounted: toFloatOrNull(row[4]),
-        opportunityName: toStringOrNull(row[5]),
-    }))
-    const owners = await runHogQL<OwnersRow>('projection_owners', ownersSql(orgIds), (row) => ({
-        organizationId: String(row[0] ?? ''),
-        csm: toStringOrNull(row[1]),
-        ae: toStringOrNull(row[2]),
-        managedBy: toStringOrNull(row[3]),
-    }))
-    const mrr = await runHogQL<MrrHistoryRow>('projection_mrr_history', mrrHistorySql(orgIds), (row) => ({
-        organizationId: String(row[0] ?? ''),
-        m2Actual: toFloat(row[1]),
-        m3Actual: toFloat(row[2]),
-    }))
+    // tolerantSlice catches "Unknown table" per slice so a single missing
+    // source doesn't black out the others.
+    const billing = await tolerantSlice(missing, () =>
+        runHogQL<BillingRow>('projection_billing', billingSql(orgIds), (row) => ({
+            organizationId: String(row[0] ?? ''),
+            periodStarts: toStringOrNull(row[1]),
+            periodEnds: toStringOrNull(row[2]),
+            priorMonthMrr: toFloat(row[3]),
+            currentMonthSpend: toFloat(row[4]),
+        }))
+    )
+    const contracts = await tolerantSlice(missing, () =>
+        runHogQL<ContractsRow>('projection_contracts', contractsSql(orgIds), (row) => ({
+            organizationId: String(row[0] ?? ''),
+            contractStart: toStringOrNull(row[1]),
+            contractEnd: toStringOrNull(row[2]),
+            termMonths: toFloatOrNull(row[3]),
+            arrDiscounted: toFloatOrNull(row[4]),
+            opportunityName: toStringOrNull(row[5]),
+        }))
+    )
+    const owners = await tolerantSlice(missing, () =>
+        runHogQL<OwnersRow>('projection_owners', ownersSql(orgIds), (row) => ({
+            organizationId: String(row[0] ?? ''),
+            csm: toStringOrNull(row[1]),
+            ae: toStringOrNull(row[2]),
+            managedBy: toStringOrNull(row[3]),
+        }))
+    )
+    const mrr = await tolerantSlice(missing, () =>
+        runHogQL<MrrHistoryRow>('projection_mrr_history', mrrHistorySql(orgIds), (row) => ({
+            organizationId: String(row[0] ?? ''),
+            m2Actual: toFloat(row[1]),
+            m3Actual: toFloat(row[2]),
+        }))
+    )
     const charges =
         stripeIds.length > 0
-            ? await runHogQL<ChargesRow>('projection_charges', chargesSql(stripeIds), (row) => ({
-                  customerId: String(row[0] ?? ''),
-                  recentChargeCount: toFloat(row[1]),
-                  mtdStripe: toFloatOrNull(row[2]),
-                  lastChargeUsd: toFloatOrNull(row[3]),
-                  lastChargeDate: toStringOrNull(row[4]),
-                  lastChargeStatus: toStringOrNull(row[5]),
-              }))
+            ? await tolerantSlice(missing, () =>
+                  runHogQL<ChargesRow>('projection_charges', chargesSql(stripeIds), (row) => ({
+                      customerId: String(row[0] ?? ''),
+                      recentChargeCount: toFloat(row[1]),
+                      mtdStripe: toFloatOrNull(row[2]),
+                      lastChargeUsd: toFloatOrNull(row[3]),
+                      lastChargeDate: toStringOrNull(row[4]),
+                      lastChargeStatus: toStringOrNull(row[5]),
+                  }))
+              )
             : []
     const invoices =
         stripeIds.length > 0
-            ? await runHogQL<InvoiceRow>('projection_invoices', invoicesSql(stripeIds), (row) => ({
-                  customerId: String(row[0] ?? ''),
-                  invoiceDate: String(row[1] ?? ''),
-                  subtotal: toFloat(row[2]),
-                  amountPaid: toFloat(row[3]),
-              }))
+            ? await tolerantSlice(missing, () =>
+                  runHogQL<InvoiceRow>('projection_invoices', invoicesSql(stripeIds), (row) => ({
+                      customerId: String(row[0] ?? ''),
+                      invoiceDate: String(row[1] ?? ''),
+                      subtotal: toFloat(row[2]),
+                      amountPaid: toFloat(row[3]),
+                  }))
+              )
             : []
 
     const billingByOrg = new Map(billing.map((r) => [r.organizationId, r]))
@@ -400,5 +435,5 @@ export async function loadProjection({
             managedBy: ow?.managedBy ?? null,
         }
     }
-    return result
+    return { data: result, missingSources: Array.from(missing) }
 }

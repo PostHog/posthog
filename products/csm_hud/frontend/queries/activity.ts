@@ -2,6 +2,8 @@ import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
+import { detectMissingSources, MissingSourceKind } from '../utils/missingSources'
+
 export interface NoteRow {
     id: string
     accountId: string
@@ -66,6 +68,19 @@ async function runHogQL<T>(name: string, query: string, mapRow: (row: unknown[])
     }
     const response = await api.query(node)
     return (response.results ?? []).map(mapRow)
+}
+
+async function tolerantSlice<T>(missing: Set<MissingSourceKind>, fn: () => Promise<T[]>): Promise<T[]> {
+    try {
+        return await fn()
+    } catch (err) {
+        const ms = detectMissingSources(err)
+        if (ms.length === 0) {
+            throw err
+        }
+        ms.forEach((s) => missing.add(s))
+        return []
+    }
 }
 
 export async function queryNotesBatch(accountIds: string[]): Promise<NoteRow[]> {
@@ -142,30 +157,35 @@ export interface ActivityInputs {
     zendeskByAccount: Record<string, number>
 }
 
+export interface ActivityResult {
+    data: Record<string, AccountActivity>
+    missingSources: MissingSourceKind[]
+}
+
 /**
  * Load batched activity for the whole fleet and bucket per account. Returns
  * up to 5 most recent notes / tasks / tickets per account. Top-5 is applied
  * after the LIMIT 1000 batched read since the SQL `LIMIT` is global; rare
  * accounts with >5 notes are bounded by the global cap.
  */
-export async function loadActivity({
-    accountIds,
-    zendeskByAccount,
-}: ActivityInputs): Promise<Record<string, AccountActivity>> {
+export async function loadActivity({ accountIds, zendeskByAccount }: ActivityInputs): Promise<ActivityResult> {
     const result: Record<string, AccountActivity> = {}
     if (accountIds.length === 0) {
-        return result
+        return { data: result, missingSources: [] }
     }
     for (const id of accountIds) {
         result[id] = { notes: [], tasks: [], tickets: [] }
     }
+    const missing = new Set<MissingSourceKind>()
 
     // Sequential — same concurrency-guard reasoning as projection.
-    const [notes, tasks, tickets] = [
-        await queryNotesBatch(accountIds),
-        await queryTasksBatch(accountIds),
-        await queryTicketsBatch(Array.from(new Set(Object.values(zendeskByAccount).filter(Boolean)))),
-    ]
+    // tolerantSlice swallows "Unknown table" so one missing source doesn't
+    // void the others (e.g. Zendesk gone but Vitally notes/tasks intact).
+    const notes = await tolerantSlice(missing, () => queryNotesBatch(accountIds))
+    const tasks = await tolerantSlice(missing, () => queryTasksBatch(accountIds))
+    const tickets = await tolerantSlice(missing, () =>
+        queryTicketsBatch(Array.from(new Set(Object.values(zendeskByAccount).filter(Boolean))))
+    )
 
     for (const note of notes) {
         const bucket = result[note.accountId]
@@ -200,5 +220,5 @@ export async function loadActivity({
         }
     }
 
-    return result
+    return { data: result, missingSources: Array.from(missing) }
 }
