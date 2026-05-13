@@ -10,8 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedUserInterviewListApi,
+    PaginatedUserInterviewTopicListApi,
     PatchedUserInterviewApi,
+    PatchedUserInterviewTopicApi,
     UserInterviewApi,
+    UserInterviewTopicApi,
+    UserInterviewTopicsListParams,
     UserInterviewsListParams,
 } from './api.schemas'
 
@@ -31,6 +35,134 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserInterviewTopicsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/user_interview_topics/?${stringifiedParams}`
+        : `/api/environments/${projectId}/user_interview_topics/`
+}
+
+/**
+ * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ */
+export const userInterviewTopicsList = async (
+    projectId: string,
+    params?: UserInterviewTopicsListParams,
+    options?: RequestInit
+): Promise<PaginatedUserInterviewTopicListApi> => {
+    return apiMutator<PaginatedUserInterviewTopicListApi>(getUserInterviewTopicsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserInterviewTopicsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/`
+}
+
+/**
+ * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ */
+export const userInterviewTopicsCreate = async (
+    projectId: string,
+    userInterviewTopicApi: NonReadonly<UserInterviewTopicApi>,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userInterviewTopicApi),
+    })
+}
+
+export const getUserInterviewTopicsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ */
+export const userInterviewTopicsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserInterviewTopicsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ */
+export const userInterviewTopicsUpdate = async (
+    projectId: string,
+    id: string,
+    userInterviewTopicApi: NonReadonly<UserInterviewTopicApi>,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userInterviewTopicApi),
+    })
+}
+
+export const getUserInterviewTopicsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ */
+export const userInterviewTopicsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUserInterviewTopicApi?: NonReadonly<PatchedUserInterviewTopicApi>,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserInterviewTopicApi),
+    })
+}
+
+export const getUserInterviewTopicsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ */
+export const userInterviewTopicsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getUserInterviewsListUrl = (projectId: string, params?: UserInterviewsListParams) => {
     const normalizedParams = new URLSearchParams()
