@@ -61,18 +61,23 @@ const startCallbackServer = (): Promise<CallbackServer> => {
         const teamId = parseInt(url.searchParams.get('team_id') || '0', 10)
         const apiHost = url.searchParams.get('api_host') || ''
 
+        if (!token) {
+          res.writeHead(400, { 'Content-Type': 'text/html' })
+          res.end(`<html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;background:#1d1f27;color:#fff">
+            <div style="text-align:center"><h1 style="color:#F54E00">Authorization failed</h1><p>No token received. Please try again.</p></div>
+          </body></html>`)
+          cleanup()
+          callbackReject(new Error('No token received from callback'))
+          return
+        }
+
         res.writeHead(200, { 'Content-Type': 'text/html' })
         res.end(`<html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;background:#1d1f27;color:#fff">
           <div style="text-align:center"><h1 style="color:#F54E00">Authorization complete!</h1><p>You can close this tab.</p></div>
         </body></html>`)
 
         cleanup()
-
-        if (!token) {
-          callbackReject(new Error('No token received from callback'))
-        } else {
-          callbackResolve({ token, teamName, teamId, apiHost })
-        }
+        callbackResolve({ token, teamName, teamId, apiHost })
       }
     })
 

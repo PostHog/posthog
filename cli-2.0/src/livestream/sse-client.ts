@@ -18,7 +18,8 @@ export async function* streamEvents(
   if (options.distinctId) params.set('distinctId', options.distinctId)
   if (options.geo) params.set('geo', 'true')
 
-  const url = `${host}/events${params.size ? '?' + params : ''}`
+  const qs = params.toString()
+  const url = `${host}/events${qs ? '?' + qs : ''}`
 
   const response = await fetch(url, {
     headers: {
