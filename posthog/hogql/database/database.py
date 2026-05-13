@@ -128,6 +128,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
 from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.database.schema.uptime_pings import UptimePingsTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
@@ -279,6 +280,7 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
+                    "uptime_pings": TableNode(name="uptime_pings", table=UptimePingsTable()),
                 },
             ),
             "system": SystemTables(),

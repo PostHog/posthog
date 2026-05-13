@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconArrowLeft, IconPencil, IconPlay, IconTrash } from '@posthog/icons'
+import { IconArrowLeft, IconGraph, IconPencil, IconPlay, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
@@ -83,6 +83,14 @@ export function UptimeMonitorScene(): JSX.Element {
                     <div className="flex gap-2">
                         <LemonButton type="secondary" to={urls.uptime()} icon={<IconArrowLeft />}>
                             All monitors
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconGraph />}
+                            to={buildUptimeInsightUrl(summary.id)}
+                            tooltip="Open daily uptime % as an editable SQL insight"
+                        >
+                            Open as insight
                         </LemonButton>
                         <LemonButton type="secondary" icon={<IconPencil />} onClick={() => setEditModalOpen(true)}>
                             Edit
@@ -294,6 +302,18 @@ function formatPercent(value: number): string {
         return '100%'
     }
     return `${(value * 100).toFixed(2)}%`
+}
+
+function buildUptimeInsightUrl(monitorId: string): string {
+    const query = `SELECT
+    toDate(timestamp) AS day,
+    round(100 * countIf(outcome = 'success') / count(), 2) AS uptime_pct
+FROM posthog.uptime_pings
+WHERE monitor_id = toUUID('${monitorId}')
+    AND timestamp >= now() - INTERVAL 30 DAY
+GROUP BY day
+ORDER BY day`
+    return urls.sqlEditor({ query })
 }
 
 function toneToTextClass(tone: 'success' | 'danger' | 'muted'): string {
