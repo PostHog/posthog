@@ -109,6 +109,8 @@ bash = '''
   source $UV_PROJECT_ENVIRONMENT/bin/activate
   # Source hogli bash completions
   [ -f "$FLOX_ENV_CACHE/completions/hogli.bash" ] && source "$FLOX_ENV_CACHE/completions/hogli.bash"
+  # Load phw worktree helper
+  [ -f "$FLOX_ENV_PROJECT/bin/phw" ] && source "$FLOX_ENV_PROJECT/bin/phw" >/dev/null
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
@@ -134,6 +136,8 @@ zsh = '''
   # Add hogli completions to zsh
   [[ -f "$FLOX_ENV_CACHE/completions/_hogli" ]] && fpath=("$FLOX_ENV_CACHE/completions" $fpath)
   autoload -Uz compinit && compinit -i
+  # Load phw worktree helper
+  [[ -f "$FLOX_ENV_PROJECT/bin/phw" ]] && source "$FLOX_ENV_PROJECT/bin/phw" >/dev/null
 '''
 fish = '''
   set -e GOROOT

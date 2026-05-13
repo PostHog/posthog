@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom'
 
 import { render, screen, within } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
@@ -8,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 import { AvailableFeature } from '~/types'
 
+import { sharingLogic } from './sharingLogic'
 import { SharingModal, SharingModalProps } from './SharingModal'
 
 const createdAt = '2022-06-28T12:30:51.459746Z'
@@ -17,13 +21,15 @@ const insightShortId = 'insight456' as InsightShortId
 const defaultInsightId = 456
 
 function mockDashboardSharingConfiguration({
+    enabled = true,
     passwordRequired = false,
 }: {
+    enabled?: boolean
     passwordRequired?: boolean
 }): Record<string, any> {
     const sharingConfiguration = {
         created_at: createdAt,
-        enabled: true,
+        enabled,
         access_token: accessToken,
         password_required: passwordRequired,
     }
@@ -100,6 +106,50 @@ describe('SharingModal (dashboard)', () => {
 
         // Dashboard options smoke checks
         expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()
+    })
+
+    it('calls onSharingEnabledChange after the dashboard sharing switch update succeeds', async () => {
+        const onSharingEnabledChange = jest.fn()
+
+        initKeaTests()
+        useMocks({
+            get: mockDashboardSharingConfiguration({ enabled: false }),
+            patch: mockDashboardSharingConfiguration({ enabled: true }),
+        })
+
+        const logic = sharingLogic({ dashboardId, onSharingEnabledChange })
+        eventUsageLogic.mount()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadSharingConfigurationSuccess'])
+        expect(onSharingEnabledChange).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            logic.actions.setIsEnabled(true)
+        }).toDispatchActions(['setIsEnabledSuccess'])
+
+        expect(onSharingEnabledChange).toHaveBeenCalledTimes(1)
+        expect(onSharingEnabledChange).toHaveBeenCalledWith(true)
+        logic.unmount()
+        eventUsageLogic.unmount()
+    })
+
+    it('does not call onSharingEnabledChange on initial dashboard sharing load', async () => {
+        const onSharingEnabledChange = jest.fn()
+
+        initKeaTests()
+        useMocks({
+            get: mockDashboardSharingConfiguration({ enabled: true }),
+        })
+
+        const logic = sharingLogic({ dashboardId, onSharingEnabledChange })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadSharingConfigurationSuccess'])
+
+        expect(onSharingEnabledChange).not.toHaveBeenCalled()
+        logic.unmount()
     })
 })
 
