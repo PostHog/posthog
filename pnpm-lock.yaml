@@ -637,6 +637,9 @@ importers:
       '@posthog/products-feature-flags':
         specifier: workspace:*
         version: link:../products/feature_flags
+      '@posthog/products-founder-mode':
+        specifier: workspace:*
+        version: link:../products/founder_mode
       '@posthog/products-games':
         specifier: workspace:*
         version: link:../products/games
@@ -2562,6 +2565,8 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+
+  products/founder_mode: {}
 
   products/games:
     dependencies:
