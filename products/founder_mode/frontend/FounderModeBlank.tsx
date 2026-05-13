@@ -81,7 +81,7 @@ export function FounderModeBlank(): JSX.Element {
                     </InputGroup>
                 </footer>
             </aside>
-            <section className="flex-1 flex items-center justify-center px-12 py-10 min-h-0">
+            <section id="steps-wrapper" className="flex-1 flex items-center justify-center px-12 py-10 min-h-0">
                 <Card className="w-full max-w-xl shadow border ">
                     <CardHeader>
                         <CardDescription>
