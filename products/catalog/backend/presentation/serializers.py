@@ -26,7 +26,10 @@ class CatalogColumnDTOSerializer(DataclassSerializer):
 
 
 class CatalogNodeDTOSerializer(DataclassSerializer):
-    columns = CatalogColumnDTOSerializer(many=True, read_only=True)
+    # Not read_only: @validated_request round-trips responses through is_valid()
+    # in DEBUG, and a read-only field would be stripped from validated_data,
+    # breaking the nested CatalogNodeDTO reconstruction.
+    columns = CatalogColumnDTOSerializer(many=True)
 
     class Meta:
         dataclass = CatalogNodeDTO
