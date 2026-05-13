@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 
 from posthog.dags.common.owners import JobOwners
@@ -10,6 +11,16 @@ from posthog.temporal.health_checks.query import execute_clickhouse_health_team_
 PARTIAL_PROXY_LOOKBACK_DAYS = 7
 MIN_EVENTS_PER_HOST = 50
 MAX_HOSTS_IN_PAYLOAD = 10
+MAX_HOST_LENGTH = 253
+
+_HOST_RE = re.compile(r"^[A-Za-z0-9._\-]+(?::\d{1,5})?$")
+
+
+def _is_valid_host(host: str) -> bool:
+    if not host or len(host) > MAX_HOST_LENGTH:
+        return False
+    return bool(_HOST_RE.fullmatch(host))
+
 
 PARTIAL_PROXY_SQL = """
 SELECT
@@ -46,6 +57,8 @@ class PartialProxyCheck(HealthCheck):
         proxied_by_team: dict[int, list[str]] = defaultdict(list)
         unproxied_by_team: dict[int, list[str]] = defaultdict(list)
         for team_id, host, has_proxy, _event_count in rows:
+            if not _is_valid_host(host):
+                continue
             if has_proxy:
                 proxied_by_team[team_id].append(host)
             else:

@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from typing import Any, Literal
 
@@ -14,7 +15,7 @@ from posthog.models.health_issue import HealthIssue
 from posthog.queries.property_values import get_person_property_values_for_key, get_property_values_for_key
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
@@ -270,16 +271,21 @@ class WebAnalyticsDoctorTool(MaxTool):
         await database_sync_to_async(ensure_registry_loaded)()
         web_kinds = sorted(kind for kind, reg in HEALTH_CHECKS.items() if reg.owner == JobOwners.TEAM_WEB_ANALYTICS)
 
-        failed_kinds: list[str] = []
-        for kind in web_kinds:
+        reevaluate_async = database_sync_to_async_pool(_reevaluate_one_check)
+
+        async def reevaluate(kind: str) -> str | None:
             try:
-                await database_sync_to_async(_reevaluate_one_check)(self._team.id, kind)
+                await reevaluate_async(self._team.id, kind)
+                return None
             except Exception:
                 logger.exception(
                     "web_analytics_doctor re-evaluation failed",
                     extra={"kind": kind, "team_id": self._team.id},
                 )
-                failed_kinds.append(kind)
+                return kind
+
+        results = await asyncio.gather(*(reevaluate(kind) for kind in web_kinds))
+        failed_kinds = [k for k in results if k is not None]
 
         issues = await database_sync_to_async(_load_active_web_issues)(self._team.id, web_kinds)
 
