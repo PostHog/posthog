@@ -69,25 +69,9 @@ def _llm_analytics_skill_tools() -> list[type[MaxTool]]:
     """Skills are workflow-encoded instructions that apply across products, so they're exposed
     cross-mode behind the same feature flag that gates the REST API.
     """
-    from products.llm_analytics.backend.tools.manage_skills import (
-        ArchiveLLMSkillTool,
-        CreateLLMSkillTool,
-        DuplicateLLMSkillTool,
-        GetLLMSkillFileTool,
-        GetLLMSkillTool,
-        ListLLMSkillsTool,
-        UpdateLLMSkillTool,
-    )
+    from products.llm_analytics.backend.tools.manage_skills import all_skill_tools
 
-    return [
-        ListLLMSkillsTool,
-        GetLLMSkillTool,
-        GetLLMSkillFileTool,
-        CreateLLMSkillTool,
-        UpdateLLMSkillTool,
-        ArchiveLLMSkillTool,
-        DuplicateLLMSkillTool,
-    ]
+    return all_skill_tools()
 
 
 class ChatAgentPlanToolkit(AgentToolkit):

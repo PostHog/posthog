@@ -114,32 +114,14 @@ class LLMAnalyticsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.llm_analytics.backend.tools.manage_skills import (
-            ArchiveLLMSkillTool,
-            CreateLLMSkillTool,
-            DuplicateLLMSkillTool,
-            GetLLMSkillFileTool,
-            GetLLMSkillTool,
-            ListLLMSkillsTool,
-            UpdateLLMSkillTool,
-        )
+        from products.llm_analytics.backend.tools.manage_skills import all_skill_tools
         from products.llm_analytics.backend.tools.run_hog_eval_test import RunHogEvalTestTool
 
         from ee.hogai.utils.feature_flags import has_llm_analytics_skills_feature_flag
 
         tools: list[type[MaxTool]] = [SearchLLMTracesTool, RunHogEvalTestTool]
         if has_llm_analytics_skills_feature_flag(self._team, self._user):
-            tools.extend(
-                [
-                    ListLLMSkillsTool,
-                    GetLLMSkillTool,
-                    GetLLMSkillFileTool,
-                    CreateLLMSkillTool,
-                    UpdateLLMSkillTool,
-                    ArchiveLLMSkillTool,
-                    DuplicateLLMSkillTool,
-                ]
-            )
+            tools.extend(all_skill_tools())
         return tools
 
 

@@ -679,6 +679,21 @@ class DuplicateLLMSkillTool(MaxTool):
         )
 
 
+def all_skill_tools() -> list[type[MaxTool]]:
+    """The full set of skill-management Max tools, in display order. Single source of truth so
+    every agent toolkit picks up new skill tools without having to remember to update its list.
+    """
+    return [
+        ListLLMSkillsTool,
+        GetLLMSkillTool,
+        GetLLMSkillFileTool,
+        CreateLLMSkillTool,
+        UpdateLLMSkillTool,
+        ArchiveLLMSkillTool,
+        DuplicateLLMSkillTool,
+    ]
+
+
 __all__ = [
     "ListLLMSkillsTool",
     "GetLLMSkillTool",
@@ -687,4 +702,5 @@ __all__ = [
     "UpdateLLMSkillTool",
     "ArchiveLLMSkillTool",
     "DuplicateLLMSkillTool",
+    "all_skill_tools",
 ]
