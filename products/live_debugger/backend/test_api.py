@@ -1293,3 +1293,26 @@ class TestLiveDebuggerActiveProgramsAPI(APIBaseTest):
         resp3 = self.client.get(self.URL)
         hash3 = ProgramList.from_bytes(resp3.content).programs[0].hash
         self.assertNotEqual(hash1, hash3, "different code should produce a different hash")
+
+    def test_excludes_uninstalled_programs(self):
+        from hogtrace import ProgramList
+
+        installed = self._make_program(self.HOGTRACE_SOURCE_A)
+        self._make_program(self.HOGTRACE_SOURCE_B, status_value=LiveDebuggerProgram.Status.UNINSTALLED)
+
+        response = self.client.get(self.URL)
+
+        ids = [p.id for p in ProgramList.from_bytes(response.content).programs]
+        self.assertEqual(ids, [str(installed.id)])
+
+    def test_team_isolation(self):
+        from hogtrace import ProgramList
+
+        other_team = Team.objects.create(organization=self.organization, name="Sibling")
+        self._make_program(self.HOGTRACE_SOURCE_A, team=other_team)
+        own = self._make_program(self.HOGTRACE_SOURCE_B)
+
+        response = self.client.get(self.URL)
+
+        ids = [p.id for p in ProgramList.from_bytes(response.content).programs]
+        self.assertEqual(ids, [str(own.id)])
