@@ -140,6 +140,14 @@ class ThresholdMode(Enum):
 
 
 staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
+    ThresholdMode.LEGACY: {
+        None: timedelta(hours=6),
+        "minute": timedelta(minutes=5),
+        "hour": timedelta(hours=1),
+        "day": timedelta(hours=6),
+        "week": timedelta(days=1),
+        "month": timedelta(days=1),
+    },
     ThresholdMode.DEFAULT: {
         None: timedelta(hours=6),
         "minute": timedelta(minutes=5),
