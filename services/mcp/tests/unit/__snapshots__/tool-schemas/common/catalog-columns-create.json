@@ -1,0 +1,124 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body for catalog-columns-create. Identified by (node_id, name).",
+    "properties": {
+        "clickhouse_type": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Raw ClickHouse type string (`String`, `Nullable(DateTime64(3))`, `Array(String)`...). Set when the column comes from a ClickHouse-backed table; null for Postgres-only sources."
+        },
+        "confidence": {
+            "anyOf": [
+                {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Agent confidence (0..1) in the description and semantic typing."
+        },
+        "generator_model": {
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Model that generated the description/typing — same convention as on nodes."
+        },
+        "hogql_type": {
+            "anyOf": [
+                {
+                    "maxLength": 128,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "HogQL-normalized type — `String`, `Int`, `Float`, `Boolean`, `DateTime`, `Array`, `JSON`. What the agent sees when reading via `system.columns`. Inferred from clickhouse_type when not set explicitly."
+        },
+        "name": {
+            "description": "Column name as it appears in the underlying table. Case-sensitive. Combined with `node_id` to form the upsert key — calling create again with the same (node_id, name) updates in place.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "node_id": {
+            "description": "ID of the parent CatalogNode (returned by catalog-nodes-create).",
+            "type": "string"
+        },
+        "nullable": {
+            "default": true,
+            "description": "Whether the column can hold NULL values. Drives null-handling guidance in generated queries.",
+            "type": "boolean"
+        },
+        "pii_class": {
+            "anyOf": [
+                {
+                    "description": "* `pii` - pii\n* `sensitive` - sensitive\n* `public` - public\n* `unknown` - unknown",
+                    "enum": ["pii", "sensitive", "public", "unknown"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Sensitivity classification. `pii` for personally identifiable (email, name, IP), `sensitive` for business-confidential, `public` for safe-to-export, `unknown` to defer classification.\n\n* `pii` - pii\n* `sensitive` - sensitive\n* `public` - public\n* `unknown` - unknown"
+        },
+        "position": {
+            "default": 0,
+            "description": "Ordinal position of the column in the source table. Used for display and stable iteration.",
+            "type": "number"
+        },
+        "semantic_type": {
+            "anyOf": [
+                {
+                    "description": "* `entity_id` - entity_id\n* `foreign_key` - foreign_key\n* `timestamp` - timestamp\n* `measure` - measure\n* `dimension` - dimension\n* `monetary` - monetary\n* `free_text` - free_text\n* `enum` - enum\n* `uuid` - uuid\n* `unknown` - unknown",
+                    "enum": [
+                        "entity_id",
+                        "foreign_key",
+                        "timestamp",
+                        "measure",
+                        "dimension",
+                        "monetary",
+                        "free_text",
+                        "enum",
+                        "uuid",
+                        "unknown"
+                    ],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Role of the column for query planning. `entity_id` for primary identifiers, `foreign_key` for join targets, `timestamp` for time filtering, `measure` for aggregation, `dimension` for group-by, `monetary` for currency, `free_text` for unstructured prose, `enum` for closed value sets.\n\n* `entity_id` - entity_id\n* `foreign_key` - foreign_key\n* `timestamp` - timestamp\n* `measure` - measure\n* `dimension` - dimension\n* `monetary` - monetary\n* `free_text` - free_text\n* `enum` - enum\n* `uuid` - uuid\n* `unknown` - unknown"
+        },
+        "synthetic_description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "What the column represents in business terms — meaning, units, valid values, gotchas. Example: \"Subscription monthly recurring revenue in USD cents. Excludes refunds. Null for one-time charges.\""
+        }
+    },
+    "required": ["node_id", "name"],
+    "type": "object"
+}

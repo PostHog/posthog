@@ -7,6 +7,9 @@ from products.catalog.backend.facade.contracts import (
     CatalogNodeDTO,
     CatalogRelationshipDTO,
     ProposeRelationshipParams,
+    UpdateColumnParams,
+    UpdateNodeParams,
+    UpdateRelationshipParams,
     UpsertColumnParams,
     UpsertNodeParams,
 )
@@ -22,6 +25,18 @@ class CatalogAPI:
     @staticmethod
     def get_node(team_id: int, node_id: UUID) -> CatalogNodeDTO | None:
         return logic.get_node(team_id, node_id)
+
+    @staticmethod
+    def list_nodes(team_id: int) -> list[CatalogNodeDTO]:
+        return logic.list_nodes(team_id)
+
+    @staticmethod
+    def get_column(team_id: int, column_id: UUID) -> CatalogColumnDTO | None:
+        return logic.get_column(team_id, column_id)
+
+    @staticmethod
+    def get_relationship(team_id: int, relationship_id: UUID) -> CatalogRelationshipDTO | None:
+        return logic.get_relationship(team_id, relationship_id)
 
     @staticmethod
     def upsert_node(params: UpsertNodeParams) -> CatalogNodeDTO:
@@ -40,3 +55,15 @@ class CatalogAPI:
         review actions stick across re-runs. See `logic.propose_relationship`.
         """
         return logic.propose_relationship(params)
+
+    @staticmethod
+    def update_node(params: UpdateNodeParams) -> CatalogNodeDTO | None:
+        return logic.update_node(params)
+
+    @staticmethod
+    def update_column(params: UpdateColumnParams) -> CatalogColumnDTO | None:
+        return logic.update_column(params)
+
+    @staticmethod
+    def update_relationship(params: UpdateRelationshipParams) -> CatalogRelationshipDTO | None:
+        return logic.update_relationship(params)

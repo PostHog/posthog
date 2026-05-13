@@ -15,6 +15,12 @@ class CatalogNode(UUIDModel):
         SYSTEM_TABLE = "system_table", "System table"
         POSTHOG_TABLE = "posthog_table", "PostHog table"
 
+    class Status(models.TextChoices):
+        PROPOSED = "proposed", "Proposed"
+        APPROVED = "approved", "Approved"
+        OFFICIAL = "official", "Official"
+        DRIFT = "drift", "Drift detected"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices)
     name = models.CharField(max_length=400)
@@ -39,6 +45,10 @@ class CatalogNode(UUIDModel):
     description_generated_at = models.DateTimeField(null=True, blank=True)
     generator_model = models.CharField(max_length=64, null=True, blank=True)
     confidence = models.FloatField(null=True, blank=True)
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PROPOSED)
+    reviewed_by = models.ForeignKey("posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -105,7 +115,9 @@ class CatalogColumn(UUIDModel):
     def save(self, *args, **kwargs) -> None:
         # Keep the denormalized `team_id` in sync with the parent node so callers
         # only have to set `node` — the HogQL printer expects `team_id` on every row.
-        if self.team_id is None and self.node_id is not None:
+        # Django's stubs type `team_id` as a non-nullable int, but at runtime it's
+        # absent until first save when the caller only set `node`.
+        if not getattr(self, "team_id", None) and self.node_id is not None:
             self.team_id = self.node.team_id
         super().save(*args, **kwargs)
 

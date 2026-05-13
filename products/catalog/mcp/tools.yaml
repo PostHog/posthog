@@ -2,33 +2,13 @@
 # The tool list and operation IDs are kept in sync automatically:
 #   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 #
-# Reads (list nodes / columns / relationships) intentionally NOT exposed here —
-# agents read via the HogQL system tables `system.tables`, `system.columns`,
-# and `system.relationships` instead. Only writes need MCP tools.
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Catalog
 feature: catalog
 url_prefix: /catalog
 ui_apps: {}
 tools:
-    catalog-nodes-create:
-        operation: catalog_nodes_create
-        enabled: true
-        scopes:
-            - catalog:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Upsert catalog node
-        description: >
-            Upsert a catalog node — a table-shaped entity in the semantic graph (warehouse table,
-            saved query, system table, or PostHog first-party table). Use this to record what a
-            table is, when to use it, and what business domain it belongs to. Idempotent: re-call
-            with the same (kind, name) to update the description, semantic role, tags, or confidence
-            without creating a duplicate. Typically called during catalog traversal after inspecting
-            a table's schema and sample data. Returns the node's id, which you'll use when upserting
-            columns or proposing relationships.
-
     catalog-columns-create:
         operation: catalog_columns_create
         enabled: true
@@ -40,11 +20,42 @@ tools:
             idempotent: true
         title: Upsert catalog column
         description: >
-            Upsert a column under an existing catalog node. Records the column's type, nullability,
-            semantic role (entity_id / foreign_key / timestamp / measure / dimension / monetary / etc),
-            PII classification, and a human-readable description of what the column means. Idempotent
-            on (node_id, name). Always call catalog-nodes-create first to get the parent node id.
-
+            Upsert a column under an existing catalog node. Records the column's type, nullability, semantic role
+            (entity_id / foreign_key / timestamp / measure / dimension / monetary / etc), PII classification, and a
+            human-readable description of what the column means. Idempotent on (node_id, name). Always call
+            catalog-nodes-create first to get the parent node id.
+    catalog-columns-partial-update:
+        operation: catalog_columns_partial_update
+        enabled: false
+    catalog-columns-retrieve:
+        operation: catalog_columns_retrieve
+        enabled: false
+    catalog-nodes-create:
+        operation: catalog_nodes_create
+        enabled: true
+        scopes:
+            - catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Upsert catalog node
+        description: >
+            Upsert a catalog node — a table-shaped entity in the semantic graph (warehouse table, saved query, system
+            table, or PostHog first-party table). Use this to record what a table is, when to use it, and what business
+            domain it belongs to. Idempotent: re-call with the same (kind, name) to update the description, semantic
+            role, tags, or confidence without creating a duplicate. Typically called during catalog traversal after
+            inspecting a table's schema and sample data. Returns the node's id, which you'll use when upserting columns
+            or proposing relationships.
+    catalog-nodes-list:
+        operation: catalog_nodes_list
+        enabled: false
+    catalog-nodes-partial-update:
+        operation: catalog_nodes_partial_update
+        enabled: false
+    catalog-nodes-retrieve:
+        operation: catalog_nodes_retrieve
+        enabled: false
     catalog-relationships-create:
         operation: catalog_relationships_create
         enabled: true
@@ -56,9 +67,14 @@ tools:
             idempotent: true
         title: Propose catalog relationship
         description: >
-            Propose a relationship between two catalog nodes — declared join, foreign key, same-entity
-            link, or inferred join candidate. Relationships land in `proposed` status until reviewed.
-            Include `source_column_id` / `target_column_id` for column-level joins; leave null for
-            table-level lineage. Confidence (0..1) gates downstream trust — low-confidence proposals
-            surface for human review before agents rely on them for cross-source joins. Idempotent on
-            (source, source_column, target, target_column, kind).
+            Propose a relationship between two catalog nodes — declared join, foreign key, same-entity link, or inferred
+            join candidate. Relationships land in `proposed` status until reviewed. Include `source_column_id` /
+            `target_column_id` for column-level joins; leave null for table-level lineage. Confidence (0..1) gates
+            downstream trust — low-confidence proposals surface for human review before agents rely on them for
+            cross-source joins. Idempotent on (source, source_column, target, target_column, kind).
+    catalog-relationships-partial-update:
+        operation: catalog_relationships_partial_update
+        enabled: false
+    catalog-relationships-retrieve:
+        operation: catalog_relationships_retrieve
+        enabled: false

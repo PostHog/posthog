@@ -5,6 +5,9 @@ from products.catalog.backend.facade.contracts import (
     CatalogGraphDTO,
     CatalogNodeDTO,
     ProposeRelationshipParams,
+    UpdateColumnParams,
+    UpdateNodeParams,
+    UpdateRelationshipParams,
     UpsertColumnParams,
     UpsertNodeParams,
 )
@@ -53,7 +56,7 @@ class TestCatalogAPIUpsert(BaseTest):
             )
         )
         assert first.id == second.id
-        assert second.description.startswith("Identifier")
+        assert second.description is not None and second.description.startswith("Identifier")
         assert second.semantic_type == "entity_id"
 
     def test_propose_relationship_is_idempotent_on_edge_tuple(self) -> None:
@@ -116,6 +119,22 @@ class TestCatalogAPIGetGraph(BaseTest):
         assert len(graph.relationships) == 1
         assert graph.relationships[0].confidence == 0.8
 
+    def test_list_nodes_returns_team_nodes_ordered(self) -> None:
+        CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="orders", business_domain="billing")
+        )
+        CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="posthog_table", name="events", business_domain="product_usage")
+        )
+        CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="invoices", business_domain="billing")
+        )
+
+        nodes = CatalogAPI.list_nodes(self.team.pk)
+
+        names = [n.name for n in nodes]
+        assert names == ["invoices", "orders", "events"]
+
     def test_get_graph_does_not_leak_across_teams(self) -> None:
         CatalogAPI.upsert_node(UpsertNodeParams(team_id=self.team.pk, kind="posthog_table", name="events"))
 
@@ -129,3 +148,125 @@ class TestCatalogAPIGetGraph(BaseTest):
         graph = CatalogAPI.get_graph(other_team.pk)
         assert graph.nodes == ()
         assert graph.relationships == ()
+
+
+class TestCatalogAPIUpdate(BaseTest):
+    def test_update_node_writes_only_supplied_fields(self) -> None:
+        node = CatalogAPI.upsert_node(
+            UpsertNodeParams(
+                team_id=self.team.pk,
+                kind="warehouse_table",
+                name="stripe_charges",
+                synthetic_description="initial",
+                semantic_role="fact",
+                business_domain="billing",
+                tags=("stripe",),
+            )
+        )
+
+        updated = CatalogAPI.update_node(
+            UpdateNodeParams(
+                team_id=self.team.pk,
+                node_id=node.id,
+                synthetic_description="refined description",
+            )
+        )
+
+        assert updated is not None
+        assert updated.description == "refined description"
+        assert updated.semantic_role == "fact"
+        assert updated.business_domain == "billing"
+        assert updated.tags == ("stripe",)
+
+    def test_update_node_status_records_review(self) -> None:
+        node = CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="stripe_charges")
+        )
+        assert node.status == "proposed"
+        assert node.reviewed_at is None
+
+        approved = CatalogAPI.update_node(
+            UpdateNodeParams(
+                team_id=self.team.pk,
+                node_id=node.id,
+                status="approved",
+                reviewed_by_id=self.user.pk,
+            )
+        )
+
+        assert approved is not None
+        assert approved.status == "approved"
+        assert approved.reviewed_at is not None
+
+    def test_update_node_returns_none_for_missing(self) -> None:
+        import uuid
+
+        result = CatalogAPI.update_node(
+            UpdateNodeParams(team_id=self.team.pk, node_id=uuid.uuid4(), synthetic_description="x")
+        )
+        assert result is None
+
+    def test_update_node_does_not_leak_across_teams(self) -> None:
+        node = CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="stripe_charges")
+        )
+        result = CatalogAPI.update_node(
+            UpdateNodeParams(team_id=self.team.pk + 9999, node_id=node.id, synthetic_description="hijack")
+        )
+        assert result is None
+
+    def test_update_column_writes_only_supplied_fields(self) -> None:
+        node = CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="stripe_charges")
+        )
+        column = CatalogAPI.upsert_column(
+            UpsertColumnParams(
+                node_id=node.id,
+                name="amount_usd_cents",
+                clickhouse_type="UInt64",
+                semantic_type="measure",
+                pii_class="public",
+            )
+        )
+
+        updated = CatalogAPI.update_column(
+            UpdateColumnParams(
+                team_id=self.team.pk,
+                column_id=column.id,
+                synthetic_description="Charge amount in USD cents",
+                semantic_type="monetary",
+            )
+        )
+
+        assert updated is not None
+        assert updated.description == "Charge amount in USD cents"
+        assert updated.semantic_type == "monetary"
+        assert updated.pii_class == "public"
+
+    def test_update_relationship_accept_records_review(self) -> None:
+        source = CatalogAPI.upsert_node(UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="orders"))
+        target = CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="customers")
+        )
+        rel = CatalogAPI.propose_relationship(
+            ProposeRelationshipParams(
+                team_id=self.team.pk,
+                source_node_id=source.id,
+                target_node_id=target.id,
+                kind="foreign_key",
+                confidence=0.6,
+            )
+        )
+        assert rel.status == "proposed"
+
+        accepted = CatalogAPI.update_relationship(
+            UpdateRelationshipParams(
+                team_id=self.team.pk,
+                relationship_id=rel.id,
+                status="accepted",
+                reviewed_by_id=self.user.pk,
+            )
+        )
+
+        assert accepted is not None
+        assert accepted.status == "accepted"
