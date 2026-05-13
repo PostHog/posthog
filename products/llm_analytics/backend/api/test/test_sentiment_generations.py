@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from posthog.test.base import APIBaseTest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -202,3 +203,73 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         assert len(body["results"]) == 2
         assert body["results"][0][2] == '[{"role":"user","content":"hi"}]'
         assert body["results"][1][2] is None
+
+
+class TestSentimentGenerationsEndpointIntegration(ClickhouseTestMixin, APIBaseTest):
+    """Real-CH regression coverage for the preflight query.
+
+    The mock-based tests above never exercise `replace_filters` / the HogQL
+    printer / ClickHouse name resolution, which is where the alias-shadow
+    bug (max(timestamp) AS timestamp colliding with `timestamp >= ...`
+    injected into WHERE) lived. These tests run the actual query path.
+    """
+
+    URL: str = ""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.URL = f"/api/environments/{self.team.id}/llm_analytics/sentiment/generations/"
+
+    @freeze_time("2026-05-12T12:00:00Z")
+    def test_preflight_runs_with_timestamp_referencing_test_account_filter(self) -> None:
+        self.team.test_account_filters = [
+            {
+                "key": "timestamp",
+                "value": "2026-01-01",
+                "operator": "is_date_after",
+                "type": "event",
+            }
+        ]
+        self.team.save()
+
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_event(
+            event="$ai_generation",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+            properties={
+                "$ai_trace_id": "trace-1",
+                "$ai_input": '[{"role":"user","content":"hi"}]',
+                "$ai_model": "gpt-4",
+            },
+        )
+
+        response = self.client.post(
+            self.URL,
+            {"filters": {"filterTestAccounts": True}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @freeze_time("2026-05-12T12:00:00Z")
+    def test_preflight_runs_with_explicit_date_range(self) -> None:
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_event(
+            event="$ai_generation",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+            properties={
+                "$ai_trace_id": "trace-1",
+                "$ai_input": '[{"role":"user","content":"hi"}]',
+                "$ai_model": "gpt-4",
+            },
+        )
+
+        response = self.client.post(
+            self.URL,
+            {"filters": {"dateRange": {"date_from": "-7d", "date_to": None}}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content

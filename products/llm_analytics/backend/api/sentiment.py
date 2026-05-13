@@ -126,14 +126,14 @@ SELECT
     properties.$ai_trace_id as trace_id,
     argMax(properties.$ai_model, timestamp) as model,
     argMax(distinct_id, timestamp) as distinct_id,
-    max(timestamp) as timestamp,
-    min(timestamp) as created_at
+    max(timestamp) as ts_max,
+    min(timestamp) as ts_min
 FROM events
 WHERE event = '$ai_generation'
     AND length(coalesce(properties.$ai_trace_id, '')) > 0
     AND {{filters}}
 GROUP BY trace_id
-ORDER BY timestamp DESC, trace_id DESC
+ORDER BY ts_max DESC, trace_id DESC
 LIMIT {GENERATIONS_QUERY_LIMIT}
 """
 
@@ -150,7 +150,11 @@ WHERE event = '$ai_generation'
 GROUP BY trace_id
 """
 
-_PreflightRow = namedtuple("_PreflightRow", ["uuid", "trace_id", "model", "distinct_id", "timestamp", "created_at"])
+# Aliases ts_max / ts_min avoid shadowing the `timestamp` column in the
+# preflight SELECT. With the previous `max(timestamp) as timestamp` alias,
+# `replace_filters` injecting `timestamp >= ...` into WHERE resolved against
+# the alias and tripped ClickHouse's "Aggregate function in WHERE" check.
+_PreflightRow = namedtuple("_PreflightRow", ["uuid", "trace_id", "model", "distinct_id", "ts_max", "ts_min"])
 
 
 class SentimentGenerationsRequestSerializer(serializers.Serializer):
@@ -359,8 +363,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
             trace_ids = [str(row.trace_id) for row in preflight_rows]
             uuids = [str(row.uuid) for row in preflight_rows]
-            ts_start = min(row.created_at for row in preflight_rows)
-            ts_end = max(row.timestamp for row in preflight_rows)
+            ts_start = min(row.ts_min for row in preflight_rows)
+            ts_end = max(row.ts_max for row in preflight_rows)
 
             heavy_query = parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL)
             try:
@@ -395,8 +399,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 ai_input_by_trace.get(str(row.trace_id)),
                 row.model,
                 row.distinct_id,
-                row.timestamp,
-                row.created_at,
+                row.ts_max,
+                row.ts_min,
             ]
             for row in preflight_rows
         ]
