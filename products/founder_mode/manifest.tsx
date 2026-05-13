@@ -8,19 +8,27 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'FounderMode',
     scenes: {
-        Founders: {
-            name: 'Founders',
-            import: () => import('./frontend/scenes/FoundersScene'),
+        FounderMode: {
+            name: 'Founder mode',
+            import: () => import('./frontend/FounderMode'),
             projectBased: true,
-            layout: 'app-container',
+            layout: 'plain',
+        },
+        FounderModeBlank: {
+            name: 'Founder mode',
+            import: () => import('./frontend/FounderModeBlank'),
+            projectBased: true,
+            layout: 'plain',
         },
     },
     routes: {
-        '/founder': ['Founders', 'founders'],
+        '/init': ['FounderMode', 'founderMode'],
+        '/init/founder': ['FounderModeBlank', 'founderModeBlank'],
     },
     redirects: {},
     urls: {
-        founders: (): string => '/founder',
+        founderMode: (): string => '/init',
+        founderModeBlank: (): string => '/init/founder',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

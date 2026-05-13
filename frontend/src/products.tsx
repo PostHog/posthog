@@ -80,7 +80,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTrackingIssueFingerprints: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
-    Founders: () => import('../../products/founder_mode/frontend/scenes/FoundersScene'),
+    FounderMode: () => import('../../products/founder_mode/frontend/FounderMode'),
+    FounderModeBlank: () => import('../../products/founder_mode/frontend/FounderModeBlank'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
@@ -180,7 +181,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-    '/founder': ['Founders', 'founders'],
+    '/init': ['FounderMode', 'founderMode'],
+    '/init/founder': ['FounderModeBlank', 'founderModeBlank'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
@@ -397,7 +399,8 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
-    Founders: { name: 'Founders', projectBased: true, layout: 'app-container' },
+    FounderMode: { name: 'Founder mode', projectBased: true, layout: 'plain' },
+    FounderModeBlank: { name: 'Founder mode', projectBased: true, layout: 'plain' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     LegalDocuments: {
@@ -801,7 +804,8 @@ export const productUrls = {
         }
         return `/feature_flags/new?${params.toString()}`
     },
-    founders: (): string => '/founder',
+    founderMode: (): string => '/init',
+    founderModeBlank: (): string => '/init/founder',
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,

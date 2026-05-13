@@ -71,7 +71,7 @@ function clampPosition({ stepIndex, subStepIndex }: FounderModePosition): Founde
 }
 
 export const founderModeLogic = kea<founderModeLogicType>([
-    path(['scenes', 'founder-mode', 'founderModeLogic']),
+    path(['products', 'founder_mode', 'founderModeLogic']),
     actions({
         nextStep: true,
         previousStep: true,
