@@ -57,8 +57,8 @@ export const manifest: ProductManifest = {
             type: 'agentic_tests',
             iconType: 'agentic_tests' as FileSystemIconType,
             iconColor: [
-                'var(--color-product-llm-analytics-light)',
-                'var(--color-product-llm-analytics-dark)',
+                'var(--color-product-session-replay-light)',
+                'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: '/agentic_tests',
             sceneKey: 'AgenticTests',

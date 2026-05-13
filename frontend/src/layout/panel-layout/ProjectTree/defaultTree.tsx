@@ -125,7 +125,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     agentic_tests: {
         icon: <IconTestTube />,
-        iconColor: ['var(--color-product-llm-analytics-light)', 'var(--color-product-llm-analytics-dark)'],
+        iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
     },
     heatmap: {
         icon: <IconApp />,
