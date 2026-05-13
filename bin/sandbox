@@ -19,13 +19,15 @@ import json
 import time
 import fcntl
 import shutil
+import hashlib
 import argparse
 import platform
+import tempfile
 import textwrap
 import functools
 import subprocess
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
@@ -50,6 +52,22 @@ SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 CONFIG_FILE = REGISTRY_DIR / "config.json"
+TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
+TOOLS_BUILD_LOCK = REGISTRY_DIR / ".tools-build.lock"
+
+# Shared, content-addressed image tags used by docker-compose.sandbox.yml.
+# Personal layers on top track tools.yaml + host UID/GID.
+BASE_IMAGE_TAG = "posthog-sandbox:base"
+USER_IMAGE_PREFIX = "posthog-sandbox-user"
+KEEP_USER_IMAGES = 3
+
+# Mount slot count must match the SANDBOX_TOOL_AUTH_0..N entries in
+# docker-compose.sandbox.yml. Bumping it requires editing both files.
+MAX_TOOL_MOUNTS = 16
+
+# In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
+# bin/sandbox-entrypoint.py, since tools.yaml mount targets resolve here.
+SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
 
 PORT_BASE = 48001
 
@@ -272,6 +290,458 @@ class Registry:
             data = json.loads(f.read() or "{}")
             data.pop(branch, None)
             self._write(f, data)
+
+
+# ---------------------------------------------------------------------------
+# User tool management (~/.posthog-sandboxes/tools.yaml)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ToolMount:
+    """Resolved host -> sandbox path pair for a single bind mount.
+
+    `source` is a host absolute path (may equal "/dev/null" if the host
+    file is missing). `target` is an absolute path under the in-sandbox
+    $HOME (SANDBOX_HOME_IN_CONTAINER).
+    """
+
+    source: str
+    target: str
+
+
+@dataclass
+class Tool:
+    name: str
+    install: str | None = None
+    mounts: list[ToolMount] = field(default_factory=list)
+
+
+def _tools_yaml_str_representer(dumper, data):
+    """Force multi-line strings into block-literal style (`install: |`)."""
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+# Module-scope: PyYAML representers are global. Safe to register
+# unconditionally since this dumper is only used by `sandbox tools ...`.
+yaml.add_representer(str, _tools_yaml_str_representer, Dumper=yaml.SafeDumper)
+
+
+def _parse_tool_mount(entry: object, *, source_label: str) -> ToolMount:
+    """Resolve a tools.yaml mounts[] entry to a ToolMount.
+
+    Raises via fatal() on validation errors; the schema is intentionally
+    strict so misconfiguration shows up at load time, not at runtime.
+    """
+    host_home = str(Path.home())
+    if isinstance(entry, str):
+        source = str(Path(entry).expanduser().resolve(strict=False))
+        try:
+            rel = Path(source).relative_to(host_home)
+        except ValueError:
+            fatal(
+                f"{source_label}: short-form mount {entry!r} is not under "
+                f"$HOME ({host_home}). Use long form: "
+                "{source: /abs/path, target: ~/...}."
+            )
+        target = f"{SANDBOX_HOME_IN_CONTAINER}/{rel}"
+        return ToolMount(source=source, target=target)
+
+    if isinstance(entry, dict):
+        if "source" not in entry or "target" not in entry:
+            fatal(f"{source_label}: long-form mount must have 'source' and 'target'.")
+        source = str(Path(entry["source"]).expanduser().resolve(strict=False))
+        target_raw = str(entry["target"])
+        if target_raw.startswith("~/"):
+            target = f"{SANDBOX_HOME_IN_CONTAINER}/{target_raw[2:]}"
+        elif target_raw == "~":
+            target = SANDBOX_HOME_IN_CONTAINER
+        elif target_raw.startswith("~"):
+            fatal(
+                f"{source_label}: target {target_raw!r} uses '~user' which is "
+                "not supported. Use '~/...' or an absolute path under "
+                f"{SANDBOX_HOME_IN_CONTAINER}."
+            )
+        else:
+            target = target_raw
+        if target != SANDBOX_HOME_IN_CONTAINER and not target.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
+            fatal(
+                f"{source_label}: target {entry['target']!r} must resolve "
+                f"under sandbox $HOME ({SANDBOX_HOME_IN_CONTAINER})."
+            )
+        return ToolMount(source=source, target=target)
+
+    fatal(f"{source_label}: invalid mount entry {entry!r} (expected string or mapping).")
+
+
+def _load_user_tools() -> list[Tool]:
+    """Parse ~/.posthog-sandboxes/tools.yaml or return [] if missing.
+
+    Validation is intentionally strict: bad entries fail loudly rather
+    than getting silently dropped from the personal image. Each tool
+    must have a name; install and mounts are independently optional but
+    at least one is expected (the loader does not enforce that part,
+    so a name-only entry is technically allowed for forward-compat).
+    """
+    if not TOOLS_FILE.is_file():
+        return []
+    raw = yaml.safe_load(TOOLS_FILE.read_text()) or {}
+    if not isinstance(raw, dict):
+        fatal(f"{TOOLS_FILE}: top-level must be a mapping with a 'tools' key.")
+    tools_data = raw.get("tools", [])
+    if tools_data is None:
+        tools_data = []
+    if not isinstance(tools_data, list):
+        fatal(f"{TOOLS_FILE}: 'tools' must be a list.")
+
+    tools: list[Tool] = []
+    seen: set[str] = set()
+    for i, entry in enumerate(tools_data):
+        if not isinstance(entry, dict):
+            fatal(f"{TOOLS_FILE}: tools[{i}] must be a mapping.")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            fatal(f"{TOOLS_FILE}: tools[{i}] is missing a 'name'.")
+        if name in seen:
+            fatal(f"{TOOLS_FILE}: duplicate tool name {name!r}.")
+        seen.add(name)
+
+        install = entry.get("install")
+        if install is not None and not isinstance(install, str):
+            fatal(f"{TOOLS_FILE}: tools[{i}].install must be a string.")
+
+        mounts_raw = entry.get("mounts") or []
+        if not isinstance(mounts_raw, list):
+            fatal(f"{TOOLS_FILE}: tools[{i}].mounts must be a list.")
+        mounts = [
+            _parse_tool_mount(m, source_label=f"{TOOLS_FILE}: tools[{i}].mounts[{j}]") for j, m in enumerate(mounts_raw)
+        ]
+
+        tools.append(Tool(name=name, install=install, mounts=mounts))
+
+    total_mounts = sum(len(t.mounts) for t in tools)
+    if total_mounts > MAX_TOOL_MOUNTS:
+        fatal(
+            f"{TOOLS_FILE}: {total_mounts} mounts declared but the sandbox "
+            f"compose file only exposes {MAX_TOOL_MOUNTS} slots. Bump "
+            "MAX_TOOL_MOUNTS in bin/sandbox and the SANDBOX_TOOL_AUTH_N "
+            "entries in docker-compose.sandbox.yml together."
+        )
+    return tools
+
+
+def _save_user_tools(tools: list[Tool]) -> None:
+    """Write tools.yaml back, preferring short-form mounts when possible."""
+    TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    host_home = str(Path.home())
+
+    out_tools: list[dict] = []
+    for t in tools:
+        entry: dict = {"name": t.name}
+        if t.install is not None:
+            install = t.install
+            if not install.endswith("\n"):
+                install = install + "\n"
+            entry["install"] = install
+        if t.mounts:
+            entry_mounts: list = []
+            for m in t.mounts:
+                short = _try_short_form_mount(m.source, m.target, host_home)
+                if short is not None:
+                    entry_mounts.append(short)
+                else:
+                    target_for_yaml = m.target
+                    if target_for_yaml.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
+                        target_for_yaml = "~/" + target_for_yaml[len(SANDBOX_HOME_IN_CONTAINER) + 1 :]
+                    elif target_for_yaml == SANDBOX_HOME_IN_CONTAINER:
+                        target_for_yaml = "~"
+                    entry_mounts.append({"source": m.source, "target": target_for_yaml})
+            entry["mounts"] = entry_mounts
+        out_tools.append(entry)
+
+    TOOLS_FILE.write_text(yaml.safe_dump({"tools": out_tools}, sort_keys=False, default_flow_style=False, indent=2))
+
+
+def _try_short_form_mount(source: str, target: str, host_home: str) -> str | None:
+    """Return the short-form representation of a mount if applicable, else None."""
+    try:
+        rel = Path(source).relative_to(host_home)
+    except ValueError:
+        return None
+    expected_target = f"{SANDBOX_HOME_IN_CONTAINER}/{rel}"
+    if target != expected_target:
+        return None
+    return f"~/{rel}"
+
+
+# ---------------------------------------------------------------------------
+# Sandbox image management (base + per-user layers)
+# ---------------------------------------------------------------------------
+
+
+# Files that affect the contents of the base sandbox image. Editing any of
+# them invalidates the cached base via the image label set in
+# _ensure_base_image.
+_BASE_IMAGE_SOURCES = (
+    "Dockerfile.sandbox",
+    "bin/sandbox-shims/tmux.sandbox.conf",
+    "bin/sandbox-entrypoint.py",
+)
+
+
+def _base_image_hash() -> str:
+    h = hashlib.sha256()
+    for rel in _BASE_IMAGE_SOURCES:
+        path = REPO_ROOT / rel
+        h.update(rel.encode())
+        h.update(b"\0")
+        h.update(path.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _image_exists(tag: str) -> bool:
+    return run(["docker", "image", "inspect", tag], check=False, capture=True).returncode == 0
+
+
+def _image_label(tag: str, label: str) -> str:
+    result = run(
+        ["docker", "image", "inspect", "--format", f'{{{{ index .Config.Labels "{label}" }}}}', tag],
+        check=False,
+        capture=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _ensure_base_image() -> str:
+    """Build posthog-sandbox:base if missing or stale, then return its tag.
+
+    Staleness is detected by comparing the cached image's
+    `posthog.sandbox.dockerfile-hash` label against a hash of the
+    Dockerfile and the files it COPYs.
+    """
+    expected_hash = _base_image_hash()
+    if (
+        _image_exists(BASE_IMAGE_TAG)
+        and _image_label(BASE_IMAGE_TAG, "posthog.sandbox.dockerfile-hash") == expected_hash
+    ):
+        return BASE_IMAGE_TAG
+
+    info("Building sandbox base image (first build is ~3-5 min; cached rebuilds are fast)...")
+    result = subprocess.run(
+        [
+            "docker",
+            "build",
+            "-t",
+            BASE_IMAGE_TAG,
+            "--label",
+            f"posthog.sandbox.dockerfile-hash={expected_hash}",
+            "-f",
+            str(REPO_ROOT / "Dockerfile.sandbox"),
+            str(REPO_ROOT),
+        ],
+    )
+    if result.returncode != 0:
+        fatal(f"Base image build failed (exit {result.returncode}).")
+    success(f"Built base image {BASE_IMAGE_TAG}.")
+    return BASE_IMAGE_TAG
+
+
+def _user_image_hash_input(tools: list[Tool], base_digest: str) -> bytes:
+    """Canonical bytes hashed into the user image tag.
+
+    Tool list order matters (it determines the layer order, so reordering
+    changes the cached layers); within each entry, keys are sorted to
+    keep the hash stable across YAML formatting differences.
+    """
+    payload = {
+        "base_digest": base_digest,
+        "uid": os.getuid(),
+        "gid": os.getgid(),
+        "tools": [
+            {
+                "name": t.name,
+                "install": t.install,
+                "mounts": [{"source": m.source, "target": m.target} for m in t.mounts],
+            }
+            for t in tools
+        ],
+    }
+    return json.dumps(payload, sort_keys=True).encode()
+
+
+def _user_image_tag(tools: list[Tool], base_digest: str) -> str:
+    h = hashlib.sha256(_user_image_hash_input(tools, base_digest)).hexdigest()[:16]
+    return f"{USER_IMAGE_PREFIX}:{h}"
+
+
+def _generate_personal_dockerfile(tools: list[Tool], base_tag: str) -> str:
+    """Materialize the personal image Dockerfile.
+
+    One RUN per tool's install snippet so layers cache independently:
+    appending a tool reuses prior layers; editing a snippet invalidates
+    only that layer onward.
+    """
+    lines = [
+        "# syntax=docker/dockerfile:1.4",
+        f"FROM {base_tag}",
+        "",
+        "ARG SANDBOX_UID",
+        "ARG SANDBOX_GID",
+        "",
+        "# Bake the sandbox user at build time so install snippets run as the same",
+        "# identity that the runtime container does. groupadd may fail when the",
+        "# host GID matches a stock system group; the trailing || true keeps the",
+        "# build going since useradd will reuse that group.",
+        "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\",
+        " && useradd  -u ${SANDBOX_UID} -g ${SANDBOX_GID} -m -s /bin/bash sandbox",
+        "",
+        "USER sandbox",
+        "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
+        "ENV PATH=/home/sandbox/.npm-global/bin:${PATH}",
+        "RUN mkdir -p /home/sandbox/.npm-global/bin",
+        "",
+    ]
+    for tool in tools:
+        if not tool.install or not tool.install.strip():
+            continue
+        snippet = tool.install.strip()
+        lines.append(f"# Tool: {tool.name}")
+        lines.append("RUN <<'__POSTHOG_SANDBOX_EOF__'")
+        lines.append("set -e")
+        lines.extend(snippet.splitlines())
+        lines.append("__POSTHOG_SANDBOX_EOF__")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+@contextmanager
+def _tools_build_lock():
+    """Serialize concurrent personal image builds across sandbox create calls."""
+    REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(TOOLS_BUILD_LOCK, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _docker_build_personal_image(dockerfile_text: str, tag: str) -> None:
+    """Build a personal image layer from a generated Dockerfile on stdin.
+
+    Build context is an empty temp directory because the Dockerfile never
+    COPYs from the repo. SANDBOX_UID/GID are passed as build args so the
+    same image works regardless of which compose project invokes it.
+    """
+    with tempfile.TemporaryDirectory(prefix="sandbox-build-") as ctx:
+        proc = subprocess.Popen(
+            [
+                "docker",
+                "build",
+                "--build-arg",
+                f"SANDBOX_UID={os.getuid()}",
+                "--build-arg",
+                f"SANDBOX_GID={os.getgid()}",
+                "-t",
+                tag,
+                "-f",
+                "-",
+                ctx,
+            ],
+            stdin=subprocess.PIPE,
+            env={**os.environ, "DOCKER_BUILDKIT": "1"},
+        )
+        proc.communicate(input=dockerfile_text.encode())
+        if proc.returncode != 0:
+            fatal(f"Image build failed (exit {proc.returncode}).")
+
+
+def _ensure_user_image(tools: list[Tool], base_tag: str) -> str:
+    """Build the user's personal image if missing; return its tag.
+
+    The tag is content-addressed over (base, uid, gid, tools.yaml) so
+    edits to tools.yaml invalidate the cache and unedited reruns are
+    instant. A flock prevents concurrent sandbox creates from racing
+    on the same target tag.
+    """
+    tag = _user_image_tag(tools, base_tag)
+    if _image_exists(tag):
+        return tag
+
+    info(f"Building your sandbox tools image {tag} (~30-90s)...")
+    dockerfile = _generate_personal_dockerfile(tools, base_tag)
+    with _tools_build_lock():
+        if _image_exists(tag):
+            return tag
+        _docker_build_personal_image(dockerfile, tag)
+    success(f"Built user image {tag}.")
+    _prune_old_user_images()
+    return tag
+
+
+def _prune_old_user_images() -> None:
+    """Remove all but the most-recent KEEP_USER_IMAGES user image tags."""
+    result = run(
+        ["docker", "images", "--format", "{{.Tag}}\t{{.CreatedAt}}", USER_IMAGE_PREFIX],
+        capture=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return
+    entries: list[tuple[str, str]] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        entries.append((parts[0], parts[1]))
+    # CreatedAt format is sortable lexicographically (ISO-ish: "2024-01-02 03:04:05 +0000 UTC").
+    entries.sort(key=lambda e: e[1], reverse=True)
+    for tag_part, _ in entries[KEEP_USER_IMAGES:]:
+        full = f"{USER_IMAGE_PREFIX}:{tag_part}"
+        run(["docker", "rmi", "-f", full], capture=True, check=False)
+
+
+def _ensure_images_built() -> tuple[str, list[Tool]]:
+    """Build whatever images the next compose up needs. Idempotent."""
+    base_tag = _ensure_base_image()
+    tools = _load_user_tools()
+    if tools:
+        _ensure_user_image(tools, base_tag)
+    return base_tag, tools
+
+
+def _resolve_tool_auth_env(tools: list[Tool]) -> dict[str, str]:
+    """Map tools.yaml mounts to SANDBOX_TOOL_AUTH_* env vars for compose.
+
+    Each declared mount fills one of MAX_TOOL_MOUNTS slots; unused slots
+    fall back to /dev/null at the compose layer so we never have to
+    regenerate the compose file. SANDBOX_TOOL_AUTH_PATHS gives the
+    entrypoint the matching list of in-sandbox target paths.
+    """
+    env: dict[str, str] = {}
+    targets: list[str] = []
+    all_mounts: list[ToolMount] = [m for t in tools for m in t.mounts]
+    if len(all_mounts) > MAX_TOOL_MOUNTS:
+        fatal(f"tools.yaml declares {len(all_mounts)} mounts; only {MAX_TOOL_MOUNTS} slots are available.")
+    for i, mount in enumerate(all_mounts):
+        src_path = Path(mount.source)
+        if src_path.is_file() or src_path.is_dir():
+            env[f"SANDBOX_TOOL_AUTH_{i}"] = mount.source
+        else:
+            # Missing host source: mount /dev/null and let the entrypoint
+            # skip this slot. Tools that initialize their own state on
+            # first run (e.g., `gh auth login`) keep working.
+            env[f"SANDBOX_TOOL_AUTH_{i}"] = "/dev/null"
+        targets.append(mount.target)
+    for i in range(len(all_mounts), MAX_TOOL_MOUNTS):
+        env[f"SANDBOX_TOOL_AUTH_{i}"] = "/dev/null"
+    env["SANDBOX_TOOL_AUTH_PATHS"] = ":".join(targets)
+    return env
 
 
 # ---------------------------------------------------------------------------
@@ -653,13 +1123,26 @@ def _host_compose_env() -> dict[str, str]:
 
 
 def _compose_env(port: int) -> dict[str, str]:
-    """Env vars threaded through every docker compose invocation."""
-    return {
+    """Env vars threaded through every docker compose invocation.
+
+    Includes the resolved user image tag and tool auth slot mappings.
+    These are pure resolution (no docker calls), so callers that only
+    `stop` / `destroy` / `logs` don't end up triggering image builds
+    just by computing compose env.
+    """
+    tools = _load_user_tools()
+    base_tag = BASE_IMAGE_TAG
+    user_image = _user_image_tag(tools, base_tag) if tools else base_tag
+
+    env: dict[str, str] = {
         **_host_compose_env(),
         "SANDBOX_PORT": str(port),
         "SANDBOX_VITE_PORT": str(port + 1000),
         "SANDBOX_SSH_PORT": str(port + 2000),
+        "SANDBOX_USER_IMAGE": user_image,
     }
+    env.update(_resolve_tool_auth_env(tools))
+    return env
 
 
 def compose(
@@ -669,11 +1152,20 @@ def compose(
     check: bool = True,
     capture: bool = False,
     profiles: list[str] | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run `docker compose` with sandbox env vars."""
+    """Run `docker compose` with sandbox env vars.
+
+    `env_overrides` is layered on top of `_compose_env(port)`. Used by
+    cache-init to pin SANDBOX_USER_IMAGE to the base tag even when the
+    caller has personal tools configured.
+    """
     profile_flags: list[str] = []
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
+    env = _compose_env(port)
+    if env_overrides:
+        env.update(env_overrides)
     return run(
         [
             "docker",
@@ -690,7 +1182,7 @@ def compose(
         ],
         check=check,
         capture=capture,
-        env_extra=_compose_env(port),
+        env_extra=env,
     )
 
 
@@ -843,10 +1335,13 @@ def _rev_parse(ref: str) -> str | None:
 
 def _is_ancestor(maybe_ancestor: str, of_descendant: str) -> bool:
     """True if *maybe_ancestor* is reachable from *of_descendant* on the host."""
-    return run(
-        ["git", "merge-base", "--is-ancestor", maybe_ancestor, of_descendant],
-        check=False,
-    ).returncode == 0
+    return (
+        run(
+            ["git", "merge-base", "--is-ancestor", maybe_ancestor, of_descendant],
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def _first_existing_ref(*refs: str) -> tuple[str, str] | None:
@@ -974,6 +1469,12 @@ def init_cache_from_master() -> None:
     """Run migrations, generate demo data, pre-build Rust, and snapshot databases."""
     info("No database cache found. Building from master (one-time setup, ~10 min)...")
 
+    # The shared cache is built from master with no personal tools, so we
+    # explicitly pin the image to the base tag instead of the caller's
+    # user image. The cache is reused across all sandboxes regardless of
+    # which contributor's tools.yaml is active.
+    _ensure_base_image()
+
     init_project = "sandbox-cache-init"
     init_port = 47999
     init_volume = workspace_volume_name(init_project)
@@ -984,7 +1485,7 @@ def init_cache_from_master() -> None:
         run(["git", "fetch", "origin", "master", "--quiet"], capture=True)
         resolved = _first_existing_ref("refs/remotes/origin/master", "refs/heads/master")
         if resolved is None:
-            fatal("Cannot find master locally or on origin — nothing to build cache from.")
+            fatal("Cannot find master locally or on origin - nothing to build cache from.")
         master_sha, master_ref = resolved
 
         info("Populating cache-init workspace with master...")
@@ -996,10 +1497,10 @@ def init_cache_from_master() -> None:
             init_port,
             "run",
             "--rm",
-            "--build",
             "-e",
             "SANDBOX_MODE=cache-init",
             "app",
+            env_overrides={"SANDBOX_USER_IMAGE": BASE_IMAGE_TAG},
         )
 
         info("Snapshotting databases...")
@@ -1183,10 +1684,16 @@ def _restore_and_start(
     use_cache: bool,
     profiles: list[str] | None = None,
 ) -> None:
-    """Restore databases from cache (if available) and bring up the stack."""
+    """Restore databases from cache (if available) and bring up the stack.
+
+    Image build happens up front in `_ensure_images_built`; compose just
+    runs the already-tagged image. That keeps the personal image cache
+    sticky across `sandbox start` / `sandbox create` instead of trying to
+    rebuild every time.
+    """
     if not use_cache:
-        info("Building and starting containers...")
-        compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
+        info("Starting containers...")
+        compose(project, port, "up", "-d", capture=True, profiles=profiles)
         return
 
     # Restore postgres from volume snapshot
@@ -1247,8 +1754,8 @@ def _restore_and_start(
     )
 
     # Now start the app + proxy on top of restored infra
-    info("Building and starting app...")
-    compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
+    info("Starting app...")
+    compose(project, port, "up", "-d", capture=True, profiles=profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -1282,6 +1789,11 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
 
     _ensure_cache_volumes()
     _ensure_jetbrains()
+    # Build base + per-user images up front so compose `up` is a fast
+    # start, not a build. init_cache_from_master ensures the base for
+    # its own run, but it does not produce the user image, so we still
+    # need to call this here even when the cache is missing.
+    _ensure_images_built()
     if not _is_cache_ready():
         init_cache_from_master()
 
@@ -1328,6 +1840,10 @@ def cmd_start(branch: str) -> None:
     project = project_name(entry.slug)
     vite_port = entry.port + 1000
     profiles = resolve_docker_profiles(entry.intents)
+
+    # Pick up Dockerfile or tools.yaml changes that happened while the
+    # sandbox was stopped. Both calls are no-ops when nothing changed.
+    _ensure_images_built()
 
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
     if profiles:
@@ -1668,6 +2184,222 @@ def cmd_rebuild_cache() -> None:
     init_cache_from_master()
 
 
+# ---------------------------------------------------------------------------
+# Tools subcommand (manages ~/.posthog-sandboxes/tools.yaml)
+# ---------------------------------------------------------------------------
+
+
+def _read_multiline_block(prompt_text: str, prompt_help: str) -> str:
+    """Prompt for a multi-line block, ending on blank line or EOF."""
+    print(prompt_text)
+    print(prompt_help)
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("> ")
+        except EOFError:
+            break
+        if not line:
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _read_path_list(prompt_text: str, prompt_help: str) -> list[str]:
+    """Prompt for a list of paths, one per line, ending on blank line or EOF."""
+    print(prompt_text)
+    print(prompt_help)
+    items: list[str] = []
+    while True:
+        try:
+            line = input("> ").strip()
+        except EOFError:
+            break
+        if not line:
+            break
+        items.append(line)
+    return items
+
+
+def _build_test_dockerfile(install: str, base_tag: str) -> str:
+    """Single-tool throwaway Dockerfile used by `sandbox tools add --test`.
+
+    Mirrors _generate_personal_dockerfile so a passing test means the
+    install snippet will work inside the real personal image.
+    """
+    snippet_lines = install.strip().splitlines()
+    body = "\n".join(snippet_lines)
+    return textwrap.dedent(
+        f"""\
+        # syntax=docker/dockerfile:1.4
+        FROM {base_tag}
+
+        ARG SANDBOX_UID
+        ARG SANDBOX_GID
+
+        RUN groupadd -g ${{SANDBOX_GID}} sandbox 2>/dev/null || true \\
+         && useradd  -u ${{SANDBOX_UID}} -g ${{SANDBOX_GID}} -m -s /bin/bash sandbox
+
+        USER sandbox
+        ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global
+        ENV PATH=/home/sandbox/.npm-global/bin:${{PATH}}
+        RUN mkdir -p /home/sandbox/.npm-global/bin
+
+        RUN <<'__POSTHOG_SANDBOX_EOF__'
+        set -e
+        {body}
+        __POSTHOG_SANDBOX_EOF__
+        """
+    )
+
+
+def _test_install_snippet(install: str) -> bool:
+    """Build a single-tool throwaway image to verify the install snippet.
+
+    Returns True on success and removes the test tag; on failure leaves
+    Docker's build log on the terminal (the build was streamed) so the
+    user can see exactly which step blew up.
+    """
+    base_tag = _ensure_base_image()
+    test_tag = f"posthog-sandbox-tools-test:{int(time.time())}-{os.getpid()}"
+    dockerfile = _build_test_dockerfile(install, base_tag)
+    with tempfile.TemporaryDirectory(prefix="sandbox-tools-test-") as ctx:
+        proc = subprocess.Popen(
+            [
+                "docker",
+                "build",
+                "--rm",
+                "--build-arg",
+                f"SANDBOX_UID={os.getuid()}",
+                "--build-arg",
+                f"SANDBOX_GID={os.getgid()}",
+                "-t",
+                test_tag,
+                "-f",
+                "-",
+                ctx,
+            ],
+            stdin=subprocess.PIPE,
+            env={**os.environ, "DOCKER_BUILDKIT": "1"},
+        )
+        proc.communicate(input=dockerfile.encode())
+    if proc.returncode != 0:
+        return False
+    run(["docker", "rmi", "-f", test_tag], capture=True, check=False)
+    return True
+
+
+def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
+    print(f"{indent}{tool.name}")
+    if tool.install:
+        snippet_lines = tool.install.strip().splitlines()
+        if snippet_lines:
+            print(f"{indent}  install:")
+            for line in snippet_lines:
+                print(f"{indent}    {line}")
+    for m in tool.mounts:
+        print(f"{indent}  mount: {m.source} -> {m.target}")
+    if not tool.install and not tool.mounts:
+        print(f"{indent}  (no install or mounts defined)")
+
+
+def _tools_list() -> None:
+    tools = _load_user_tools()
+    if not tools:
+        print(f"No tools configured. Add one with: sandbox tools add <name>")
+        print(f"(or edit {TOOLS_FILE} directly)")
+        return
+
+    current_user_tag = _user_image_tag(tools, BASE_IMAGE_TAG)
+    image_baked = _image_exists(current_user_tag)
+    status = "baked" if image_baked else "pending rebuild on next `sandbox create`"
+
+    print(f"Tools defined in {TOOLS_FILE}")
+    print(f"User image: {current_user_tag} ({status})")
+    print()
+    for t in tools:
+        _print_tool_summary(t)
+        print()
+
+
+def _tools_add(args) -> None:
+    tools = _load_user_tools()
+    if any(t.name == args.name for t in tools):
+        fatal(f"Tool '{args.name}' is already defined. Run 'sandbox tools remove {args.name}' first.")
+
+    non_interactive = args.install is not None or bool(args.mount)
+    install: str | None
+    mount_strs: list[str]
+
+    if non_interactive:
+        install = args.install
+        mount_strs = list(args.mount or [])
+        if install and args.test:
+            info("Building a throwaway test layer on top of the current base image...")
+            if not _test_install_snippet(install):
+                fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
+            success("install succeeded.")
+    else:
+        install_block = _read_multiline_block(
+            f"\nWhat install command(s) does '{args.name}' need?",
+            "  Runs as the sandbox user at image build time. Use `sudo` for apt-get etc.\n"
+            "  Multi-line allowed. Empty line to finish.",
+        )
+        install = install_block or None
+        if install:
+            answer = input("\nTest this snippet now? [Y/n] ").strip().lower()
+            if answer not in ("n", "no"):
+                info("Building a throwaway test layer on top of the current base image...")
+                if not _test_install_snippet(install):
+                    fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
+                success("install succeeded.")
+        mount_strs = _read_path_list(
+            f"\nWhere does '{args.name}' store auth/config on your host?",
+            "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",
+        )
+
+    mounts = [_parse_tool_mount(m, source_label=f"'{args.name}' mount entry") for m in mount_strs]
+
+    new_tool = Tool(name=args.name, install=install, mounts=mounts)
+    tools.append(new_tool)
+
+    total_mounts = sum(len(t.mounts) for t in tools)
+    if total_mounts > MAX_TOOL_MOUNTS:
+        fatal(
+            f"Adding '{args.name}' would bring total tools.yaml mounts to "
+            f"{total_mounts}, exceeding the {MAX_TOOL_MOUNTS}-slot limit."
+        )
+
+    _save_user_tools(tools)
+    success(f"Added '{args.name}' to {TOOLS_FILE}.")
+    print("Next `sandbox create` will pick it up (image rebuilds once).")
+
+
+def _tools_remove(name: str) -> None:
+    tools = _load_user_tools()
+    remaining = [t for t in tools if t.name != name]
+    if len(remaining) == len(tools):
+        warn(f"No tool named '{name}' in {TOOLS_FILE}.")
+        return
+    _save_user_tools(remaining)
+    success(f"Removed '{name}' from {TOOLS_FILE}.")
+    if remaining:
+        print("Next `sandbox create` will rebuild the personal image without it.")
+    else:
+        print("tools.yaml now empty; future sandboxes will use the base image directly.")
+
+
+def cmd_tools(args) -> None:
+    if args.tools_command == "list":
+        _tools_list()
+    elif args.tools_command == "add":
+        _tools_add(args)
+    elif args.tools_command == "remove":
+        _tools_remove(args.name)
+    else:
+        fatal("Run `sandbox tools --help` for usage.")
+
+
 def cmd_nuke() -> None:
     warn("Destroying all sandboxes and clearing cache...")
     registry = Registry()
@@ -1758,6 +2490,40 @@ examples:
     sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
     sub.add_parser("nuke", help="Destroy all sandboxes and clear the cache")
 
+    tools_parser = sub.add_parser(
+        "tools",
+        help="Manage user-defined CLI tools and host auth mounts",
+        description=(
+            "Manage ~/.posthog-sandboxes/tools.yaml. Additional CLIs baked "
+            "into your personal sandbox image and host auth paths copied in "
+            "at sandbox-create time."
+        ),
+    )
+    tools_sub = tools_parser.add_subparsers(dest="tools_command")
+    tools_sub.add_parser("list", help="Show configured tools and image status")
+    tools_add_p = tools_sub.add_parser(
+        "add",
+        help="Add a tool (interactive by default; --install/--mount for scripting)",
+    )
+    tools_add_p.add_argument("name")
+    tools_add_p.add_argument(
+        "--install",
+        help="Non-interactive: install snippet to run at image build time",
+    )
+    tools_add_p.add_argument(
+        "--mount",
+        action="append",
+        default=[],
+        help="Non-interactive: host path to mount into the sandbox (repeatable)",
+    )
+    tools_add_p.add_argument(
+        "--test",
+        action="store_true",
+        help="Non-interactive: build a throwaway test layer before saving",
+    )
+    tools_remove_p = tools_sub.add_parser("remove", help="Remove a tool")
+    tools_remove_p.add_argument("name")
+
     return parser
 
 
@@ -1788,6 +2554,7 @@ def main() -> None:
         "logs": lambda: cmd_logs(args.branch),
         "rebuild-cache": cmd_rebuild_cache,
         "nuke": cmd_nuke,
+        "tools": lambda: cmd_tools(args),
     }
 
     try:

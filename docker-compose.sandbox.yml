@@ -122,9 +122,11 @@ services:
             - app
 
     app:
-        build:
-            context: .
-            dockerfile: Dockerfile.sandbox
+        # The image is built by bin/sandbox before `compose up`: either the
+        # shared base (posthog-sandbox:base) or a per-user image layered with
+        # the contributor's tools.yaml. compose never builds it directly,
+        # which is why there is no `build:` block here.
+        image: ${SANDBOX_USER_IMAGE:-posthog-sandbox:base}
         restart: on-failure
         init: true
         # mprocs (used by bin/start) requires a TTY
@@ -151,6 +153,26 @@ services:
             - ${SANDBOX_SSH_AUTHORIZED_KEYS:-/dev/null}:/tmp/sandbox-authorized-keys:ro
             # Forwarded SSH agent. Host path resolved by bin/sandbox.
             - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
+            # Tool auth slots. bin/sandbox populates SANDBOX_TOOL_AUTH_N from
+            # the user's tools.yaml mounts. Unused slots fall back to /dev/null.
+            # SANDBOX_TOOL_AUTH_PATHS (env, below) is the matching list of
+            # in-sandbox target paths the entrypoint copies each slot to.
+            - ${SANDBOX_TOOL_AUTH_0:-/dev/null}:/tmp/sandbox-tool-auth/0:ro
+            - ${SANDBOX_TOOL_AUTH_1:-/dev/null}:/tmp/sandbox-tool-auth/1:ro
+            - ${SANDBOX_TOOL_AUTH_2:-/dev/null}:/tmp/sandbox-tool-auth/2:ro
+            - ${SANDBOX_TOOL_AUTH_3:-/dev/null}:/tmp/sandbox-tool-auth/3:ro
+            - ${SANDBOX_TOOL_AUTH_4:-/dev/null}:/tmp/sandbox-tool-auth/4:ro
+            - ${SANDBOX_TOOL_AUTH_5:-/dev/null}:/tmp/sandbox-tool-auth/5:ro
+            - ${SANDBOX_TOOL_AUTH_6:-/dev/null}:/tmp/sandbox-tool-auth/6:ro
+            - ${SANDBOX_TOOL_AUTH_7:-/dev/null}:/tmp/sandbox-tool-auth/7:ro
+            - ${SANDBOX_TOOL_AUTH_8:-/dev/null}:/tmp/sandbox-tool-auth/8:ro
+            - ${SANDBOX_TOOL_AUTH_9:-/dev/null}:/tmp/sandbox-tool-auth/9:ro
+            - ${SANDBOX_TOOL_AUTH_10:-/dev/null}:/tmp/sandbox-tool-auth/10:ro
+            - ${SANDBOX_TOOL_AUTH_11:-/dev/null}:/tmp/sandbox-tool-auth/11:ro
+            - ${SANDBOX_TOOL_AUTH_12:-/dev/null}:/tmp/sandbox-tool-auth/12:ro
+            - ${SANDBOX_TOOL_AUTH_13:-/dev/null}:/tmp/sandbox-tool-auth/13:ro
+            - ${SANDBOX_TOOL_AUTH_14:-/dev/null}:/tmp/sandbox-tool-auth/14:ro
+            - ${SANDBOX_TOOL_AUTH_15:-/dev/null}:/tmp/sandbox-tool-auth/15:ro
             # Shared caches — persist across sandboxes so the second one is fast.
             # uv and pnpm download packages here; subsequent sandboxes get cache hits.
             - uv-cache:/cache/uv
@@ -176,6 +198,11 @@ services:
             # (CSRF cookie is NOT varied — frontend hardcodes 'posthog_csrftoken'.)
             SESSION_COOKIE_NAME: 'sessionid_${SANDBOX_PORT:-48001}'
             JS_URL: 'http://localhost:${SANDBOX_VITE_PORT:-49001}'
+            # Colon-joined list of in-sandbox target paths matching
+            # SANDBOX_TOOL_AUTH_0..15. Read by the entrypoint's
+            # copy_user_tool_auth; empty when no tools.yaml mounts are
+            # configured.
+            SANDBOX_TOOL_AUTH_PATHS: '${SANDBOX_TOOL_AUTH_PATHS:-}'
         depends_on:
             db:
                 condition: service_healthy

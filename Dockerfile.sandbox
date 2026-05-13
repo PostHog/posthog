@@ -36,11 +36,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     postgresql-client \
     protobuf-compiler \
+    sudo \
     tmux \
     unzip \
     vim \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Personal image layers run install snippets as the (build-time-created)
+# sandbox user; sudo + NOPASSWD lets snippets call apt-get without
+# breaking the user-owned npm prefix and cargo target paths.
+RUN echo "sandbox ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sandbox \
+ && chmod 0440 /etc/sudoers.d/sandbox
 
 # --- Rarely changes: Rust toolchain + sqlx-cli ---
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
