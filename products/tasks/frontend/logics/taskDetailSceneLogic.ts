@@ -29,6 +29,13 @@ const LOG_POLL_INTERVAL_MS = 1000
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
+export const SESSION_VIEW_TABS = ['logs', 'plan', 'summary'] as const
+export type SessionViewTab = (typeof SESSION_VIEW_TABS)[number]
+
+function isSessionViewTab(value: unknown): value is SessionViewTab {
+    return typeof value === 'string' && (SESSION_VIEW_TABS as readonly string[]).includes(value)
+}
+
 interface ParsedSseEvent {
     data: string
     eventType: string | null
@@ -91,6 +98,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     })),
 
     actions({
+        setSessionViewTab: (tab: SessionViewTab) => ({ tab }),
         setSelectedRunId: (runId: TaskRun['id'] | null, taskId: string) => ({ runId, taskId }),
         selectLatestRun: true,
         clearShouldSelectLatestRun: true,
@@ -107,6 +115,12 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     }),
 
     reducers(({ props }) => ({
+        sessionViewTab: [
+            'logs' as SessionViewTab,
+            {
+                setSessionViewTab: (_, { tab }) => tab,
+            },
+        ],
         selectedRunId: [
             null as TaskRun['id'] | null,
             {
@@ -539,19 +553,39 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             if (runIdFromUrl && runIdFromUrl !== values.selectedRunId) {
                 actions.setSelectedRunId(runIdFromUrl, props.taskId)
             }
+            const viewFromUrl = searchParams.view
+            const nextTab: SessionViewTab = isSessionViewTab(viewFromUrl) ? viewFromUrl : 'logs'
+            if (nextTab !== values.sessionViewTab) {
+                actions.setSessionViewTab(nextTab)
+            }
         },
     })),
 
-    actionToUrl(({ props }) => ({
+    actionToUrl(({ props, values }) => ({
         setSelectedRunId: ({ runId }) => {
+            const view = values.sessionViewTab === 'logs' ? undefined : values.sessionViewTab
             if (runId) {
-                return [urls.taskDetail(props.taskId), { runId }, router.values.hashParams]
+                return [urls.taskDetail(props.taskId), { runId, view }, router.values.hashParams]
             }
-            return [urls.taskDetail(props.taskId), {}, router.values.hashParams]
+            return [urls.taskDetail(props.taskId), view ? { view } : {}, router.values.hashParams]
+        },
+        setSessionViewTab: ({ tab }) => {
+            const runId = router.values.searchParams.runId ?? values.selectedRunId ?? undefined
+            const view = tab === 'logs' ? undefined : tab
+            const searchParams = {
+                ...(runId ? { runId } : {}),
+                ...(view ? { view } : {}),
+            }
+            return [urls.taskDetail(props.taskId), searchParams, router.values.hashParams]
         },
         loadRunsSuccess: ({ runs }) => {
             if (runs.length > 0 && !router.values.searchParams.runId) {
-                return [urls.taskDetail(props.taskId), { runId: runs[0].id }, router.values.hashParams]
+                const view = values.sessionViewTab === 'logs' ? undefined : values.sessionViewTab
+                return [
+                    urls.taskDetail(props.taskId),
+                    { runId: runs[0].id, ...(view ? { view } : {}) },
+                    router.values.hashParams,
+                ]
             }
             return undefined
         },

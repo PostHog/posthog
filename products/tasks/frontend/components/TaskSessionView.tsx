@@ -4,14 +4,18 @@ import { TextMorph } from 'torph/react'
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
+import { SessionViewTab } from '../logics/taskDetailSceneLogic'
 import { TaskRun } from '../types'
 import { CollapsibleContent } from './CollapsibleContent'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
+import { TaskPlanView } from './TaskPlanView'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
+import { TaskSummaryView } from './TaskSummaryView'
 
 const HEDGEHOG_STATUSES = [
     'Spiking...',
@@ -58,6 +62,8 @@ interface TaskSessionViewProps {
     isStreaming: boolean
     initialPrompt?: string | null
     run: TaskRun | null
+    activeTab: SessionViewTab
+    onTabChange: (tab: SessionViewTab) => void
 }
 
 export function filterDuplicateInitialPromptEntry(entries: LogEntry[], initialPrompt?: string | null): LogEntry[] {
@@ -205,6 +211,8 @@ export function TaskSessionView({
     isStreaming,
     initialPrompt,
     run,
+    activeTab,
+    onTabChange,
 }: TaskSessionViewProps): JSX.Element {
     const parsedLogs = useMemo(() => parseLogs(logs), [logs])
     // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
@@ -230,20 +238,45 @@ export function TaskSessionView({
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex justify-between items-center px-4 py-2 border-b">
-                <div className="flex items-center gap-2">
+            <div className="flex justify-between items-center px-4 py-1 border-b gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                     {run && <TaskRunStatusBadge run={run} />}
-                    <span className="text-sm font-semibold">Logs ({entries.length})</span>
+                    <LemonTabs
+                        size="small"
+                        activeKey={activeTab}
+                        onChange={onTabChange}
+                        tabs={[
+                            { key: 'logs', label: `Logs (${entries.length})` },
+                            {
+                                key: 'plan',
+                                label: 'Plan',
+                                tooltip: 'Latest plan shared by the agent via TodoWrite or ExitPlanMode',
+                            },
+                            {
+                                key: 'summary',
+                                label: 'Summary',
+                                tooltip: 'Conversation messages between you and the agent, with tool calls hidden',
+                            },
+                        ]}
+                    />
                 </div>
-                <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
-                    Copy
-                </LemonButton>
+                {activeTab === 'logs' && (
+                    <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
+                        Copy
+                    </LemonButton>
+                )}
             </div>
             <div className="flex-1 overflow-auto p-4 font-mono text-sm bg-bg-3000">
-                {entries.map((entry) => (
-                    <LogEntryRenderer key={entry.id} entry={entry} />
-                ))}
-                {(isPolling || isStreaming) && <HedgehogStatus />}
+                {activeTab === 'logs' && (
+                    <>
+                        {entries.map((entry) => (
+                            <LogEntryRenderer key={entry.id} entry={entry} />
+                        ))}
+                        {(isPolling || isStreaming) && <HedgehogStatus />}
+                    </>
+                )}
+                {activeTab === 'plan' && <TaskPlanView entries={entries} />}
+                {activeTab === 'summary' && <TaskSummaryView entries={entries} />}
             </div>
         </div>
     )

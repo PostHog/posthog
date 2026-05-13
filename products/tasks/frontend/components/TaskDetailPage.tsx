@@ -39,9 +39,19 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll, streamEntries, isStreaming } =
-        useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const {
+        task,
+        runs,
+        selectedRunId,
+        selectedRun,
+        runsLoading,
+        logs,
+        shouldPoll,
+        streamEntries,
+        isStreaming,
+        sessionViewTab,
+    } = useValues(sceneLogic)
+    const { setSelectedRunId, runTask, deleteTask, setSessionViewTab } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
@@ -212,6 +222,8 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         isStreaming={isStreaming}
                         initialPrompt={task.description}
                         run={selectedRun}
+                        activeTab={sessionViewTab}
+                        onTabChange={setSessionViewTab}
                     />
                 </div>
             ) : null}
