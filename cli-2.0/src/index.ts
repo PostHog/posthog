@@ -5,7 +5,7 @@ import { hideBin } from 'yargs/helpers'
 import chalk from 'chalk'
 import ora from 'ora'
 import { config } from './config.js'
-import { createMCPContext, type Context } from './mcp-context.js'
+import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
 
 async function main() {
   const cli = yargs(hideBin(process.argv))
@@ -32,21 +32,21 @@ async function main() {
       
       const authConfig = await config.ensureAuth()
       
-      if (!authConfig.apiKey || !authConfig.projectId || !authConfig.host) {
+      if ((!authConfig.accessToken && !authConfig.apiKey) || !authConfig.projectId || !authConfig.host) {
         console.error(chalk.red('Missing configuration. Run: ph auth login'))
         process.exit(1)
       }
 
       // Create context for API calls
-      argv.mcpContext = createMCPContext(authConfig as Required<typeof authConfig>)
+      argv.mcpContext = createMCPContext(authConfig as AuthenticatedConfig)
     })
     
     // Auth commands
     .command('auth', 'Authentication commands', (yargs) => {
       return yargs
-        .command('login', 'Login to PostHog', {}, async () => {
+        .command('login', 'Login to PostHog with OAuth', {}, async () => {
           config.clear()
-          await config.ensureAuth()
+          await config.login()
         })
         .command('logout', 'Clear stored credentials', {}, () => {
           config.clear()
@@ -54,7 +54,9 @@ async function main() {
         .command('status', 'Show authentication status', {}, () => {
           const cfg = config.getAll()
           console.log('Authentication status:')
-          console.log('API Key:', cfg.apiKey ? '✅ Set' : '❌ Not set')
+          console.log('OAuth Access Token:', cfg.accessToken ? '✅ Set' : '❌ Not set')
+          console.log('OAuth Refresh Token:', cfg.refreshToken ? '✅ Set' : '❌ Not set')
+          console.log('API Key:', cfg.apiKey ? '✅ Set (from legacy config/env)' : '❌ Not set')
           console.log('Host:', cfg.host || '❌ Not set')
           console.log('Project ID:', cfg.projectId || '❌ Not set')
         })
