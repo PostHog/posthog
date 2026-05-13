@@ -659,6 +659,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             ("backticked", "properties.location AS `Some Location`"),
             ("nested", 'properties.location AS Inner AS "Outer"'),
             ("inside_call", "concat(properties.location AS Inner, '') AS \"Outer\""),
+            ("system_alias_collision", "properties.location AS breakdown_value"),
         ]
     )
     def test_breakdown_hogql_alias_forms(self, _name: str, breakdown_expr: str):
@@ -666,32 +667,6 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdownFilter": {
                     "breakdown": breakdown_expr,
-                    "breakdown_type": "hogql",
-                }
-            }
-        )
-        baseline = self._run(
-            {
-                "breakdownFilter": {
-                    "breakdown": "properties.location",
-                    "breakdown_type": "hogql",
-                }
-            }
-        )
-        self.assertEqual(
-            [series["breakdown_value"] for series in response],
-            [series["breakdown_value"] for series in baseline],
-        )
-        self.assertEqual(
-            [series["data"] for series in response],
-            [series["data"] for series in baseline],
-        )
-
-    def test_breakdown_hogql_alias_collision_with_system_alias(self):
-        response = self._run(
-            {
-                "breakdownFilter": {
-                    "breakdown": "properties.location AS breakdown_value",
                     "breakdown_type": "hogql",
                 }
             }
