@@ -19902,12 +19902,6 @@ export namespace Schemas {
          * @nullable
          */
       slot_index?: number | null;
-      /**
-         * @minimum 0
-         * @maximum 32767
-         * @nullable
-         */
-      compaction_target_slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
@@ -26799,12 +26793,6 @@ export namespace Schemas {
          * @nullable
          */
       slot_index?: number | null;
-      /**
-         * @minimum 0
-         * @maximum 32767
-         * @nullable
-         */
-      compaction_target_slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
