@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { csmHudSceneLogic, FleetRow } from '../logics/csmHudSceneLogic'
 import { formatMoney, formatMoneyCompact } from '../utils/format'
@@ -49,7 +51,11 @@ export function FleetTab(): JSX.Element {
                 {
                     title: 'Account',
                     key: 'name',
-                    render: (_, row) => <span className="font-medium">{row.name}</span>,
+                    render: (_, row) => (
+                        <Link to={urls.csmHudCustomer(row.externalId)} className="font-medium">
+                            {row.name}
+                        </Link>
+                    ),
                     sorter: (a, b) => a.name.localeCompare(b.name),
                 },
                 {
