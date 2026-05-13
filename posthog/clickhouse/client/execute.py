@@ -200,6 +200,16 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     return level
 
 
+def _default_enable_analyzer_in_tests() -> bool:
+    """Whether sync_execute should default enable_analyzer=1 in test runs.
+
+    Wrapped in a function (rather than reading the module-level TEST constant inline)
+    so individual tests can patch it without flipping TEST globally, which would
+    activate unrelated test-mode bypasses elsewhere in this module.
+    """
+    return TEST
+
+
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
@@ -343,7 +353,7 @@ def sync_execute(
     # Only enable if not explicitly disabled — setdefault preserves existing value
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
-    elif TEST:
+    elif _default_enable_analyzer_in_tests():
         # Exercise the new analyzer in the test suite. Applied at the top level so
         # nested HogQL settings clauses don't trigger ClickHouse error 80
         # ("Setting 'enable_analyzer' is changed in the subquery").

@@ -49,11 +49,12 @@ class TestSyncExecuteEnableAnalyzer:
         mock_client = MagicMock()
         caller_settings = {"enable_analyzer": explicit_value} if explicit_value is not None else None
 
-        # Patch TEST=False so we exercise the prod team-allowlist path rather than the
-        # blanket TEST-mode default added in sync_execute.
+        # Disable the blanket TEST-mode default so we exercise the prod team-allowlist path.
+        # Patching the helper rather than TEST itself avoids triggering unrelated
+        # not-TEST bypasses elsewhere in sync_execute (e.g. UntaggedQueryError).
         with (
             patch(INSTANCE_SETTING_PATH, return_value=allowed_teams),
-            patch("posthog.clickhouse.client.execute.TEST", False),
+            patch("posthog.clickhouse.client.execute._default_enable_analyzer_in_tests", return_value=False),
         ):
             sync_execute("SELECT 1", settings=caller_settings, team_id=team_id, flush=False, sync_client=mock_client)
 
