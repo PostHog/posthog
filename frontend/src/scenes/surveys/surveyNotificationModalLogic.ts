@@ -80,7 +80,7 @@ export type OpenSurveyNotificationDialogPayload = {
     intent?: SurveyNotificationModalIntent
 }
 type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
-type SurveyNotificationFormErrors = Partial<Record<keyof SurveyNotificationForm, string>>
+type SurveyNotificationFormErrors = Partial<Record<Exclude<keyof SurveyNotificationForm, 'responseFilters'>, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3
 export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
