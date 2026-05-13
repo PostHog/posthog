@@ -3304,6 +3304,34 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface SMSIntegrationItemApi {
+    /** PostHog UserIntegration row id. */
+    id: string
+    /** Verified phone number in E.164 format. */
+    phone_number: string
+    /** When the phone number was verified. */
+    created_at: string
+}
+
+export interface SMSStartVerificationRequestApi {
+    /** Phone number to verify, in E.164 format (e.g. +14155552671). */
+    phone_number: string
+}
+
+export interface SMSStartVerificationResponseApi {
+    /** Normalized phone number the verification code was sent to. */
+    phone_number: string
+    /** Seconds until the verification code expires. */
+    expires_in_seconds: number
+}
+
+export interface SMSVerifyRequestApi {
+    /** Phone number being verified, in E.164 format. */
+    phone_number: string
+    /** 6-digit verification code received via SMS. */
+    code: string
+}
+
 export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.

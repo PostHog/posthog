@@ -173,6 +173,7 @@ export type SettingId =
     | 'passkeys'
     | 'connected-apps'
     | 'personal-integrations'
+    | 'sms-phone-number'
     | 'personal-api-keys'
     | 'notifications'
     | 'realtime-notifications'

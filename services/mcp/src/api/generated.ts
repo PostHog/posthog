@@ -19255,6 +19255,7 @@ export namespace Schemas {
     * `customerio-track` - Customerio Track
     * `customerio-webhook` - Customerio Webhook
     * `databricks` - Databricks
+    * `discord-posthog-code` - Discord Posthog Code
     * `email` - Email
     * `firebase` - Firebase
     * `github` - Github
@@ -19276,7 +19277,6 @@ export namespace Schemas {
     * `salesforce` - Salesforce
     * `slack` - Slack
     * `slack-posthog-code` - Slack Posthog Code
-    * `discord-posthog-code` - Discord Posthog Code
     * `snapchat` - Snapchat
     * `stripe` - Stripe
     * `tiktok-ads` - Tiktok Ads
@@ -19296,6 +19296,7 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
+      DiscordPosthogCode: 'discord-posthog-code',
       Email: 'email',
       Firebase: 'firebase',
       Github: 'github',
@@ -19317,7 +19318,6 @@ export namespace Schemas {
       Salesforce: 'salesforce',
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
-      DiscordPosthogCode: 'discord-posthog-code',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
@@ -34117,6 +34117,34 @@ export namespace Schemas {
       fields: S3PresignedPostFields;
     }
 
+    export interface SMSIntegrationItem {
+      /** PostHog UserIntegration row id. */
+      id: string;
+      /** Verified phone number in E.164 format. */
+      phone_number: string;
+      /** When the phone number was verified. */
+      created_at: string;
+    }
+
+    export interface SMSStartVerificationRequest {
+      /** Phone number to verify, in E.164 format (e.g. +14155552671). */
+      phone_number: string;
+    }
+
+    export interface SMSStartVerificationResponse {
+      /** Normalized phone number the verification code was sent to. */
+      phone_number: string;
+      /** Seconds until the verification code expires. */
+      expires_in_seconds: number;
+    }
+
+    export interface SMSVerifyRequest {
+      /** Phone number being verified, in E.164 format. */
+      phone_number: string;
+      /** 6-digit verification code received via SMS. */
+      code: string;
+    }
+
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -38586,6 +38614,7 @@ export namespace Schemas {
     * `customerio-track` - Customerio Track
     * `customerio-webhook` - Customerio Webhook
     * `databricks` - Databricks
+    * `discord-posthog-code` - Discord Posthog Code
     * `email` - Email
     * `firebase` - Firebase
     * `github` - Github
@@ -38607,7 +38636,6 @@ export namespace Schemas {
     * `salesforce` - Salesforce
     * `slack` - Slack
     * `slack-posthog-code` - Slack Posthog Code
-    * `discord-posthog-code` - Discord Posthog Code
     * `snapchat` - Snapchat
     * `stripe` - Stripe
     * `tiktok-ads` - Tiktok Ads
@@ -43738,6 +43766,7 @@ export namespace Schemas {
     * `customerio-track` - Customerio Track
     * `customerio-webhook` - Customerio Webhook
     * `databricks` - Databricks
+    * `discord-posthog-code` - Discord Posthog Code
     * `email` - Email
     * `firebase` - Firebase
     * `github` - Github
@@ -43759,7 +43788,6 @@ export namespace Schemas {
     * `salesforce` - Salesforce
     * `slack` - Slack
     * `slack-posthog-code` - Slack Posthog Code
-    * `discord-posthog-code` - Discord Posthog Code
     * `snapchat` - Snapchat
     * `stripe` - Stripe
     * `tiktok-ads` - Tiktok Ads

@@ -35,10 +35,16 @@ class UserIntegration(UUIDModel):
     - `integration_id` holds the GitHub App installation_id
     - `config` holds installation metadata + user identity (login, id)
     - `sensitive_config` holds installation access token + user-to-server tokens
+
+    Contents for SMS:
+    - `integration_id` holds the verified phone number in E.164 format
+    - `config` is empty (reserved for future preferences)
+    - `sensitive_config` is empty
     """
 
     class IntegrationKind(models.TextChoices):
         GITHUB = "github"
+        SMS = "sms"
 
     user = models.ForeignKey(
         "posthog.User",
@@ -58,6 +64,16 @@ class UserIntegration(UUIDModel):
     class Meta:
         db_table = "posthog_user_integration"
         unique_together = [("user", "kind", "integration_id")]
+        constraints = [
+            # Phone numbers must be globally unique across users so inbound SMS
+            # routes unambiguously. GitHub installation_ids may legitimately repeat
+            # across users (shared installs), so the constraint is partial.
+            models.UniqueConstraint(
+                fields=["kind", "integration_id"],
+                condition=models.Q(kind="sms"),
+                name="user_integration_sms_phone_global_unique",
+            ),
+        ]
 
 
 class ReauthorizationRequired(Exception):

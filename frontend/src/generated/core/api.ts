@@ -54,6 +54,10 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    SMSIntegrationItemApi,
+    SMSStartVerificationRequestApi,
+    SMSStartVerificationResponseApi,
+    SMSVerifyRequestApi,
     SharingConfigurationApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
@@ -2048,6 +2052,78 @@ export const usersScenePersonalisationCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userApi),
+    })
+}
+
+export const getUsersSmsListUrl = (uuid: string) => {
+    return `/api/users/${uuid}/sms/`
+}
+
+/**
+ * `/api/users/@me/sms/` — manage the user's verified phone number for SMS.
+ * @summary List verified phone numbers
+ */
+export const usersSmsList = async (uuid: string, options?: RequestInit): Promise<SMSIntegrationItemApi[]> => {
+    return apiMutator<SMSIntegrationItemApi[]>(getUsersSmsListUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersSmsDestroyUrl = (uuid: string, phone: string) => {
+    return `/api/users/${uuid}/sms/${phone}/`
+}
+
+/**
+ * `/api/users/@me/sms/` — manage the user's verified phone number for SMS.
+ * @summary Disconnect a verified phone number
+ */
+export const usersSmsDestroy = async (uuid: string, phone: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersSmsDestroyUrl(uuid, phone), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersSmsStartVerificationCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/sms/start_verification/`
+}
+
+/**
+ * `/api/users/@me/sms/` — manage the user's verified phone number for SMS.
+ * @summary Send an SMS verification code
+ */
+export const usersSmsStartVerificationCreate = async (
+    uuid: string,
+    sMSStartVerificationRequestApi: SMSStartVerificationRequestApi,
+    options?: RequestInit
+): Promise<SMSStartVerificationResponseApi> => {
+    return apiMutator<SMSStartVerificationResponseApi>(getUsersSmsStartVerificationCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sMSStartVerificationRequestApi),
+    })
+}
+
+export const getUsersSmsVerifyCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/sms/verify/`
+}
+
+/**
+ * `/api/users/@me/sms/` — manage the user's verified phone number for SMS.
+ * @summary Verify an SMS verification code
+ */
+export const usersSmsVerifyCreate = async (
+    uuid: string,
+    sMSVerifyRequestApi: SMSVerifyRequestApi,
+    options?: RequestInit
+): Promise<SMSIntegrationItemApi> => {
+    return apiMutator<SMSIntegrationItemApi>(getUsersSmsVerifyCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sMSVerifyRequestApi),
     })
 }
 

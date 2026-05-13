@@ -111,3 +111,8 @@ PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
 PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
+
+# SendBlue is the underlying provider for the SMS personal integration.
+SENDBLUE_API_KEY = get_from_env("SENDBLUE_API_KEY", "")
+SENDBLUE_API_SECRET = get_from_env("SENDBLUE_API_SECRET", "")
+SENDBLUE_FROM_NUMBER = get_from_env("SENDBLUE_FROM_NUMBER", "")

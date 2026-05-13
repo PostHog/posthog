@@ -12,6 +12,7 @@ from posthog.api import (
     project,
     user_integration,
     user_push_token,
+    user_sms_integration,
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -758,18 +759,7 @@ organizations_router.register(
     ["organization_id"],
 )
 
-# General endpoints (shared across CH & PG)
-router.register(r"login", authentication.LoginViewSet, "login")
-router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
-router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
-router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
-router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
-router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
-router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
-router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
-router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
-router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
-router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
+# User-related endpoints
 users_router = router.register(r"users", user.UserViewSet, "users")
 users_router.register(
     r"integrations",
@@ -783,6 +773,25 @@ users_router.register(
     "user_push_token",
     ["uuid"],
 )
+users_router.register(
+    r"sms",
+    user_sms_integration.UserSMSIntegrationViewSet,
+    "user_sms_integration",
+    ["uuid"],
+)
+
+# General endpoints (shared across CH & PG)
+router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
+router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
+router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
+router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
+router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
+router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
+router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,

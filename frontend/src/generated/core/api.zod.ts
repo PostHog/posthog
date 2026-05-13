@@ -3273,6 +3273,23 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * `/api/users/@me/sms/` — manage the user's verified phone number for SMS.
+ * @summary Send an SMS verification code
+ */
+export const UsersSmsStartVerificationCreateBody = /* @__PURE__ */ zod.object({
+    phone_number: zod.string().describe('Phone number to verify, in E.164 format (e.g. +14155552671).'),
+})
+
+/**
+ * `/api/users/@me/sms/` — manage the user's verified phone number for SMS.
+ * @summary Verify an SMS verification code
+ */
+export const UsersSmsVerifyCreateBody = /* @__PURE__ */ zod.object({
+    phone_number: zod.string().describe('Phone number being verified, in E.164 format.'),
+    code: zod.string().describe('6-digit verification code received via SMS.'),
+})
+
+/**
  * Generate new backup codes, invalidating any existing ones
  */
 export const usersTwoFactorBackupCodesCreateBodyFirstNameMax = 150

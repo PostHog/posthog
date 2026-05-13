@@ -158,6 +158,7 @@ export interface RoleLookupResponseApi {
  * `customerio-track` - Customerio Track
  * `customerio-webhook` - Customerio Webhook
  * `databricks` - Databricks
+ * `discord-posthog-code` - Discord Posthog Code
  * `email` - Email
  * `firebase` - Firebase
  * `github` - Github
@@ -179,7 +180,6 @@ export interface RoleLookupResponseApi {
  * `salesforce` - Salesforce
  * `slack` - Slack
  * `slack-posthog-code` - Slack Posthog Code
- * `discord-posthog-code` - Discord Posthog Code
  * `snapchat` - Snapchat
  * `stripe` - Stripe
  * `tiktok-ads` - Tiktok Ads
@@ -198,6 +198,7 @@ export const IntegrationKindEnumApi = {
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
+    DiscordPosthogCode: 'discord-posthog-code',
     Email: 'email',
     Firebase: 'firebase',
     Github: 'github',
@@ -219,7 +220,6 @@ export const IntegrationKindEnumApi = {
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
-    DiscordPosthogCode: 'discord-posthog-code',
     Snapchat: 'snapchat',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
@@ -441,6 +441,7 @@ export type IntegrationsListParams = {
      * `customerio-track` - Customerio Track
      * `customerio-webhook` - Customerio Webhook
      * `databricks` - Databricks
+     * `discord-posthog-code` - Discord Posthog Code
      * `email` - Email
      * `firebase` - Firebase
      * `github` - Github
@@ -462,7 +463,6 @@ export type IntegrationsListParams = {
      * `salesforce` - Salesforce
      * `slack` - Slack
      * `slack-posthog-code` - Slack Posthog Code
-     * `discord-posthog-code` - Discord Posthog Code
      * `snapchat` - Snapchat
      * `stripe` - Stripe
      * `tiktok-ads` - Tiktok Ads

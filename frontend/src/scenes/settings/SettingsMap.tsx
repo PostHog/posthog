@@ -153,6 +153,7 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalIntegrations } from './user/PersonalIntegrations'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
+import { SMSIntegrationSettings } from './user/SMSIntegrationSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -1830,6 +1831,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
                 component: <PersonalIntegrations />,
                 keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
+            },
+            {
+                id: 'sms-phone-number',
+                title: 'Phone number',
+                description:
+                    'Verify a phone number to get text replies from PostHog Code. We send a 6-digit code to confirm you own the number.',
+                component: <SMSIntegrationSettings />,
+                keywords: ['sms', 'phone', 'text', 'message', 'mobile', 'verify', 'sendblue', 'posthog code'],
             },
         ],
     },
