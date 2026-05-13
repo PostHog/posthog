@@ -204,7 +204,11 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             tenantColumnName,
         }),
         cancelEditingTenantQueryTableColumn: true,
-        saveTenantQueryTableColumnOverride: (tableId: string, tableName: string) => ({ tableId, tableName }),
+        saveTenantQueryTableColumnOverride: (tableId: string, tableName: string, tenantColumnName: string) => ({
+            tableId,
+            tableName,
+            tenantColumnName,
+        }),
         setSavingTenantQueryTableColumnOverride: (tableId: string | null) => ({ tableId }),
     }),
     loaders(({ props, values }) => ({
@@ -417,24 +421,24 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 actions.submitTenantQueryPlayground()
             })
         },
-        saveTenantQueryTableColumnOverride: async ({ tableId, tableName }) => {
+        saveTenantQueryTableColumnOverride: async ({ tableId, tableName, tenantColumnName }) => {
             if (!values.currentTeamId) {
                 lemonToast.error('Project is still loading')
                 return
             }
 
-            const tenantColumnName = values.tenantQueryTableColumnDrafts[tableId]?.trim()
-            if (!tenantColumnName) {
+            const trimmedTenantColumnName = tenantColumnName.trim()
+            if (!trimmedTenantColumnName) {
                 lemonToast.error('Select a tenant column')
                 return
             }
 
             const globalTenantColumnName = values.tenantQueryConfigForm.tenant_column_name.trim()
             const tenantColumnNamesByTable = { ...values.tenantQueryConfigForm.tenant_column_names_by_table }
-            if (tenantColumnName === globalTenantColumnName) {
+            if (trimmedTenantColumnName === globalTenantColumnName) {
                 delete tenantColumnNamesByTable[tableName]
             } else {
-                tenantColumnNamesByTable[tableName] = tenantColumnName
+                tenantColumnNamesByTable[tableName] = trimmedTenantColumnName
             }
 
             const payload = formToRequestPayload(props.id, {

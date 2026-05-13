@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheck, IconPlay, IconX } from '@posthog/icons'
+import { IconPlay, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -17,6 +17,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -114,19 +115,22 @@ function tenantQueryTableRows(
         const qualifiedName = schema.table?.name ?? schema.name
         const { schemaName, tableName } = splitDirectQuerySchemaName(qualifiedName)
         const tenantColumnOverride = tenantColumnNamesByTable[qualifiedName] ?? null
-        const tenantColumnName = tenantColumnOverride ?? selectedTenantColumn
+        const configuredTenantColumnName = tenantColumnOverride ?? selectedTenantColumn
         const allColumns = (schema.table?.columns ?? [])
             .map((column) => ({
                 name: column.name,
                 type: typeof column.type === 'string' ? column.type : null,
             }))
             .sort((columnA, columnB) => columnA.name.localeCompare(columnB.name))
-        const hasTenantColumn = tenantColumnName ? allColumns.some((column) => column.name === tenantColumnName) : null
+        const hasTenantColumn = configuredTenantColumnName
+            ? allColumns.some((column) => column.name === configuredTenantColumnName)
+            : null
+        const tenantColumnName = hasTenantColumn ? configuredTenantColumnName : null
         const enabledForTenantQuery =
             schema.should_sync || enabledTableNames.has(qualifiedName) || enabledTableNames.has(tableName)
         const notQueryableReason = !enabledForTenantQuery
             ? 'Disabled in Schemas'
-            : tenantColumnName && hasTenantColumn === false
+            : configuredTenantColumnName && hasTenantColumn === false
               ? 'Missing tenant column'
               : null
         const columns = allColumns.filter((column) => column.name !== tenantColumnName)
@@ -142,7 +146,7 @@ function tenantQueryTableRows(
             queryName: qualifiedName,
             isQueryable: notQueryableReason === null,
             notQueryableReason,
-            tenantColumnName: tenantColumnName || null,
+            tenantColumnName,
             hasTenantColumnOverride: tenantColumnOverride !== null,
             hasTenantColumn,
             columns,
@@ -313,9 +317,14 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
     )
     const configuredTenantColumnTypeLabel = tenantColumnTypeLabel(tenantQueryConfig?.tenant_column_type)
     const hasQueryableTables = queryableTableRows.length > 0
+    const tenantColumnEditDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.ExternalDataSource,
+        AccessControlLevel.Admin,
+        source.user_access_level
+    )
 
     return (
-        <div className="space-y-6 max-w-4xl">
+        <div className="space-y-6 w-full">
             {!hasQueryableTables && (
                 <LemonBanner type="warning">
                     Enable at least one table in the Schemas tab before turning this on.
@@ -334,7 +343,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                     <div>
                         Query it with <code>POST /api/environments/:project_id/tenant_query/</code>. Send{' '}
                         <code>connection_id</code>, <code>query</code>, and the tenancy key as <code>tenant_value</code>{' '}
-                        in the JSON body. This works well as an MCP read path: your MCP tool can forward the
+                        in the JSON body. This works well as an MCP read path: your backend or MCP tool can forward the
                         end-customer's tenant value and let PostHog enforce table scoping, schema hiding, limits, and
                         query logging.
                     </div>
@@ -508,39 +517,28 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                             >
                                                 <LemonSelect<string>
                                                     value={draftTenantColumn || undefined}
-                                                    onChange={(value) =>
-                                                        setTenantQueryTableColumnDraft(row.id, value ?? '')
-                                                    }
+                                                    onSelect={(value) => {
+                                                        const nextTenantColumn = value ?? ''
+                                                        setTenantQueryTableColumnDraft(row.id, nextTenantColumn)
+                                                        if (nextTenantColumn) {
+                                                            saveTenantQueryTableColumnOverride(
+                                                                row.id,
+                                                                row.qualifiedName,
+                                                                nextTenantColumn
+                                                            )
+                                                        }
+                                                    }}
                                                     options={row.tenantColumnOptions}
                                                     placeholder="Select tenant column"
                                                     fullWidth
+                                                    loading={savingTenantQueryTableColumnOverride === row.id}
+                                                    disabledReason={
+                                                        tenantColumnEditDisabledReason ||
+                                                        (row.tenantColumnOptions.length === 0
+                                                            ? 'No columns match the global tenant type'
+                                                            : undefined)
+                                                    }
                                                 />
-                                                <AccessControlAction
-                                                    resourceType={AccessControlResourceType.ExternalDataSource}
-                                                    minAccessLevel={AccessControlLevel.Admin}
-                                                    userAccessLevel={source.user_access_level}
-                                                >
-                                                    <LemonButton
-                                                        size="small"
-                                                        type="secondary"
-                                                        icon={<IconCheck />}
-                                                        loading={savingTenantQueryTableColumnOverride === row.id}
-                                                        disabledReason={
-                                                            !draftTenantColumn
-                                                                ? 'Select tenant column'
-                                                                : row.tenantColumnOptions.length === 0
-                                                                  ? 'No columns match the global tenant type'
-                                                                  : undefined
-                                                        }
-                                                        onClick={(event) => {
-                                                            event.stopPropagation()
-                                                            saveTenantQueryTableColumnOverride(
-                                                                row.id,
-                                                                row.qualifiedName
-                                                            )
-                                                        }}
-                                                    />
-                                                </AccessControlAction>
                                                 <LemonButton
                                                     size="small"
                                                     type="tertiary"
