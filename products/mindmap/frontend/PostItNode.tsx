@@ -33,7 +33,7 @@ export function PostItNode({ data }: { data: PostItNodeData }): JSX.Element {
 
     return (
         <div
-            className={`PostItNode ${bgClass} rounded-md shadow-md p-3 w-48 cursor-pointer select-none`}
+            className={`PostItNode pointer-events-auto ${bgClass} rounded-md shadow-md p-3 w-48 cursor-pointer select-none`}
             onClick={handleClick}
             data-attr={`postit-${data.short_id}`}
         >

@@ -1,7 +1,15 @@
 import '@xyflow/react/dist/style.css'
 import './styles.scss'
 
-import { Background, Controls, Edge as XyEdge, Node as XyNode, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import {
+    Background,
+    Controls,
+    Edge as XyEdge,
+    Node as XyNode,
+    ReactFlow,
+    ReactFlowProvider,
+    useReactFlow,
+} from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
@@ -10,9 +18,15 @@ import { PostItNode, PostItNodeData } from './PostItNode'
 
 const NODE_TYPES = { postit: PostItNode }
 
-function MindmapInner(): JSX.Element {
+interface MindmapProps {
+    /** When false, disable drag, pan, zoom, and controls. Post-its remain clickable for notebook navigation. */
+    interactive?: boolean
+}
+
+function MindmapInner({ interactive }: { interactive: boolean }): JSX.Element {
     const { postits, edges } = useValues(mindmapLogic)
     const { startPolling, stopPolling, nodeDragged } = useActions(mindmapLogic)
+    const { fitView } = useReactFlow()
 
     useEffect(() => {
         startPolling()
@@ -25,6 +39,7 @@ function MindmapInner(): JSX.Element {
                 id: p.short_id,
                 type: 'postit',
                 position: { x: p.position_x, y: p.position_y },
+                draggable: interactive,
                 data: {
                     short_id: p.short_id,
                     title: p.title,
@@ -34,7 +49,7 @@ function MindmapInner(): JSX.Element {
                     notebook_short_id: p.notebook_short_id ?? null,
                 },
             })),
-        [postits]
+        [postits, interactive]
     )
 
     const flowEdges: XyEdge[] = useMemo(
@@ -46,6 +61,14 @@ function MindmapInner(): JSX.Element {
             })),
         [edges]
     )
+
+    useEffect(() => {
+        if (nodes.length === 0) {
+            return
+        }
+        const handle = window.setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
+        return () => window.clearTimeout(handle)
+    }, [nodes.length, edges.length, fitView])
 
     if (postits.length === 0) {
         return (
@@ -66,18 +89,26 @@ function MindmapInner(): JSX.Element {
                 nodeTypes={NODE_TYPES}
                 onNodeDragStop={(_, node) => nodeDragged(node.id, node.position.x, node.position.y)}
                 fitView
+                fitViewOptions={{ padding: 0.2 }}
+                nodesDraggable={interactive}
+                nodesConnectable={false}
+                panOnDrag={interactive}
+                zoomOnScroll={interactive}
+                zoomOnPinch={interactive}
+                zoomOnDoubleClick={interactive}
+                proOptions={{ hideAttribution: true }}
             >
                 <Background />
-                <Controls />
+                {interactive ? <Controls /> : null}
             </ReactFlow>
         </div>
     )
 }
 
-export function Mindmap(): JSX.Element {
+export function Mindmap({ interactive = true }: MindmapProps = {}): JSX.Element {
     return (
         <ReactFlowProvider>
-            <MindmapInner />
+            <MindmapInner interactive={interactive} />
         </ReactFlowProvider>
     )
 }

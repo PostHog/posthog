@@ -2,5 +2,15 @@
     "name": "@posthog/products-mindmap",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@types/react": "*",
+        "@xyflow/react": "*",
+        "react": "*"
     }
 }
