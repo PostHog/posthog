@@ -52,6 +52,7 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -60,6 +61,10 @@ def _summary_quota_cache_key(organization_id) -> str:
 
 def _summary_cap_hit_dedupe_key(organization_id) -> str:
     return f"subscription:summary_cap_hit:org:{organization_id}"
+
+
+def _hourly_cap_hit_dedupe_key(organization_id) -> str:
+    return f"subscription:hourly_cap_hit:org:{organization_id}"
 
 
 def _count_active_summaries(organization) -> int:
@@ -393,6 +398,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if self.instance is not None:
             existing = existing.exclude(pk=self.instance.pk)
         if existing.exists():
+            self._capture_hourly_cap_hit(organization)
             raise ValidationError(
                 {
                     "frequency": [
@@ -401,6 +407,36 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     ]
                 }
             )
+
+    def _capture_hourly_cap_hit(self, organization) -> None:
+        # Rate-limited to one event per org per 10 minutes so a misbehaving
+        # client retrying in a loop doesn't spam the analytics stream. Within
+        # that window the user-visible 400 still fires every time.
+        dedupe_key = _hourly_cap_hit_dedupe_key(organization.id)
+        if cache.get(dedupe_key):
+            return
+        cache.set(dedupe_key, True, HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS)
+
+        request = self.context.get("request")
+        distinct_id = (
+            str(request.user.distinct_id)
+            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
+            else f"team_{self.context.get('team_id')}"
+        )
+        try:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="subscription_hourly_cap_hit",
+                properties={
+                    "team_id": self.context.get("team_id"),
+                    "organization_id": str(organization.id),
+                    "is_create": self.instance is None,
+                },
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            # Telemetry must never poison the validation path.
+            pass
 
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.

@@ -422,7 +422,7 @@ export function EditSubscription({
                                         </LemonField>
                                     </>
                                 )}
-                                <span>by</span>
+                                <span>{subscription.frequency === 'hourly' ? 'starting at' : 'by'}</span>
                                 <LemonField name="start_date">
                                     {({ value, onChange }) => (
                                         <LemonSelect

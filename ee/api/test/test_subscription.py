@@ -644,6 +644,26 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert second.status_code == status.HTTP_201_CREATED
 
+    def test_hourly_cap_hit_emits_telemetry(self):
+        cache.clear()
+        with (
+            patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
+            patch("ee.api.subscription.posthoganalytics.capture") as mock_capture,
+        ):
+            first = self._create_subscription(frequency="hourly", title="first hourly")
+            assert first.status_code == status.HTTP_201_CREATED
+
+            second = self._create_subscription(frequency="hourly", title="second hourly")
+            assert second.status_code == status.HTTP_400_BAD_REQUEST
+
+        cap_hit_calls = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "subscription_hourly_cap_hit"
+        ]
+        assert len(cap_hit_calls) == 1
+        props = cap_hit_calls[0].kwargs["properties"]
+        assert props["organization_id"] == str(self.organization.id)
+        assert props["is_create"] is True
+
     def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
         # Build raw rows so we can place an org over its tier cap to exercise
         # grandfathering paths without going through the enforced API.
