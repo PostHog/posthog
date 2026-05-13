@@ -1316,3 +1316,15 @@ class TestLiveDebuggerActiveProgramsAPI(APIBaseTest):
 
         ids = [p.id for p in ProgramList.from_bytes(response.content).programs]
         self.assertEqual(ids, [str(own.id)])
+
+    def test_compile_failure_is_skipped(self):
+        from hogtrace import ProgramList
+
+        valid = self._make_program(self.HOGTRACE_SOURCE_A)
+        self._make_program("this is not a valid hogtrace program at all")
+
+        response = self.client.get(self.URL)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [p.id for p in ProgramList.from_bytes(response.content).programs]
+        self.assertEqual(ids, [str(valid.id)])
