@@ -17,6 +17,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
+    ENVIRONMENT_COLOR_CHOICES,
     TEAM_CONFIG_FIELDS_SET,
     TeamSerializer,
     get_or_mint_live_events_token,
@@ -90,6 +91,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    # environment_color is a passthrough CharField on the Team model; declaring it
+    # here as a ChoiceField mirrors the validation we do in TeamSerializer so the
+    # projects endpoint rejects unknown palette values the same way.
+    environment_color = serializers.ChoiceField(
+        choices=ENVIRONMENT_COLOR_CHOICES,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Color key paired with `environment_label`. Must be one of the predefined values.",
+    )
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
