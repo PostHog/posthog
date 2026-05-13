@@ -132,6 +132,59 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # Regression: delegation invites use a different template and subject line, so verify
+        # the org-name fallback flows through both the subject and the dedicated template.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        org.name = "https://acme.example.com"
+        org.save()
+        user.first_name = "Admin"
+        user.save()
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="delegate@posthog.com",
+            is_setup_delegation=True,
+            message="Welcome aboard, looking forward to working with you!",
+        )
+
+        send_invite(invite.id)
+
+        assert len(mocked_email_messages) == 1
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert subject == "Admin asked you to finish setting up PostHog for their organization"
+        assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
+        html = mocked_email_messages[0].html_body
+        assert "their organization" in html
+        assert "https://acme.example.com" not in html
+        # Valid message bodies still render in the delegation template.
+        assert "Welcome aboard" in html
+
+    def test_send_delegation_invite_strips_invalid_message_body(self, MockEmailMessage: MagicMock) -> None:
+        # Regression: the delegation template now reads `invite_message` from the sanitized
+        # context rather than `invite.message` directly, so an unsafe body must not leak.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="delegate@posthog.com",
+            is_setup_delegation=True,
+            message="Click here: http://phishing.example.com",
+        )
+
+        send_invite(invite.id)
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        assert "phishing.example.com" not in html
+        assert "Click here" not in html
+
     def test_send_invite_falls_back_when_organization_name_is_a_url(self, MockEmailMessage: MagicMock) -> None:
         # Regression: orgs whose legacy name happens to look like a URL must still be able
         # to send invites — the recipient sees a generic "their organization" instead of
