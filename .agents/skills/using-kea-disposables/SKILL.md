@@ -7,7 +7,7 @@ description: Use when adding timers (`setInterval`, `setTimeout`), event listene
 
 Every kea logic in this repo has `cache.disposables` injected by the local `disposablesPlugin` (`frontend/src/kea-disposables.ts`, registered globally in `frontend/src/initKea.ts`). Reach for it whenever you create a resource that needs explicit teardown — the plugin runs cleanup on unmount and automatically pauses background work when the tab is hidden.
 
-**Do not add a `beforeUnmount` for cleanup.** The plugin runs the cleanup function you return from `setup` automatically when the logic unmounts (and re-runs setup/cleanup around tab visibility changes). If you find yourself writing a `beforeUnmount` whose only job is to `clearInterval` / `clearTimeout` / `removeEventListener` something registered earlier in the same logic, register that resource through `cache.disposables.add(...)` instead and delete the `beforeUnmount`. Reserve `beforeUnmount` for teardown that *isn't* a resource you control (e.g. flushing state, persisting to localStorage, calling a third-party `dispose()`).
+**Do not add a `beforeUnmount` for cleanup.** The plugin runs the cleanup function you return from `setup` automatically when the logic unmounts (and re-runs setup/cleanup around tab visibility changes). If you find yourself writing a `beforeUnmount` whose only job is to `clearInterval` / `clearTimeout` / `removeEventListener` something registered earlier in the same logic, register that resource through `cache.disposables.add(...)` instead and delete the `beforeUnmount`. Reserve `beforeUnmount` for teardown that _isn't_ a resource you control (e.g. flushing state, persisting to localStorage, calling a third-party `dispose()`).
 
 ## Use this skill when
 
@@ -118,15 +118,17 @@ showSeekIndicator: () => {
 
 ```ts
 cache.disposables.add(() => {
-    const clickListener = (e: MouseEvent): void => { /* ... */ }
-    window.addEventListener('mousedown', clickListener)
-    return () => window.removeEventListener('mousedown', clickListener)
+  const clickListener = (e: MouseEvent): void => {
+    /* ... */
+  }
+  window.addEventListener('mousedown', clickListener)
+  return () => window.removeEventListener('mousedown', clickListener)
 }, 'clickListener')
 
 cache.disposables.add(() => {
-    const popstateHandler = (): void => actions.maybeSendNavigationMessage()
-    window.addEventListener('popstate', popstateHandler)
-    return () => window.removeEventListener('popstate', popstateHandler)
+  const popstateHandler = (): void => actions.maybeSendNavigationMessage()
+  window.addEventListener('popstate', popstateHandler)
+  return () => window.removeEventListener('popstate', popstateHandler)
 }, 'popstateListener')
 ```
 
