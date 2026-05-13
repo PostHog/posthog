@@ -78,6 +78,10 @@ CONFIG_FILE = REGISTRY_DIR / "config.json"
 TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
 TOOLS_BUILD_LOCK = REGISTRY_DIR / ".tools-build.lock"
 
+# Checked-in repository catalog of vetted tool recipes (gh, gt, etc.).
+# `sandbox tools add <name>` picks up entries by name.
+CATALOG_FILE = REPO_ROOT / "bin/sandbox-tools.yaml"
+
 # Shared, content-addressed image tags used by docker-compose.sandbox.yml.
 # Personal layers on top track tools.yaml + host UID/GID.
 BASE_IMAGE_TAG = "posthog-sandbox:base"
@@ -497,6 +501,56 @@ def _try_short_form_mount(source: str, target: str, host_home: str) -> str | Non
     if target != expected_target:
         return None
     return f"~/{rel}"
+
+
+@dataclass
+class CatalogEntry:
+    name: str
+    description: str
+    install: str | None
+    mounts: list[ToolMount]
+
+
+def _load_catalog() -> dict[str, CatalogEntry]:
+    """Load the checked-in tool recipe catalog (bin/sandbox-tools.yaml).
+
+    Returns a name -> CatalogEntry mapping. Missing or empty file is OK
+    (catalog is opt-in); malformed entries fail loudly so a bad merge
+    doesn't silently lose recipes.
+    """
+    if not CATALOG_FILE.is_file():
+        return {}
+    raw = yaml.safe_load(CATALOG_FILE.read_text()) or {}
+    if not isinstance(raw, dict):
+        fatal(f"{CATALOG_FILE}: top-level must be a mapping with a 'tools' key.")
+    entries_data = raw.get("tools", [])
+    if not isinstance(entries_data, list):
+        fatal(f"{CATALOG_FILE}: 'tools' must be a list.")
+
+    catalog: dict[str, CatalogEntry] = {}
+    for i, entry in enumerate(entries_data):
+        if not isinstance(entry, dict):
+            fatal(f"{CATALOG_FILE}: tools[{i}] must be a mapping.")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            fatal(f"{CATALOG_FILE}: tools[{i}] is missing a 'name'.")
+        if name in catalog:
+            fatal(f"{CATALOG_FILE}: duplicate catalog entry {name!r}.")
+        description = entry.get("description", "")
+        if not isinstance(description, str):
+            fatal(f"{CATALOG_FILE}: tools[{i}].description must be a string.")
+        install = entry.get("install")
+        if install is not None and not isinstance(install, str):
+            fatal(f"{CATALOG_FILE}: tools[{i}].install must be a string.")
+        mounts_raw = entry.get("mounts") or []
+        if not isinstance(mounts_raw, list):
+            fatal(f"{CATALOG_FILE}: tools[{i}].mounts must be a list.")
+        mounts = [
+            _parse_tool_mount(m, source_label=f"{CATALOG_FILE}: tools[{i}].mounts[{j}]")
+            for j, m in enumerate(mounts_raw)
+        ]
+        catalog[name] = CatalogEntry(name=name, description=description, install=install, mounts=mounts)
+    return catalog
 
 
 # ---------------------------------------------------------------------------
@@ -2336,21 +2390,73 @@ def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
 
 def _tools_list() -> None:
     tools = _load_user_tools()
-    if not tools:
-        print(f"No tools configured. Add one with: sandbox tools add <name>")
-        print(f"(or edit {TOOLS_FILE} directly)")
-        return
+    catalog = _load_catalog()
+    configured_names = {t.name for t in tools}
 
-    current_user_tag = _user_image_tag(tools)
-    image_baked = _image_exists(current_user_tag)
-    status = "baked" if image_baked else "pending rebuild on next `sandbox create`"
-
-    print(f"Tools defined in {TOOLS_FILE}")
-    print(f"User image: {current_user_tag} ({status})")
-    print()
-    for t in tools:
-        _print_tool_summary(t)
+    if tools:
+        current_user_tag = _user_image_tag(tools)
+        image_baked = _image_exists(current_user_tag)
+        status = "baked" if image_baked else "pending rebuild on next `sandbox create`"
+        print(f"Tools defined in {TOOLS_FILE}")
+        print(f"User image: {current_user_tag} ({status})")
         print()
+        for t in tools:
+            _print_tool_summary(t)
+            print()
+    else:
+        print(f"No tools configured in {TOOLS_FILE}.")
+        print()
+
+    if catalog:
+        print(f"Available recipes in {CATALOG_FILE.relative_to(REPO_ROOT)}:")
+        print("  (use `sandbox tools add <name>` to pull one into your tools.yaml)")
+        print()
+        for name in sorted(catalog):
+            entry = catalog[name]
+            marker = "  [installed]" if name in configured_names else ""
+            print(f"  {name}{marker}: {entry.description}")
+        print()
+
+
+def _confirm(prompt: str, *, default_yes: bool = True) -> bool:
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    answer = input(f"{prompt} {suffix} ").strip().lower()
+    if not answer:
+        return default_yes
+    return answer in ("y", "yes")
+
+
+def _add_from_catalog(entry: CatalogEntry, tools: list[Tool], *, run_test: bool) -> None:
+    """Append a catalog entry to the user's tools list after confirmation."""
+    print(f"\n'{entry.name}' is in the sandbox tool catalog:")
+    print(f"  {entry.description}")
+    if entry.install:
+        print("  install:")
+        for ln in entry.install.strip().splitlines():
+            print(f"    {ln}")
+    for m in entry.mounts:
+        print(f"  mount: {m.source} -> {m.target}")
+    print()
+    if not _confirm("Add this recipe to your tools.yaml?"):
+        info("Aborted.")
+        sys.exit(0)
+
+    if entry.install and run_test:
+        info("Building a throwaway test layer on top of the current base image...")
+        if not _test_install_snippet(entry.install):
+            fatal(f"Catalog install snippet for '{entry.name}' failed against your local base image.")
+        success("install succeeded.")
+
+    tools.append(Tool(name=entry.name, install=entry.install, mounts=list(entry.mounts)))
+    total_mounts = sum(len(t.mounts) for t in tools)
+    if total_mounts > MAX_TOOL_MOUNTS:
+        fatal(
+            f"Adding '{entry.name}' would bring total tools.yaml mounts to "
+            f"{total_mounts}, exceeding the {MAX_TOOL_MOUNTS}-slot limit."
+        )
+    _save_user_tools(tools)
+    success(f"Added '{entry.name}' from catalog to {TOOLS_FILE}.")
+    print("Next `sandbox create` will pick it up (image rebuilds once).")
 
 
 def _tools_add(args) -> None:
@@ -2359,6 +2465,16 @@ def _tools_add(args) -> None:
         fatal(f"Tool '{args.name}' is already defined. Run 'sandbox tools remove {args.name}' first.")
 
     non_interactive = args.install is not None or bool(args.mount)
+
+    # Catalog hit: if the user didn't override with their own install/mount
+    # flags, treat the catalog entry as the intended recipe and skip the
+    # write-it-from-scratch flow entirely.
+    catalog = _load_catalog()
+    catalog_entry = catalog.get(args.name)
+    if catalog_entry and not non_interactive:
+        _add_from_catalog(catalog_entry, tools, run_test=args.test)
+        return
+
     install: str | None
     mount_strs: list[str]
 
@@ -2377,13 +2493,11 @@ def _tools_add(args) -> None:
             "  Multi-line allowed. Empty line to finish.",
         )
         install = install_block or None
-        if install:
-            answer = input("\nTest this snippet now? [Y/n] ").strip().lower()
-            if answer not in ("n", "no"):
-                info("Building a throwaway test layer on top of the current base image...")
-                if not _test_install_snippet(install):
-                    fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
-                success("install succeeded.")
+        if install and _confirm("\nTest this snippet now?"):
+            info("Building a throwaway test layer on top of the current base image...")
+            if not _test_install_snippet(install):
+                fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
+            success("install succeeded.")
         mount_strs = _read_path_list(
             f"\nWhere does '{args.name}' store auth/config on your host?",
             "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",

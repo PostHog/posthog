@@ -62,14 +62,28 @@ Don't edit `tools.yaml` by hand for the common case; the subcommand keeps you
 out of trouble.
 
 ```bash
-sandbox tools list                       # print configured tools + image status
-sandbox tools add <name>                 # interactive prompt
+sandbox tools list                       # print configured tools + catalog
+sandbox tools add <name>                 # interactive prompt (or catalog pick)
 sandbox tools add <name> --install '...' # non-interactive (scripting)
 sandbox tools remove <name>              # strip the entry
 ```
 
 The interactive `add` flow optionally builds a throwaway test layer on top of
 the current base image to verify your install snippet before saving it.
+
+## Catalog of vetted recipes
+
+`bin/sandbox-tools.yaml` is the checked-in catalog of pre-baked install +
+mount recipes (`gh`, `gt`, etc.). When you run `sandbox tools add <name>` and
+the name matches a catalog entry, the CLI shows the recipe, asks for
+confirmation, and writes it straight into your `tools.yaml`. `sandbox tools
+list` always prints the catalog so you can see what's available.
+
+To contribute a new recipe, edit `bin/sandbox-tools.yaml`: add an entry with
+`name`, a one-line `description`, an `install` shell snippet, and any
+`mounts` the tool reads from the host. Run `sandbox tools add <name>
+--install ... --test` locally first to confirm the snippet builds against
+the current base image. Keep entries alphabetical by name for stable diffs.
 
 ## Image lifecycle
 

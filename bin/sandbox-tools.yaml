@@ -1,0 +1,41 @@
+# Checked-in catalog of optional CLI tools that `./bin/sandbox tools add <name>`
+# can drop into a contributor's personal sandbox image. Entries here are not
+# automatically installed: users opt in by name. Each user's actual selection
+# lives in their own ~/.posthog-sandboxes/tools.yaml.
+#
+# Schema (per entry):
+#   name        required - matches the argument to `sandbox tools add`
+#   description required - one-liner shown by `sandbox tools list`
+#   install     optional - shell script run as the sandbox user at image
+#                          build time; `sudo` (NOPASSWD) is preconfigured
+#   mounts      optional - host paths copied into the sandbox $HOME at
+#                          create time (short form for paths under $HOME,
+#                          long form `{source, target}` for system paths)
+#
+# When adding a new tool to the catalog:
+#   1. Author the install snippet against the current base image (run
+#      `sandbox tools add <name> --install ... --test` locally to verify).
+#   2. List the host config paths the tool reads at runtime under `mounts`.
+#      Missing host paths are skipped silently, so it's fine to include
+#      paths users may not have populated yet.
+#   3. Keep entries alphabetical by `name` for stable diffs.
+
+tools:
+    - name: gh
+      description: 'GitHub CLI (cli.github.com): repo browsing, PR review, gh auth share'
+      install: |
+          sudo mkdir -p -m 755 /etc/apt/keyrings
+          sudo curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y gh
+      mounts:
+          - ~/.config/gh
+
+    - name: gt
+      description: 'Graphite CLI (graphite.dev): stacked PRs and review workflow'
+      install: |
+          npm install -g @withgraphite/graphite-cli@stable
+      mounts:
+          - ~/.config/graphite
