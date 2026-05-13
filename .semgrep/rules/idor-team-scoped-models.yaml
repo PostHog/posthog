@@ -680,6 +680,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |UserPushToken
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -731,6 +732,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |UserPushToken
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)
