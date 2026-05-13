@@ -35,7 +35,7 @@ const CELL_AREA: Record<LeanCanvasCellKey, string> = {
 
 export function LeanCanvasStep(): JSX.Element {
     const { currentCell, filledCount, isFirstCell, isLastCell, savedProjectLoading } = useValues(leanCanvasLogic)
-    const { nextCell, previousCell, completeAndContinue } = useActions(leanCanvasLogic)
+    const { nextCell, previousCell, completeAndContinue, prefillSample } = useActions(leanCanvasLogic)
 
     return (
         <div className="flex flex-col gap-6 w-full max-w-6xl">
@@ -47,8 +47,19 @@ export function LeanCanvasStep(): JSX.Element {
                         progress saves whenever you move on.
                     </p>
                 </div>
-                <div className="text-xs text-text-secondary shrink-0">
-                    {filledCount} of {LEAN_CANVAS_CELLS.length} filled
+                <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-text-secondary">
+                        {filledCount} of {LEAN_CANVAS_CELLS.length} filled
+                    </span>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={prefillSample}
+                        data-attr="lean-canvas-prefill-debug"
+                        title="Fill all 9 cells with sample HOA cofounder content and save"
+                    >
+                        Debug: prefill sample
+                    </Button>
                 </div>
             </header>
 

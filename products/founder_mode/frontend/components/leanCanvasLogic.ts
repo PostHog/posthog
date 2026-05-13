@@ -131,6 +131,27 @@ const EMPTY_IDEATION: LeanCanvasIdeation = LEAN_CANVAS_CELL_KEYS.reduce((acc, ke
     return acc
 }, {} as LeanCanvasIdeation)
 
+// Demo content used by the prefill debug button — modeled on the "HOA cofounder" sample
+// idea from earlier hackathon sessions. Keep it concrete and opinionated so the rendered
+// canvas looks like real founder thinking rather than placeholder lorem.
+const SAMPLE_IDEATION: LeanCanvasIdeation = {
+    problem:
+        'HOA boards burn 4 hours each meeting taking minutes, chasing votes, and reconciling bylaws. Existing software is clunky and built for property managers, not volunteer boards.',
+    customer_segments:
+        'Volunteer HOA board members at 5-200 unit complexes. Early adopters: complexes already using Google Workspace and frustrated by current minute-taking tools.',
+    usp: 'The AI cofounder for volunteer HOA boards — agendas, minutes, votes in one place, drafted from your bylaws and meeting recordings.',
+    solution:
+        'Ingest meeting recordings + bylaws. Draft agendas. Summarize decisions. Track votes with full audit trail.',
+    unfair_advantage:
+        'Founder sits on three HOA boards and runs a 400-member homeowner forum. Hands-on community context most competitors lack.',
+    revenue_stream: '$5/unit/month SaaS, billed annually. Estimated ~80% gross margin after LLM inference costs.',
+    cost_structure: 'LLM inference, founder salary, customer acquisition, infrastructure, customer support.',
+    key_metrics:
+        'Active boards per month, meetings managed, 30-day retention, time saved per meeting (target: 2+ hours).',
+    channels:
+        'Founder-led outbound to HOA management companies, NextDoor groups, HOA-focused subreddits, HOA conferences.',
+}
+
 // Step 2's validation pipeline (logic/validation/schemas.py::IdeationInput) reads
 // {what, how, who, problem} from the saved ideation. We project the richer canvas onto
 // those four legacy keys so the existing pipeline keeps working without backend changes.
@@ -174,6 +195,7 @@ export const leanCanvasLogic = kea<leanCanvasLogicType>([
         previousCell: true,
         saveProgress: true,
         completeAndContinue: true,
+        prefillSample: true,
     }),
 
     reducers({
@@ -181,6 +203,7 @@ export const leanCanvasLogic = kea<leanCanvasLogicType>([
             EMPTY_IDEATION,
             {
                 setCellValue: (state, { key, value }) => ({ ...state, [key]: value }),
+                prefillSample: () => SAMPLE_IDEATION,
             },
         ],
         currentCellIndex: [
@@ -289,6 +312,13 @@ export const leanCanvasLogic = kea<leanCanvasLogicType>([
             }
         },
         completeAndContinue: () => {
+            actions.saveProgress()
+        },
+        // Debug-only convenience: drop a complete sample canvas into state, jump to the last
+        // cell (so the next click is "Save & continue"), and persist immediately. Useful for
+        // skipping through the flow during dev / demos.
+        prefillSample: () => {
+            actions.goToCell(LEAN_CANVAS_CELL_KEYS.length - 1)
             actions.saveProgress()
         },
     })),
