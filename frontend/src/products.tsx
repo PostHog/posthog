@@ -884,6 +884,7 @@ export const productUrls = {
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
     metrics: (): string => '/metrics',
+    mindmap: (): string => '/mindmap',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
