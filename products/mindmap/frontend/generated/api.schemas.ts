@@ -7,32 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface MindMapEdgeApi {
-    /** Edge UUID */
-    readonly id: string
-    /**
-     * Source post-it short_id
-     * @maxLength 12
-     */
-    source: string
-    /**
-     * Target post-it short_id
-     * @maxLength 12
-     */
-    target: string
-    /** When the edge was created */
-    readonly created_at: string
-}
-
-export interface PaginatedMindMapEdgeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: MindMapEdgeApi[]
-}
-
 /**
  * * `yellow` - Yellow
  * `pink` - Pink
@@ -91,6 +65,48 @@ export interface MindMapPostItApi {
     notebook_short_id?: string | null
     readonly created_at: string
     readonly last_modified_at: string
+}
+
+export interface _MindMapEdgeRefApi {
+    /** Source post-it short_id */
+    source: string
+    /** Target post-it short_id */
+    target: string
+}
+
+export interface _MindMapStateApi {
+    /** All non-deleted post-its on the team's canvas */
+    postits: MindMapPostItApi[]
+    /** All directed edges on the canvas */
+    edges: _MindMapEdgeRefApi[]
+    /** Opaque version hash. Pass via If-None-Match for 304 short-circuit. */
+    version: string
+}
+
+export interface MindMapEdgeApi {
+    /** Edge UUID */
+    readonly id: string
+    /**
+     * Source post-it short_id
+     * @maxLength 12
+     */
+    source: string
+    /**
+     * Target post-it short_id
+     * @maxLength 12
+     */
+    target: string
+    /** When the edge was created */
+    readonly created_at: string
+}
+
+export interface PaginatedMindMapEdgeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MindMapEdgeApi[]
 }
 
 export interface PaginatedMindMapPostItListApi {

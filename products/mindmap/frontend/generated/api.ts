@@ -18,6 +18,7 @@ import type {
     PatchedMindMapPostItApi,
     _BulkPositionRequestApi,
     _BulkPositionResponseApi,
+    _MindMapStateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -41,8 +42,8 @@ export const getMindmapStateRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/mindmap/state/`
 }
 
-export const mindmapStateRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getMindmapStateRetrieveUrl(projectId), {
+export const mindmapStateRetrieve = async (projectId: string, options?: RequestInit): Promise<_MindMapStateApi> => {
+    return apiMutator<_MindMapStateApi>(getMindmapStateRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

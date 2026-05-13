@@ -3,8 +3,8 @@ from typing import Any
 
 from django.db.models import Max
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -26,13 +26,24 @@ def _compute_version(team_id: int) -> str:
     return hashlib.sha1(seed.encode("utf-8")).hexdigest()
 
 
+class _MindMapEdgeRefSerializer(serializers.Serializer):
+    source = serializers.CharField(help_text="Source post-it short_id")
+    target = serializers.CharField(help_text="Target post-it short_id")
+
+
+class _MindMapStateSerializer(serializers.Serializer):
+    postits = MindMapPostItSerializer(many=True, help_text="All non-deleted post-its on the team's canvas")
+    edges = _MindMapEdgeRefSerializer(many=True, help_text="All directed edges on the canvas")
+    version = serializers.CharField(help_text="Opaque version hash. Pass via If-None-Match for 304 short-circuit.")
+
+
 class MindMapStateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "mindmap"
     # GenericViewSet still requires a queryset for permission/router introspection.
     queryset = MindMapPostIt.objects.none()
 
     @extend_schema(
-        responses={200: OpenApiResponse(description="Full mindmap state for the team")},
+        responses={200: _MindMapStateSerializer},
     )
     @action(detail=False, methods=["get"], url_path="state")
     def state(self, request: Request, *args: Any, **kwargs: Any) -> Response:

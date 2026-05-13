@@ -35531,6 +35531,22 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface _MindMapEdgeRef {
+      /** Source post-it short_id */
+      source: string;
+      /** Target post-it short_id */
+      target: string;
+    }
+
+    export interface _MindMapState {
+      /** All non-deleted post-its on the team's canvas */
+      postits: MindMapPostIt[];
+      /** All directed edges on the canvas */
+      edges: _MindMapEdgeRef[];
+      /** Opaque version hash. Pass via If-None-Match for 304 short-circuit. */
+      version: string;
+    }
+
     /**
      * * `span` - span
     * `span_attribute` - span_attribute
