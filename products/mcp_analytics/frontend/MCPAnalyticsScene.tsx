@@ -14,17 +14,18 @@ export const scene: SceneExport = {
     component: MCPAnalyticsScene,
 }
 
-type MCPAnalyticsTab = 'dashboard'
+type MCPAnalyticsTab = 'dashboard' | 'sessions'
 
 const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     dashboard: 'Overview of your MCP usage.',
+    sessions: 'Sessions where users interacted with your MCP tools.',
 }
 
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
-    const { searchParams } = useValues(router)
-    const activeTab = 'dashboard'
+    const { searchParams, location } = useValues(router)
+    const activeTab: MCPAnalyticsTab = location.pathname.endsWith('/sessions') ? 'sessions' : 'dashboard'
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
@@ -33,6 +34,13 @@ export function MCPAnalyticsScene(): JSX.Element {
             content: <div>ABC</div>,
             link: combineUrl(urls.mcpAnalyticsDashboard(), searchParams).url,
             'data-attr': 'mcp-analytics-dashboard-tab',
+        },
+        {
+            key: 'sessions',
+            label: 'Sessions',
+            content: <div>Sessions</div>,
+            link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
+            'data-attr': 'mcp-analytics-sessions-tab',
         },
     ]
 

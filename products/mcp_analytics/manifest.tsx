@@ -27,11 +27,13 @@ export const manifest: ProductManifest = {
     routes: {
         // Define routes here
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
+        '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
     },
     redirects: {},
     urls: {
         // Define URL helpers here
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
+        mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
