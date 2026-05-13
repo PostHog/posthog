@@ -78,6 +78,7 @@
         "@posthog/products-dashboards": "workspace:*",
         "@posthog/products-data-modeling": "workspace:*",
         "@posthog/products-data-warehouse": "workspace:*",
+        "@posthog/products-deployments": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",
         "@posthog/products-endpoints": "workspace:*",
         "@posthog/products-error-tracking": "workspace:*",
