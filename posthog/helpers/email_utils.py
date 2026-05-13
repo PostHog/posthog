@@ -107,6 +107,54 @@ def validate_message_body(value: str | None) -> str | None:
     return value
 
 
+def sanitize_display_name(value: str | None, *, fallback: str, context: Optional[dict] = None) -> str:
+    """
+    Return a display-name safe to render in an email. If `value` passes
+    `validate_display_name`, it is returned (stripped). Otherwise `fallback`
+    is returned and the rejection is logged with `context` for debugging.
+
+    Use this in email-sending tasks where dropping the email entirely on a
+    bad legacy value (e.g. an organisation name that happens to be a URL)
+    would be more harmful than substituting a generic placeholder.
+    """
+    try:
+        validated = validate_display_name(value)
+    except serializers.ValidationError as err:
+        detail = err.detail
+        error_code = detail[0].code if isinstance(detail, list) and detail else "invalid"
+        logger.info(
+            "email_utils.display_name_sanitized",
+            error_code=error_code,
+            fallback=fallback,
+            **(context or {}),
+        )
+        return fallback
+    if not validated:
+        return fallback
+    return validated
+
+
+def sanitize_message_body(value: str | None, *, fallback: str = "", context: Optional[dict] = None) -> str:
+    """
+    Return a message body safe to render in an email. If `value` passes
+    `validate_message_body`, it is returned unchanged. Otherwise `fallback`
+    is returned (defaulting to an empty string, which suppresses the
+    optional message block) and the rejection is logged.
+    """
+    try:
+        validated = validate_message_body(value)
+    except serializers.ValidationError as err:
+        detail = err.detail
+        error_code = detail[0].code if isinstance(detail, list) and detail else "invalid"
+        logger.info(
+            "email_utils.message_body_sanitized",
+            error_code=error_code,
+            **(context or {}),
+        )
+        return fallback
+    return validated or fallback
+
+
 class EmailNormalizer:
     @staticmethod
     def normalize(email: str) -> str:
