@@ -13,6 +13,8 @@
     "scripts": {
         "build": "pnpm run generate:commands && tsc",
         "dev": "tsx src/index.ts",
+        "format": "oxfmt \"{src,scripts}/**/*.ts\"",
+        "format:check": "oxfmt --check \"{src,scripts}/**/*.ts\"",
         "generate:commands": "tsx scripts/generate-commands.ts",
         "link:global": "pnpm run build && pnpm link --global",
         "prepack": "pnpm run build",
@@ -37,6 +39,7 @@
         "@types/inquirer": "^9.0.0",
         "@types/node": "^20.0.0",
         "@types/yargs": "^17.0.0",
+        "oxfmt": "^0.35.0",
         "typescript": "^5.0.0"
     },
     "engines": {

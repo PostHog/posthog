@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Generates CLI commands from MCP tool definitions.
- * 
+ *
  * Reads tool-definitions-all.json and generates CLI command handlers
  * for each tool with proper command grouping.
  */
@@ -19,59 +19,59 @@ const SCHEMA_FILE = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
 const GENERATED_DIR = path.resolve(CLI_ROOT, 'src/generated')
 
 interface ToolDefinition {
-  description: string
-  category: string
-  feature: string
-  summary: string
-  title: string
-  required_scopes: string[]
-  new_mcp: boolean
-  annotations: {
-    destructiveHint: boolean
-    idempotentHint: boolean
-    openWorldHint: boolean
-    readOnlyHint: boolean
-  }
+    description: string
+    category: string
+    feature: string
+    summary: string
+    title: string
+    required_scopes: string[]
+    new_mcp: boolean
+    annotations: {
+        destructiveHint: boolean
+        idempotentHint: boolean
+        openWorldHint: boolean
+        readOnlyHint: boolean
+    }
 }
 
 // No longer needed - MCP tools handle their own API mappings
 
 function loadDefinitions(): Record<string, ToolDefinition> {
-  const content = fs.readFileSync(SCHEMA_FILE, 'utf8')
-  return JSON.parse(content)
+    const content = fs.readFileSync(SCHEMA_FILE, 'utf8')
+    return JSON.parse(content)
 }
 
 // This function is no longer needed - we import MCP tools directly
 
 function generateCommandsFile(): void {
-  const definitions = loadDefinitions()
-  
-  // Create generated directory
-  if (!fs.existsSync(GENERATED_DIR)) {
-    fs.mkdirSync(GENERATED_DIR, { recursive: true })
-  }
-  
-  const commandGroups: Record<string, { tools: Array<{ name: string, description?: string }> }> = {}
-  
-  // Group tools by feature - all tools are included since MCP tools handle their own endpoints
-  for (const [toolName, tool] of Object.entries(definitions)) {
-    const feature = tool.feature.toLowerCase().replace(/\s+/g, '-')
-    
-    // Initialize feature group if not exists
-    if (!commandGroups[feature]) {
-      commandGroups[feature] = { tools: [] }
+    const definitions = loadDefinitions()
+
+    // Create generated directory
+    if (!fs.existsSync(GENERATED_DIR)) {
+        fs.mkdirSync(GENERATED_DIR, { recursive: true })
     }
-    
-    // Add all tools since they will be handled by MCP tool imports
-    commandGroups[feature].tools.push({
-      name: toolName,
-      description: tool.summary || tool.description
-    })
-  }
-  
-  // Generate the commands file
-  const allToolNames = Object.keys(definitions)
-  const commandsContent = `// Auto-generated CLI commands from MCP tool definitions
+
+    const commandGroups: Record<string, { tools: Array<{ name: string; description?: string }> }> = {}
+
+    // Group tools by feature - all tools are included since MCP tools handle their own endpoints
+    for (const [toolName, tool] of Object.entries(definitions)) {
+        const feature = tool.feature.toLowerCase().replace(/\s+/g, '-')
+
+        // Initialize feature group if not exists
+        if (!commandGroups[feature]) {
+            commandGroups[feature] = { tools: [] }
+        }
+
+        // Add all tools since they will be handled by MCP tool imports
+        commandGroups[feature].tools.push({
+            name: toolName,
+            description: tool.summary || tool.description,
+        })
+    }
+
+    // Generate the commands file
+    const allToolNames = Object.keys(definitions)
+    const commandsContent = `// Auto-generated CLI commands from MCP tool definitions
 // Do not edit manually - run 'npm run generate:commands' to regenerate
 
 import type { Context } from '../mcp-context.js'
@@ -179,22 +179,22 @@ function extractResource(toolName: string): string {
 }
 `
 
-  fs.writeFileSync(path.join(GENERATED_DIR, 'commands.ts'), commandsContent)
-  console.log('✅ Generated commands.ts with', allToolNames.length, 'tools')
-  console.log('📊 Command groups:', Object.keys(commandGroups).join(', '))
+    fs.writeFileSync(path.join(GENERATED_DIR, 'commands.ts'), commandsContent)
+    console.log('✅ Generated commands.ts with', allToolNames.length, 'tools')
+    console.log('📊 Command groups:', Object.keys(commandGroups).join(', '))
 }
 
 function main() {
-  console.log('🔧 Generating CLI commands from MCP tool definitions...')
-  try {
-    generateCommandsFile()
-    console.log('🎉 Done!')
-  } catch (error) {
-    console.error('❌ Failed to generate commands:', error.message)
-    process.exit(1)
-  }
+    console.log('🔧 Generating CLI commands from MCP tool definitions...')
+    try {
+        generateCommandsFile()
+        console.log('🎉 Done!')
+    } catch (error) {
+        console.error('❌ Failed to generate commands:', error.message)
+        process.exit(1)
+    }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main()
+    main()
 }
