@@ -16,6 +16,7 @@ export type Confidence = 'low' | 'medium' | 'high'
 export type Severity = 'low' | 'medium' | 'high'
 export type RiskCategory = 'market' | 'technical' | 'regulatory' | 'execution' | 'timing' | 'other'
 export type ValidationStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type ValidationPass = 'research' | 'synthesis'
 
 export interface IdeationInput {
     what: string
@@ -31,6 +32,7 @@ export interface Competitor {
     pricing: string | null
     strengths: string[]
     weaknesses: string[]
+    source_url: string | null
 }
 
 export interface Differentiation {
@@ -77,6 +79,7 @@ export interface ValidationReport {
 
 export interface ValidationEnvelope {
     status: ValidationStatus
+    current_pass?: ValidationPass
     report: ValidationReport | null
     error: string
     ideation_hash?: string
@@ -90,6 +93,7 @@ export interface FounderProject {
     id: string
     name: string
     ideation: IdeationInput | Record<string, unknown>
+    ideation_hash: string
     validation: ValidationEnvelope | Record<string, never>
     gtm: Record<string, unknown>
     mvp: Record<string, unknown>
@@ -150,6 +154,17 @@ export const founderValidationLogic = kea<founderValidationLogicType>([
         report: [(s) => [s.validation], (validation): ValidationReport | null => validation?.report ?? null],
         errorMessage: [(s) => [s.validation], (validation): string => validation?.error ?? ''],
         isRunning: [(s) => [s.status], (status): boolean => status === 'pending' || status === 'running'],
+        // The saved report is stale when the current ideation hash differs from the hash
+        // captured at validation time. If validation never ran, nothing's stale (just empty).
+        isStale: [
+            (s) => [s.project, s.validation],
+            (project, validation): boolean => {
+                if (!project || !validation?.ideation_hash) {
+                    return false
+                }
+                return project.ideation_hash !== validation.ideation_hash
+            },
+        ],
         ideation: [
             (s) => [s.project],
             (project): IdeationInput | null => {

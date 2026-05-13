@@ -1,3 +1,5 @@
+import { Link } from '@posthog/lemon-ui'
+
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
@@ -108,7 +110,15 @@ function CompetitorsSection({ competitors }: { competitors: Competitor[] }): JSX
                 {competitors.map((c, i) => (
                     <div key={i} className="border border-border rounded-md p-4">
                         <div className="flex items-baseline justify-between gap-2">
-                            <h3 className="text-base font-medium">{c.name}</h3>
+                            <h3 className="text-base font-medium">
+                                {c.source_url ? (
+                                    <Link to={c.source_url} target="_blank">
+                                        {c.name}
+                                    </Link>
+                                ) : (
+                                    c.name
+                                )}
+                            </h3>
                             {c.pricing && <span className="text-xs text-text-secondary">{c.pricing}</span>}
                         </div>
                         <p className="text-sm text-text-secondary mt-1">{c.description}</p>
@@ -133,6 +143,14 @@ function CompetitorsSection({ competitors }: { competitors: Competitor[] }): JSX
                                 </ul>
                             </div>
                         </div>
+                        {c.source_url && (
+                            <p className="text-xs text-text-secondary mt-3 truncate">
+                                Source:{' '}
+                                <Link to={c.source_url} target="_blank">
+                                    {hostname(c.source_url)}
+                                </Link>
+                            </p>
+                        )}
                     </div>
                 ))}
             </div>
@@ -209,4 +227,12 @@ function RisksSection({ risks }: { risks: Risk[] }): JSX.Element {
             </ul>
         </LemonCard>
     )
+}
+
+function hostname(url: string): string {
+    try {
+        return new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+        return url
+    }
 }

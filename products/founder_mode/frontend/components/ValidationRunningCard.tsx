@@ -5,15 +5,24 @@ import { IconCheck } from '@posthog/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-// Rough split between the two Gemini passes. The grounded research call is typically the
-// slower of the two (search grounding adds latency); synthesis is faster but still streams
-// structured JSON. This threshold is used only for the UI's staged progress indicator —
-// the backend doesn't expose `current_pass` yet, so this is a heuristic.
-const RESEARCH_THRESHOLD_MS = 22_000
+import type { ValidationPass } from './founderValidationLogic'
 
-export function ValidationRunningCard({ startedAt }: { startedAt: string | undefined }): JSX.Element {
+// Stage labels keyed by the backend's `current_pass` value, so the card mirrors the actual
+// Celery task state instead of guessing from elapsed time.
+const PASSES: { key: ValidationPass; label: string }[] = [
+    { key: 'research', label: 'Researching real competitors' },
+    { key: 'synthesis', label: 'Synthesizing assumptions, experiments, and verdict' },
+]
+
+export function ValidationRunningCard({
+    startedAt,
+    currentPass,
+}: {
+    startedAt: string | undefined
+    currentPass: ValidationPass | undefined
+}): JSX.Element {
     const elapsedMs = useElapsedMs(startedAt)
-    const onSynthesis = elapsedMs >= RESEARCH_THRESHOLD_MS
+    const activeIndex = PASSES.findIndex((p) => p.key === currentPass)
 
     return (
         <LemonCard className="p-6">
@@ -26,11 +35,21 @@ export function ValidationRunningCard({ startedAt }: { startedAt: string | undef
                     </p>
 
                     <ol className="mt-4 space-y-2">
-                        <ProgressStep label="Researching real competitors" state={onSynthesis ? 'done' : 'active'} />
-                        <ProgressStep
-                            label="Synthesizing assumptions, experiments, and verdict"
-                            state={onSynthesis ? 'active' : 'pending'}
-                        />
+                        {PASSES.map((pass, i) => (
+                            <ProgressStep
+                                key={pass.key}
+                                label={pass.label}
+                                state={
+                                    activeIndex < 0
+                                        ? 'pending'
+                                        : i < activeIndex
+                                          ? 'done'
+                                          : i === activeIndex
+                                            ? 'active'
+                                            : 'pending'
+                                }
+                            />
+                        ))}
                     </ol>
 
                     <p className="text-xs text-text-secondary mt-4 tabular-nums">Elapsed {formatElapsed(elapsedMs)}</p>

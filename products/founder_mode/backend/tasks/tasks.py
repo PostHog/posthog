@@ -8,30 +8,18 @@ Architectural note: skipping the facade for now since no other product consumes 
 Tasks call logic/ directly. Reintroduce a facade once a cross-product consumer appears.
 """
 
-import json
-import hashlib
 from datetime import UTC, datetime
-from typing import Any
 
 import structlog
 from celery import shared_task
 
 from posthog.models.user import User
 
+from products.founder_mode.backend.logic.hashing import ideation_hash
 from products.founder_mode.backend.logic.validation.service import run_validation
 from products.founder_mode.backend.models import FounderProject
 
 logger = structlog.get_logger(__name__)
-
-
-def _ideation_hash(ideation: dict[str, Any]) -> str:
-    """Stable hash of an ideation payload for staleness detection.
-
-    Sorted JSON keys so semantically-identical payloads always produce the same hash.
-    The frontend uses this to tell whether a saved report still matches the current ideation.
-    """
-    canonical = json.dumps(ideation, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _now_iso() -> str:
@@ -44,6 +32,9 @@ def run_validation_task(founder_project_id: str, user_id: int | None = None) -> 
 
     The task is fail-tolerant: any exception from the service is captured into the column
     so the frontend can render a failed state instead of polling forever.
+
+    Writes `current_pass` between Gemini calls so the frontend can render real staged
+    progress instead of estimating from elapsed time.
     """
     project = FounderProject.objects.select_related("team").get(id=founder_project_id)
 
@@ -56,24 +47,32 @@ def run_validation_task(founder_project_id: str, user_id: int | None = None) -> 
         logger.warning("No user to run validation as", project_id=founder_project_id)
         return
 
-    ideation_hash = _ideation_hash(project.ideation)
+    snapshot_hash = ideation_hash(project.ideation)
     started_at = _now_iso()
 
     project.validation = {
         "status": "running",
+        "current_pass": "research",
         "started_at": started_at,
-        "ideation_hash": ideation_hash,
+        "ideation_hash": snapshot_hash,
         "report": None,
         "trace_id": None,
         "error": "",
     }
     project.save(update_fields=["validation", "updated_at"])
 
+    def on_pass_change(pass_name: str) -> None:
+        # Patch only `current_pass` — the surrounding envelope (started_at, status, hash) is
+        # immutable for the duration of this task, so we splat to preserve it.
+        project.validation = {**project.validation, "current_pass": pass_name}
+        project.save(update_fields=["validation", "updated_at"])
+
     try:
         report, trace_id = run_validation(
             ideation_payload=project.ideation,
             team=project.team,
             user=user,
+            on_pass_change=on_pass_change,
         )
     except Exception as exc:
         logger.exception("Validation run failed", project_id=founder_project_id)
@@ -81,7 +80,7 @@ def run_validation_task(founder_project_id: str, user_id: int | None = None) -> 
             "status": "failed",
             "started_at": started_at,
             "failed_at": _now_iso(),
-            "ideation_hash": ideation_hash,
+            "ideation_hash": snapshot_hash,
             "report": None,
             "trace_id": None,
             "error": str(exc),
@@ -93,7 +92,7 @@ def run_validation_task(founder_project_id: str, user_id: int | None = None) -> 
         "status": "completed",
         "started_at": started_at,
         "completed_at": _now_iso(),
-        "ideation_hash": ideation_hash,
+        "ideation_hash": snapshot_hash,
         "report": report.model_dump(),
         "trace_id": trace_id,
         "error": "",

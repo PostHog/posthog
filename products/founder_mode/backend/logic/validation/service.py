@@ -16,6 +16,7 @@ PostHog-wrapped Gemini client that handles billing, tracing, and team grouping.
 """
 
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -49,10 +50,11 @@ For each competitor, capture in plain prose:
 - Approximate pricing if publicly known
 - Two or three concrete strengths
 - Two or three concrete weaknesses
+- A primary source URL (homepage, pricing page, or recent press article) — REQUIRED for every competitor. Write it on its own line as `Source: <URL>` after the bullets.
 
-Be specific and current. If you cannot find genuine competitors after searching, say so honestly. Do not invent companies.
+Be specific and current. If you cannot find genuine competitors after searching, say so honestly. Do not invent companies and do not invent URLs — every URL must come from your search results.
 
-Return your findings as plain text with company names as headers. Include source URLs inline where you used them. Do not return JSON — a separate downstream step will structure this."""
+Return your findings as plain text with company names as headers. Do not return JSON — a separate downstream step will structure this."""
 
 SYNTHESIS_SYSTEM_PROMPT = """You are a seasoned startup operator helping a founder critically validate their idea before they commit significant time and money. You have seen many startups fail from preventable mistakes. The founder benefits more from a hard truth than from validation theater.
 
@@ -61,7 +63,7 @@ You will receive:
 2. Research findings on the competitive landscape, gathered separately.
 
 Produce a structured validation report covering:
-- Competitors — use the research findings; reflect real companies, not categories.
+- Competitors — use the research findings; reflect real companies, not categories. For each competitor's `source_url`, copy the `Source:` URL from the research findings verbatim — do not invent or modify URLs. If no URL was provided for a competitor in the findings, set `source_url` to null.
 - Differentiation — where this idea sits in the landscape, what (if anything) is defensible, what specific gap it fills.
 - Three to five critical assumptions, ordered by riskiness (riskiest first). Each must be a single testable claim that, if false, would meaningfully threaten the idea.
 - One concrete validation experiment per assumption — cheap, fast, runnable this week. Reference the assumption by its zero-indexed position.
@@ -170,8 +172,13 @@ def run_validation(
     ideation_payload: dict[str, Any],
     team: Team,
     user: User,
+    on_pass_change: Callable[[str], None] | None = None,
 ) -> tuple[ValidationReport, str]:
     """Run the full two-pass validation flow. Returns the report and the shared trace_id.
+
+    `on_pass_change(pass_name)` is invoked just before each pass starts ("research", "synthesis").
+    Used by the Celery task to write `validation.current_pass` so the frontend can render
+    accurate staged progress instead of guessing from elapsed time.
 
     Raises pydantic.ValidationError if `ideation_payload` does not match IdeationInput,
     and propagates any Gemini API errors. The Celery task wrapper is responsible for
@@ -180,6 +187,11 @@ def run_validation(
     ideation = IdeationInput.model_validate(ideation_payload)
     trace_id = str(uuid.uuid4())
 
+    if on_pass_change:
+        on_pass_change("research")
     research_text = _research_competitors(ideation=ideation, team=team, user=user, trace_id=trace_id)
+
+    if on_pass_change:
+        on_pass_change("synthesis")
     report = _synthesize_report(ideation=ideation, research_text=research_text, team=team, user=user, trace_id=trace_id)
     return report, trace_id

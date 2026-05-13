@@ -33,6 +33,13 @@ class Competitor(BaseModel):
     pricing: str | None = Field(default=None, description="Rough pricing if publicly known; null otherwise.")
     strengths: list[str] = Field(description="What they do well (max 3 bullets).")
     weaknesses: list[str] = Field(description="Where they fall short (max 3 bullets).")
+    source_url: str | None = Field(
+        default=None,
+        description=(
+            "Primary URL cited in the research findings for this competitor (homepage, pricing page, or press article). "
+            "Null if no source was cited. Must be one of the URLs that appeared in the research findings — do not invent URLs."
+        ),
+    )
 
 
 class Differentiation(BaseModel):

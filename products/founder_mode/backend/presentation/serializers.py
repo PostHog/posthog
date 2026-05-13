@@ -2,6 +2,7 @@
 
 from rest_framework import serializers
 
+from products.founder_mode.backend.logic.hashing import ideation_hash
 from products.founder_mode.backend.models import FounderProject
 
 
@@ -20,8 +21,9 @@ class FounderProjectSerializer(serializers.ModelSerializer):
     validation = serializers.JSONField(
         read_only=True,
         help_text=(
-            "Stage 2 output, server-managed. Shape: {status, report, error, ideation_hash, "
-            "started_at, completed_at|failed_at, trace_id}. Clients poll this while status is running."
+            "Stage 2 output, server-managed. Shape: {status, current_pass, report, error, "
+            "ideation_hash, started_at, completed_at|failed_at, trace_id}. Clients poll this "
+            "while status is running."
         ),
     )
     gtm = serializers.JSONField(required=False, help_text="Stage 3 (go-to-market) output. Shape owned by stage 3.")
@@ -30,6 +32,13 @@ class FounderProjectSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="The user who created this founder project. Set automatically on create.",
     )
+    ideation_hash = serializers.SerializerMethodField(
+        help_text=(
+            "Stable SHA-256 of the current ideation payload. Clients compare this to "
+            "`validation.ideation_hash` to detect a stale report (founder edited ideation "
+            "since the last validation run)."
+        ),
+    )
 
     class Meta:
         model = FounderProject
@@ -37,6 +46,7 @@ class FounderProjectSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "ideation",
+            "ideation_hash",
             "validation",
             "gtm",
             "mvp",
@@ -44,4 +54,7 @@ class FounderProjectSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "validation", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "ideation_hash", "validation", "created_by", "created_at", "updated_at"]
+
+    def get_ideation_hash(self, obj: FounderProject) -> str:
+        return ideation_hash(obj.ideation)
