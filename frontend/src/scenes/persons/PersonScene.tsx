@@ -44,6 +44,7 @@ import { FeedbackButton } from 'products/customer_analytics/frontend/components/
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonEventsTab } from './PersonEventsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -295,18 +296,12 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
                         content: (
-                            <Query
-                                uniqueKey="person-profile-events"
+                            <PersonEventsTab
+                                eventsQuery={eventsQuery}
+                                setEventsQuery={setEventsQuery}
+                                eventsQueryLogicKey={eventsQueryLogicKey}
+                                tabId={tabId}
                                 attachTo={mountedPersonsLogic}
-                                query={eventsQuery}
-                                setQuery={(q) => setEventsQuery(q)}
-                                context={{
-                                    insightProps: {
-                                        dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
-                                        tabId,
-                                        dataNodeCollectionId: eventsQueryLogicKey,
-                                    },
-                                }}
                             />
                         ),
                     },
