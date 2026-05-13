@@ -1,16 +1,15 @@
 """
 DRF views for githog.
 
-Exposes a thin read-only API on top of the team's existing GitHub
-integration(s) so the GitHog frontend product can list connected
-repositories and their pull requests.
+Exposes an API for the GitHog frontend product: connected repositories,
+pull requests, and a native per-PR conversation thread.
 """
 
 from typing import Any
 
 import structlog
 from drf_spectacular.utils import extend_schema
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
@@ -23,7 +22,12 @@ from products.githog.backend.logic.data_flow import compute_data_flow
 from products.githog.backend.logic.risk_score import compute_risk_score
 from products.githog.backend.models import GitHogPullRequestLayout
 
+from ..models import GitHogConversationMessage
 from .serializers import (
+    GitHogConversationListQuerySerializer,
+    GitHogConversationListResponseSerializer,
+    GitHogCreateMessageResponseSerializer,
+    GitHogCreateMessageSerializer,
     GitHogDataFlowQuerySerializer,
     GitHogDataFlowResponseSerializer,
     GitHogPullRequestDetailQuerySerializer,
@@ -320,4 +324,69 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "items": items,
                 "exists": row is not None,
             }
+        )
+
+    @extend_schema(
+        parameters=[GitHogConversationListQuerySerializer],
+        responses={200: GitHogConversationListResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="conversations")
+    def conversations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogConversationListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        number: int = query.validated_data["number"]
+
+        messages = GitHogConversationMessage.objects.filter(
+            team_id=self.team_id,
+            repository=repository,
+            pull_request_number=number,
+        ).select_related("author")
+
+        return Response(
+            {
+                "messages": [
+                    {
+                        "id": m.id,
+                        "author_name": m.author.get_full_name() or m.author.email if m.author else "Unknown",
+                        "author_email": m.author.email if m.author else "",
+                        "body": m.body,
+                        "created_at": m.created_at,
+                    }
+                    for m in messages
+                ]
+            }
+        )
+
+    @extend_schema(
+        request=GitHogCreateMessageSerializer,
+        responses={201: GitHogCreateMessageResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="conversations/create")
+    def create_conversation_message(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        body_ser = GitHogCreateMessageSerializer(data=request.data)
+        body_ser.is_valid(raise_exception=True)
+        repository: str = body_ser.validated_data["repository"]
+        number: int = body_ser.validated_data["number"]
+        body: str = body_ser.validated_data["body"]
+
+        message = GitHogConversationMessage.objects.create(
+            team_id=self.team_id,
+            repository=repository,
+            pull_request_number=number,
+            author=request.user,
+            body=body,
+        )
+
+        return Response(
+            {
+                "message": {
+                    "id": message.id,
+                    "author_name": message.author.get_full_name() or message.author.email if message.author else "",
+                    "author_email": message.author.email if message.author else "",
+                    "body": message.body,
+                    "created_at": message.created_at,
+                }
+            },
+            status=status.HTTP_201_CREATED,
         )

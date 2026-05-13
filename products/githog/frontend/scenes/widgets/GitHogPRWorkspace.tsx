@@ -7,7 +7,17 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
-import { IconCheck, IconCode, IconDrag, IconGitBranch, IconGithub, IconPlus, IconRefresh, IconX } from '@posthog/icons'
+import {
+    IconCheck,
+    IconCode,
+    IconDrag,
+    IconGitBranch,
+    IconGithub,
+    IconPlus,
+    IconRefresh,
+    IconSend,
+    IconX,
+} from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,6 +26,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { DataFlowGraph, computeFlowDiff } from '../DataFlowGraph'
@@ -55,25 +66,6 @@ const SAMPLE_REVIEWERS = [
     { name: 'James Liu', initials: 'JL', status: 'pending' as const },
 ]
 
-const SAMPLE_COMMENTS = [
-    {
-        id: 1,
-        author: 'Marcus Webb',
-        initials: 'MW',
-        timestamp: '2 days ago',
-        body: "Should we guard against exporting when the graph hasn't finished loading? Right now it could fail silently.",
-        reviewType: 'changes_requested' as const,
-    },
-    {
-        id: 2,
-        author: 'Sarah Chen',
-        initials: 'SC',
-        timestamp: '2 days ago',
-        body: 'Good catch — added a loading guard and a toast for the not-ready state. Updated in the latest commit.',
-        reviewType: 'reply' as const,
-    },
-]
-
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
 type WidgetType = GitHogWidgetType
@@ -106,13 +98,22 @@ const GRID_PADDING: [number, number] = [0, 0]
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
+function initialsFromName(name: string): string {
+    return name
+        .split(/\s+/)
+        .map((w) => w[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+}
+
 function Avatar({ initials, size = 'md' }: { initials: string; size?: 'sm' | 'md' }): JSX.Element {
     const cls = size === 'sm' ? 'size-7 text-xs' : 'size-8 text-sm'
     return (
         <div
             className={`${cls} rounded-full bg-fill-highlight-100 flex items-center justify-center font-semibold text-secondary shrink-0`}
         >
-            {initials}
+            {initials || '?'}
         </div>
     )
 }
@@ -174,29 +175,70 @@ function WidgetShell({
 // ─── Individual widgets ───────────────────────────────────────────────────────
 
 function ConversationWidget(): JSX.Element {
+    const { messages, messagesLoading, draftMessage, submitting } = useValues(gitHogPRReviewLogic)
+    const { setDraftMessage, submitMessage } = useActions(gitHogPRReviewLogic)
+
+    const handleKeyDown = (e: React.KeyboardEvent): void => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            submitMessage()
+        }
+    }
+
     return (
         <div className="flex flex-col divide-y divide-border">
             <div className="px-4 py-3 flex items-center justify-between">
                 <span className="font-semibold text-sm">Conversation</span>
-                <span className="text-xs text-secondary">{SAMPLE_COMMENTS.length} comments (mock)</span>
+                {!messagesLoading && <span className="text-xs text-secondary">{messages.length} messages</span>}
             </div>
-            {SAMPLE_COMMENTS.map((c) => (
-                <div key={c.id} className="px-4 py-4 flex gap-x-3">
-                    <Avatar initials={c.initials} />
-                    <div className="flex flex-col gap-y-1.5 flex-1 min-w-0">
-                        <div className="flex items-center gap-x-2 flex-wrap">
-                            <span className="font-semibold text-sm">{c.author}</span>
-                            <span className="text-xs text-secondary">{c.timestamp}</span>
-                            {c.reviewType === 'changes_requested' && (
-                                <LemonTag type="danger" size="small" icon={<IconX />}>
-                                    Changes requested
-                                </LemonTag>
-                            )}
-                        </div>
-                        <p className="text-sm text-primary my-0 leading-relaxed">{c.body}</p>
-                    </div>
+
+            {messagesLoading ? (
+                <div className="px-4 py-4 flex flex-col gap-y-3">
+                    <LemonSkeleton className="h-4 w-3/4" />
+                    <LemonSkeleton className="h-4 w-1/2" />
                 </div>
-            ))}
+            ) : messages.length === 0 ? (
+                <div className="px-4 py-8 text-center text-secondary text-sm">
+                    No messages yet. Be the first to comment.
+                </div>
+            ) : (
+                messages.map((m) => (
+                    <div key={m.id} className="px-4 py-4 flex gap-x-3">
+                        <Avatar initials={initialsFromName(m.author_name)} />
+                        <div className="flex flex-col gap-y-1 flex-1 min-w-0">
+                            <div className="flex items-center gap-x-2">
+                                <span className="font-semibold text-sm">{m.author_name}</span>
+                                <span className="text-xs text-secondary">
+                                    {new Date(m.created_at).toLocaleString()}
+                                </span>
+                            </div>
+                            <p className="text-sm text-primary my-0 leading-relaxed whitespace-pre-wrap">{m.body}</p>
+                        </div>
+                    </div>
+                ))
+            )}
+
+            <div className="px-4 py-3 flex flex-col gap-y-2">
+                <LemonTextArea
+                    value={draftMessage}
+                    onChange={setDraftMessage}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Leave a comment… (⌘ Enter to send)"
+                    minRows={2}
+                    maxRows={8}
+                />
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconSend />}
+                        onClick={submitMessage}
+                        loading={submitting}
+                        disabledReason={!draftMessage.trim() ? 'Enter a message first' : undefined}
+                    >
+                        Send
+                    </LemonButton>
+                </div>
+            </div>
         </div>
     )
 }

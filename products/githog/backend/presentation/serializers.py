@@ -6,15 +6,15 @@ from rest_framework import serializers
 
 
 class GitHogRepositorySerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    full_name = serializers.CharField()
-    owner = serializers.CharField()
-    integration_id = serializers.IntegerField()
+    id = serializers.IntegerField(help_text="GitHub repository ID.")
+    name = serializers.CharField(help_text="Repository name without owner.")
+    full_name = serializers.CharField(help_text="Repository full name in owner/name format.")
+    owner = serializers.CharField(help_text="Repository owner login.")
+    integration_id = serializers.IntegerField(help_text="PostHog integration ID for this repository.")
 
 
 class GitHogRepositoryListResponseSerializer(serializers.Serializer):
-    repositories = GitHogRepositorySerializer(many=True)
+    repositories = GitHogRepositorySerializer(many=True, help_text="Connected repositories.")
 
 
 class GitHogPullRequestSerializer(serializers.Serializer):
@@ -36,7 +36,7 @@ class GitHogPullRequestSerializer(serializers.Serializer):
 
 
 class GitHogPullRequestListQuerySerializer(serializers.Serializer):
-    repository = serializers.CharField(help_text="Repository in owner/repo format")
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
     state = serializers.ChoiceField(
         choices=["open", "closed", "all"],
         default="open",
@@ -46,8 +46,8 @@ class GitHogPullRequestListQuerySerializer(serializers.Serializer):
 
 
 class GitHogPullRequestListResponseSerializer(serializers.Serializer):
-    repository = serializers.CharField()
-    pull_requests = GitHogPullRequestSerializer(many=True)
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    pull_requests = GitHogPullRequestSerializer(many=True, help_text="Pull requests matching the filter.")
 
 
 class GitHogPullRequestDetailQuerySerializer(serializers.Serializer):
@@ -244,3 +244,30 @@ class GitHogPullRequestLayoutResponseSerializer(serializers.Serializer):
     pr_number = serializers.IntegerField()
     items = GitHogPullRequestLayoutItemSerializer(many=True)
     exists = serializers.BooleanField(help_text="True if a saved layout was found; otherwise the default is returned.")
+
+
+class GitHogConversationMessageSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Message ID.")
+    author_name = serializers.CharField(help_text="Display name of the message author.")
+    author_email = serializers.CharField(help_text="Email of the message author.")
+    body = serializers.CharField(help_text="Message body text.")
+    created_at = serializers.DateTimeField(help_text="When the message was posted.")
+
+
+class GitHogConversationListQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/name format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+
+
+class GitHogConversationListResponseSerializer(serializers.Serializer):
+    messages = GitHogConversationMessageSerializer(many=True, help_text="Conversation messages in chronological order.")
+
+
+class GitHogCreateMessageSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/name format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+    body = serializers.CharField(help_text="Message body text.")
+
+
+class GitHogCreateMessageResponseSerializer(serializers.Serializer):
+    message = GitHogConversationMessageSerializer(help_text="The newly created message.")
