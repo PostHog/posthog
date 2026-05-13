@@ -12,6 +12,12 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
 }
 
+const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
+    mcpAnalyticsDashboard: 'dashboard',
+    mcpAnalyticsSessions: 'sessions',
+    mcpAnalyticsToolQuality: 'tool-quality',
+}
+
 export const mcpAnalyticsSceneLogic = kea([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
     tabAwareScene(),
@@ -21,8 +27,7 @@ export const mcpAnalyticsSceneLogic = kea([
     selectors({
         activeTab: [
             (s) => [s.sceneKey],
-            (sceneKey: string): MCPAnalyticsTab =>
-                sceneKey === 'mcpAnalyticsToolQuality' ? 'tool-quality' : 'dashboard',
+            (sceneKey: string): MCPAnalyticsTab => SCENE_KEY_TO_TAB[sceneKey] ?? 'dashboard',
         ],
     }),
 ])
