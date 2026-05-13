@@ -79,8 +79,8 @@ The tenant predicate must be injected structurally through the HogQL AST, not ap
   No masking in v1.
 - Observability: available through PostHog Logs and MCP tools only.
   No dedicated execution history UI in v1.
-- MCP generator: deferred.
-  For now, only build the query service.
+- Customer-facing MCP generator: deferred.
+  The current branch only adds PostHog customer observability tools for the query service.
 - Billing: deferred.
 - Rate limits: deferred, though the design should leave room for them.
 
@@ -170,12 +170,24 @@ The endpoint should validate:
     - success or error
     - error details when present
 
-14. ⏭️ Add MCP observability tools for the PostHog customer.
+14. ✅ Add MCP observability tools for the PostHog customer.
     Initial tools:
     - list recent tenant query executions
     - get tenant query execution detail
     - summarize errors by tenant, table, and query pattern
     - summarize usage by tenant, table, and time range
+
+    Current API paths:
+    - `POST /api/environments/:project_id/tenant_query/executions/`
+    - `POST /api/environments/:project_id/tenant_query/execution/`
+    - `POST /api/environments/:project_id/tenant_query/errors/summary/`
+    - `POST /api/environments/:project_id/tenant_query/usage/summary/`
+
+    Current MCP tool names:
+    - `tenant-query-executions-list`
+    - `tenant-query-execution-get`
+    - `tenant-query-errors-summary`
+    - `tenant-query-usage-summary`
 
 15. ✅ Add tests.
     Cover:
@@ -201,5 +213,9 @@ OpenAPI and generated frontend/MCP types have been regenerated.
 
 ## Deferred implementation choices
 
-- Exact MCP tool names and output schemas.
-  Deferred.
+- Customer-facing MCP generator for a customer's end-customers.
+- Per-table tenancy column granularity.
+- Dimension table exceptions.
+- Column-level controls beyond hiding the tenant field.
+- Detailed unsafe Postgres function handling.
+- Billing and rate limits.

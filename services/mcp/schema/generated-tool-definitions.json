@@ -4409,6 +4409,66 @@
             "readOnlyHint": true
         }
     },
+    "tenant-query-errors-summary": {
+        "description": "Group failed tenant query service executions by direct Postgres connection, tenant value, referenced tables, submitted HogQL query, and error message. Use this to inspect which customer tenants are hitting query failures and which tables or query shapes are involved.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Summarize tenant query errors",
+        "title": "Summarize tenant query errors",
+        "required_scopes": ["query:read", "logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tenant-query-execution-get": {
+        "description": "Return a single tenant query service execution log, including the submitted HogQL query, prepared direct Postgres SQL, success or error state, referenced table metadata, and captured connection metadata. Use an execution_id returned by tenant-query-executions-list.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get tenant query execution",
+        "title": "Get tenant query execution",
+        "required_scopes": ["query:read", "logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tenant-query-executions-list": {
+        "description": "List recent tenant query service executions from Logs. Filter by direct Postgres connection, tenant value, timestamp range, and success status to audit or debug how a PostHog customer's end-customers are using the tenant query service.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List tenant query executions",
+        "title": "List tenant query executions",
+        "required_scopes": ["query:read", "logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "tenant-query-usage-summary": {
+        "description": "Group tenant query service executions by direct Postgres connection, tenant value, and referenced tables. Returns total executions, successes, failures, result rows, average duration, and last-seen timestamp for auditing and operational visibility.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Summarize tenant query usage",
+        "title": "Summarize tenant query usage",
+        "required_scopes": ["query:read", "logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",
         "category": "Feature flags",
