@@ -144,7 +144,11 @@ class TenantQueryConfigResponseSerializer(serializers.Serializer):
     max_result_limit = serializers.IntegerField(help_text="Maximum result row limit.")
     enabled_tables = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Enabled direct Postgres tables included in tenant query validation.",
+        help_text="Enabled direct Postgres tables available to tenant-scoped queries.",
+    )
+    disabled_tables = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Previously enabled tables disabled during configuration because they lacked the tenant column.",
     )
 
 
@@ -529,8 +533,8 @@ class TenantQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         tags=[ProductKey.DATA_WAREHOUSE],
         summary="Configure tenant query service",
         description=(
-            "Enables or updates tenant-scoped querying for a direct Postgres connection after validating that every "
-            "enabled table has the configured tenant column."
+            "Enables or updates tenant-scoped querying for a direct Postgres connection. Tables missing the configured "
+            "tenant column are disabled and returned as a warning payload."
         ),
     )
     @action(

@@ -143,8 +143,10 @@ export interface TenantQueryConfigResponseApi {
     max_timeout_ms: number
     /** Maximum result row limit. */
     max_result_limit: number
-    /** Enabled direct Postgres tables included in tenant query validation. */
+    /** Enabled direct Postgres tables available to tenant-scoped queries. */
     enabled_tables: string[]
+    /** Previously enabled tables disabled during configuration because they lacked the tenant column. */
+    disabled_tables: string[]
 }
 
 export interface TenantQueryConfigLoadRequestApi {

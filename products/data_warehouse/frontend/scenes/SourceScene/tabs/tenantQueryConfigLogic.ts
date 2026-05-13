@@ -115,6 +115,25 @@ function playgroundFormToRequestPayload(
     }
 }
 
+function tenantQueryConfigErrorMessage(error: any): string {
+    const message = error?.detail || error?.message
+    return typeof message === 'string' ? message : 'Unable to save multi-tenancy configuration'
+}
+
+function disabledTablesWarning(disabledTables: string[] | undefined): string | null {
+    if (!disabledTables?.length) {
+        return null
+    }
+
+    const visibleTables = disabledTables.slice(0, 8).join(', ')
+    const hiddenTableCount = disabledTables.length - 8
+    const suffix = hiddenTableCount > 0 ? `, and ${hiddenTableCount} more` : ''
+
+    return `Saved configuration and disabled ${disabledTables.length} table${
+        disabledTables.length === 1 ? '' : 's'
+    } without the tenant column: ${visibleTables}${suffix}.`
+}
+
 export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
     path(['products', 'dataWarehouse', 'tenantQueryConfigLogic']),
     props({} as TenantQueryConfigLogicProps),
@@ -123,6 +142,8 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
         values: [teamLogic, ['currentTeamId']],
     })),
     actions({
+        setTenantQueryConfigError: (error: string | null) => ({ error }),
+        setTenantQueryConfigWarning: (warning: string | null) => ({ warning }),
         setTenantQueryPlaygroundResponse: (response: TenantQueryResponseApi | null) => ({ response }),
         setTenantQueryPlaygroundError: (error: string | null) => ({ error }),
     }),
@@ -143,6 +164,22 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
         ],
     })),
     reducers({
+        tenantQueryConfigError: [
+            null as string | null,
+            {
+                setTenantQueryConfigError: (_, { error }) => error,
+                submitTenantQueryConfigRequest: () => null,
+                loadTenantQueryConfigSuccess: () => null,
+            },
+        ],
+        tenantQueryConfigWarning: [
+            null as string | null,
+            {
+                setTenantQueryConfigWarning: (_, { warning }) => warning,
+                submitTenantQueryConfigRequest: () => null,
+                loadTenantQueryConfigSuccess: () => null,
+            },
+        ],
         tenantQueryPlaygroundResponse: [
             null as TenantQueryResponseApi | null,
             {
@@ -201,10 +238,10 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                     const response = await tenantQueryConfigCreate(String(values.currentTeamId), payload)
                     actions.loadTenantQueryConfigSuccess(response)
                     actions.resetTenantQueryConfigForm(configToForm(response))
+                    actions.setTenantQueryConfigWarning(disabledTablesWarning(response.disabled_tables))
                     lemonToast.success('Multi-tenancy configuration saved')
                 } catch (error: any) {
-                    lemonToast.error(error?.detail || error?.message || 'Unable to save multi-tenancy configuration')
-                    throw error
+                    actions.setTenantQueryConfigError(tenantQueryConfigErrorMessage(error))
                 }
             },
         },

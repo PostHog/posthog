@@ -53,11 +53,12 @@ function tenantColumnOptionsFromSchemas(schemas: ExternalDataSourceSchema[]): Te
         .map((schema) => schema.table?.columns?.map((column) => column.name) ?? [])
         .map((columns) => new Set(columns))
 
-    if (columnSets.length === 0) {
-        return selectedTenantColumn ? [{ label: selectedTenantColumn, value: selectedTenantColumn }] : []
+    const firstColumnSet = columnSets[0]
+    if (!firstColumnSet) {
+        return []
     }
 
-    const [firstColumnSet, ...otherColumnSets] = columnSets
+    const otherColumnSets = columnSets.slice(1)
     const commonColumns = Array.from(firstColumnSet)
         .filter((column) => otherColumnSets.every((columnSet) => columnSet.has(column)))
         .sort((columnA, columnB) => columnA.localeCompare(columnB))
@@ -162,6 +163,8 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
     const logic = tenantQueryConfigLogic({ id })
     const {
         tenantQueryConfig,
+        tenantQueryConfigError,
+        tenantQueryConfigWarning,
         tenantQueryConfigLoading,
         tenantQueryConfigForm,
         tenantQueryConfigFormChanged,
@@ -191,6 +194,8 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                     Enable at least one table in the Schemas tab before turning this on.
                 </LemonBanner>
             )}
+            {tenantQueryConfigWarning && <LemonBanner type="warning">{tenantQueryConfigWarning}</LemonBanner>}
+            {tenantQueryConfigError && <LemonBanner type="error">{tenantQueryConfigError}</LemonBanner>}
 
             <Form
                 logic={tenantQueryConfigLogic}
@@ -205,7 +210,9 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                             checked={!!value}
                             onChange={onChange}
                             label="Enable multi-tenancy"
-                            disabledReason={!hasQueryableTables ? 'Enable at least one table first' : undefined}
+                            disabledReason={
+                                !hasQueryableTables && !value ? 'Enable at least one table first' : undefined
+                            }
                         />
                     )}
                 </LemonField>
@@ -213,7 +220,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                 <LemonField
                     name="tenant_column_name"
                     label="Tenant column"
-                    help="The column must exist on every queryable table. It is hidden from schema exports and query results."
+                    help="Tables without this column are disabled. The tenant column is hidden from schema exports and query results."
                 >
                     {({ value, onChange }) =>
                         shouldUseTenantColumnSelect ? (

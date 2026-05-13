@@ -29,7 +29,7 @@ export const TenantQueryCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Enables or updates tenant-scoped querying for a direct Postgres connection after validating that every enabled table has the configured tenant column.
+ * Enables or updates tenant-scoped querying for a direct Postgres connection. Tables missing the configured tenant column are disabled and returned as a warning payload.
  * @summary Configure tenant query service
  */
 

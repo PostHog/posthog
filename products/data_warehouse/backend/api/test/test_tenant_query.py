@@ -12,7 +12,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models.organization import OrganizationMembership
 
-from products.data_warehouse.backend.direct_postgres import postgres_schema_metadata
+from products.data_warehouse.backend.direct_postgres import get_direct_postgres_table_options, postgres_schema_metadata
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.tenant_query_config import DataWarehouseTenantQueryConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns
@@ -56,14 +56,21 @@ class TestTenantQuery(APIBaseTest):
         name: str = "trips",
         postgres_columns: list[tuple[str, str, bool]] | None = None,
         should_sync: bool = True,
+        source_schema: str = "public",
+        source_table_name: str | None = None,
     ) -> DataWarehouseTable:
         columns = postgres_columns or POSTGRES_TRIPS_COLUMNS
+        resolved_source_table_name = source_table_name or name
         table = DataWarehouseTable.objects.create(
             name=name,
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
             url_pattern="direct://postgres",
             external_data_source=source,
+            options=get_direct_postgres_table_options(
+                source_schema=source_schema,
+                source_table_name=resolved_source_table_name,
+            ),
             columns=postgres_columns_to_dwh_columns(columns),
         )
         ExternalDataSchema.objects.create(
@@ -76,8 +83,8 @@ class TestTenantQuery(APIBaseTest):
             sync_type_config={
                 "schema_metadata": postgres_schema_metadata(
                     columns,
-                    source_schema="public",
-                    source_table_name=name,
+                    source_schema=source_schema,
+                    source_table_name=resolved_source_table_name,
                 )
             },
         )
@@ -172,18 +179,64 @@ class TestTenantQuery(APIBaseTest):
         assert config.max_timeout_ms == 30_000
         assert config.max_result_limit == 10_000
         assert response["enabled_tables"] == ["trips"]
+        assert response["disabled_tables"] == []
 
-    def test_configure_tenant_query_rejects_missing_tenant_column(self):
+    def test_configure_tenant_query_disables_tables_without_tenant_column(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(source, name="payments", postgres_columns=[("id", "bigint", False)])
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="customer_id",
+        )
+
+        assert response["enabled"] is True
+        assert response["enabled_tables"] == ["trips"]
+        assert response["disabled_tables"] == ["payments"]
+        assert ExternalDataSchema.objects.get(source=source, name="trips").should_sync is True
+        assert ExternalDataSchema.objects.get(source=source, name="payments").should_sync is False
+
+    def test_configure_tenant_query_saves_when_all_tables_are_missing_tenant_column(self):
         source = self._create_direct_source()
         self._create_table(source, name="payments", postgres_columns=[("id", "bigint", False)])
 
-        with self.assertRaisesRegex(Exception, "missing from enabled tables: payments"):
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="customer_id",
+        )
+
+        config = DataWarehouseTenantQueryConfig.objects.get(team=self.team, external_data_source=source)
+        assert config.enabled is True
+        assert config.tenant_column_name == "customer_id"
+        assert config.tenant_column_type == DataWarehouseTenantQueryConfig.TenantColumnType.STRING
+        assert response["enabled_tables"] == []
+        assert response["disabled_tables"] == ["payments"]
+        assert ExternalDataSchema.objects.get(source=source, name="payments").should_sync is False
+
+    def test_configure_tenant_query_keeps_tables_enabled_when_type_validation_fails(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="bookings",
+            postgres_columns=[("id", "bigint", False), ("customer_id", "text", False)],
+        )
+        self._create_table(source, name="payments", postgres_columns=[("id", "bigint", False)])
+
+        with self.assertRaisesRegex(Exception, "inconsistent types"):
             configure_tenant_query(
                 team=self.team,
                 connection_id=str(source.id),
                 enabled=True,
                 tenant_column_name="customer_id",
             )
+
+        assert ExternalDataSchema.objects.get(source=source, name="payments").should_sync is True
 
     def test_get_tenant_query_config_returns_disabled_defaults_without_creating_config(self):
         source = self._create_direct_source()
@@ -193,6 +246,7 @@ class TestTenantQuery(APIBaseTest):
 
         assert response["enabled"] is False
         assert response["tenant_column_name"] is None
+        assert response["disabled_tables"] == []
         assert response["max_result_limit"] == 100_000
         assert DataWarehouseTenantQueryConfig.objects.count() == 0
 
@@ -206,6 +260,40 @@ class TestTenantQuery(APIBaseTest):
         assert " as customer_id" not in sql.lower()
         assert "customer_id = 42" in sql
         assert "LIMIT 100" in sql
+
+    def test_allows_unqualified_table_names_for_single_schema_direct_connections(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="public.posthog_activitylog",
+            source_schema="public",
+            source_table_name="posthog_activitylog",
+        )
+        config = self._create_config(source)
+
+        sql = self._prepare_sql(source, config, "select id from posthog_activitylog")
+
+        assert "posthog_activitylog" in sql
+        assert "customer_id = 42" in sql
+
+    def test_requires_qualified_table_names_for_multi_schema_direct_connections(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="public.posthog_activitylog",
+            source_schema="public",
+            source_table_name="posthog_activitylog",
+        )
+        self._create_table(
+            source,
+            name="analytics.posthog_activitylog",
+            source_schema="analytics",
+            source_table_name="posthog_activitylog",
+        )
+        config = self._create_config(source)
+
+        with self.assertRaisesRegex(Exception, "Unknown table `posthog_activitylog`"):
+            self._prepare_sql(source, config, "select id from posthog_activitylog")
 
     def test_rejects_explicit_tenant_column_output(self):
         source = self._create_direct_source()
@@ -358,6 +446,26 @@ class TestTenantQuery(APIBaseTest):
         assert row_count == 1
         assert result["columns"] == ["name", "source_schema", "source_table_name"]
         assert result["results"] == [["trips", "public", "trips"]]
+
+    def test_metadata_tables_omit_schema_for_single_schema_direct_connections(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="public.posthog_activitylog",
+            source_schema="public",
+            source_table_name="posthog_activitylog",
+        )
+        self._create_config(source)
+
+        result, _row_count = execute_tenant_query(
+            team=self.team,
+            user=self.user,
+            connection_id=str(source.id),
+            tenant_value=None,
+            query="select * from system.tables",
+        )
+
+        assert result["results"] == [["posthog_activitylog", "public", "posthog_activitylog"]]
 
     def test_metadata_query_logs_success(self):
         source = self._create_direct_source()

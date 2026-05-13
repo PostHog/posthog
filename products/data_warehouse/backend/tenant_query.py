@@ -123,7 +123,9 @@ def _schema_display_name(schema: ExternalDataSchema) -> str:
 
 
 def _enabled_table_names(source: ExternalDataSource) -> list[str]:
-    return sorted(_schema_display_name(schema) for schema in _enabled_direct_postgres_schemas(source))
+    schemas = _enabled_direct_postgres_schemas(source)
+    omit_source_schema = _enabled_schemas_use_single_source_schema(schemas)
+    return sorted(_tenant_query_table_name(schema, omit_source_schema=omit_source_schema) for schema in schemas)
 
 
 def _postgres_schema_columns(schema: ExternalDataSchema) -> list[dict[str, object]]:
@@ -142,12 +144,53 @@ def _postgres_schema_columns(schema: ExternalDataSchema) -> list[dict[str, objec
     return postgres_columns
 
 
+def _postgres_schema_column(schema: ExternalDataSchema, column_name: str) -> dict[str, object] | None:
+    return next((column for column in _postgres_schema_columns(schema) if column.get("name") == column_name), None)
+
+
 def _schema_metadata_value(schema: ExternalDataSchema, key: str) -> str | None:
     metadata = schema.schema_metadata
     if metadata is None:
         return None
     value = metadata.get(key)
     return value if isinstance(value, str) else None
+
+
+def _schema_source_schema_name(schema: ExternalDataSchema) -> str | None:
+    source_schema = _schema_metadata_value(schema, "source_schema")
+    if source_schema:
+        return source_schema
+
+    display_name = _schema_display_name(schema)
+    if "." in display_name:
+        return display_name.split(".", maxsplit=1)[0]
+
+    return None
+
+
+def _schema_source_table_name(schema: ExternalDataSchema) -> str:
+    source_table_name = _schema_metadata_value(schema, "source_table_name")
+    if source_table_name:
+        return source_table_name
+
+    display_name = _schema_display_name(schema)
+    if "." in display_name:
+        return display_name.split(".", maxsplit=1)[1]
+
+    return display_name
+
+
+def _enabled_schemas_use_single_source_schema(schemas: list[ExternalDataSchema]) -> bool:
+    source_schema_names = {
+        source_schema_name
+        for schema in schemas
+        if (source_schema_name := _schema_source_schema_name(schema)) is not None
+    }
+    return len(source_schema_names) == 1
+
+
+def _tenant_query_table_name(schema: ExternalDataSchema, *, omit_source_schema: bool) -> str:
+    return _schema_source_table_name(schema) if omit_source_schema else _schema_display_name(schema)
 
 
 def _normalize_postgres_type(postgres_type: str) -> str:
@@ -169,6 +212,26 @@ def _tenant_column_type_from_postgres(postgres_type: str) -> str:
     )
 
 
+def _infer_tenant_column_type_from_schemas(schemas: list[ExternalDataSchema], tenant_column_name: str) -> str | None:
+    inferred_types: set[str] = set()
+
+    for schema in schemas:
+        column = _postgres_schema_column(schema, tenant_column_name)
+        if column is None:
+            continue
+
+        postgres_type = column.get("data_type")
+        if not isinstance(postgres_type, str):
+            raise ExposedHogQLError(f"Unable to infer tenant column type for table `{_schema_display_name(schema)}`.")
+        inferred_types.add(_tenant_column_type_from_postgres(postgres_type))
+
+    if len(inferred_types) > 1:
+        type_list = ", ".join(sorted(inferred_types))
+        raise ExposedHogQLError(f"Tenant column `{tenant_column_name}` has inconsistent types: {type_list}.")
+
+    return next(iter(inferred_types)) if inferred_types else None
+
+
 def infer_tenant_column_type(source: ExternalDataSource, tenant_column_name: str) -> str:
     if not source.is_direct_postgres:
         raise ExposedHogQLError("Tenant query service requires a direct Postgres connection.")
@@ -177,40 +240,47 @@ def infer_tenant_column_type(source: ExternalDataSource, tenant_column_name: str
     if not schemas:
         raise ExposedHogQLError("Tenant query service requires at least one enabled table.")
 
-    inferred_types: set[str] = set()
     missing_table_names: list[str] = []
 
     for schema in schemas:
-        column = next(
-            (column for column in _postgres_schema_columns(schema) if column.get("name") == tenant_column_name),
-            None,
-        )
-        if column is None:
+        if _postgres_schema_column(schema, tenant_column_name) is None:
             missing_table_names.append(_schema_display_name(schema))
-            continue
-
-        postgres_type = column.get("data_type")
-        if not isinstance(postgres_type, str):
-            raise ExposedHogQLError(f"Unable to infer tenant column type for table `{_schema_display_name(schema)}`.")
-        inferred_types.add(_tenant_column_type_from_postgres(postgres_type))
 
     if missing_table_names:
         table_list = ", ".join(sorted(missing_table_names))
         raise ExposedHogQLError(f"Tenant column `{tenant_column_name}` is missing from enabled tables: {table_list}.")
 
-    if len(inferred_types) != 1:
-        type_list = ", ".join(sorted(inferred_types))
-        raise ExposedHogQLError(f"Tenant column `{tenant_column_name}` has inconsistent types: {type_list}.")
+    tenant_column_type = _infer_tenant_column_type_from_schemas(schemas, tenant_column_name)
+    if tenant_column_type is None:
+        raise ExposedHogQLError(f"Tenant column `{tenant_column_name}` was not found on any enabled table.")
 
-    return next(iter(inferred_types))
+    return tenant_column_type
+
+
+def _disable_schemas_without_tenant_column(source: ExternalDataSource, schemas: list[ExternalDataSchema]) -> list[str]:
+    schema_ids: list[UUID] = []
+    table_names: list[str] = []
+
+    for schema in schemas:
+        schema_ids.append(schema.id)
+        table_names.append(_schema_display_name(schema))
+
+    if schema_ids:
+        ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, id__in=schema_ids).update(
+            should_sync=False
+        )
+
+    return sorted(table_names)
 
 
 def _tenant_metadata_table_rows(source: ExternalDataSource) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for schema in _enabled_direct_postgres_schemas(source):
+    schemas = _enabled_direct_postgres_schemas(source)
+    omit_source_schema = _enabled_schemas_use_single_source_schema(schemas)
+    for schema in schemas:
         rows.append(
             {
-                "name": _schema_display_name(schema),
+                "name": _tenant_query_table_name(schema, omit_source_schema=omit_source_schema),
                 "source_schema": _schema_metadata_value(schema, "source_schema") or "public",
                 "source_table_name": _schema_metadata_value(schema, "source_table_name") or schema.name,
             }
@@ -223,8 +293,10 @@ def _tenant_metadata_field_rows(
     config: DataWarehouseTenantQueryConfig,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for schema in _enabled_direct_postgres_schemas(source):
-        table_name = _schema_display_name(schema)
+    schemas = _enabled_direct_postgres_schemas(source)
+    omit_source_schema = _enabled_schemas_use_single_source_schema(schemas)
+    for schema in schemas:
+        table_name = _tenant_query_table_name(schema, omit_source_schema=omit_source_schema)
         for column in _postgres_schema_columns(schema):
             column_name = column.get("name")
             postgres_type = column.get("data_type")
@@ -860,7 +932,9 @@ def summarize_tenant_query_usage(
 
 
 def _tenant_query_config_response(
-    source: ExternalDataSource, config: DataWarehouseTenantQueryConfig | None
+    source: ExternalDataSource,
+    config: DataWarehouseTenantQueryConfig | None,
+    disabled_tables: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "connection_id": str(source.id),
@@ -871,6 +945,7 @@ def _tenant_query_config_response(
         "max_timeout_ms": config.max_timeout_ms if config is not None else DEFAULT_TENANT_QUERY_MAX_TIMEOUT_MS,
         "max_result_limit": (config.max_result_limit if config is not None else DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT),
         "enabled_tables": _enabled_table_names(source),
+        "disabled_tables": disabled_tables or [],
     }
 
 
@@ -911,7 +986,6 @@ def configure_tenant_query(
     if resolved_tenant_column_name is None:
         raise ExposedHogQLError("Tenant column name is required.")
 
-    tenant_column_type = infer_tenant_column_type(source, resolved_tenant_column_name)
     resolved_default_timeout_ms = (
         default_timeout_ms
         if default_timeout_ms is not None
@@ -924,6 +998,29 @@ def configure_tenant_query(
     )
     if resolved_default_timeout_ms > resolved_max_timeout_ms:
         raise ExposedHogQLError("default_timeout_ms must be less than or equal to max_timeout_ms.")
+
+    disabled_tables: list[str] = []
+    tenant_column_type = (
+        existing_config.tenant_column_type
+        if existing_config is not None
+        else DataWarehouseTenantQueryConfig.TenantColumnType.STRING
+    )
+    if enabled:
+        enabled_schemas = _enabled_direct_postgres_schemas(source)
+        if not enabled_schemas:
+            raise ExposedHogQLError("Tenant query service requires at least one enabled table.")
+
+        missing_tenant_column_schemas = [
+            schema for schema in enabled_schemas if _postgres_schema_column(schema, resolved_tenant_column_name) is None
+        ]
+        inferred_tenant_column_type = _infer_tenant_column_type_from_schemas(
+            enabled_schemas,
+            resolved_tenant_column_name,
+        )
+        if inferred_tenant_column_type is not None:
+            tenant_column_type = inferred_tenant_column_type
+
+        disabled_tables = _disable_schemas_without_tenant_column(source, missing_tenant_column_schemas)
 
     defaults = {
         "team": team,
@@ -944,7 +1041,7 @@ def configure_tenant_query(
         external_data_source=source,
         defaults=defaults,
     )
-    return _tenant_query_config_response(source, config)
+    return _tenant_query_config_response(source, config, disabled_tables=disabled_tables)
 
 
 def _coerce_tenant_value(config: DataWarehouseTenantQueryConfig, tenant_value: object) -> object:
