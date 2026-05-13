@@ -38427,6 +38427,136 @@ export namespace Schemas {
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
     }
 
+    /**
+     * * `integer` - integer
+    * `string` - string
+    * `uuid` - uuid
+     */
+    export type TenantColumnTypeEnum = typeof TenantColumnTypeEnum[keyof typeof TenantColumnTypeEnum];
+
+
+    export const TenantColumnTypeEnum = {
+      Integer: 'integer',
+      String: 'string',
+      Uuid: 'uuid',
+    } as const;
+
+    export interface TenantQueryConfigRequest {
+      /** Direct Postgres connection ID to configure. */
+      connection_id: string;
+      /** Whether tenant-scoped querying is enabled for this connection. */
+      enabled: boolean;
+      /**
+       * Column name that must exist on every enabled table and will be enforced as the tenant key.
+       * @nullable
+       */
+      tenant_column_name?: string | null;
+      /**
+       * Default statement timeout in milliseconds when a request does not provide timeout_ms.
+       * @minimum 1
+       */
+      default_timeout_ms?: number;
+      /**
+       * Maximum allowed statement timeout in milliseconds.
+       * @minimum 1
+       */
+      max_timeout_ms?: number;
+      /**
+       * Maximum result row limit. Explicit query limits above this value are clamped.
+       * @minimum 1
+       */
+      max_result_limit?: number;
+    }
+
+    export interface TenantQueryConfigResponse {
+      /** Direct Postgres connection ID. */
+      connection_id: string;
+      /** Whether tenant-scoped querying is enabled for this connection. */
+      enabled: boolean;
+      /**
+       * Configured tenant column name.
+       * @nullable
+       */
+      tenant_column_name?: string | null;
+      /** Tenant column type inferred from direct Postgres schema metadata.
+
+    * `integer` - integer
+    * `string` - string
+    * `uuid` - uuid */
+      tenant_column_type?: TenantColumnTypeEnum | NullEnum | null;
+      /** Default statement timeout in milliseconds. */
+      default_timeout_ms: number;
+      /** Maximum allowed statement timeout in milliseconds. */
+      max_timeout_ms: number;
+      /** Maximum result row limit. */
+      max_result_limit: number;
+      /** Enabled direct Postgres tables included in tenant query validation. */
+      enabled_tables: string[];
+    }
+
+    export interface TenantQueryRequest {
+      /** Direct Postgres connection ID to query. */
+      connection_id: string;
+      /** Tenant value to enforce against the configured tenant column. */
+      tenant_value?: string | number | null;
+      /** HogQL SELECT query to execute against the tenant-scoped connection. */
+      query: string;
+      /**
+       * Optional statement timeout in milliseconds, capped by the connection tenant-query config.
+       * @minimum 1
+       */
+      timeout_ms?: number;
+    }
+
+    /**
+     * One result cell returned by the tenant-scoped query.
+     */
+    export type TenantQueryResponseResultsItemItem = string | number | number | boolean | { [key: string]: unknown } | unknown[] | null;
+
+    export interface TenantQueryTiming {
+      /** Timing key. */
+      k: string;
+      /** Elapsed time in seconds. */
+      t: number;
+    }
+
+    export interface TenantQueryResponse {
+      /**
+       * Original query string.
+       * @nullable
+       */
+      query?: string | null;
+      /**
+       * Prepared HogQL query.
+       * @nullable
+       */
+      hogql?: string | null;
+      /**
+       * Prepared SQL executed against the direct Postgres connection.
+       * @nullable
+       */
+      postgres_sql?: string | null;
+      /**
+       * Execution error, when debug mode is used.
+       * @nullable
+       */
+      error?: string | null;
+      /** Whether the query has more rows available. */
+      hasMore?: boolean;
+      /** Effective result limit. */
+      limit?: number;
+      /** Effective result offset. */
+      offset?: number;
+      /** HogQL execution timing entries. */
+      timings?: TenantQueryTiming[];
+      /** Result rows. */
+      results?: TenantQueryResponseResultsItemItem[][];
+      /** Result column names. */
+      columns?: string[];
+      /** Result column type metadata. */
+      types?: string[][];
+    }
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogRequest {

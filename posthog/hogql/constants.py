@@ -54,6 +54,7 @@ type HogQLParserBackend = Literal["python", "cpp-json"]
 class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
+    TENANT_QUERY = "tenant_query"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
@@ -68,6 +69,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         LimitContext.QUERY_ASYNC,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
+    elif limit_context == LimitContext.TENANT_QUERY:
+        return 100_000
     elif limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
     elif limit_context == LimitContext.HEATMAPS:
@@ -89,6 +92,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+        return DEFAULT_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.TENANT_QUERY:
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100

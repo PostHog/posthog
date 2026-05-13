@@ -9,6 +9,50 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Executes a HogQL SELECT query against a direct Postgres connection with the configured tenant predicate enforced on every enabled table.
+ * @summary Run a tenant-scoped direct Postgres HogQL query
+ */
+
+export const TenantQueryCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid().describe('Direct Postgres connection ID to query.'),
+    tenant_value: zod
+        .union([zod.string(), zod.number()])
+        .nullish()
+        .describe('Tenant value to enforce against the configured tenant column.'),
+    query: zod.string().describe('HogQL SELECT query to execute against the tenant-scoped connection.'),
+    timeout_ms: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Optional statement timeout in milliseconds, capped by the connection tenant-query config.'),
+})
+
+/**
+ * Enables or updates tenant-scoped querying for a direct Postgres connection after validating that every enabled table has the configured tenant column.
+ * @summary Configure tenant query service
+ */
+
+export const TenantQueryConfigCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid().describe('Direct Postgres connection ID to configure.'),
+    enabled: zod.boolean().describe('Whether tenant-scoped querying is enabled for this connection.'),
+    tenant_column_name: zod
+        .string()
+        .nullish()
+        .describe('Column name that must exist on every enabled table and will be enforced as the tenant key.'),
+    default_timeout_ms: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Default statement timeout in milliseconds when a request does not provide timeout_ms.'),
+    max_timeout_ms: zod.number().min(1).optional().describe('Maximum allowed statement timeout in milliseconds.'),
+    max_result_limit: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Maximum result row limit. Explicit query limits above this value are clamped.'),
+})
+
 export const warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsCreateBody = /* @__PURE__ */ zod.object({

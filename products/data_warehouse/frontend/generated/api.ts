@@ -54,6 +54,10 @@ import type {
     QueryTabStateListParams,
     ResetPasswordResponseApi,
     TableApi,
+    TenantQueryConfigRequestApi,
+    TenantQueryConfigResponseApi,
+    TenantQueryRequestApi,
+    TenantQueryResponseApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     WarehouseModelPathsListParams,
@@ -166,6 +170,48 @@ export const managedViewsetsUpdate = async (
     return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {
         ...options,
         method: 'PUT',
+    })
+}
+
+/**
+ * Executes a HogQL SELECT query against a direct Postgres connection with the configured tenant predicate enforced on every enabled table.
+ * @summary Run a tenant-scoped direct Postgres HogQL query
+ */
+export const getTenantQueryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/`
+}
+
+export const tenantQueryCreate = async (
+    projectId: string,
+    tenantQueryRequestApi: TenantQueryRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryResponseApi> => {
+    return apiMutator<TenantQueryResponseApi>(getTenantQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryRequestApi),
+    })
+}
+
+/**
+ * Enables or updates tenant-scoped querying for a direct Postgres connection after validating that every enabled table has the configured tenant column.
+ * @summary Configure tenant query service
+ */
+export const getTenantQueryConfigCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/config/`
+}
+
+export const tenantQueryConfigCreate = async (
+    projectId: string,
+    tenantQueryConfigRequestApi: TenantQueryConfigRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryConfigResponseApi> => {
+    return apiMutator<TenantQueryConfigResponseApi>(getTenantQueryConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryConfigRequestApi),
     })
 }
 
