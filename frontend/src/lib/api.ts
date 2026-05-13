@@ -1718,6 +1718,10 @@ export class ApiRequest {
         return this.conversationsTickets(teamId).addPathComponent(id)
     }
 
+    public founderGoToMarket(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('founder').addPathComponent('go-to-market')
+    }
+
     // Notebooks
     public notebooks(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('notebooks')
@@ -6589,6 +6593,18 @@ const api = {
 
         async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
             return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
+        },
+    },
+
+    founderGtm: {
+        async get(): Promise<any> {
+            return await new ApiRequest().founderGoToMarket().get()
+        },
+
+        async generate(productDescription: string): Promise<any> {
+            return await new ApiRequest().founderGoToMarket().create({
+                data: { product_description: productDescription },
+            })
         },
     },
 
