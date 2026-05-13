@@ -497,6 +497,13 @@ export type AssistantTool =
     | 'search_llm_traces'
     | 'run_hog_eval_test'
     | 'diagnose_proxy'
+    | 'list_mindmap'
+    | 'create_postit'
+    | 'update_postit'
+    | 'delete_postit'
+    | 'connect_postits'
+    | 'disconnect_postits'
+    | 'link_notebook_to_postit'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

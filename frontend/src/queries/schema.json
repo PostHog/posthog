@@ -3556,7 +3556,14 @@
                 "call_mcp_server",
                 "search_llm_traces",
                 "run_hog_eval_test",
-                "diagnose_proxy"
+                "diagnose_proxy",
+                "list_mindmap",
+                "create_postit",
+                "update_postit",
+                "delete_postit",
+                "connect_postits",
+                "disconnect_postits",
+                "link_notebook_to_postit"
             ],
             "type": "string"
         },

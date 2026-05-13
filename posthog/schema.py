@@ -727,6 +727,13 @@ class AssistantTool(StrEnum):
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
+    LIST_MINDMAP = "list_mindmap"
+    CREATE_POSTIT = "create_postit"
+    UPDATE_POSTIT = "update_postit"
+    DELETE_POSTIT = "delete_postit"
+    CONNECT_POSTITS = "connect_postits"
+    DISCONNECT_POSTITS = "disconnect_postits"
+    LINK_NOTEBOOK_TO_POSTIT = "link_notebook_to_postit"
 
 
 class AssistantToolCall(BaseModel):
