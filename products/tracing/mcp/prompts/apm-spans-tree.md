@@ -128,7 +128,7 @@ Property filters applied to both windows. See the "Property filters" section.
 {
   "query": {
     "spanName": "POST /api/orders",
-    "filterGroup": [{ "key": "status_code", "operator": "exact", "type": "span", "value": "Error" }]
+    "filterGroup": [{ "key": "status_code", "operator": "exact", "type": "span", "value": 2 }]
   }
 }
 ```
