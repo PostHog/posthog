@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -85,6 +85,12 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
     connect(() => ({
         values: [userLogic, ['user']],
     })),
+    actions({
+        setRenewalsPlanFilter: (filter: 'all' | 'annual') => ({ filter }),
+    }),
+    reducers({
+        renewalsPlanFilter: ['annual' as 'all' | 'annual', { setRenewalsPlanFilter: (_, { filter }) => filter }],
+    }),
     selectors({
         csmEmail: [(s) => [s.user], (user): string | null => user?.email ?? null],
         // TODO restore before merge: gate behind FEATURE_FLAGS.SCENE_CSM_HUD + is_staff + @posthog.com

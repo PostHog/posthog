@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { FleetTab } from '../components/FleetTab'
+import { RenewalsTab } from '../components/RenewalsTab'
 import { csmHudSceneLogic } from '../logics/csmHudSceneLogic'
 
 type TabKey = 'fleet' | 'renewals' | 'engagement' | 'conversations' | 'expansion'
@@ -48,7 +49,7 @@ export function CSMHudScene(): JSX.Element {
         {
             key: 'renewals',
             label: 'Renewals',
-            content: <ComingSoon label="Renewals" />,
+            content: <RenewalsTab />,
             link: urls.csmHudRenewals(),
         },
         {
