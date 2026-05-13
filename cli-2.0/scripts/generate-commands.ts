@@ -95,9 +95,6 @@ export async function executeToolCall(context: Context, toolName: string, params
 
 // Extract API call info from tool name using the same patterns MCP tools use
 function getApiCallFromToolName(toolName: string, projectId: string, params: any) {
-  // Remove common prefixes to get the base resource and action
-  const parts = toolName.split('-')
-  
   // Common patterns found in MCP tools:
   if (toolName.includes('list') || toolName.includes('get-all')) {
     const resource = extractResource(toolName)
@@ -151,7 +148,7 @@ function getApiCallFromToolName(toolName: string, projectId: string, params: any
 
 // Extract resource name from tool name
 function extractResource(toolName: string): string {
-  // Handle special cases
+  // Handle special cases with exact mappings
   const resourceMap: Record<string, string> = {
     'feature-flag': 'feature_flags',
     'feature_flag': 'feature_flags',
@@ -173,8 +170,32 @@ function extractResource(toolName: string): string {
     }
   }
   
-  // Fallback: extract first part and convert to plural
-  const firstPart = toolName.split('-')[0]
+  // Pattern-based extraction for common naming patterns
+  const parts = toolName.split('-')
+  
+  // Common action verbs that appear at the start
+  const actionVerbs = ['create', 'update', 'delete', 'get', 'list', 'retrieve', 'destroy', 'partial']
+  
+  // Pattern: {action}-{resource} (e.g., "create-webhook", "delete-team")
+  if (parts.length >= 2 && actionVerbs.includes(parts[0])) {
+    const resource = parts.slice(1).join('-')
+    return resource.endsWith('s') ? resource : resource + 's'
+  }
+  
+  // Pattern: {resource}-{action} or {resource}s-{action} (e.g., "cohort-create", "actions-get-all")
+  if (parts.length >= 2 && actionVerbs.includes(parts[parts.length - 1])) {
+    const resource = parts.slice(0, -1).join('-')
+    return resource.endsWith('s') ? resource : resource + 's'
+  }
+  
+  // Pattern: {resource}-{action}-{modifier} (e.g., "logs-alerts-create")
+  if (parts.length >= 3 && actionVerbs.includes(parts[parts.length - 2])) {
+    const resource = parts.slice(0, -2).join('-')
+    return resource.endsWith('s') ? resource : resource + 's'
+  }
+  
+  // Fallback: assume first part is the resource (for tools like "activity-log-list")
+  const firstPart = parts[0]
   return firstPart.endsWith('s') ? firstPart : firstPart + 's'
 }
 `
