@@ -28,55 +28,49 @@ def _create_org_member(email: str, organization: Organization) -> User:
     return user
 
 
-@pytest.mark.django_db
-def test_resolves_login_via_social_auth(organization, team):
-    user = _create_org_member("social@example.com", organization)
-    UserSocialAuth.objects.create(
-        user=user,
-        provider="github",
-        uid="github-social-1",
-        extra_data={"login": "OctoCat"},
-    )
-
-    result = resolve_org_github_login_to_users(team.id, ["octocat"])
-
-    assert set(result.keys()) == {"octocat"}
-    assert result["octocat"].id == user.id
+def _make_social_auth(user: User, team: Team, login: str) -> None:
+    UserSocialAuth.objects.create(user=user, provider="github", uid="github-social-1", extra_data={"login": login})
 
 
-@pytest.mark.django_db
-def test_resolves_login_via_user_integration(organization, team):
-    user = _create_org_member("user-int@example.com", organization)
+def _make_user_integration(user: User, team: Team, login: str) -> None:
     UserIntegration.objects.create(
         user=user,
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id="user-int-1",
-        config={"installation_id": "user-int-1", "github_user": {"login": "MixedCase"}},
+        config={"installation_id": "user-int-1", "github_user": {"login": login}},
         sensitive_config={},
     )
 
-    result = resolve_org_github_login_to_users(team.id, ["mixedcase"])
 
-    assert set(result.keys()) == {"mixedcase"}
-    assert result["mixedcase"].id == user.id
-
-
-@pytest.mark.django_db
-def test_resolves_login_via_team_integration(organization, team):
-    user = _create_org_member("team-int@example.com", organization)
+def _make_team_integration(user: User, team: Team, login: str) -> None:
     Integration.objects.create(
         team=team,
         kind="github",
         integration_id="team-int-1",
-        config={"installation_id": "team-int-1", "connecting_user_github_login": "TeamConnector"},
+        config={"installation_id": "team-int-1", "connecting_user_github_login": login},
         sensitive_config={},
         created_by=user,
     )
 
-    result = resolve_org_github_login_to_users(team.id, ["teamconnector"])
 
-    assert set(result.keys()) == {"teamconnector"}
-    assert result["teamconnector"].id == user.id
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("identity_source", "create_identity", "stored_login"),
+    [
+        ("social_auth", _make_social_auth, "OctoCat"),
+        ("user_integration", _make_user_integration, "MixedCase"),
+        ("team_integration", _make_team_integration, "TeamConnector"),
+    ],
+)
+def test_resolves_login_across_identity_sources(organization, team, identity_source, create_identity, stored_login):
+    user = _create_org_member(f"{identity_source}@example.com", organization)
+    create_identity(user, team, stored_login)
+
+    lookup = stored_login.lower()
+    result = resolve_org_github_login_to_users(team.id, [lookup])
+
+    assert set(result.keys()) == {lookup}
+    assert result[lookup].id == user.id
 
 
 @pytest.mark.django_db
