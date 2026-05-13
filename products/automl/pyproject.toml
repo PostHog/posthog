@@ -25,5 +25,12 @@ automl = "products.automl.main:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Defense-in-depth: the root workspace pyproject already enforces a 7-day
+# package release-age floor (per security policy, see #ask-security on Slack
+# 2026-05-13). Re-declaring here so this product stays protected if it's ever
+# resolved standalone (uv build from this dir, uv pip install -e ., etc.).
+[tool.uv]
+exclude-newer = "7 days"
+
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]
