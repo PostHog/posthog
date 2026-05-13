@@ -6630,6 +6630,17 @@ export namespace Schemas {
       last_seen_at: string;
     }
 
+    /**
+     * Bundles nodes and relationships for the graph view. Drives the React Flow scene
+    so the client can render the whole topology in one fetch.
+     */
+    export interface CatalogGraphDTO {
+      readonly nodes: readonly CatalogNodeDTO[];
+      readonly relationships: readonly CatalogRelationshipDTO[];
+      /** @nullable */
+      generated_at?: string | null;
+    }
+
     export interface CategoricalScoreOption {
       /**
          * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.

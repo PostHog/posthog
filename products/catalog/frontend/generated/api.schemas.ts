@@ -343,6 +343,33 @@ export interface PatchedUpdateNodeInputApi {
     status?: UpdateNodeInputStatusEnumApi
 }
 
+export interface CatalogRelationshipDTOApi {
+    id: string
+    source_node_id: string
+    /** @nullable */
+    source_column: string | null
+    target_node_id: string
+    /** @nullable */
+    target_column: string | null
+    kind: string
+    confidence: number
+    reasoning: string
+    status: string
+    discovered_at: string
+    last_seen_at: string
+}
+
+/**
+ * Bundles nodes and relationships for the graph view. Drives the React Flow scene
+so the client can render the whole topology in one fetch.
+ */
+export interface CatalogGraphDTOApi {
+    readonly nodes: readonly CatalogNodeDTOApi[]
+    readonly relationships: readonly CatalogRelationshipDTOApi[]
+    /** @nullable */
+    generated_at?: string | null
+}
+
 /**
  * * `foreign_key` - foreign_key
  * `same_entity` - same_entity
@@ -406,22 +433,6 @@ export interface ProposeRelationshipInputApi {
      * @nullable
      */
     generator_model?: string | null
-}
-
-export interface CatalogRelationshipDTOApi {
-    id: string
-    source_node_id: string
-    /** @nullable */
-    source_column: string | null
-    target_node_id: string
-    /** @nullable */
-    target_column: string | null
-    kind: string
-    confidence: number
-    reasoning: string
-    status: string
-    discovered_at: string
-    last_seen_at: string
 }
 
 /**

@@ -15,6 +15,14 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'data_warehouse',
         },
+        CatalogGraph: {
+            import: () => import('./frontend/CatalogGraphScene'),
+            projectBased: true,
+            name: 'Catalog graph',
+            activityScope: 'CatalogNode',
+            layout: 'app-container',
+            iconType: 'data_warehouse',
+        },
         CatalogDefinition: {
             import: () => import('./frontend/CatalogDefinitionScene'),
             projectBased: true,
@@ -26,10 +34,12 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/catalog': ['CatalogList', 'catalog'],
+        '/catalog/graph': ['CatalogGraph', 'catalogGraph'],
         '/catalog/definitions/:id': ['CatalogDefinition', 'catalogDefinition'],
     },
     urls: {
         catalog: (): string => '/catalog',
+        catalogGraph: (): string => '/catalog/graph',
         catalogDefinition: (id: string): string => `/catalog/definitions/${id}`,
     },
     fileSystemTypes: {},
