@@ -70,6 +70,7 @@ export function HeatmapNewScene(): JSX.Element {
                     onChange={(next) => setDisplayUrl(next[0] ?? '')}
                     options={(topUrls ?? []).map(({ url }) => ({ key: url, label: url }))}
                     title={topUrls && topUrls.length > 0 ? 'Most viewed pages' : undefined}
+                    popoverClassName="w-0"
                     data-attr="heatmap-new-page-url"
                 />
                 {displayUrl && !isDisplayUrlValid ? (
@@ -82,9 +83,7 @@ export function HeatmapNewScene(): JSX.Element {
                     )
                 ) : null}
                 {!displayUrl && noPageviews && !topUrlsLoading ? (
-                    <div className="text-xs text-muted mt-1">
-                        No pageview events have been received yet — type a URL to continue.
-                    </div>
+                    <div className="text-xs text-muted mt-1">No pageview events have been received yet.</div>
                 ) : null}
             </SceneSection>
             <SceneDivider />

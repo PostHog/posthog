@@ -13,13 +13,10 @@ import {
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
-// Detects a wildcard in the host or port portion of a URL, before the first path segment.
 const HOST_WILDCARD_REGEX = /^https?:\/\/[^/]*\*/
 
 function deriveAuthorizationCandidate(dataUrl: string): string | null {
     if (HOST_WILDCARD_REGEX.test(dataUrl)) {
-        // Keep the wildcard literal so subdomain patterns like https://*.example.com pass through
-        // the existing wildcard validation rules in authorizedUrlListLogic.
         const match = dataUrl.match(/^(https?:\/\/[^/]+)/)
         return match ? match[1] : null
     }
