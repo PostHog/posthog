@@ -106,6 +106,8 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     TraceSpansQuery = 'TraceSpansQuery',
+    TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
+    TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -230,6 +232,8 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -329,6 +333,8 @@ export type QuerySchema =
 
     // Tracing
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -387,6 +393,8 @@ export type AnyResponseType =
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
     | TraceSpansQueryResponse
+    | TraceSpansAggregationQueryResponse
+    | TraceSpansTreeQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -3038,6 +3046,82 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
+
+/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
+export interface AggregatedSpanRow {
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+}
+
+export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
+    kind: NodeKind.TraceSpansAggregationQuery
+    dateRange: DateRange
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
+    results: AggregatedSpanRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AggregatedSpanRow[]
+}
+
+export type CachedTraceSpansAggregationQueryResponse = CachedQueryResponse<TraceSpansAggregationQueryResponse>
+
+/**
+ * One node in an aggregated span call tree. The `(service_name, name)` pair identifies
+ * the node; `(parent_service, parent_name)` links it to its parent. Spans without a
+ * matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.
+ */
+export interface SpanTreeNode {
+    parent_service: string
+    parent_name: string
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+    /**
+     * Average nanoseconds from the parent span's start to this span's start. Zero for
+     * root spans. Used to order children left-to-right by typical start time in the
+     * flame graph.
+     */
+    avg_start_offset_nano: number
+}
+
+export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
+    kind: NodeKind.TraceSpansTreeQuery
+    dateRange: DateRange
+    /**
+     * Span name to scope the matched trace set. Required because the
+     * `(trace_id, parent_span_id)` self-join is prohibitive without bounding the
+     * matched traces — at high name cardinality the query becomes unsafe to run.
+     */
+    spanName: string
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase {
+    results: SpanTreeNode[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: SpanTreeNode[]
+}
+
+export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
 
 export interface FileSystemCount {
     count: number
