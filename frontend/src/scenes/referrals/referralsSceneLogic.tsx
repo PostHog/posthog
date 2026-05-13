@@ -11,9 +11,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb, UserType } from '~/types'
 
+import type { referralsSceneLogicType } from './referralsSceneLogicType'
+
 function socialReferralSignupUrl(distinctId: string): string {
     const url = new URL(urls.signup(), document.baseURI)
-    url.searchParams.set('referral_id', distinctId)
+    url.searchParams.set('referral_program_id', distinctId)
     url.searchParams.set('utm_medium', 'in-product')
     url.searchParams.set('utm_campaign', 'social-referral')
     return url.href
@@ -34,7 +36,7 @@ type PaginatedSocialReferrals = {
     results: SocialReferralListItem[]
 }
 
-export const referralsSceneLogic = kea([
+export const referralsSceneLogic = kea<referralsSceneLogicType>([
     path(['scenes', 'referrals', 'referralsSceneLogic']),
     tabAwareScene(),
     connect(() => ({

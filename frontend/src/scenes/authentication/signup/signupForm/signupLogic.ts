@@ -272,6 +272,11 @@ export const signupLogic = kea<signupLogicType>([
                         next_url: nextUrl ?? undefined,
                     }
 
+                    const referralProgramIdFromUrl = new URLSearchParams(location.search).get('referral_program_id')
+                    if (referralProgramIdFromUrl) {
+                        signupData.referral_program_id = referralProgramIdFromUrl
+                    }
+
                     // Only include password for password-based signup
                     if (!values.passkeyRegistered && values.signupPanelAuth.password) {
                         signupData.password = values.signupPanelAuth.password
@@ -410,6 +415,11 @@ export const signupLogic = kea<signupLogicType>([
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
                         next_url: nextUrl ?? undefined,
+                    }
+
+                    const referralProgramIdFromUrl = new URLSearchParams(location.search).get('referral_program_id')
+                    if (referralProgramIdFromUrl) {
+                        signupData.referral_program_id = referralProgramIdFromUrl
                     }
 
                     if (values.turnstileToken && values.challengeNonce) {

@@ -50,9 +50,12 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             }),
 
             submit: async (formValues) => {
+                const referralProgramIdFromUrl = new URLSearchParams(location.search).get('referral_program_id')
+
                 await api
                     .create('api/social_signup/', {
                         ...formValues,
+                        ...(referralProgramIdFromUrl ? { referral_program_id: referralProgramIdFromUrl } : {}),
                     })
                     .then(() => {
                         const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
