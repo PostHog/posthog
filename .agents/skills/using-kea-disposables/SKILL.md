@@ -53,9 +53,11 @@ The default (`true`) is correct for almost everything — polling, animation tic
 
 Opt out (`{ pauseOnPageHidden: false }`) only when the listener must keep firing while the page is hidden:
 
-- Navigation listeners (`popstate`, route changes) that need to catch background events
+- Listeners for events that can genuinely fire while the tab is hidden — e.g. `storage` (writes from another tab), `online` / `offline`, `message` (from web workers, service workers, or other windows)
 - A `visibilitychange` listener itself — the whole point is to observe hide/show
 - Anything the user expects to keep running while the tab is hidden
+
+Note: `popstate` cannot fire on a hidden tab (it's user-driven), so pausing on hide is fine — see the toolbar example below.
 
 ## Calling `dispose()` to stop early
 
