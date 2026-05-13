@@ -33,28 +33,46 @@ def train(
     time_limit_s: int = 300,
     presets: str = "medium_quality",
     experiment_name: str = "automl-hackathon",
-    eval_fraction: float = 0.2,
+    val_fraction: float = 0.15,
+    test_fraction: float = 0.15,
     seed: int = 42,
 ) -> TrainingResult:
-    """Fit a TabularPredictor, log to MLflow, return paths + metrics."""
+    """Fit a TabularPredictor with a 3-way train/val/test split.
+
+    val (passed to AutoGluon as ``tuning_data``) is used for HPO / model
+    selection / stacking decisions. test is held out completely and only
+    used to score the final leaderboard reported in the result.
+    """
     if target not in df.columns:
         raise ValueError(f"target {target!r} not in dataframe columns {df.columns}")
-    if not 0.0 < eval_fraction < 1.0:
-        raise ValueError(f"eval_fraction must be in (0, 1), got {eval_fraction}")
+    if not 0.0 < val_fraction < 1.0:
+        raise ValueError(f"val_fraction must be in (0, 1), got {val_fraction}")
+    if not 0.0 < test_fraction < 1.0:
+        raise ValueError(f"test_fraction must be in (0, 1), got {test_fraction}")
+    if val_fraction + test_fraction >= 1.0:
+        raise ValueError(f"val_fraction + test_fraction must be < 1.0, got {val_fraction + test_fraction}")
 
     model_path = str(Path(model_dir).expanduser().resolve())
 
     pdf = df.to_pandas()
     shuffled = pdf.sample(frac=1.0, random_state=seed).reset_index(drop=True)
-    eval_size = max(1, int(len(shuffled) * eval_fraction))
-    eval_df = shuffled.iloc[:eval_size]
-    train_df = shuffled.iloc[eval_size:]
+    n = len(shuffled)
+    test_size = max(1, int(n * test_fraction))
+    val_size = max(1, int(n * val_fraction))
+    test_df = shuffled.iloc[:test_size]
+    val_df = shuffled.iloc[test_size : test_size + val_size]
+    train_df = shuffled.iloc[test_size + val_size :]
+
+    train_class_counts = {str(k): int(v) for k, v in train_df[target].value_counts().to_dict().items()}
     logger.info(
         "train_split",
         target=target,
         rows_train=len(train_df),
-        rows_eval=len(eval_df),
-        eval_fraction=eval_fraction,
+        rows_val=len(val_df),
+        rows_test=len(test_df),
+        val_fraction=val_fraction,
+        test_fraction=test_fraction,
+        train_class_counts=train_class_counts,
         seed=seed,
     )
 
@@ -66,7 +84,10 @@ def train(
                 "target": target,
                 "rows_total": len(pdf),
                 "rows_train": len(train_df),
-                "rows_eval": len(eval_df),
+                "rows_val": len(val_df),
+                "rows_test": len(test_df),
+                "val_fraction": val_fraction,
+                "test_fraction": test_fraction,
                 "presets": presets,
                 "time_limit_s": time_limit_s,
                 "eval_metric": eval_metric or "auto",
@@ -87,12 +108,13 @@ def train(
             eval_metric=eval_metric,
         ).fit(
             train_data=train_df,
+            tuning_data=val_df,
             time_limit=time_limit_s,
             presets=presets,
         )
         logger.info("autogluon_fit_done", problem_type=predictor.problem_type, eval_metric=predictor.eval_metric.name)
 
-        leaderboard = predictor.leaderboard(eval_df, silent=True)
+        leaderboard = predictor.leaderboard(test_df, silent=True)
         leaderboard_records: list[dict[str, Any]] = leaderboard.to_dict(orient="records")
 
         best = leaderboard.iloc[0].to_dict()
