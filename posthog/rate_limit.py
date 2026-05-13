@@ -952,6 +952,25 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "health_issue_refresh"
+    rate = "1/15minutes"
+
+    def parse_rate(self, rate):
+        if rate is None:
+            return (None, None)
+        num, period = rate.split("/")
+        if period.endswith("minutes"):
+            return (int(num), int(period[:-7]) * 60)
+        return super().parse_rate(rate)
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 

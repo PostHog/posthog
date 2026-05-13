@@ -29,11 +29,13 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
+import products.deployments.backend.api as deployments
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
 import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
@@ -309,6 +311,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployments",
     ["project_id"],
 )
 
@@ -1149,6 +1157,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+
+projects_router.register(
+    r"business_knowledge/sources",
+    business_knowledge.KnowledgeSourceViewSet,
+    "environment_business_knowledge_sources",
+    ["team_id"],
+)
 
 projects_router.register(
     r"conversations/tickets",

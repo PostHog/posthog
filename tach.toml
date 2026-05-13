@@ -60,11 +60,13 @@ depends_on = [
     "products.access_control",
     "products.analytics_platform",
     "products.batch_exports",
+    "products.business_knowledge",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.deployments",
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
@@ -173,6 +175,13 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.deployments"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -580,8 +589,10 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
+    "backend\\.api.*",
+    "backend\\.logic.*",
+    "backend\\.constants.*",
+    "backend\\.models.*",
 ]
 from = [
     "products.business_knowledge",

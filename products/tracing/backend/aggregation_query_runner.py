@@ -19,6 +19,7 @@ import datetime as dt
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, cast
+from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     AggregatedSpanRow,
@@ -136,6 +137,7 @@ class _SpanAggregationMixin:
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
+            timezone_info=ZoneInfo("UTC"),
             now=dt.datetime.now(),
         )
 
@@ -149,6 +151,7 @@ class _SpanAggregationMixin:
                 date_range=self.query.dateRange,
                 team=self.team,
                 interval=IntervalType.MINUTE,
+                timezone_info=ZoneInfo("UTC"),
                 now=dt.datetime.now(),
                 compare_to=compare_filter.compare_to,
             )
@@ -157,6 +160,7 @@ class _SpanAggregationMixin:
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
+            timezone_info=ZoneInfo("UTC"),
             now=dt.datetime.now(),
         )
 

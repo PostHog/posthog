@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +18,8 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    sanitize_display_name,
+    sanitize_message_body,
     validate_display_name,
     validate_message_body,
 )
@@ -414,3 +416,75 @@ class TestValidateMessageBody(SimpleTestCase):
         self.assertEqual(validate_message_body(""), "")
         self.assertEqual(validate_message_body("   "), "   ")
         self.assertEqual(validate_message_body("   \n\t  "), "   \n\t  ")
+
+
+class TestSanitizeDisplayName(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain", "Acme Inc", "Acme Inc"),
+            ("strips_whitespace", "  Acme Inc  ", "Acme Inc"),
+            ("unicode_name", "\u00c9mile", "\u00c9mile"),
+        ]
+    )
+    def test_returns_validated_value(self, _name: str, value: str, expected: str) -> None:
+        self.assertEqual(sanitize_display_name(value, fallback="fallback"), expected)
+
+    @parameterized.expand(
+        [
+            ("url", "https://acme.example.com"),
+            ("www", "www.scam.io"),
+            ("bare_domain", "acme.com"),
+            ("javascript_scheme", "javascript:alert(1)"),
+            ("bracket", "<acme>"),
+            ("zero_width", "foo\u200bbar"),
+            ("newline", "line1\nline2"),
+        ]
+    )
+    def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
+        self.assertEqual(
+            sanitize_display_name(value, fallback="their organization"),
+            "their organization",
+        )
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty", ""),
+            ("whitespace_only", "   "),
+        ]
+    )
+    def test_returns_fallback_when_blank(self, _name: str, value: Optional[str]) -> None:
+        self.assertEqual(sanitize_display_name(value, fallback="Someone"), "Someone")
+
+    def test_context_is_logged_but_does_not_raise(self) -> None:
+        # The context kwarg is purely diagnostic — it should never affect the return value.
+        result = sanitize_display_name(
+            "https://evil.example.com",
+            fallback="their organization",
+            context={"task": "unit_test", "organization_id": "abc"},
+        )
+        self.assertEqual(result, "their organization")
+
+
+class TestSanitizeMessageBody(SimpleTestCase):
+    def test_returns_validated_value(self) -> None:
+        value = "Hey!\nWelcome aboard."
+        self.assertEqual(sanitize_message_body(value), value)
+
+    @parameterized.expand(
+        [
+            ("url", "Check https://evil.com"),
+            ("www", "Visit www.scam.io"),
+            ("bracket", "hello <there>"),
+            ("non_newline_control", "foo\x01bar"),
+        ]
+    )
+    def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
+        self.assertEqual(sanitize_message_body(value), "")
+        self.assertEqual(sanitize_message_body(value, fallback="--"), "--")
+
+    def test_passes_through_none_and_blank_via_fallback(self) -> None:
+        # None / empty pass through validate_message_body but the helper still returns the
+        # fallback so callers can rely on getting a non-None string back.
+        self.assertEqual(sanitize_message_body(None), "")
+        self.assertEqual(sanitize_message_body(""), "")

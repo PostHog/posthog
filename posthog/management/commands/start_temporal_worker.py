@@ -169,6 +169,10 @@ from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
+)
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
@@ -300,6 +304,11 @@ _task_queue_specs = [
         + SESSION_SUMMARY_ACTIVITIES
         + SESSION_SUMMARY_GROUP_ACTIVITIES
         + SUMMARIZATION_SWEEP_ACTIVITIES,
+    ),
+    (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,

@@ -3791,6 +3791,7 @@ class ProductKey(StrEnum):
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
+    DEPLOYMENTS = "deployments"
     EARLY_ACCESS_FEATURES = "early_access_features"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"

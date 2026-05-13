@@ -7965,6 +7965,22 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `single` - Single page
+    * `sitemap` - Sitemap
+    * `same_origin` - Same origin crawl
+    * `github_repo` - GitHub repository
+     */
+    export type CrawlModeEnum = typeof CrawlModeEnum[keyof typeof CrawlModeEnum];
+
+
+    export const CrawlModeEnum = {
+      Single: 'single',
+      Sitemap: 'sitemap',
+      SameOrigin: 'same_origin',
+      GithubRepo: 'github_repo',
+    } as const;
+
     export interface CreateGroup {
       /**
          * @minimum -2147483648
@@ -8185,6 +8201,16 @@ export namespace Schemas {
     export interface CreateRunResult {
       run_id: string;
       uploads: UploadTarget[];
+    }
+
+    export interface CreateTextSource {
+      /**
+         * Short human label for the source. Shown in the settings list and in agent citations.
+         * @maxLength 255
+         */
+      name: string;
+      /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
+      text: string;
     }
 
     /**
@@ -11817,6 +11843,129 @@ export namespace Schemas {
       key: string;
       /** Feature flag name */
       name: string;
+    }
+
+    /**
+     * * `queued` - Queued
+    * `initializing` - Initializing
+    * `building` - Building
+    * `ready` - Ready
+    * `error` - Error
+    * `cancelled` - Cancelled
+     */
+    export type DeploymentStatusEnum = typeof DeploymentStatusEnum[keyof typeof DeploymentStatusEnum];
+
+
+    export const DeploymentStatusEnum = {
+      Queued: 'queued',
+      Initializing: 'initializing',
+      Building: 'building',
+      Ready: 'ready',
+      Error: 'error',
+      Cancelled: 'cancelled',
+    } as const;
+
+    /**
+     * * `git` - Git
+    * `redeploy` - Redeploy
+    * `rollback` - Rollback
+    * `seed` - Seed
+     */
+    export type TriggerKindEnum = typeof TriggerKindEnum[keyof typeof TriggerKindEnum];
+
+
+    export const TriggerKindEnum = {
+      Git: 'git',
+      Redeploy: 'redeploy',
+      Rollback: 'rollback',
+      Seed: 'seed',
+    } as const;
+
+    export interface Deployment {
+      /** Unique identifier for the deployment. */
+      readonly id: string;
+      /** Current pipeline stage for the deployment. Valid values: queued, initializing, building, ready, error, cancelled.
+
+      * `queued` - Queued
+      * `initializing` - Initializing
+      * `building` - Building
+      * `ready` - Ready
+      * `error` - Error
+      * `cancelled` - Cancelled */
+      status: DeploymentStatusEnum;
+      /**
+         * Timestamp when the pipeline started building. Null while still queued.
+         * @nullable
+         */
+      started_at?: string | null;
+      /**
+         * Timestamp when the pipeline finished (regardless of outcome). Null while still running.
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** Timestamp when the deployment row was created. */
+      readonly created_at: string;
+      /**
+         * Git commit SHA the deployment was built from. Empty for non-git triggers.
+         * @maxLength 64
+         */
+      commit_sha?: string;
+      /** Commit message associated with the commit SHA. */
+      commit_message?: string;
+      /**
+         * Display name of the commit author.
+         * @maxLength 255
+         */
+      commit_author_name?: string;
+      /**
+         * Email address of the commit author.
+         * @maxLength 255
+         */
+      commit_author_email?: string;
+      /**
+         * HTTPS URL of the source repository this deployment came from.
+         * @maxLength 1024
+         */
+      repo_url?: string;
+      /**
+         * Source branch the deployment was built from.
+         * @maxLength 255
+         */
+      branch?: string;
+      /**
+         * Public URL where the built site is served once the deployment is ready.
+         * @maxLength 1024
+         */
+      deployment_url?: string;
+      /**
+         * URL of a screenshot capture of the deployed site, used in the list view.
+         * @maxLength 1024
+         */
+      preview_image_url?: string;
+      /**
+         * The deployment this one was triggered from (e.g. for rollbacks/redeploys).
+         * @nullable
+         */
+      readonly triggered_by_deployment: string | null;
+      /** What caused this deployment to start. One of: git, redeploy, rollback, seed.
+
+      * `git` - Git
+      * `redeploy` - Redeploy
+      * `rollback` - Rollback
+      * `seed` - Seed */
+      trigger_kind: TriggerKindEnum;
+      /** Whether this deployment is the team's currently-serving production deployment. */
+      readonly is_current: boolean;
+      /** Build duration in seconds (finished_at - started_at). 0 while still running. */
+      readonly duration_seconds: number;
+    }
+
+    /**
+     * Response shape for the redeploy/rollback/refresh-preview stubs.
+     */
+    export interface DeploymentActionResponse {
+      /** Human-readable explanation of the stub response. */
+      detail: string;
     }
 
     export interface DeprovisionWarehouseResponse {
@@ -18566,6 +18715,77 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    /**
+     * * `text` - Text
+    * `url` - URL
+    * `file` - File
+     */
+    export type KnowledgeSourceSourceTypeEnum = typeof KnowledgeSourceSourceTypeEnum[keyof typeof KnowledgeSourceSourceTypeEnum];
+
+
+    export const KnowledgeSourceSourceTypeEnum = {
+      Text: 'text',
+      Url: 'url',
+      File: 'file',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+    * `processing` - Processing
+    * `ready` - Ready
+    * `error` - Error
+     */
+    export type KnowledgeSourceStatusEnum = typeof KnowledgeSourceStatusEnum[keyof typeof KnowledgeSourceStatusEnum];
+
+
+    export const KnowledgeSourceStatusEnum = {
+      Pending: 'pending',
+      Processing: 'processing',
+      Ready: 'ready',
+      Error: 'error',
+    } as const;
+
+    /**
+     * * `success` - Success
+    * `not_modified` - Not modified
+    * `error` - Error
+     */
+    export type LastRefreshStatusEnum = typeof LastRefreshStatusEnum[keyof typeof LastRefreshStatusEnum];
+
+
+    export const LastRefreshStatusEnum = {
+      Success: 'success',
+      NotModified: 'not_modified',
+      Error: 'error',
+    } as const;
+
+    export interface KnowledgeSource {
+      readonly id: string;
+      readonly team_id: number;
+      readonly name: string;
+      readonly source_type: KnowledgeSourceSourceTypeEnum;
+      readonly status: KnowledgeSourceStatusEnum;
+      readonly error_message: string;
+      /** Number of documents belonging to this source. */
+      readonly document_count: number;
+      /** Number of chunks belonging to this source. */
+      readonly chunk_count: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly source_url: string;
+      /** @nullable */
+      readonly last_refresh_at: string | null;
+      readonly last_refresh_status: LastRefreshStatusEnum;
+      readonly last_refresh_error: string;
+      readonly crawl_mode: CrawlModeEnum;
+      readonly crawl_config: unknown;
+      readonly original_filename: string;
+      readonly file_content_type: string;
+      /** @nullable */
+      readonly file_size_bytes: number | null;
+    }
+
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -20250,6 +20470,25 @@ export namespace Schemas {
       OnDemand: 'on_demand',
     } as const;
 
+    /**
+     * Body of POST /vision/lenses/{id}/observe/.
+     */
+    export interface ObserveRequest {
+      /**
+         * ID of the session recording to apply the lens to.
+         * @maxLength 128
+         */
+      session_id: string;
+    }
+
+    /**
+     * Async-accepted response for POST /vision/lenses/{id}/observe/.
+     */
+    export interface ObserveResponse {
+      /** Temporal workflow id for this lens application. Look up the resulting ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>. */
+      workflow_id: string;
+    }
+
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
       experiment_id: string;
@@ -20909,6 +21148,15 @@ export namespace Schemas {
       results: Dataset[];
     }
 
+    export interface PaginatedDeploymentList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Deployment[];
+    }
+
     export interface PaginatedDesktopRecordingList {
       count: number;
       /** @nullable */
@@ -21303,6 +21551,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
+    }
+
+    export interface PaginatedKnowledgeSourceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeSource[];
     }
 
     export interface PaginatedLLMPromptListList {
@@ -22742,7 +22999,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
+     * * `hourly` - Hourly
+    * `daily` - Daily
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly
@@ -22751,6 +23009,7 @@ export namespace Schemas {
 
 
     export const SubscriptionFrequencyEnum = {
+      Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -22808,8 +23067,9 @@ export namespace Schemas {
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
+      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -28312,8 +28572,9 @@ export namespace Schemas {
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
+      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -29561,6 +29822,20 @@ export namespace Schemas {
       baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths;
       /** @nullable */
       enable_pr_comments?: boolean | null;
+    }
+
+    /**
+     * PATCH payload for text sources. Both fields optional, at least one
+    required. `text` triggers a re-chunk; `name` alone does not.
+     */
+    export interface PatchedUpdateTextSource {
+      /**
+         * New human label for the source.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Replacement text. Omit to keep the existing content. */
+      text?: string;
     }
 
     /**
@@ -38828,10 +39103,10 @@ export namespace Schemas {
 
     export type TracingSpansAttributesRetrieveParams = {
     /**
-     * Type of attributes: "span" for span attributes, "resource" for resource attributes.
+     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
-    * `span` - span
-    * `resource` - resource
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
      * @minLength 1
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType;
@@ -38857,8 +39132,8 @@ export namespace Schemas {
 
 
     export const TracingSpansAttributesRetrieveAttributeType = {
-      Span: 'span',
-      Resource: 'resource',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
     export type TracingSpansServiceNamesRetrieveParams = {
@@ -38876,10 +39151,11 @@ export namespace Schemas {
 
     export type TracingSpansValuesRetrieveParams = {
     /**
-     * Type of attribute: "span" or "resource".
+     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
     * `span` - span
-    * `resource` - resource
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType;
@@ -38911,7 +39187,8 @@ export namespace Schemas {
 
     export const TracingSpansValuesRetrieveAttributeType = {
       Span: 'span',
-      Resource: 'resource',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
     export type UserInterviewsListParams = {
@@ -39955,6 +40232,21 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type BusinessKnowledgeSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type BusinessKnowledgeSourcesTextRetrieve200 = {
+      text?: string;
+    };
+
     export type CohortsListParams = {
     /**
      * Number of results to return per page.
@@ -40511,6 +40803,17 @@ export namespace Schemas {
      * Search in name, description, or metadata
      */
     search?: string;
+    };
+
+    export type DeploymentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EarlyAccessFeatureListParams = {

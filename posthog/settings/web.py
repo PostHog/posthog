@@ -74,6 +74,7 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
+    "products.deployments.backend.apps.DeploymentsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -337,7 +338,11 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if TEST
+            else "whitenoise.storage.ManifestStaticFilesStorage"
+        ),
     },
 }
 
