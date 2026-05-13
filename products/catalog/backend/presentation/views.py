@@ -81,6 +81,9 @@ class CatalogNodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, **kwargs) -> Response:
         """List all catalog nodes for the team, ordered by business domain then name."""
         nodes = catalog_api.CatalogAPI.list_nodes(cast(int, self.team_id))
+        page = self.paginate_queryset(nodes)
+        if page is not None:
+            return self.get_paginated_response(CatalogNodeDTOSerializer(instance=page, many=True).data)
         return Response(CatalogNodeDTOSerializer(instance=nodes, many=True).data)
 
     @extend_schema(parameters=[_NODE_ID_PARAM], responses={200: CatalogNodeDTOSerializer})

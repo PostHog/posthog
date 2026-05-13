@@ -5,6 +5,7 @@ import { urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -97,7 +98,7 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
         breadcrumbs: [
             (s) => [s.definition],
             (definition): Breadcrumb[] => [
-                { key: 'catalog', name: 'Catalog' },
+                { key: 'catalog', name: 'Catalog', path: urls.catalog() },
                 { key: 'definition', name: definition?.name ?? 'Definition' },
             ],
         ],
