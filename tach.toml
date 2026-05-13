@@ -323,6 +323,7 @@ path = "products.mindmap"
 depends_on = [
     "ee",
     "posthog",
+    "products.notebooks",
 ]
 layer = "modules"
 
