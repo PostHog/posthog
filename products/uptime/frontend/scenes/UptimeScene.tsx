@@ -19,7 +19,7 @@ export const scene: SceneExport = {
 
 export function UptimeScene(): JSX.Element {
     const { monitors, monitorsLoading, selectedMonitorId, pings, pingsLoading } = useValues(uptimeSceneLogic)
-    const { selectMonitor, pingNow } = useActions(uptimeSceneLogic)
+    const { selectMonitor, pingNow, setCreateModalOpen } = useActions(uptimeSceneLogic)
 
     const selectedMonitor = monitors.find((m) => m.id === selectedMonitorId) ?? null
 
@@ -29,8 +29,13 @@ export function UptimeScene(): JSX.Element {
                 name="Uptime"
                 description="Monitor URLs and view their recent ping history."
                 resourceType={{ type: 'default_icon_type' }}
-                actions={<CreateMonitorButton />}
+                actions={
+                    <LemonButton type="primary" data-attr="create-monitor" onClick={() => setCreateModalOpen(true)}>
+                        Create monitor
+                    </LemonButton>
+                }
             />
+            <CreateMonitorModal />
             <LemonTable
                 loading={monitorsLoading}
                 dataSource={monitors}
@@ -102,17 +107,14 @@ export function UptimeScene(): JSX.Element {
     )
 }
 
-function CreateMonitorButton(): JSX.Element {
-    const { isCreateMonitorFormSubmitting } = useValues(uptimeSceneLogic)
-    const { setCreateMonitorValue, submitCreateMonitor } = useActions(uptimeSceneLogic)
+function CreateMonitorModal(): JSX.Element {
+    const { createModalOpen, isCreateMonitorFormSubmitting } = useValues(uptimeSceneLogic)
+    const { setCreateMonitorValue, submitCreateMonitor, setCreateModalOpen } = useActions(uptimeSceneLogic)
 
     return (
         <LemonModal
-            trigger={
-                <LemonButton type="primary" data-attr="create-monitor">
-                    Create monitor
-                </LemonButton>
-            }
+            isOpen={createModalOpen}
+            onClose={() => setCreateModalOpen(false)}
             title="Create monitor"
             footer={
                 <LemonButton

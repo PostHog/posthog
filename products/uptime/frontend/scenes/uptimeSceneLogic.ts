@@ -36,6 +36,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     actions({
         selectMonitor: (monitorId: string | null) => ({ monitorId }),
         pingNow: (monitorId: string) => ({ monitorId }),
+        setCreateModalOpen: (open: boolean) => ({ open }),
     }),
 
     reducers({
@@ -43,6 +44,12 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             null as string | null,
             {
                 selectMonitor: (_, { monitorId }) => monitorId,
+            },
+        ],
+        createModalOpen: [
+            false,
+            {
+                setCreateModalOpen: (_, { open }) => open,
             },
         ],
     }),
@@ -82,6 +89,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 })
                 lemonToast.success(`Monitor "${created.name}" created`)
                 actions.resetCreateMonitor()
+                actions.setCreateModalOpen(false)
                 actions.loadMonitors()
             },
         },

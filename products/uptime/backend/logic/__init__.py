@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from ..facade.enums import PingOutcome
 from ..models import Monitor
@@ -30,6 +31,7 @@ def record_ping(
     status_code: int | None,
     outcome: PingOutcome,
 ) -> None:
+    tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="record_ping")
     sync_execute(
         """
         INSERT INTO uptime_pings
@@ -50,6 +52,7 @@ def record_ping(
 
 
 def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[dict]:
+    tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_recent_pings")
     rows = sync_execute(
         """
         SELECT monitor_id, timestamp, latency_ms, status_code, outcome

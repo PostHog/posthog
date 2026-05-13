@@ -189,6 +189,7 @@
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
+        { "path": "Uptime", "category": "Behavior", "iconType": null, "type": null, "intents": [] },
         {
             "path": "User interviews",
             "category": "Unreleased",

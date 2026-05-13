@@ -1852,6 +1852,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing'],
     },
     {
+        path: 'Uptime',
+        category: ProductItemCategory.BEHAVIOR,
+        href: '/uptime',
+        sceneKey: 'Uptime',
+        sceneKeys: ['Uptime'],
+    },
+    {
         path: 'User interviews',
         intents: [ProductKey.USER_INTERVIEWS],
         category: ProductItemCategory.UNRELEASED,

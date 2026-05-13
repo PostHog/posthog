@@ -1,3 +1,5 @@
+import { ProductItemCategory } from '~/queries/schema/schema-general'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -18,5 +20,12 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Uptime',
+            category: ProductItemCategory.BEHAVIOR,
+            href: '/uptime',
+            sceneKey: 'Uptime',
+        },
+    ],
 }
