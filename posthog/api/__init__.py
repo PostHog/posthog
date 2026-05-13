@@ -40,6 +40,7 @@ import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
+import products.founder_mode.backend.presentation.views as founder_mode
 import products.legal_documents.backend.presentation.views as legal_documents
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
@@ -310,6 +311,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+projects_router.register(
+    r"founder_projects",
+    founder_mode.FounderProjectViewSet,
+    "project_founder_projects",
     ["project_id"],
 )
 
