@@ -10,9 +10,10 @@ Two responsibilities, split cleanly:
 - `install:` snippets bake into a per-user image layer on top of the team base.
   Built once per change to `tools.yaml`; cached afterwards. `sandbox create`
   reuses the cached image with zero install time at boot.
-- `mounts:` are copied from host into the sandbox at boot, matching the existing
-  Claude / gitconfig copy step. Snapshot semantics: each `sandbox create` picks
-  up the current host state.
+- `copy:` paths are one-way snapshot-copied from the host into the sandbox
+  `$HOME` at boot, matching the existing Claude / gitconfig copy step. Each
+  `sandbox create` picks up the current host state; running sandboxes do not
+  see later host edits, and sandbox edits do not write back to the host.
 
 ## Schema
 
@@ -25,23 +26,23 @@ tools:
       mkdir -p ~/.local
       curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
         | tar -xz --strip-components=1 -C ~/.local
-    mounts:
+    copy:
       - ~/.config/gh
 
   - name: gt
     install: |
       npm install -g @withgraphite/graphite-cli@stable
-    mounts:
+    copy:
       - ~/.config/graphite
 
   - name: somecli # long form: explicit target when source isn't under $HOME
-    mounts:
+    copy:
       - source: /etc/somecli/config.toml
         target: ~/.config/somecli/config.toml
 ```
 
-- `name` is required. `install` and `mounts` are independently optional; a
-  tool that only declares `mounts` is valid (useful for wiring auth into a
+- `name` is required. `install` and `copy` are independently optional; a
+  tool that only declares `copy` is valid (useful for wiring auth into a
   tool already in the base image).
 - `install` is plain shell run as the sandbox user at image build time.
   Prefer user-mode install: drop binaries into `~/.local`, use `npm
@@ -51,9 +52,9 @@ install -g` (the prefix points at `~/.npm-global`), `pip install --user`,
   `/usr`). If a tool needs root and several contributors will use it,
   consider adding it to the base `Dockerfile.sandbox` instead so the
   install isn't repeated in everyone's personal layer.
-- Mount short form (string): host absolute path under `$HOME`, copied to the
+- Copy short form (string): host absolute path under `$HOME`, copied to the
   same `$HOME`-relative path inside the sandbox.
-- Mount long form (`{source, target}`): use when source isn't under `$HOME`,
+- Copy long form (`{source, target}`): use when source isn't under `$HOME`,
   or when you want a different in-sandbox target. `target` must resolve under
   the sandbox user's `$HOME`.
 - Missing host sources are silently skipped, so you can list `~/.config/gh`
@@ -77,14 +78,14 @@ the current base image to verify your install snippet before saving it.
 ## Catalog of vetted recipes
 
 `bin/sandbox-tools.yaml` is the checked-in catalog of pre-baked install +
-mount recipes (`gh`, `gt`, etc.). When you run `sandbox tools add <name>` and
+copy recipes (`gh`, `gt`, etc.). When you run `sandbox tools add <name>` and
 the name matches a catalog entry, the CLI shows the recipe, asks for
 confirmation, and writes it straight into your `tools.yaml`. `sandbox tools
 list` always prints the catalog so you can see what's available.
 
 To contribute a new recipe, edit `bin/sandbox-tools.yaml`: add an entry with
 `name`, a one-line `description`, an `install` shell snippet, and any
-`mounts` the tool reads from the host. Run `sandbox tools add <name>
+`copy` paths the tool reads from the host. Run `sandbox tools add <name>
 --install ... --test` locally first to confirm the snippet builds against
 the current base image. Keep entries alphabetical by name for stable diffs.
 
@@ -106,8 +107,8 @@ After each successful personal image build, `bin/sandbox` prunes
 ## Auth sync behavior
 
 - Snapshot at create: each `sandbox create` copies the current host state for
-  declared mounts. Running sandboxes don't auto pick up subsequent host changes.
-  Destroy and recreate to refresh.
+  declared `copy` paths. Running sandboxes don't auto pick up subsequent host
+  changes. Destroy and recreate to refresh.
 - One-way: the sandbox can never clobber host config.
 - macOS Keychain caveat: tools that stash secrets in Keychain (rather than
   files) won't transfer. `gh` defaults to file-based auth, so this is rare.

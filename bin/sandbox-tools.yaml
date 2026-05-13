@@ -7,15 +7,18 @@
 #   name        required - matches the argument to `sandbox tools add`
 #   description required - one-liner shown by `sandbox tools list`
 #   install     optional - shell script run as the sandbox user at image
-#                          build time; `sudo` (NOPASSWD) is preconfigured
-#   mounts      optional - host paths copied into the sandbox $HOME at
+#                          build time; prefer user-mode install, sudo
+#                          (NOPASSWD) is available when actually needed
+#   copy        optional - host paths copied into the sandbox $HOME at
 #                          create time (short form for paths under $HOME,
-#                          long form `{source, target}` for system paths)
+#                          long form `{source, target}` for system paths).
+#                          One-way snapshot at create time; sandbox edits
+#                          do not write back to the host
 #
 # When adding a new tool to the catalog:
 #   1. Author the install snippet against the current base image (run
 #      `sandbox tools add <name> --install ... --test` locally to verify).
-#   2. List the host config paths the tool reads at runtime under `mounts`.
+#   2. List the host config paths the tool reads at runtime under `copy`.
 #      Missing host paths are skipped silently, so it's fine to include
 #      paths users may not have populated yet.
 #   3. Keep entries alphabetical by `name` for stable diffs.
@@ -29,12 +32,12 @@ tools:
           mkdir -p ~/.local
           curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
             | tar -xz --strip-components=1 -C ~/.local
-      mounts:
+      copy:
           - ~/.config/gh
 
     - name: gt
       description: 'Graphite CLI (graphite.dev): stacked PRs and review workflow'
       install: |
           npm install -g @withgraphite/graphite-cli@stable
-      mounts:
+      copy:
           - ~/.config/graphite

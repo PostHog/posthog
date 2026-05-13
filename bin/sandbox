@@ -90,10 +90,10 @@ KEEP_USER_IMAGES = 3
 
 # Mount slot count must match the SANDBOX_TOOL_AUTH_0..N entries in
 # docker-compose.sandbox.yml. Bumping it requires editing both files.
-MAX_TOOL_MOUNTS = 16
+MAX_TOOL_COPIES = 16
 
 # In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
-# bin/sandbox-entrypoint.py, since tools.yaml mount targets resolve here.
+# bin/sandbox-entrypoint.py, since tools.yaml copy targets resolve here.
 SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
 
 PORT_BASE = 48001
@@ -325,12 +325,14 @@ class Registry:
 
 
 @dataclass
-class ToolMount:
-    """Resolved host -> sandbox path pair for a single bind mount.
+class ToolCopy:
+    """Resolved host -> sandbox path pair for a single host-to-sandbox copy.
 
     `source` is a host absolute path (may equal "/dev/null" if the host
     file is missing). `target` is an absolute path under the in-sandbox
-    $HOME (SANDBOX_HOME_IN_CONTAINER).
+    $HOME (SANDBOX_HOME_IN_CONTAINER). The transport is a bind mount under
+    /tmp/sandbox-tool-auth/N; the entrypoint copies from there to `target`
+    at boot. Runtime semantics are snapshot copy, not live mount.
     """
 
     source: str
@@ -341,7 +343,7 @@ class ToolMount:
 class Tool:
     name: str
     install: str | None = None
-    mounts: list[ToolMount] = field(default_factory=list)
+    copy: list[ToolCopy] = field(default_factory=list)
 
 
 def _tools_yaml_str_representer(dumper, data):
@@ -356,8 +358,8 @@ def _tools_yaml_str_representer(dumper, data):
 yaml.add_representer(str, _tools_yaml_str_representer, Dumper=yaml.SafeDumper)
 
 
-def _parse_tool_mount(entry: object, *, source_label: str) -> ToolMount:
-    """Resolve a tools.yaml mounts[] entry to a ToolMount.
+def _parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
+    """Resolve a tools.yaml copy[] entry to a ToolCopy.
 
     Raises via fatal() on validation errors; the schema is intentionally
     strict so misconfiguration shows up at load time, not at runtime.
@@ -369,16 +371,16 @@ def _parse_tool_mount(entry: object, *, source_label: str) -> ToolMount:
             rel = Path(source).relative_to(host_home)
         except ValueError:
             fatal(
-                f"{source_label}: short-form mount {entry!r} is not under "
+                f"{source_label}: short-form copy entry {entry!r} is not under "
                 f"$HOME ({host_home}). Use long form: "
                 "{source: /abs/path, target: ~/...}."
             )
         target = f"{SANDBOX_HOME_IN_CONTAINER}/{rel}"
-        return ToolMount(source=source, target=target)
+        return ToolCopy(source=source, target=target)
 
     if isinstance(entry, dict):
         if "source" not in entry or "target" not in entry:
-            fatal(f"{source_label}: long-form mount must have 'source' and 'target'.")
+            fatal(f"{source_label}: long-form copy entry must have 'source' and 'target'.")
         source = str(Path(entry["source"]).expanduser().resolve(strict=False))
         target_raw = str(entry["target"])
         if target_raw.startswith("~/"):
@@ -398,9 +400,9 @@ def _parse_tool_mount(entry: object, *, source_label: str) -> ToolMount:
                 f"{source_label}: target {entry['target']!r} must resolve "
                 f"under sandbox $HOME ({SANDBOX_HOME_IN_CONTAINER})."
             )
-        return ToolMount(source=source, target=target)
+        return ToolCopy(source=source, target=target)
 
-    fatal(f"{source_label}: invalid mount entry {entry!r} (expected string or mapping).")
+    fatal(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
 
 
 def _load_user_tools() -> list[Tool]:
@@ -408,8 +410,8 @@ def _load_user_tools() -> list[Tool]:
 
     Validation is intentionally strict: bad entries fail loudly rather
     than getting silently dropped from the personal image. Each tool
-    must have a name; install and mounts are independently optional but
-    at least one is expected (the loader does not enforce that part,
+    must have a name; install and copy paths are independently optional
+    but at least one is expected (the loader does not enforce that part,
     so a name-only entry is technically allowed for forward-compat).
     """
     if not TOOLS_FILE.is_file():
@@ -435,32 +437,38 @@ def _load_user_tools() -> list[Tool]:
             fatal(f"{TOOLS_FILE}: duplicate tool name {name!r}.")
         seen.add(name)
 
+        if "mounts" in entry:
+            fatal(
+                f"{TOOLS_FILE}: tools[{i}] uses 'mounts:' which was renamed to "
+                "'copy:'. Edit the YAML key (the field semantics are unchanged)."
+            )
+
         install = entry.get("install")
         if install is not None and not isinstance(install, str):
             fatal(f"{TOOLS_FILE}: tools[{i}].install must be a string.")
 
-        mounts_raw = entry.get("mounts") or []
-        if not isinstance(mounts_raw, list):
-            fatal(f"{TOOLS_FILE}: tools[{i}].mounts must be a list.")
-        mounts = [
-            _parse_tool_mount(m, source_label=f"{TOOLS_FILE}: tools[{i}].mounts[{j}]") for j, m in enumerate(mounts_raw)
+        copy_raw = entry.get("copy") or []
+        if not isinstance(copy_raw, list):
+            fatal(f"{TOOLS_FILE}: tools[{i}].copy must be a list.")
+        copy_entries = [
+            _parse_tool_copy(c, source_label=f"{TOOLS_FILE}: tools[{i}].copy[{j}]") for j, c in enumerate(copy_raw)
         ]
 
-        tools.append(Tool(name=name, install=install, mounts=mounts))
+        tools.append(Tool(name=name, install=install, copy=copy_entries))
 
-    total_mounts = sum(len(t.mounts) for t in tools)
-    if total_mounts > MAX_TOOL_MOUNTS:
+    total_copies = sum(len(t.copy) for t in tools)
+    if total_copies > MAX_TOOL_COPIES:
         fatal(
-            f"{TOOLS_FILE}: {total_mounts} mounts declared but the sandbox "
-            f"compose file only exposes {MAX_TOOL_MOUNTS} slots. Bump "
-            "MAX_TOOL_MOUNTS in bin/sandbox and the SANDBOX_TOOL_AUTH_N "
+            f"{TOOLS_FILE}: {total_copies} copy paths declared but the sandbox "
+            f"compose file only exposes {MAX_TOOL_COPIES} slots. Bump "
+            "MAX_TOOL_COPIES in bin/sandbox and the SANDBOX_TOOL_AUTH_N "
             "entries in docker-compose.sandbox.yml together."
         )
     return tools
 
 
 def _save_user_tools(tools: list[Tool]) -> None:
-    """Write tools.yaml back, preferring short-form mounts when possible."""
+    """Write tools.yaml back, preferring short-form copy entries when possible."""
     TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
     host_home = str(Path.home())
 
@@ -472,27 +480,27 @@ def _save_user_tools(tools: list[Tool]) -> None:
             if not install.endswith("\n"):
                 install = install + "\n"
             entry["install"] = install
-        if t.mounts:
-            entry_mounts: list = []
-            for m in t.mounts:
-                short = _try_short_form_mount(m.source, m.target, host_home)
+        if t.copy:
+            entry_copy: list = []
+            for c in t.copy:
+                short = _try_short_form_copy(c.source, c.target, host_home)
                 if short is not None:
-                    entry_mounts.append(short)
+                    entry_copy.append(short)
                 else:
-                    target_for_yaml = m.target
+                    target_for_yaml = c.target
                     if target_for_yaml.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
                         target_for_yaml = "~/" + target_for_yaml[len(SANDBOX_HOME_IN_CONTAINER) + 1 :]
                     elif target_for_yaml == SANDBOX_HOME_IN_CONTAINER:
                         target_for_yaml = "~"
-                    entry_mounts.append({"source": m.source, "target": target_for_yaml})
-            entry["mounts"] = entry_mounts
+                    entry_copy.append({"source": c.source, "target": target_for_yaml})
+            entry["copy"] = entry_copy
         out_tools.append(entry)
 
     TOOLS_FILE.write_text(yaml.safe_dump({"tools": out_tools}, sort_keys=False, default_flow_style=False, indent=2))
 
 
-def _try_short_form_mount(source: str, target: str, host_home: str) -> str | None:
-    """Return the short-form representation of a mount if applicable, else None."""
+def _try_short_form_copy(source: str, target: str, host_home: str) -> str | None:
+    """Return the short-form representation of a copy entry if applicable, else None."""
     try:
         rel = Path(source).relative_to(host_home)
     except ValueError:
@@ -508,7 +516,7 @@ class CatalogEntry:
     name: str
     description: str
     install: str | None
-    mounts: list[ToolMount]
+    copy: list[ToolCopy]
 
 
 def _load_catalog() -> dict[str, CatalogEntry]:
@@ -542,14 +550,19 @@ def _load_catalog() -> dict[str, CatalogEntry]:
         install = entry.get("install")
         if install is not None and not isinstance(install, str):
             fatal(f"{CATALOG_FILE}: tools[{i}].install must be a string.")
-        mounts_raw = entry.get("mounts") or []
-        if not isinstance(mounts_raw, list):
-            fatal(f"{CATALOG_FILE}: tools[{i}].mounts must be a list.")
-        mounts = [
-            _parse_tool_mount(m, source_label=f"{CATALOG_FILE}: tools[{i}].mounts[{j}]")
-            for j, m in enumerate(mounts_raw)
+        if "mounts" in entry:
+            fatal(
+                f"{CATALOG_FILE}: tools[{i}] uses 'mounts:' which was renamed to "
+                "'copy:'. Update the catalog file."
+            )
+        copy_raw = entry.get("copy") or []
+        if not isinstance(copy_raw, list):
+            fatal(f"{CATALOG_FILE}: tools[{i}].copy must be a list.")
+        copy_entries = [
+            _parse_tool_copy(c, source_label=f"{CATALOG_FILE}: tools[{i}].copy[{j}]")
+            for j, c in enumerate(copy_raw)
         ]
-        catalog[name] = CatalogEntry(name=name, description=description, install=install, mounts=mounts)
+        catalog[name] = CatalogEntry(name=name, description=description, install=install, copy=copy_entries)
     return catalog
 
 
@@ -647,7 +660,7 @@ def _user_image_hash_input(tools: list[Tool]) -> bytes:
             {
                 "name": t.name,
                 "install": t.install,
-                "mounts": [{"source": m.source, "target": m.target} for m in t.mounts],
+                "copy": [{"source": c.source, "target": c.target} for c in t.copy],
             }
             for t in tools
         ],
@@ -802,29 +815,33 @@ def _ensure_images_built() -> tuple[str, list[Tool]]:
 
 
 def _resolve_tool_auth_env(tools: list[Tool]) -> dict[str, str]:
-    """Map tools.yaml mounts to SANDBOX_TOOL_AUTH_* env vars for compose.
+    """Map tools.yaml copy paths to SANDBOX_TOOL_AUTH_* env vars for compose.
 
-    Each declared mount fills one of MAX_TOOL_MOUNTS slots; unused slots
-    fall back to /dev/null at the compose layer so we never have to
-    regenerate the compose file. SANDBOX_TOOL_AUTH_PATHS gives the
-    entrypoint the matching list of in-sandbox target paths.
+    Each declared copy path fills one of MAX_TOOL_COPIES bind-mount slots
+    in the compose file; the entrypoint then copies from the slot into the
+    sandbox $HOME. Unused slots fall back to /dev/null at the compose layer
+    so we never regenerate the compose file. SANDBOX_TOOL_AUTH_PATHS gives
+    the entrypoint the matching list of in-sandbox target paths.
     """
     env: dict[str, str] = {}
     targets: list[str] = []
-    all_mounts: list[ToolMount] = [m for t in tools for m in t.mounts]
-    if len(all_mounts) > MAX_TOOL_MOUNTS:
-        fatal(f"tools.yaml declares {len(all_mounts)} mounts; only {MAX_TOOL_MOUNTS} slots are available.")
-    for i, mount in enumerate(all_mounts):
-        src_path = Path(mount.source)
+    all_copies: list[ToolCopy] = [c for t in tools for c in t.copy]
+    if len(all_copies) > MAX_TOOL_COPIES:
+        fatal(
+            f"tools.yaml declares {len(all_copies)} copy paths; only "
+            f"{MAX_TOOL_COPIES} slots are available."
+        )
+    for i, c in enumerate(all_copies):
+        src_path = Path(c.source)
         if src_path.is_file() or src_path.is_dir():
-            env[f"SANDBOX_TOOL_AUTH_{i}"] = mount.source
+            env[f"SANDBOX_TOOL_AUTH_{i}"] = c.source
         else:
-            # Missing host source: mount /dev/null and let the entrypoint
-            # skip this slot. Tools that initialize their own state on
-            # first run (e.g., `gh auth login`) keep working.
+            # Missing host source: point the slot at /dev/null so the
+            # entrypoint skips it. Tools that initialize their own state
+            # on first run (e.g., `gh auth login`) keep working.
             env[f"SANDBOX_TOOL_AUTH_{i}"] = "/dev/null"
-        targets.append(mount.target)
-    for i in range(len(all_mounts), MAX_TOOL_MOUNTS):
+        targets.append(c.target)
+    for i in range(len(all_copies), MAX_TOOL_COPIES):
         env[f"SANDBOX_TOOL_AUTH_{i}"] = "/dev/null"
     env["SANDBOX_TOOL_AUTH_PATHS"] = ":".join(targets)
     return env
@@ -2382,10 +2399,10 @@ def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
             print(f"{indent}  install:")
             for line in snippet_lines:
                 print(f"{indent}    {line}")
-    for m in tool.mounts:
-        print(f"{indent}  mount: {m.source} -> {m.target}")
-    if not tool.install and not tool.mounts:
-        print(f"{indent}  (no install or mounts defined)")
+    for c in tool.copy:
+        print(f"{indent}  copy: {c.source} -> {c.target}")
+    if not tool.install and not tool.copy:
+        print(f"{indent}  (no install or copy paths defined)")
 
 
 def _tools_list() -> None:
@@ -2434,8 +2451,8 @@ def _add_from_catalog(entry: CatalogEntry, tools: list[Tool], *, run_test: bool)
         print("  install:")
         for ln in entry.install.strip().splitlines():
             print(f"    {ln}")
-    for m in entry.mounts:
-        print(f"  mount: {m.source} -> {m.target}")
+    for c in entry.copy:
+        print(f"  copy: {c.source} -> {c.target}")
     print()
     if not _confirm("Add this recipe to your tools.yaml?"):
         info("Aborted.")
@@ -2447,12 +2464,12 @@ def _add_from_catalog(entry: CatalogEntry, tools: list[Tool], *, run_test: bool)
             fatal(f"Catalog install snippet for '{entry.name}' failed against your local base image.")
         success("install succeeded.")
 
-    tools.append(Tool(name=entry.name, install=entry.install, mounts=list(entry.mounts)))
-    total_mounts = sum(len(t.mounts) for t in tools)
-    if total_mounts > MAX_TOOL_MOUNTS:
+    tools.append(Tool(name=entry.name, install=entry.install, copy=list(entry.copy)))
+    total_copies = sum(len(t.copy) for t in tools)
+    if total_copies > MAX_TOOL_COPIES:
         fatal(
-            f"Adding '{entry.name}' would bring total tools.yaml mounts to "
-            f"{total_mounts}, exceeding the {MAX_TOOL_MOUNTS}-slot limit."
+            f"Adding '{entry.name}' would bring total tools.yaml copy paths to "
+            f"{total_copies}, exceeding the {MAX_TOOL_COPIES}-slot limit."
         )
     _save_user_tools(tools)
     success(f"Added '{entry.name}' from catalog to {TOOLS_FILE}.")
@@ -2464,9 +2481,9 @@ def _tools_add(args) -> None:
     if any(t.name == args.name for t in tools):
         fatal(f"Tool '{args.name}' is already defined. Run 'sandbox tools remove {args.name}' first.")
 
-    non_interactive = args.install is not None or bool(args.mount)
+    non_interactive = args.install is not None or bool(args.copy)
 
-    # Catalog hit: if the user didn't override with their own install/mount
+    # Catalog hit: if the user didn't override with their own install/copy
     # flags, treat the catalog entry as the intended recipe and skip the
     # write-it-from-scratch flow entirely.
     catalog = _load_catalog()
@@ -2476,11 +2493,11 @@ def _tools_add(args) -> None:
         return
 
     install: str | None
-    mount_strs: list[str]
+    copy_strs: list[str]
 
     if non_interactive:
         install = args.install
-        mount_strs = list(args.mount or [])
+        copy_strs = list(args.copy or [])
         if install and args.test:
             info("Building a throwaway test layer on top of the current base image...")
             if not _test_install_snippet(install):
@@ -2498,21 +2515,21 @@ def _tools_add(args) -> None:
             if not _test_install_snippet(install):
                 fatal(f"Install snippet for '{args.name}' failed; not added to {TOOLS_FILE}.")
             success("install succeeded.")
-        mount_strs = _read_path_list(
+        copy_strs = _read_path_list(
             f"\nWhere does '{args.name}' store auth/config on your host?",
             "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",
         )
 
-    mounts = [_parse_tool_mount(m, source_label=f"'{args.name}' mount entry") for m in mount_strs]
+    copy_entries = [_parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in copy_strs]
 
-    new_tool = Tool(name=args.name, install=install, mounts=mounts)
+    new_tool = Tool(name=args.name, install=install, copy=copy_entries)
     tools.append(new_tool)
 
-    total_mounts = sum(len(t.mounts) for t in tools)
-    if total_mounts > MAX_TOOL_MOUNTS:
+    total_copies = sum(len(t.copy) for t in tools)
+    if total_copies > MAX_TOOL_COPIES:
         fatal(
-            f"Adding '{args.name}' would bring total tools.yaml mounts to "
-            f"{total_mounts}, exceeding the {MAX_TOOL_MOUNTS}-slot limit."
+            f"Adding '{args.name}' would bring total tools.yaml copy paths to "
+            f"{total_copies}, exceeding the {MAX_TOOL_COPIES}-slot limit."
         )
 
     _save_user_tools(tools)
@@ -2637,7 +2654,7 @@ examples:
 
     tools_parser = sub.add_parser(
         "tools",
-        help="Manage user-defined CLI tools and host auth mounts",
+        help="Manage user-defined CLI tools and host auth paths",
         description=(
             "Manage ~/.posthog-sandboxes/tools.yaml. Additional CLIs baked "
             "into your personal sandbox image and host auth paths copied in "
@@ -2648,7 +2665,7 @@ examples:
     tools_sub.add_parser("list", help="Show configured tools and image status")
     tools_add_p = tools_sub.add_parser(
         "add",
-        help="Add a tool (interactive by default; --install/--mount for scripting)",
+        help="Add a tool (interactive by default; --install/--copy for scripting)",
     )
     tools_add_p.add_argument("name")
     tools_add_p.add_argument(
@@ -2656,10 +2673,10 @@ examples:
         help="Non-interactive: install snippet to run at image build time",
     )
     tools_add_p.add_argument(
-        "--mount",
+        "--copy",
         action="append",
         default=[],
-        help="Non-interactive: host path to mount into the sandbox (repeatable)",
+        help="Non-interactive: host path to copy into the sandbox $HOME (repeatable)",
     )
     tools_add_p.add_argument(
         "--test",
