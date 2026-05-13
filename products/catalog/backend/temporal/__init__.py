@@ -9,7 +9,9 @@ import WORKFLOWS, ACTIVITIES` without reaching into submodules.
 from products.catalog.backend.temporal.activities import (
     complete_traversal_run,
     create_traversal_run,
+    enumerate_warehouse_tables,
     fail_traversal_run,
+    upsert_warehouse_batch,
 )
 from products.catalog.backend.temporal.workflow import CatalogTraversalWorkflow
 
@@ -19,6 +21,8 @@ ACTIVITIES = [
     create_traversal_run,
     complete_traversal_run,
     fail_traversal_run,
+    enumerate_warehouse_tables,
+    upsert_warehouse_batch,
 ]
 
 __all__ = [
@@ -27,5 +31,7 @@ __all__ = [
     "CatalogTraversalWorkflow",
     "complete_traversal_run",
     "create_traversal_run",
+    "enumerate_warehouse_tables",
     "fail_traversal_run",
+    "upsert_warehouse_batch",
 ]
