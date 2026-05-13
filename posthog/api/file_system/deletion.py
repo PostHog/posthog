@@ -151,6 +151,25 @@ def is_file_system_type_registered(type_string: str) -> bool:
     return type_string in _MODEL_REGISTRY
 
 
+def get_backing_instance(*, type_string: str, ref: str | None, team_id: int | None) -> Any | None:
+    """Resolve the backing model instance for a registered file-system type and ref.
+
+    Returns ``None`` when the type is not registered, when ``ref`` is empty, or when the
+    backing row does not exist for the given team. Used by the file-system viewset to
+    look up the instance for permission checks before delegating to
+    :func:`delete_file_system_object` / :func:`undo_delete`.
+    """
+    if not ref:
+        return None
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        return None
+    try:
+        return _get_object(registration, ref=ref, team_id=team_id)
+    except ObjectDoesNotExist:
+        return None
+
+
 def _resolve_user(user: Any | None) -> Any | None:
     if user is not None and getattr(user, "is_authenticated", False):
         return user

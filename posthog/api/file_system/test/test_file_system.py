@@ -16,6 +16,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -149,10 +151,10 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
-    def test_delete_folder_obj(self):
-        """
-        Test deleting a FileSystem folder.
-        """
+    def test_delete_folder_with_backed_items_is_rejected(self):
+        """A folder containing backed entries must not delete via the file-system endpoint —
+        callers should remove the contained items through their own endpoints first.
+        Previously this path cascaded into the backing objects without permission checks."""
         folder_obj = FileSystem.objects.create(team=self.team, path="DeleteMe", type="folder", created_by=self.user)
         dashboard_one = Dashboard.objects.create(team=self.team, name="File one", created_by=self.user)
         dashboard_two = Dashboard.objects.create(team=self.team, name="File two", created_by=self.user)
@@ -173,10 +175,45 @@ class TestFileSystemAPI(APIBaseTest):
 
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
 
-        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = delete_response.json()
+        self.assertIn("blocking_items", body)
+        blocking_paths = {item["path"] for item in body["blocking_items"]}
+        self.assertEqual(blocking_paths, {"DeleteMe/file1.txt", "DeleteMe/file2.txt"})
+        # Nothing was deleted.
+        self.assertTrue(FileSystem.objects.filter(pk=folder_obj.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=file1_obj.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+        self.assertTrue(Dashboard.objects.filter(pk=dashboard_one.pk, deleted=False).exists())
+        self.assertTrue(Dashboard.objects.filter(pk=dashboard_two.pk, deleted=False).exists())
+
+    def test_delete_empty_folder(self):
+        folder_obj = FileSystem.objects.create(team=self.team, path="Empty", type="folder", created_by=self.user)
+        resp = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
-        self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
-        self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def test_delete_folder_containing_only_folders_and_shortcuts(self):
+        folder = FileSystem.objects.create(team=self.team, path="Parent", type="folder", created_by=self.user)
+        sub_folder = FileSystem.objects.create(team=self.team, path="Parent/Sub", type="folder", created_by=self.user)
+        dashboard = Dashboard.objects.create(team=self.team, name="Real", created_by=self.user)
+        shortcut = FileSystem.objects.create(
+            team=self.team,
+            path="Parent/Sub/Shortcut",
+            type="dashboard",
+            ref=str(dashboard.id),
+            shortcut=True,
+            created_by=self.user,
+        )
+
+        resp = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/")
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT, resp.content)
+        # Folder + sub-folder + shortcut row gone.
+        self.assertFalse(FileSystem.objects.filter(pk=folder.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=sub_folder.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=shortcut.pk).exists())
+        # Backing dashboard untouched.
+        self.assertTrue(Dashboard.objects.filter(pk=dashboard.pk, deleted=False).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
@@ -1586,6 +1623,9 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         )
 
     def test_destroy_folder_repairs_for_leftover_items(self):
+        # Drop the team-1 dashboard leaf first — folder delete is structure-only now.
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{self.doc_t1.id}/")
+
         delete_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/"
         resp = self.client.delete(delete_url)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
@@ -1916,3 +1956,178 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "ref": str(feature.id),
             "path": fs_entry.path,
         }
+
+
+class TestFileSystemDeletePermissions(APIBaseTest):
+    """
+    Permission checks for ``DELETE /file_system/:id/`` and the ``undo_delete`` action.
+
+    The endpoint used to cascade folder deletes into backing objects (and to delete a
+    single backed entry's underlying resource) without checking either the PAT scope or the
+    user's RBAC on that resource. These tests pin the new behavior: scope + editor-level
+    RBAC are required before any backing object is mutated, and folder cascades are
+    refused outright.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        # Need advanced permissions to surface AccessControl rows in the test environment.
+        self.organization.available_product_features = [
+            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+
+        self.user.is_staff = False
+        self.user.save()
+
+        # The dashboard is created by another user so the "creators always have highest access"
+        # branch in UserAccessControl doesn't short-circuit the AccessControl row we set per test.
+        self.other_user = User.objects.create_and_join(self.organization, "other@perms.test", "testpass")
+        self.dashboard = Dashboard.objects.create(team=self.team, name="Target", created_by=self.other_user)
+        self.fs_entry = FileSystem.objects.create(
+            team=self.team,
+            path="Folder/Target",
+            depth=2,
+            type="dashboard",
+            ref=str(self.dashboard.id),
+            created_by=self.other_user,
+        )
+        self.folder = FileSystem.objects.create(
+            team=self.team,
+            path="Folder",
+            depth=1,
+            type="folder",
+            created_by=self.user,
+        )
+
+        def _mint_pat(scopes: list[str]) -> str:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label=f"scopes={','.join(scopes) or 'none'}",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=scopes,
+                scoped_teams=[],
+                scoped_organizations=[],
+            )
+            return value
+
+        self._mint_pat = _mint_pat
+
+    def _create_access_control(self, *, resource: str, resource_id: str, access_level: str):
+        return AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=self.organization_membership,
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_pat_with_file_system_write_only_cannot_delete_backed_entry(self, _flag):
+        token = self._mint_pat(["file_system:write"])
+        resp = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{self.fs_entry.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertIn("dashboard:write", resp.json()["detail"])
+        self.assertTrue(FileSystem.objects.filter(pk=self.fs_entry.pk).exists())
+        self.assertTrue(Dashboard.objects.filter(pk=self.dashboard.pk, deleted=False).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_pat_with_backing_write_scope_can_delete_backed_entry(self, _flag):
+        token = self._mint_pat(["file_system:write", "dashboard:write"])
+        resp = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{self.fs_entry.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(FileSystem.objects.filter(pk=self.fs_entry.pk).exists())
+        self.assertTrue(Dashboard.objects.filter(pk=self.dashboard.pk, deleted=True).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_pat_with_all_access_can_delete_backed_entry(self, _flag):
+        token = self._mint_pat(["*"])
+        resp = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{self.fs_entry.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(FileSystem.objects.filter(pk=self.fs_entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_session_user_with_viewer_access_cannot_delete_backed_entry(self, _flag):
+        # Reduce the user's access on this specific dashboard to viewer.
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard.id),
+            access_level="viewer",
+        )
+
+        resp = self.client.delete(f"/api/projects/{self.team.id}/file_system/{self.fs_entry.id}/")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertIn("editor access", resp.json()["detail"])
+        self.assertTrue(FileSystem.objects.filter(pk=self.fs_entry.pk).exists())
+        self.assertTrue(Dashboard.objects.filter(pk=self.dashboard.pk, deleted=False).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_session_user_with_editor_access_can_delete_backed_entry(self, _flag):
+        # Default access level for dashboards is "editor"; explicit row keeps the test honest
+        # against any future default change.
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard.id),
+            access_level="editor",
+        )
+        resp = self.client.delete(f"/api/projects/{self.team.id}/file_system/{self.fs_entry.id}/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(FileSystem.objects.filter(pk=self.fs_entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_folder_with_backed_descendant_is_refused_with_blocking_items(self, _flag):
+        # File-system layout: Folder/Target (backed dashboard)
+        resp = self.client.delete(f"/api/projects/{self.team.id}/file_system/{self.folder.id}/")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+        body = resp.json()
+        self.assertIn("blocking_items", body)
+        self.assertEqual({item["path"] for item in body["blocking_items"]}, {"Folder/Target"})
+        # Nothing was deleted.
+        self.assertTrue(FileSystem.objects.filter(pk=self.folder.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=self.fs_entry.pk).exists())
+        self.assertTrue(Dashboard.objects.filter(pk=self.dashboard.pk, deleted=False).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_undo_delete_requires_backing_scope(self, _flag):
+        # Soft-delete the dashboard via the proper path first.
+        self.dashboard.deleted = True
+        self.dashboard.save()
+
+        token = self._mint_pat(["file_system:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "dashboard", "ref": str(self.dashboard.id), "path": "Folder/Target"}]},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertIn("dashboard:write", resp.json()["detail"])
+        # Dashboard stays soft-deleted.
+        self.assertTrue(Dashboard.objects.filter(pk=self.dashboard.pk, deleted=True).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_undo_delete_allows_with_backing_scope(self, _flag):
+        self.dashboard.deleted = True
+        self.dashboard.save()
+
+        token = self._mint_pat(["file_system:write", "dashboard:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "dashboard", "ref": str(self.dashboard.id), "path": "Folder/Target"}]},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertTrue(Dashboard.objects.filter(pk=self.dashboard.pk, deleted=False).exists())

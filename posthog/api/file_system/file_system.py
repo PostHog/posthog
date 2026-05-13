@@ -9,12 +9,14 @@ from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
+    get_backing_instance,
     is_file_system_type_registered,
     undo_delete as undo_delete_object,
 )
@@ -22,6 +24,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -394,52 +397,89 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response
 
-    def _ensure_can_delete(self, entry: FileSystem) -> None:
-        stack: list[FileSystem] = [entry]
-        seen: set[str] = set()
-        entries_to_check: list[FileSystem] = []
+    # Preview limit for the "blocking_items" payload returned when a folder delete is refused.
+    _DELETE_BLOCKING_PREVIEW_LIMIT = 10
 
-        while stack:
-            current = stack.pop()
-            key = f"{current.id}"
-            if key in seen:
-                continue
-            seen.add(key)
+    def _granted_token_scopes(self) -> list[str] | None:
+        """Return the scopes attached to the current request's API token, or ``None`` for session auth.
 
-            if current.shortcut:
-                continue
-
-            if current.type == "folder":
-                descendants = FileSystem.objects.filter(path__startswith=f"{current.path}/")
-                descendants = self._scope_by_project_and_environment(descendants)
-                if self.user_access_control:
-                    descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
-                stack.extend(descendants)
-                continue
-
-            entries_to_check.append(current)
-
-        if not entries_to_check:
-            return None
-
-        ids_to_remove = [entry.id for entry in entries_to_check]
-
-        for current in entries_to_check:
-            remaining = (
-                FileSystem.objects.filter(team=current.team, type=current.type, ref=current.ref, shortcut=False)
-                .exclude(id__in=ids_to_remove)
-                .count()
-            )
-
-            if not is_file_system_type_registered(current.type):
-                continue
-
-            if remaining == 0 and not current.ref:
-                raise serializers.ValidationError(
-                    {"detail": f"Cannot delete type '{current.type}' without a reference."}
-                )
-
+        Matches the resolution that :class:`APIScopePermission` performs.
+        """
+        authenticator = getattr(self.request, "successful_authenticator", None)
+        if isinstance(authenticator, PersonalAPIKeyAuthentication):
+            return list(authenticator.personal_api_key.scopes or [])
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            token_scope = authenticator.access_token.scope or ""
+            return token_scope.split()
         return None
+
+    @staticmethod
+    def _resource_for_file_system_type(type_string: str) -> str:
+        """Map a file system entry's ``type`` to the API scope/resource name for permission checks.
+
+        All registered types map 1:1 to a scope object in ``posthog.scopes.API_SCOPE_OBJECTS``,
+        except ``hog_function/<subtype>`` which collapses to the ``hog_function`` scope.
+        """
+        if type_string.startswith("hog_function/"):
+            return "hog_function"
+        return type_string
+
+    def _assert_can_mutate_backing_object(self, *, instance: Any, resource: str) -> None:
+        """Refuse the mutation unless the caller could perform a write on ``instance`` directly.
+
+        Mirrors the checks ``APIScopePermission`` + ``AccessControlPermission`` would run if the
+        caller had targeted the backing object's own viewset:
+
+        * For PAT / OAuth tokens, require ``*`` or ``{resource}:write``.
+        * For every caller, require editor-level RBAC on ``instance`` (when the model is mapped
+          in ``model_to_resource``; unmapped models silently pass the RBAC check today and we
+          preserve that — the scope check above still applies).
+
+        Raises ``PermissionDenied`` (HTTP 403) on either failure.
+        """
+        granted_scopes = self._granted_token_scopes()
+        if granted_scopes is not None:
+            if "*" not in granted_scopes and f"{resource}:write" not in granted_scopes:
+                raise PermissionDenied(f"API key missing required scope '{resource}:write'")
+
+        if self.user_access_control and not self.user_access_control.check_access_level_for_object(
+            instance, required_level="editor"
+        ):
+            raise PermissionDenied(f"You do not have editor access to this {resource}.")
+
+    def _ensure_can_delete(self, entry: FileSystem) -> None:
+        """For folder deletes, refuse if the subtree contains any non-shortcut, non-folder entry.
+
+        The previous behavior cascaded into the backing objects of every descendant, which
+        bypassed both the resource's RBAC check and its API scope. We now require callers to
+        delete the contained items via their own endpoints first — that path runs the right
+        permission checks per resource.
+
+        Single non-folder entry deletes are gated separately in
+        :meth:`_delete_file_system_entry` (which has the resolved backing instance and can run
+        the scope + RBAC check directly).
+        """
+        if entry.type != "folder" or entry.shortcut:
+            return
+
+        descendants = (
+            FileSystem.objects.filter(path__startswith=f"{entry.path}/").exclude(type="folder").exclude(shortcut=True)
+        )
+        descendants = self._scope_by_project_and_environment(descendants)
+        if self.user_access_control:
+            descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
+
+        blocking_preview = list(descendants.values("type", "path", "ref")[: self._DELETE_BLOCKING_PREVIEW_LIMIT])
+        if blocking_preview:
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        f"Cannot delete folder '{entry.path}' because it contains items. "
+                        "Delete the items via their own endpoints first."
+                    ),
+                    "blocking_items": blocking_preview,
+                }
+            )
 
     def _delete_file_system_entry(self, entry: FileSystem) -> builtins.list[dict[str, Any]]:
         deleted_objects: list[dict[str, Any]] = []
@@ -449,30 +489,44 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if entry.type == "folder":
+            # _ensure_can_delete has verified the subtree only contains folders and shortcuts —
+            # neither carries a backing object, so a bulk drop is safe.
             descendants = FileSystem.objects.filter(path__startswith=f"{entry.path}/")
             descendants = self._scope_by_project_and_environment(descendants)
             if self.user_access_control:
                 descendants = self.user_access_control.filter_and_annotate_file_system_queryset(descendants)
-            for child in descendants.order_by("depth", "path"):
-                deleted_objects.extend(self._delete_file_system_entry(child))
+            descendants.delete()
             entry.delete()
             return deleted_objects
 
+        if not is_file_system_type_registered(entry.type):
+            raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
+
+        # If another non-shortcut entry already points at the same backing object, the row
+        # delete here doesn't cascade — only the pointer row goes away. No backing-object
+        # mutation means no extra scope check.
         remaining = (
             FileSystem.objects.filter(team=entry.team, type=entry.type, ref=entry.ref, shortcut=False)
             .exclude(id=entry.id)
             .count()
         )
-
-        if not is_file_system_type_registered(entry.type):
-            raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
-
         if remaining > 0:
             entry.delete()
             return deleted_objects
 
         if not entry.ref:
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
+
+        instance = get_backing_instance(type_string=entry.type, ref=entry.ref, team_id=entry.team_id)
+        if instance is None:
+            # The backing row is already gone (e.g. previously hard-deleted); drop the dangling
+            # pointer row. No permission check needed because no resource is being mutated.
+            entry.delete()
+            return deleted_objects
+
+        self._assert_can_mutate_backing_object(
+            instance=instance, resource=self._resource_for_file_system_type(entry.type)
+        )
 
         entry_path = entry.path
         result = delete_file_system_object(
@@ -527,6 +581,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             for item in items:
+                instance = get_backing_instance(type_string=item["type"], ref=item["ref"], team_id=self.team.id)
+                if instance is None:
+                    raise serializers.ValidationError(
+                        {"detail": f"Cannot find {item['type']} with ref '{item['ref']}'."}
+                    )
+                self._assert_can_mutate_backing_object(
+                    instance=instance, resource=self._resource_for_file_system_type(item["type"])
+                )
+
                 try:
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
