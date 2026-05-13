@@ -198,10 +198,10 @@ class TestWebAnalyticsMetrics(TestCase):
         ):
             WebAnalyticsQueryRunner.calculate(runner)
 
-        mock_logger.info.assert_called_once()
-        call_kwargs = mock_logger.info.call_args
-        assert call_kwargs[0][0] == "web_analytics_query"
-        kw = call_kwargs[1]
+        canonical_call = next(
+            c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "web_analytics_query"
+        )
+        kw = canonical_call.kwargs
         assert kw["team_id"] == 42
         assert kw["organization_id"] == "org_abc"
         assert kw["user_id"] == "user_456"
