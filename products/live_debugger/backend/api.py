@@ -1,4 +1,7 @@
+import logging
+
 from django.db.models import QuerySet
+from django.http import HttpResponse
 
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
@@ -9,11 +12,13 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import ProjectSecretAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.permissions import ProjectSecretAPITokenPermission
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
+
+logger = logging.getLogger(__name__)
 
 
 class LiveDebuggerBreakpointSerializer(serializers.ModelSerializer):
@@ -558,3 +563,49 @@ class LiveDebuggerProgramViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "has_more": len(events) == params["limit"],
             }
         )
+
+
+class LiveDebuggerActiveProgramsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Machine-facing endpoint for the libdebugger runtime poller. Returns the team's
+    installed hogtrace programs compiled into a `ProgramList` protobuf payload.
+
+    Uses personal API key authentication because the libdebugger client (sibling
+    repo `libdebugger`) polls with `personal_api_key` via posthoganalytics.request.get.
+    """
+
+    scope_object = "live_debugger"
+    scope_object_read_actions = ["active"]
+    scope_object_write_actions: list[str] = []
+    queryset = LiveDebuggerProgram.objects.none()
+    serializer_class = LiveDebuggerProgramSerializer
+
+    @extend_schema(
+        summary="Get compiled active programs (External API)",
+        description=(
+            "External API endpoint for the libdebugger runtime poller. Returns the team's "
+            "installed hogtrace programs as a single `ProgramList` protobuf payload "
+            "(see hogtrace/proto/bytecode.proto). The poller diffs against its installed "
+            "set using `Program.hash` to decide install/uninstall/update.\n\n"
+            "Authentication: personal API key in the Authorization header: "
+            "`Authorization: Bearer phx_<your-personal-api-key>`. Required scope: "
+            "`live_debugger:read`."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="`ProgramList` protobuf bytes.",
+            ),
+            401: OpenApiResponse(description="Missing or invalid personal API key."),
+            403: OpenApiResponse(description="Personal API key lacks live_debugger:read scope."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        authentication_classes=[PersonalAPIKeyAuthentication, SessionAuthentication],
+        required_scopes=["live_debugger:read"],
+        url_path="active",
+    )
+    def active(self, request: Request, *args: object, **kwargs: object) -> HttpResponse:
+        return HttpResponse(b"", content_type="application/octet-stream")

@@ -1129,6 +1129,13 @@ projects_router.register(
 )
 
 projects_router.register(
+    r"live_debugger/programs",
+    live_debugger.LiveDebuggerActiveProgramsViewSet,
+    "project_live_debugger_active_programs",
+    ["project_id"],
+)
+
+projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",

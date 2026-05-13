@@ -1225,3 +1225,18 @@ class TestLiveDebuggerProgramAPI(ClickhouseTestMixin, APIBaseTest):
         program = self._create_program()
         response = getattr(self.client, method)(self._url(f"{program.id}/"))
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class TestLiveDebuggerActiveProgramsAPI(APIBaseTest):
+    URL = "/api/projects/@current/live_debugger/programs/active/"
+
+    def test_empty_team_returns_empty_program_list(self):
+        from products.live_debugger.backend._proto.bytecode_pb2 import ProgramList
+
+        response = self.client.get(self.URL)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/octet-stream")
+        parsed = ProgramList()
+        parsed.ParseFromString(response.content)
+        self.assertEqual(list(parsed.programs), [])
