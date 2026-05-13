@@ -85,6 +85,9 @@ tools:
     integrations-create:
         operation: integrations_create
         enabled: false
+    integrations-dependent-hog-functions-retrieve:
+        operation: integrations_dependent_hog_functions_retrieve
+        enabled: false
     integrations-domain-connect-apply-url-create:
         operation: integrations_domain_connect_apply_url_create
         enabled: false

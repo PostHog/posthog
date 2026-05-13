@@ -346,6 +346,24 @@ export const integrationsClickupWorkspacesRetrieve = async (
     })
 }
 
+export const getIntegrationsDependentHogFunctionsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/dependent_hog_functions/`
+}
+
+/**
+ * List hog functions that depend on this integration and would be disabled if it is deleted.
+ */
+export const integrationsDependentHogFunctionsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDependentHogFunctionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/email/`
 }
