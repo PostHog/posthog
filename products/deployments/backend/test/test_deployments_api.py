@@ -1,27 +1,29 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from rest_framework import status
-
 from parameterized import parameterized
+from rest_framework import status
 
 from posthog.models.utils import uuid7
 
 
 class TestDeploymentsAPI(APIBaseTest):
-    @patch("products.deployments.backend.access.posthoganalytics.feature_enabled", return_value=True)
-    def test_list_returns_empty_for_authenticated_user_with_flag_on(self, _mock_flag: object) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/deployments/")
+    @parameterized.expand(
+        [
+            ("flag on returns empty list", True, status.HTTP_200_OK),
+            ("flag off returns 403", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_list_respects_feature_flag(self, _name: str, flag_enabled: bool, expected_status: int) -> None:
+        with patch(
+            "products.deployments.backend.access.posthoganalytics.feature_enabled",
+            return_value=flag_enabled,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/deployments/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        body = response.json()
-        self.assertEqual(body["results"], [])
-
-    @patch("products.deployments.backend.access.posthoganalytics.feature_enabled", return_value=False)
-    def test_list_returns_403_when_flag_off(self, _mock_flag: object) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/deployments/")
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["results"], [])
 
     @parameterized.expand(
         [

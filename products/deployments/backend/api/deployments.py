@@ -153,7 +153,9 @@ class DeploymentSerializer(serializers.ModelSerializer):
             "is_current",
             "duration_seconds",
         ]
-        read_only_fields = ["id", "created_at", "triggered_by_deployment", "is_current", "duration_seconds"]
+        # SerializerMethodField is always read-only in DRF, so listing
+        # is_current / duration_seconds here would be redundant.
+        read_only_fields = ["id", "created_at", "triggered_by_deployment"]
 
     # TODO(deployments-v1): replace with a real `Subquery`/annotation that
     # marks the most recent `READY` deployment per team as current.
