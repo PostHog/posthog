@@ -24,12 +24,10 @@ tools:
     - name: gh
       description: 'GitHub CLI (cli.github.com): repo browsing, PR review, gh auth share'
       install: |
-          sudo mkdir -p -m 755 /etc/apt/keyrings
-          sudo curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
-          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y gh
+          GH_VERSION=2.92.0
+          ARCH=$(dpkg --print-architecture)
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
+            | sudo tar -xz --strip-components=1 -C /usr/local
       mounts:
           - ~/.config/gh
 
