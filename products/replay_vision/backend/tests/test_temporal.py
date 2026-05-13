@@ -1,23 +1,23 @@
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+import datetime as dt
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 
 import psycopg.errors
-import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio import activity
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
+from posthog.redis import get_async_client
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_lens import LensModel, LensType, ReplayLens
 from products.replay_vision.backend.models.replay_observation import (
@@ -25,17 +25,28 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.temporal import ACTIVITIES, ApplyLensWorkflow
+from products.replay_vision.backend.temporal import ApplyLensWorkflow
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
+from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_running_activity,
 )
-from products.replay_vision.backend.temporal.constants import build_apply_lens_workflow_id
+from products.replay_vision.backend.temporal.state import (
+    StateActivitiesEnum,
+    generate_state_key,
+    get_data_class_from_redis,
+    store_data_in_redis,
+)
 from products.replay_vision.backend.temporal.types import (
     ApplyLensInputs,
     CreateObservationInputs,
     CreateObservationOutput,
+    EnsureSessionAssetInputs,
+    EnsureSessionAssetOutput,
+    FetchSessionEventsInputs,
+    LensLlmInputs,
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
 )
@@ -64,18 +75,6 @@ def _make_observation(lens: ReplayLens, **overrides) -> ReplayObservation:
     }
     defaults.update(overrides)
     return ReplayObservation.objects.create(**defaults)
-
-
-@pytest_asyncio.fixture(scope="module")
-async def workflow_env() -> AsyncIterator[WorkflowEnvironment]:
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        yield env
-
-
-@pytest.fixture(scope="module")
-def thread_pool_executor() -> Iterator[ThreadPoolExecutor]:
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        yield executor
 
 
 @pytest.mark.django_db(transaction=True)
@@ -286,204 +285,358 @@ class TestObservationStateActivities:
         assert observation.started_at == first_started_at
 
 
-@pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_apply_lens_workflow_creates_row_then_marks_failed_with_stub_reason(
-    workflow_env: WorkflowEnvironment, thread_pool_executor: ThreadPoolExecutor
-) -> None:
-    lens = await sync_to_async(_make_lens)()
-    workflow_id = build_apply_lens_workflow_id(lens.id, "sess-1")
-    task_queue = f"vision-test-{uuid.uuid4()}"
+class TestFetchSessionEventsActivity:
+    def _make_session_replay_events_mock(
+        self,
+        metadata: dict | None,
+        pages: list[tuple[list[str] | None, list[tuple] | None]],
+    ) -> MagicMock:
+        mock_obj = MagicMock(spec=SessionReplayEvents)
+        mock_obj.get_metadata.return_value = metadata
+        mock_obj.get_events.side_effect = pages
+        return mock_obj
 
-    async with Worker(
-        workflow_env.client,
-        task_queue=task_queue,
-        workflows=[ApplyLensWorkflow],
-        activities=ACTIVITIES,
-        activity_executor=thread_pool_executor,
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        await workflow_env.client.execute_workflow(
-            ApplyLensWorkflow.run,
-            ApplyLensInputs(
-                lens_id=lens.id,
-                session_id="sess-1",
-                team_id=lens.team_id,
-                triggered_by=ObservationTrigger.ON_DEMAND,
-                triggered_by_user_id=None,
-            ),
-            id=workflow_id,
-            task_queue=task_queue,
+    @pytest.mark.asyncio
+    async def test_stashes_lens_llm_inputs_in_redis(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        end = dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": end, "duration": 300}
+
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [(["event", "timestamp", "$session_id"], [("$pageview", start, "sess-1")])],
         )
 
-    @sync_to_async
-    def _reload() -> ReplayObservation:
-        return ReplayObservation.objects.get(lens=lens, session_id="sess-1")
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(
+                    observation_id=observation_id,
+                    team_id=lens.team_id,
+                    session_id="sess-1",
+                )
+            )
 
-    final = await _reload()
-    assert final.status == ObservationStatus.FAILED
-    assert "stub" in final.error_reason.lower()
-    assert final.workflow_id == workflow_id
-    assert final.started_at is not None
-    assert final.completed_at is not None
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert stored.session_id == "sess-1"
+        assert stored.team_id == lens.team_id
+        assert stored.columns == ["event", "timestamp", "$session_id"]
+        assert stored.session_start_time == start
+        assert stored.session_end_time == end
+        assert stored.duration_seconds == 300.0
+        assert stored.events == [["$pageview", "2026-05-12T10:00:00Z", "sess-1"]]
+
+    @pytest.mark.asyncio
+    async def test_paginates_through_get_events_until_short_page(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 0}
+        page_size = 3000
+
+        full_page_rows = [("$pageview", start, f"sess-{i}") for i in range(page_size)]
+        last_page_rows = [("$pageview", start, "sess-last")]
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [
+                (["event", "timestamp", "$session_id"], full_page_rows),
+                (["event", "timestamp", "$session_id"], last_page_rows),
+            ],
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(
+                    observation_id=observation_id,
+                    team_id=lens.team_id,
+                    session_id="sess-1",
+                )
+            )
+
+        assert mock_obj.get_events.call_count == 2
+        assert mock_obj.get_events.call_args_list[0].kwargs["page"] == 0
+        assert mock_obj.get_events.call_args_list[1].kwargs["page"] == 1
+        assert mock_obj.get_events.call_args_list[0].kwargs["limit"] == page_size
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert len(stored.events) == page_size + 1
+
+    @pytest.mark.asyncio
+    async def test_is_idempotent_when_redis_already_has_payload(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        # Pre-populate Redis as if a previous run had finished.
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        existing = LensLlmInputs(
+            session_id="sess-1",
+            team_id=lens.team_id,
+            session_start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
+            session_end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
+            duration_seconds=300.0,
+            columns=["event"],
+            events=[["$pageview"]],
+        )
+        await store_data_in_redis(redis_client, key, existing.model_dump_json())
+
+        mock_obj = MagicMock(spec=SessionReplayEvents)
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(
+                    observation_id=observation_id,
+                    team_id=lens.team_id,
+                    session_id="sess-1",
+                )
+            )
+
+        mock_obj.get_metadata.assert_not_called()
+        mock_obj.get_events.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_raises_non_retryable_when_session_has_no_events(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        metadata = {
+            "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
+            "end_time": dt.datetime(2026, 5, 12, 0, 5, tzinfo=dt.UTC),
+            "duration": 300,
+        }
+        mock_obj = self._make_session_replay_events_mock(metadata, [([], [])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_events_activity(
+                    FetchSessionEventsInputs(
+                        observation_id=observation_id,
+                        team_id=lens.team_id,
+                        session_id="sess-empty",
+                    )
+                )
+            assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEnsureSessionAssetActivity:
+    @pytest.mark.asyncio
+    async def test_creates_new_asset_with_vision_render_params(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        result = await ensure_session_asset_activity(
+            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-fresh")
+        )
+        assert isinstance(result, EnsureSessionAssetOutput)
+
+        asset = await ExportedAsset.objects.aget(pk=result.asset_id)
+        assert asset.team_id == lens.team_id
+        assert asset.export_format == "video/mp4"
+        assert asset.is_system is True
+        ctx = asset.export_context or {}
+        assert ctx["session_recording_id"] == "sess-fresh"
+        assert ctx["playback_speed"] == 8
+        assert ctx["recording_fps"] == 3
+        assert ctx["show_metadata_footer"] is True
+
+    @pytest.mark.asyncio
+    async def test_reuses_existing_system_asset_for_same_session(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        first = await ensure_session_asset_activity(
+            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-reuse")
+        )
+        second = await ensure_session_asset_activity(
+            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-reuse")
+        )
+        assert first.asset_id == second.asset_id
+
+        @sync_to_async
+        def _count() -> int:
+            return ExportedAsset.objects.filter(
+                team_id=lens.team_id, export_context__session_recording_id="sess-reuse"
+            ).count()
+
+        assert await _count() == 1
+
+    @pytest.mark.asyncio
+    async def test_reuse_does_not_mutate_existing_asset(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        first = await ensure_session_asset_activity(
+            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-immutable")
+        )
+
+        # Simulate a previous rasterize run writing output fields onto the asset.
+        @sync_to_async
+        def _stamp_output() -> None:
+            asset = ExportedAsset.objects.get(pk=first.asset_id)
+            ctx = dict(asset.export_context or {})
+            ctx["render_fingerprint"] = "abcdef"
+            ctx["content_location"] = "s3://prior/video.mp4"
+            asset.export_context = ctx
+            asset.save(update_fields=["export_context"])
+
+        await _stamp_output()
+
+        await ensure_session_asset_activity(EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-immutable"))
+
+        asset = await ExportedAsset.objects.aget(pk=first.asset_id)
+        ctx = asset.export_context or {}
+        assert ctx["render_fingerprint"] == "abcdef"
+        assert ctx["content_location"] == "s3://prior/video.mp4"
+
+
+def _build_inputs(**overrides: Any) -> ApplyLensInputs:
+    defaults: dict[str, Any] = {
+        "lens_id": uuid.uuid4(),
+        "session_id": "sess-1",
+        "team_id": 1,
+        "triggered_by": ObservationTrigger.ON_DEMAND,
+        "triggered_by_user_id": None,
+    }
+    defaults.update(overrides)
+    return ApplyLensInputs(**defaults)
+
+
+class _WorkflowMocks:
+    """Tracks `wf.execute_activity` and `wf.execute_child_workflow` calls and dispatches return values per activity."""
+
+    def __init__(
+        self,
+        *,
+        activity_results: dict[Any, Any] | None = None,
+        activity_errors: dict[Any, Exception] | None = None,
+    ) -> None:
+        self.activity_results = activity_results or {}
+        self.activity_errors = activity_errors or {}
+        self.activity_calls: list[tuple[Any, Any]] = []
+        self.child_calls: list[tuple[tuple, dict]] = []
+
+    async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
+        self.activity_calls.append((activity_fn, activity_input))
+        if activity_fn in self.activity_errors:
+            raise self.activity_errors[activity_fn]
+        return self.activity_results.get(activity_fn)
+
+    async def execute_child_workflow(self, *args: Any, **kwargs: Any) -> Any:
+        self.child_calls.append((args, kwargs))
+        return None
+
+
+async def _run_workflow(inputs: ApplyLensInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test") -> None:
+    workflow_info = MagicMock()
+    workflow_info.workflow_id = workflow_id
+    with (
+        patch("temporalio.workflow.info", return_value=workflow_info),
+        patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
+        patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
+    ):
+        await ApplyLensWorkflow().run(inputs)
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
-async def test_apply_lens_workflow_no_ops_when_observation_already_exists(
-    workflow_env: WorkflowEnvironment, thread_pool_executor: ThreadPoolExecutor
-) -> None:
-    lens = await sync_to_async(_make_lens)()
-    existing = await sync_to_async(_make_observation)(
-        lens,
-        session_id="sess-dup",
-        workflow_id="prior-workflow",
-        status=ObservationStatus.SUCCEEDED,
-        completed_at=timezone.now(),
+async def test_apply_lens_workflow_drives_full_pipeline_with_stub_terminal() -> None:
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
     )
 
-    workflow_id = build_apply_lens_workflow_id(lens.id, "sess-dup")
-    task_queue = f"vision-test-{uuid.uuid4()}"
+    inputs = _build_inputs(session_id="sess-1", team_id=99)
+    await _run_workflow(inputs, mocks, workflow_id="wf-stub-terminal")
 
-    async with Worker(
-        workflow_env.client,
-        task_queue=task_queue,
-        workflows=[ApplyLensWorkflow],
-        activities=ACTIVITIES,
-        activity_executor=thread_pool_executor,
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        await workflow_env.client.execute_workflow(
-            ApplyLensWorkflow.run,
-            ApplyLensInputs(
-                lens_id=lens.id,
-                session_id="sess-dup",
-                team_id=lens.team_id,
-                triggered_by=ObservationTrigger.ON_DEMAND,
-                triggered_by_user_id=None,
-            ),
-            id=workflow_id,
-            task_queue=task_queue,
-        )
+    activity_order = [fn for fn, _ in mocks.activity_calls]
+    assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
+    # fetch + ensure_asset run in parallel — order between them is non-deterministic.
+    assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    assert activity_order[4] == mark_observation_failed_activity
+    assert len(mocks.child_calls) == 1
+    assert mocks.child_calls[0][1]["id"] == f"replay-vision-rasterize-99-sess-1-{inputs.lens_id}"
 
-    # Existing row stays exactly as it was — no new rows created.
-    @sync_to_async
-    def _check() -> tuple[int, ReplayObservation]:
-        rows = ReplayObservation.objects.filter(lens=lens, session_id="sess-dup")
-        return rows.count(), rows.get()
-
-    count, observation = await _check()
-    assert count == 1
-    assert observation.id == existing.id
-    assert observation.workflow_id == "prior-workflow"
-    assert observation.status == ObservationStatus.SUCCEEDED
+    final_failed_input = mocks.activity_calls[-1][1]
+    assert final_failed_input.observation_id == new_observation_id
+    assert "stub" in final_failed_input.error_reason.lower()
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_orchestrates_activities_in_order(workflow_env: WorkflowEnvironment) -> None:
-    calls: list[tuple[str, dict]] = []
+async def test_apply_lens_workflow_marks_failed_when_fetch_raises() -> None:
     new_observation_id = uuid.uuid4()
+    fetch_error = ApplicationError("no events", non_retryable=True)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        activity_errors={fetch_session_events_activity: fetch_error},
+    )
 
-    @activity.defn(name="create_observation_activity")
-    async def stub_create(inputs: CreateObservationInputs) -> CreateObservationOutput:
-        calls.append(
-            (
-                "create",
-                {
-                    "lens_id": inputs.lens_id,
-                    "session_id": inputs.session_id,
-                    "triggered_by": inputs.triggered_by,
-                    "workflow_id": inputs.workflow_id,
-                },
-            )
-        )
-        return CreateObservationOutput(observation_id=new_observation_id, was_created=True)
+    with pytest.raises(ApplicationError, match="no events"):
+        await _run_workflow(_build_inputs(session_id="sess-broken"), mocks)
 
-    @activity.defn(name="mark_observation_running_activity")
-    async def stub_running(inputs: MarkObservationRunningInputs) -> None:
-        calls.append(("running", {"observation_id": inputs.observation_id}))
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert create_observation_activity in called
+    assert mark_observation_running_activity in called
+    assert fetch_session_events_activity in called
+    assert mark_observation_failed_activity in called
+    assert mocks.child_calls == []
 
-    @activity.defn(name="mark_observation_failed_activity")
-    async def stub_failed(inputs: MarkObservationFailedInputs) -> None:
-        calls.append(("failed", {"observation_id": inputs.observation_id, "error_reason": inputs.error_reason}))
-
-    lens_id = uuid.uuid4()
-    workflow_id = build_apply_lens_workflow_id(lens_id, "sess-x")
-    task_queue = f"vision-test-{uuid.uuid4()}"
-    activities: list[Callable[..., Any]] = [stub_create, stub_running, stub_failed]
-
-    async with Worker(
-        workflow_env.client,
-        task_queue=task_queue,
-        workflows=[ApplyLensWorkflow],
-        activities=activities,
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        await workflow_env.client.execute_workflow(
-            ApplyLensWorkflow.run,
-            ApplyLensInputs(
-                lens_id=lens_id,
-                session_id="sess-x",
-                team_id=1,
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-            ),
-            id=workflow_id,
-            task_queue=task_queue,
-        )
-
-    assert [name for name, _ in calls] == ["create", "running", "failed"]
-    assert calls[0][1] == {
-        "lens_id": lens_id,
-        "session_id": "sess-x",
-        "triggered_by": ObservationTrigger.SCHEDULE,
-        "workflow_id": workflow_id,
-    }
-    assert calls[1][1] == {"observation_id": new_observation_id}
-    assert calls[2][1]["observation_id"] == new_observation_id
-    assert "stub" in calls[2][1]["error_reason"].lower()
+    failed_input = mocks.activity_calls[-1][1]
+    assert failed_input.observation_id == new_observation_id
+    assert "no events" in failed_input.error_reason.lower()
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_exits_when_create_returns_was_created_false(
-    workflow_env: WorkflowEnvironment,
-) -> None:
-    calls: list[str] = []
+async def test_apply_lens_workflow_exits_when_create_returns_was_created_false() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
+        },
+    )
 
-    @activity.defn(name="create_observation_activity")
-    async def stub_create(inputs: CreateObservationInputs) -> CreateObservationOutput:
-        calls.append("create")
-        return CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False)
+    await _run_workflow(_build_inputs(session_id="sess-dup"), mocks)
 
-    @activity.defn(name="mark_observation_running_activity")
-    async def stub_running(inputs: MarkObservationRunningInputs) -> None:
-        calls.append("running")
+    assert [fn for fn, _ in mocks.activity_calls] == [create_observation_activity]
+    assert mocks.child_calls == []
 
-    @activity.defn(name="mark_observation_failed_activity")
-    async def stub_failed(inputs: MarkObservationFailedInputs) -> None:
-        calls.append("failed")
 
-    activities: list[Callable[..., Any]] = [stub_create, stub_running, stub_failed]
-    task_queue = f"vision-test-{uuid.uuid4()}"
+@pytest.mark.asyncio
+async def test_apply_lens_workflow_propagates_workflow_id_to_create() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
+        },
+    )
+    inputs = _build_inputs(
+        lens_id=uuid.uuid4(),
+        session_id="sess-id",
+        team_id=7,
+        triggered_by=ObservationTrigger.SCHEDULE,
+        triggered_by_user_id=42,
+    )
 
-    async with Worker(
-        workflow_env.client,
-        task_queue=task_queue,
-        workflows=[ApplyLensWorkflow],
-        activities=activities,
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        await workflow_env.client.execute_workflow(
-            ApplyLensWorkflow.run,
-            ApplyLensInputs(
-                lens_id=uuid.uuid4(),
-                session_id="sess-y",
-                team_id=1,
-                triggered_by=ObservationTrigger.ON_DEMAND,
-                triggered_by_user_id=None,
-            ),
-            id="wf-y",
-            task_queue=task_queue,
-        )
+    await _run_workflow(inputs, mocks, workflow_id="wf-from-info")
 
-    assert calls == ["create"]
+    create_input = mocks.activity_calls[0][1]
+    assert create_input.lens_id == inputs.lens_id
+    assert create_input.session_id == "sess-id"
+    assert create_input.team_id == 7
+    assert create_input.triggered_by == ObservationTrigger.SCHEDULE
+    assert create_input.triggered_by_user_id == 42
+    assert create_input.workflow_id == "wf-from-info"
