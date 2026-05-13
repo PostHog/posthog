@@ -34,20 +34,47 @@ export type PostHogMcpAnalyticsInitResult =
           errorMessage: string
       }
 
-async function buildEventTags(identity: PostHogMcpAnalyticsIdentityProvider): Promise<Record<string, string>> {
-    const sessionUuid = await identity.getSessionUuid()
-    if (!sessionUuid) {
-        return {}
-    }
+// `$ai_session_id` is set in `buildEventProperties` rather than here. The
+// upstream mcpcat exporter (which `@posthog/mcp-analytics` mirrors) only
+// sets `$ai_session_id` on `$ai_span` events with a hardcoded
+// `mcpcat_<ksuid>` default, and our `eventTags` override silently fails to
+// win the spread on both `mcp_tool_call` and `$ai_span`. Using
+// `eventProperties` instead lands the value on every event type, because
+// `event.properties` is spread last in both `buildCaptureEvent` and
+// `buildAISpanEvent`.
+async function buildEventTags(
+    identity: PostHogMcpAnalyticsIdentityProvider,
+    sessionUuidFallback: string
+): Promise<Record<string, string>> {
+    const sessionUuid = (await identity.getSessionUuid()) ?? sessionUuidFallback
+
+    // #region debug log (H2 fix verification - post-fix)
+    fetch('http://127.0.0.1:7874/ingest/938e5110-8a29-4ce6-ab7e-fdcb908d6c91', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '6c81f2' },
+        body: JSON.stringify({
+            sessionId: '6c81f2',
+            runId: 'post-fix',
+            hypothesisId: 'A',
+            location: 'posthog-mcp-analytics.ts:buildEventTags:return',
+            message: 'buildEventTags fired (post-fix)',
+            data: { sessionUuid_len: sessionUuid.length, used_fallback: !(await identity.getSessionUuid()) },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {})
+    // #endregion
 
     return {
         $session_id: sessionUuid,
-        $ai_session_id: sessionUuid,
     }
 }
 
-async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvider): Promise<Record<string, unknown>> {
+async function buildEventProperties(
+    identity: PostHogMcpAnalyticsIdentityProvider,
+    sessionUuidFallback: string
+): Promise<Record<string, unknown>> {
     const [
+        sessionUuidRaw,
         mcpVersion,
         clientUserAgent,
         mcpClientName,
@@ -61,6 +88,7 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         mcpConsumer,
         mcpMode,
     ] = await Promise.all([
+        identity.getSessionUuid(),
         identity.getMcpVersion(),
         identity.getClientUserAgent(),
         identity.getMcpClientName(),
@@ -75,12 +103,17 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         identity.getMcpMode(),
     ])
 
+    const sessionUuid = sessionUuidRaw ?? sessionUuidFallback
+
     const groups = {
         ...(analyticsContext?.organizationId ? { organization: analyticsContext.organizationId } : {}),
         ...(analyticsContext?.projectUuid ? { project: analyticsContext.projectUuid } : {}),
     }
 
-    return {
+    const result: Record<string, unknown> = {
+        // Set here (not in `buildEventTags`) so it lands on `mcp_tool_call`
+        // and other non-AI event types — see comment on `buildEventTags`.
+        ...(sessionUuid ? { $ai_session_id: sessionUuid } : {}),
         $ai_product: 'mcp',
         $mcp_version: mcpVersion,
         $mcp_client_user_agent: clientUserAgent,
@@ -99,6 +132,32 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         $mcp_mode: mcpMode,
         ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
     }
+
+    // #region debug log (H2 fix verification - post-fix)
+    fetch('http://127.0.0.1:7874/ingest/938e5110-8a29-4ce6-ab7e-fdcb908d6c91', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '6c81f2' },
+        body: JSON.stringify({
+            sessionId: '6c81f2',
+            runId: 'post-fix',
+            hypothesisId: 'A',
+            location: 'posthog-mcp-analytics.ts:buildEventProperties:return',
+            message: 'buildEventProperties fired (post-fix)',
+            data: {
+                has_sessionUuid: !!sessionUuid,
+                sessionUuid_len: sessionUuid ? String(sessionUuid).length : 0,
+                returns_ai_session_id: '$ai_session_id' in result,
+                result_ai_session_id_present: result.$ai_session_id !== undefined,
+                mcp_client_name: mcpClientName ?? null,
+                key_count: Object.keys(result).length,
+                used_fallback: !sessionUuidRaw,
+            },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {})
+    // #endregion
+
+    return result
 }
 
 export async function initPostHogMcpAnalytics(
@@ -122,6 +181,14 @@ export async function initPostHogMcpAnalytics(
         const distinctId = await identity.getDistinctId()
         const identifyResult = { userId: distinctId }
 
+        // Stable per-MCP-session fallback UUID. `identity.getSessionUuid()` returns
+        // undefined for clients that don't pass `?sessionId=...` in the URL (most
+        // streamable-http MCP clients like cursor-vscode, claude-code via mcp-remote
+        // do not). Without this fallback our `$ai_session_id` override would silently
+        // drop on every event, leaving the library's hardcoded prefixed default
+        // (`posthog_mcp_analytics_<ksuid>`) for `$ai_span` and nothing on `mcp_tool_call`.
+        const sessionUuidFallback = crypto.randomUUID()
+
         track(server, {
             apiKey: posthogApiKey,
             context: options.contextEnabled,
@@ -135,8 +202,8 @@ export async function initPostHogMcpAnalytics(
                 host: posthogHost,
             },
             reportMissing: options.reportMissingEnabled,
-            eventTags: async () => buildEventTags(identity),
-            eventProperties: async () => buildEventProperties(identity),
+            eventTags: async () => buildEventTags(identity, sessionUuidFallback),
+            eventProperties: async () => buildEventProperties(identity, sessionUuidFallback),
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
 

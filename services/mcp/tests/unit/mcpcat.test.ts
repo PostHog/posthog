@@ -138,7 +138,7 @@ describe('initMcpCatObservability', () => {
         expect(result).toEqual({ userId: 'user-123' })
     })
 
-    it('eventTags callback returns $session_id and $ai_session_id when available', async () => {
+    it('eventTags callback returns only $session_id when available ($ai_session_id moved to eventProperties)', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
@@ -147,8 +147,8 @@ describe('initMcpCatObservability', () => {
         const result = await getEventTagsCallback()()
         expect(result).toEqual({
             $session_id: 'session-uuid-456',
-            $ai_session_id: 'session-uuid-456',
         })
+        expect(result).not.toHaveProperty('$ai_session_id')
     })
 
     it('eventTags callback returns empty when session uuid is undefined', async () => {
@@ -174,6 +174,7 @@ describe('initMcpCatObservability', () => {
             name: 'full identity + full analytics context emits $groups for org + project',
             overrides: {},
             expected: {
+                $ai_session_id: 'session-uuid-456',
                 ai_product: 'mcp',
                 mcp_version: 2,
                 client_user_agent: 'test-agent/1.0',
@@ -202,6 +203,7 @@ describe('initMcpCatObservability', () => {
                 getAnalyticsContext: vi.fn().mockResolvedValue({ organizationId: 'org-789' }),
             },
             expected: {
+                $ai_session_id: 'session-uuid-456',
                 ai_product: 'mcp',
                 mcp_version: 2,
                 client_user_agent: 'test-agent/1.0',
@@ -238,6 +240,7 @@ describe('initMcpCatObservability', () => {
                 getMcpMode: vi.fn().mockResolvedValue(undefined),
             },
             expected: {
+                $ai_session_id: 'session-uuid-456',
                 ai_product: 'mcp',
                 mcp_version: undefined,
                 client_user_agent: undefined,
@@ -254,6 +257,34 @@ describe('initMcpCatObservability', () => {
                 mcp_transport: undefined,
                 mcp_consumer: undefined,
                 mcp_mode: undefined,
+            },
+        },
+        {
+            name: 'session uuid undefined omits $ai_session_id but keeps other properties',
+            overrides: {
+                getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            },
+            expected: {
+                ai_product: 'mcp',
+                mcp_version: 2,
+                client_user_agent: 'test-agent/1.0',
+                mcp_client_name: 'claude-code',
+                mcp_client_version: '1.2.3',
+                mcp_protocol_version: '2024-11-05',
+                mcp_region: 'us',
+                organization_id: 'org-789',
+                project_id: 'proj-101',
+                project_uuid: 'proj-uuid-101',
+                project_name: 'Project 101',
+                mcp_oauth_client_name: 'PostHog Code',
+                read_only: true,
+                mcp_transport: 'streamable-http',
+                mcp_consumer: 'posthog-code',
+                mcp_mode: 'cli',
+                $groups: {
+                    organization: 'org-789',
+                    project: 'proj-uuid-101',
+                },
             },
         },
     ])('eventProperties: $name', async ({ overrides, expected }) => {

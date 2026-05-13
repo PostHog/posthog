@@ -156,16 +156,17 @@ describe('initPostHogMcpAnalytics', () => {
         expect(await getTrackOptions().identify()).toEqual({ userId: 'user-123' })
     })
 
-    it('eventTags callback returns $session_id and $ai_session_id when available', async () => {
+    it('eventTags callback returns only $session_id when available ($ai_session_id moved to eventProperties)', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
         await initPostHogMcpAnalytics(server, identity)
 
-        expect(await getTrackOptions().eventTags()).toEqual({
+        const tags = await getTrackOptions().eventTags()
+        expect(tags).toEqual({
             $session_id: 'session-uuid-456',
-            $ai_session_id: 'session-uuid-456',
         })
+        expect(tags).not.toHaveProperty('$ai_session_id')
     })
 
     it('eventTags callback returns empty when session uuid is undefined', async () => {
@@ -179,13 +180,14 @@ describe('initPostHogMcpAnalytics', () => {
         expect(await getTrackOptions().eventTags()).toEqual({})
     })
 
-    it('eventProperties callback returns PostHog MCP context properties', async () => {
+    it('eventProperties callback returns PostHog MCP context properties including $ai_session_id', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
         await initPostHogMcpAnalytics(server, identity)
 
         expect(await getTrackOptions().eventProperties()).toEqual({
+            $ai_session_id: 'session-uuid-456',
             $ai_product: 'mcp',
             $mcp_version: 2,
             $mcp_client_user_agent: 'test-agent/1.0',
@@ -221,6 +223,22 @@ describe('initPostHogMcpAnalytics', () => {
         expect(properties.$groups).toBeUndefined()
         expect(properties.$mcp_organization_id).toBeUndefined()
         expect(properties.$mcp_project_uuid).toBeUndefined()
+        // $ai_session_id stays present — its presence is gated on session uuid, not analytics context.
+        expect(properties.$ai_session_id).toBe('session-uuid-456')
+    })
+
+    it('eventProperties callback omits $ai_session_id when session uuid is undefined', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity({
+            getSessionUuid: vi.fn().mockResolvedValue(undefined),
+        })
+
+        await initPostHogMcpAnalytics(server, identity)
+
+        const properties = await getTrackOptions().eventProperties()
+        expect(properties).not.toHaveProperty('$ai_session_id')
+        // Other properties stay populated.
+        expect(properties.$mcp_client_name).toBe('claude-code')
     })
 
     it('swallows errors if PostHog MCP analytics track throws', async () => {
