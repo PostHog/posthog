@@ -37,6 +37,7 @@ import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.deployments.backend.api as deployments
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
@@ -310,6 +311,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployments",
     ["project_id"],
 )
 
