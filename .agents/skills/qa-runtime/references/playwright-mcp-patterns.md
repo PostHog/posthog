@@ -68,19 +68,35 @@ Use stable, readable names:
 ```
 
 After a browser or visual test captures two or more screenshots, assemble the
-ordered screenshots into `runtime-qa.gif` by default. This follows the same
-evidence pattern as the demo-reel browser tier: screenshots stitched into a slow
-GIF. Use slow frames, about 1.5-2 seconds each, and preserve the original PNGs.
+ordered screenshots into `runtime-qa.gif` by default when `ffmpeg` or another
+existing local GIF tool is available. This follows the same evidence pattern as
+the demo-reel browser tier: screenshots stitched into a slow GIF. Use slow
+frames, about 1.5-2 seconds each, and preserve the original PNGs.
 
-Prefer ImageMagick when available:
+Prefer the PostHog workspace's existing browser tooling for screenshots: capture
+frames through Playwright MCP or the repo's existing `@playwright/test`
+dependency. Do not add screenshot or GIF packages to `package.json`.
+
+For stitching, prefer `ffmpeg` when available:
 
 ```bash
-magick -delay 180 -loop 0 .qa-runtime/runs/<run-id>/[0-9][0-9][0-9]-*.png .qa-runtime/runs/<run-id>/runtime-qa.gif
+ffmpeg -y -framerate 0.5 -pattern_type glob \
+  -i ".qa-runtime/runs/<run-id>/[0-9][0-9][0-9]-*.png" \
+  -vf "scale=960:-1:flags=lanczos,palettegen" \
+  -frames:v 1 -update 1 \
+  ".qa-runtime/runs/<run-id>/runtime-qa-palette.png"
+
+ffmpeg -y -framerate 0.5 -pattern_type glob \
+  -i ".qa-runtime/runs/<run-id>/[0-9][0-9][0-9]-*.png" \
+  -i ".qa-runtime/runs/<run-id>/runtime-qa-palette.png" \
+  -lavfi "scale=960:-1:flags=lanczos[x];[x][1:v]paletteuse" \
+  -loop 0 \
+  ".qa-runtime/runs/<run-id>/runtime-qa.gif"
 ```
 
-If ImageMagick is unavailable but `ffmpeg` is available, create a two-pass
-palette GIF from the ordered screenshots. Do not install packages just to create
-the GIF; keep the screenshots as the fallback evidence.
+This command was verified against real `.qa-runtime` screenshots. If `ffmpeg` is
+not available but another local GIF tool is, use that. If no GIF tool is already
+available, skip the GIF and keep the screenshots as the evidence.
 
 Keep paths relative in PR comments. Upload the bundle as a secret gist if the
 comment would be too long.

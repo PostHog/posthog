@@ -30,7 +30,8 @@ approval in the current conversation.
 5. Run browser/API checks through Playwright MCP, capturing evidence.
 6. Confirm every candidate issue with one retry before calling it a finding.
 7. Apply at most 3 confident fixes, only inside files already changed by the PR.
-8. Create a slow GIF from captured screenshots when there is enough visual evidence.
+8. Create a slow GIF from captured screenshots when `ffmpeg` or another
+   existing local GIF tool is available.
 9. Push only after explicit approval and after verifying PR-comment connectivity.
 10. Post one final PR comment for every completed run, including clean runs.
 11. Restore the original branch in a finally-style cleanup.
@@ -217,11 +218,13 @@ Use filenames like `001-dashboard-load.png`, `002-save-click.png`, and
 `console-errors.json`.
 
 When a browser or visual target captures at least two screenshots, create a slow
-animated GIF by default from the ordered screenshots. Name it
+animated GIF from the ordered screenshots by default. Prefer `ffmpeg` when it is
+already available locally. Name the output
 `.qa-runtime/runs/<run-id>/runtime-qa.gif`. Aim for about 1.5-2 seconds per
-frame so reviewers can follow the flow without pausing. If local tooling cannot
-create the GIF, keep the screenshots and mention the GIF creation failure in the
-local run notes, not as a PR finding.
+frame so reviewers can follow the flow without pausing. If no GIF tooling is
+already available, keep the screenshots as the primary evidence and mention the
+skipped GIF in local run notes, not as a PR finding. Do not install packages or
+add project dependencies for GIF creation.
 
 Candidate issues must pass one reproducibility retry. Re-run the same action
 sequence in the same browser session. If it does not reproduce, mark it
