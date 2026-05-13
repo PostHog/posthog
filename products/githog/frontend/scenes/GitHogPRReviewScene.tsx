@@ -1,18 +1,35 @@
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck, IconCode, IconGitBranch, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconCode, IconGitBranch, IconPlus, IconRefresh, IconX } from '@posthog/icons'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import MermaidDiagram from 'lib/lemon-ui/LemonMarkdown/MermaidDiagram'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-export const scene: SceneExport = {
+import {
+    GitHogDataFlowStep,
+    GitHogPullRequestDataFlowLogicProps,
+    gitHogPullRequestDataFlowLogic,
+} from './gitHogPullRequestDataFlowLogic'
+import { gitHogPullRequestDetailLogic } from './gitHogPullRequestDetailLogic'
+
+export const scene: SceneExport<GitHogPullRequestDataFlowLogicProps> = {
     component: GitHogPRReviewScene,
+    paramsToProps: ({ params: { owner, name, number } }) => ({
+        owner: decodeURIComponent(owner ?? ''),
+        name: decodeURIComponent(name ?? ''),
+        number: Number(number ?? 0),
+    }),
 }
 
 // ─── Sample data ────────────────────────────────────────────────────────────
@@ -76,11 +93,16 @@ const SAMPLE_PR = {
 
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
-type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers'
+type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'dataFlow'
 
 const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; column: 'main' | 'side' }> = {
     conversation: { label: 'Conversation', description: 'Comments and review discussion', column: 'main' },
     files: { label: 'Files changed', description: 'Modified files with line counts', column: 'main' },
+    dataFlow: {
+        label: 'Data flow',
+        description: 'AI-generated execution flow before vs after',
+        column: 'main',
+    },
     stats: { label: 'Stats', description: 'Additions, deletions, and commits', column: 'side' },
     reviewers: { label: 'Reviewers', description: 'Review status per reviewer', column: 'side' },
 }
@@ -221,18 +243,131 @@ function FilesWidget(): JSX.Element {
     )
 }
 
+function StepList({ steps, emptyLabel }: { steps: GitHogDataFlowStep[]; emptyLabel: string }): JSX.Element {
+    if (steps.length === 0) {
+        return <p className="text-secondary text-sm italic my-0">{emptyLabel}</p>
+    }
+    return (
+        <ol className="flex flex-col gap-2 my-0 pl-5">
+            {steps.map((step, idx) => (
+                <li key={`${step.title}-${idx}`} className="text-sm">
+                    <div className="font-semibold">{step.title}</div>
+                    {step.file && <div className="font-mono text-xs text-muted">{step.file}</div>}
+                    {step.detail && <div className="text-sm text-secondary">{step.detail}</div>}
+                </li>
+            ))}
+        </ol>
+    )
+}
+
+function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowLogicProps): JSX.Element {
+    const logic = gitHogPullRequestDataFlowLogic({ owner, name, number })
+    const { dataFlow, dataFlowLoading, view } = useValues(logic)
+    const { setView, refreshDataFlow } = useActions(logic)
+
+    return (
+        <div className="flex flex-col divide-y divide-border">
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+                <span className="font-semibold text-sm">Data flow</span>
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={view}
+                        onChange={(v) => setView(v)}
+                        options={[
+                            { value: 'mermaid', label: 'Diagram' },
+                            { value: 'steps', label: 'Steps' },
+                        ]}
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        loading={dataFlowLoading}
+                        onClick={() => refreshDataFlow()}
+                        tooltip="Force-recompute via LLM"
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
+            </div>
+            <div className="px-4 py-4 flex flex-col gap-3">
+                {dataFlowLoading && !dataFlow ? (
+                    <>
+                        <LemonSkeleton className="h-4 w-3/4" />
+                        <LemonSkeleton className="h-32 w-full" />
+                        <LemonSkeleton className="h-32 w-full" />
+                    </>
+                ) : !dataFlow ? (
+                    <p className="text-secondary text-sm my-0">No flow available yet. Click Refresh to generate one.</p>
+                ) : (
+                    <>
+                        {dataFlow.summary && (
+                            <p className="text-sm text-secondary my-0 leading-relaxed">{dataFlow.summary}</p>
+                        )}
+                        {dataFlow.truncated && (
+                            <LemonTag type="warning" size="small">
+                                Truncated — files were too large for full context, flow inferred from diff
+                            </LemonTag>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-2 min-w-0">
+                                <div className="text-xs uppercase tracking-wide text-muted">Before</div>
+                                {view === 'mermaid' ? (
+                                    dataFlow.mermaid_before ? (
+                                        <MermaidDiagram code={dataFlow.mermaid_before} />
+                                    ) : (
+                                        <p className="text-sm text-secondary italic my-0">No prior flow.</p>
+                                    )
+                                ) : (
+                                    <StepList steps={dataFlow.steps_before} emptyLabel="No prior flow." />
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 min-w-0">
+                                <div className="text-xs uppercase tracking-wide text-muted">After</div>
+                                {view === 'mermaid' ? (
+                                    dataFlow.mermaid_after ? (
+                                        <MermaidDiagram code={dataFlow.mermaid_after} />
+                                    ) : (
+                                        <p className="text-sm text-secondary italic my-0">No new flow.</p>
+                                    )
+                                ) : (
+                                    <StepList steps={dataFlow.steps_after} emptyLabel="No new flow." />
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-xs text-muted">
+                            head {dataFlow.head_sha.slice(0, 7)} · {dataFlow.cached ? 'cached' : 'freshly computed'}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
 const WIDGET_COMPONENTS: Record<WidgetType, () => JSX.Element> = {
     conversation: ConversationWidget,
     stats: StatsWidget,
     reviewers: ReviewersWidget,
     files: FilesWidget,
+    // dataFlow is rendered specially because it needs PR props (owner/name/number);
+    // see the inline branch in the scene render.
+    dataFlow: () => <></>,
 }
 
 // ─── Scene ───────────────────────────────────────────────────────────────────
 
-export function GitHogPRReviewScene(): JSX.Element {
-    const pr = SAMPLE_PR
+export function GitHogPRReviewScene({ owner, name, number }: GitHogPullRequestDataFlowLogicProps): JSX.Element {
+    const { pullRequest, pullRequestLoading } = useValues(gitHogPullRequestDetailLogic({ owner, name, number }))
     const [widgets, setWidgets] = useState<WidgetType[]>([])
+    const renderWidget = (type: WidgetType): JSX.Element => {
+        if (type === 'dataFlow') {
+            return <DataFlowWidgetForPR owner={owner} name={name} number={number} />
+        }
+        const Widget = WIDGET_COMPONENTS[type]
+        return <Widget />
+    }
 
     const addWidget = (type: WidgetType): void => setWidgets((prev) => [...prev, type])
     const removeWidget = (type: WidgetType): void => setWidgets((prev) => prev.filter((w) => w !== type))
@@ -246,7 +381,13 @@ export function GitHogPRReviewScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={`#${pr.number} ${pr.title}`}
+                name={
+                    pullRequest
+                        ? `#${pullRequest.number} ${pullRequest.title}`
+                        : pullRequestLoading
+                          ? `#${number} Loading…`
+                          : `#${number}`
+                }
                 resourceType={{ type: 'githog' }}
                 actions={
                     <LemonMenu
@@ -270,19 +411,48 @@ export function GitHogPRReviewScene(): JSX.Element {
 
             {/* Minimal PR metadata — no card, just inline tags */}
             <div className="flex items-center gap-x-3 flex-wrap text-sm -mt-2">
-                <LemonTag type="success" size="small">
-                    Open
-                </LemonTag>
-                <span className="text-secondary flex items-center gap-x-1">
-                    <IconGitBranch className="size-3.5" />
-                    {pr.sourceBranch}
-                    <span className="text-muted mx-0.5">→</span>
-                    {pr.targetBranch}
-                </span>
-                <span className="text-muted">·</span>
-                <span className="text-secondary">
-                    {pr.author} · {pr.createdAt}
-                </span>
+                {pullRequest ? (
+                    <>
+                        <LemonTag
+                            type={
+                                pullRequest.merged_at
+                                    ? 'completion'
+                                    : pullRequest.state === 'open'
+                                      ? pullRequest.draft
+                                          ? 'default'
+                                          : 'success'
+                                      : 'danger'
+                            }
+                            size="small"
+                        >
+                            {pullRequest.merged_at
+                                ? 'Merged'
+                                : pullRequest.draft
+                                  ? 'Draft'
+                                  : pullRequest.state === 'open'
+                                    ? 'Open'
+                                    : 'Closed'}
+                        </LemonTag>
+                        <span className="text-secondary flex items-center gap-x-1">
+                            <IconGitBranch className="size-3.5" />
+                            {pullRequest.head_branch}
+                            <span className="text-muted mx-0.5">→</span>
+                            {pullRequest.base_branch}
+                        </span>
+                        <span className="text-muted">·</span>
+                        <span className="text-secondary flex items-center gap-x-1">
+                            {pullRequest.author || 'unknown'}
+                            {pullRequest.created_at && (
+                                <>
+                                    <span className="text-muted mx-1">·</span>
+                                    <TZLabel time={pullRequest.created_at} />
+                                </>
+                            )}
+                        </span>
+                    </>
+                ) : (
+                    <span className="text-muted">{pullRequestLoading ? 'Loading PR metadata…' : '—'}</span>
+                )}
             </div>
 
             {/* Widget area */}
@@ -306,28 +476,22 @@ export function GitHogPRReviewScene(): JSX.Element {
                     {/* Main column */}
                     {(mainWidgets.length > 0 || !hasSide) && (
                         <div className="flex flex-col gap-y-4 flex-1 min-w-0">
-                            {mainWidgets.map((type) => {
-                                const Widget = WIDGET_COMPONENTS[type]
-                                return (
-                                    <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                        <Widget />
-                                    </WidgetShell>
-                                )
-                            })}
+                            {mainWidgets.map((type) => (
+                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
+                                    {renderWidget(type)}
+                                </WidgetShell>
+                            ))}
                         </div>
                     )}
 
                     {/* Side column */}
                     {hasSide && (
                         <div className="flex flex-col gap-y-4 w-72 shrink-0">
-                            {sideWidgets.map((type) => {
-                                const Widget = WIDGET_COMPONENTS[type]
-                                return (
-                                    <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                        <Widget />
-                                    </WidgetShell>
-                                )
-                            })}
+                            {sideWidgets.map((type) => (
+                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
+                                    {renderWidget(type)}
+                                </WidgetShell>
+                            ))}
                         </div>
                     )}
                 </div>
