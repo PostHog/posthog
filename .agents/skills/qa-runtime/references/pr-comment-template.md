@@ -59,12 +59,37 @@ Steps:
 
 Evidence:
 
-- GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` when generated
-- Screenshots: `<one-or-two-human-readable-screenshot-paths>`
+- GIF: ![flow](https://res.cloudinary.com/dmukukwp6/image/upload/v.../qa_posthog_pr58423_a3f4b2c_001_flow_overview_<hash>.gif)
+- Screenshots: ![finding](https://res.cloudinary.com/dmukukwp6/image/upload/v.../qa_posthog_pr58423_a3f4b2c_002_save_button_no_toast_<hash>.png)
 - Console: `<scrubbed excerpt or "none">`
 
 Fix status: auto-fixed in `<commit>` and re-verified with the same MCP flow.
 ```
+
+Evidence URLs come from `upload-manifest.json` produced by
+`scripts/upload-evidence.py`. Use the `url` field from each `uploaded` entry
+verbatim - Strapi proxies uploads to Cloudinary, so the returned URL is on
+`res.cloudinary.com` with dashes rewritten to underscores and a hash suffix
+appended. The local filename in `remote_name` is for traceability only; the
+embeddable URL is always the `url` field.
+
+Embed images and GIFs using markdown image syntax (`![alt](url)`) so they
+render inline in the PR thread. Use one or two key visuals - the GIF for the
+flow and one screenshot per finding. Do not paste the full local screenshot
+inventory.
+
+When `upload-manifest.json` reports `skipped_no_env: true` or lists files under
+`failed`, fall back to local paths and append `(upload failed)`:
+
+```markdown
+Evidence:
+
+- GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` (upload failed)
+- Screenshots: `.qa-runtime/runs/<run-id>/011-tab-customization.png` (upload failed)
+```
+
+Local mode always uses local paths. Do not invent external URLs when no upload
+was performed.
 
 For clean runs, keep evidence concise. Mention the GIF and one or two key
 screenshots. Do not list every local snapshot markdown file in the PR comment;
@@ -107,6 +132,11 @@ Before posting, scrub console excerpts for:
 - CSRF values
 - secret-looking keys
 - long encoded values near credential labels
+
+Never include the upload JWT, the user's `POSTHOG_COM_*` credentials, or raw
+auth/upload response bodies. The upload script does not log these by default;
+if you copy any script output into the comment, double-check the line you
+paste.
 
 Screenshots from local stacks should be embedded only when small and safe.
 Prefer secret gist links for the full bundle.
