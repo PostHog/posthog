@@ -48,8 +48,9 @@ Then inspect the generated files:
 python3 <skill_dir>/scripts/inspect_sourcemaps.py dist
 ```
 
-Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory. The helper accepts individual JS/map files,
-PostHog symbol-data files, directories, and glob patterns.
+Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory. The helper accepts individual JS/map
+files, directories, and glob patterns. For PostHog symbol-data containers downloaded from the API, extract them
+with `posthog-cli symbol-sets extract` first (see Step 3) and then point the helper at the extracted directory.
 
 Look for:
 
@@ -85,9 +86,8 @@ fields instead of `null`. Inspect the local artifact first, before suspecting up
 
 ### Step 3 - Check symbol sets in PostHog
 
-Look up the symbol set whose `ref` matches the captured frame's `chunk_id`.
-
-If MCP access to the project is available, prefer the dedicated tools:
+Look up the symbol set whose `ref` matches the captured frame's `chunk_id` using the dedicated MCP tools — they
+handle auth, project scoping, and pagination automatically:
 
 - `posthog:error-tracking-symbol-sets-list` with `ref=<chunk_id>` returns the matching row.
 - `posthog:error-tracking-symbol-sets-retrieve` with the ID returns the same shape (and confirms permissions).
@@ -104,15 +104,20 @@ Interpret the row:
 - `has_uploaded_file: false` means the upload did not complete.
 - A non-null `failure_reason` means PostHog could not parse or load the uploaded symbol data.
 
-Once downloaded, inspect the file with the helper:
+The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload with embedded minified
+source plus source map), not plain JSON. Extract it with `posthog-cli`, then summarize:
 
 ```bash
-python3 <skill_dir>/scripts/inspect_sourcemaps.py symbolset.bin
+posthog-cli symbol-sets extract symbolset.bin -o ./extracted
+# or, without installing globally:
+#   npx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
+#   bunx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
+
+python3 <skill_dir>/scripts/inspect_sourcemaps.py ./extracted
 ```
 
-The downloaded file is a PostHog symbol-data container (compressed, with embedded minified source plus source map),
-not plain JSON; the helper handles both. For compressed v2 containers, install Python `zstandard` in the active
-environment if the helper reports it missing.
+`posthog-cli symbol-sets extract` handles all four symbol-set types (source-and-map, hermes, proguard, dSYM) and
+writes the extracted files into the output directory.
 
 ### Step 4 - Compare local, uploaded, and served files
 

@@ -121,14 +121,20 @@ Prefer these MCP tools when available; they handle auth, project scoping, and pa
   symbol-data file. The URL expires after one hour. Download immediately; do not echo it back unless the user
   explicitly asks.
 
-After downloading, inspect with the helper:
+After downloading, extract the symbol-data container with `posthog-cli` and then summarize the embedded files
+with the helper:
 
 ```bash
-python3 <skill_dir>/scripts/inspect_sourcemaps.py symbolset.bin
+posthog-cli symbol-sets extract symbolset.bin -o ./extracted
+# or, without a global install:
+#   npx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
+#   bunx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
+
+python3 <skill_dir>/scripts/inspect_sourcemaps.py ./extracted
 ```
 
-If the downloaded symbol-data file is compressed and the helper reports a missing `zstandard` module, install
-`zstandard` in the active Python environment and rerun.
+`posthog-cli symbol-sets extract` handles every symbol-set type (source-and-map, hermes, proguard, dSYM) and
+decompresses the container. The Python helper then operates on plain `.js` / `.map` files only.
 
 If MCP access is not available, the same data lives in **Project settings > Error tracking > Symbol sets** in the
 PostHog UI.
