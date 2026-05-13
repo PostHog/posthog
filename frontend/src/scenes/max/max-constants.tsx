@@ -1034,7 +1034,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     list_llm_skills: {
         name: 'List skills',
-        description: 'List the LLM analytics skills (saved workflows) in your project',
+        description: 'List skills (saved LLM analytics workflows) in your project',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1045,7 +1045,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     get_llm_skill: {
         name: 'Read skill',
-        description: 'Read a saved skill so it can be followed as task-specific guidance',
+        description: 'Read skill instructions so they can be followed as task-specific guidance',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1056,7 +1056,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     get_llm_skill_file: {
         name: 'Read skill file',
-        description: 'Read a bundled file from a skill on demand',
+        description: 'Read skill file content bundled inside a skill on demand',
         icon: <IconDocument />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1067,7 +1067,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_llm_skill: {
         name: 'Create skill',
-        description: 'Save a workflow as a reusable skill',
+        description: 'Create skill from a workflow so it can be reused later',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1078,7 +1078,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     update_llm_skill: {
         name: 'Update skill',
-        description: 'Publish a new version of an existing skill',
+        description: 'Update skill by publishing a new version of an existing skill',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1089,7 +1089,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     archive_llm_skill: {
         name: 'Archive skill',
-        description: 'Archive a skill (soft-delete all of its versions)',
+        description: 'Archive skill, soft-deleting all of its versions',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1100,7 +1100,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     duplicate_llm_skill: {
         name: 'Duplicate skill',
-        description: 'Copy an existing skill to a new name',
+        description: 'Duplicate skill to a new name as a starting point',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
