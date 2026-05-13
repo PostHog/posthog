@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies: list[tuple[str, str]] = []
+    dependencies = []
 
     operations = [
         migrations.CreateModel(

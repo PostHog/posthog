@@ -97,6 +97,13 @@ class DeploymentViewSet(
         # DRF nested router prefixes parent kwargs with `parent_lookup_`.
         return self.kwargs["parent_lookup_deployment_project_id"]
 
+    def _should_skip_parents_filter(self) -> bool:
+        # The router's default `parents_query_dict` filter assumes a `team` FK
+        # and rewrites `project_id` to `team__project_id` — but `Deployment`
+        # stores `team_id` as a plain `BigIntegerField`. `safely_get_queryset`
+        # below applies the team scope directly using `self.team_id`.
+        return True
+
     def safely_get_queryset(self, queryset: Any) -> Any:
         # Annotate `is_current` via Exists so the serializer can read it
         # in O(1) per row.

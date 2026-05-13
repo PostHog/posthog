@@ -1,9 +1,9 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, FileSystemIconType, ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Deployments',
