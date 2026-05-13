@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from products.referrals.backend.twitter.research.prompts import TwitterReferralCandidates, build_twitter_research_prompt
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
-from products.twitter_referrals.backend.research.prompts import TwitterReferralCandidates, build_twitter_research_prompt
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
