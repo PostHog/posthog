@@ -1,0 +1,62 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "autonomy": {
+            "description": "Output gate. Validation doesn't gate on autonomy itself; it's accepted as part of the request body so the same payload works for automl-create.",
+            "enum": ["shadow_only", "champion_only", "promote_eligible"],
+            "type": "string"
+        },
+        "config": {
+            "additionalProperties": {},
+            "description": "Task-type-specific configuration to validate. Classification expects target_event + horizon_days. Regression expects target_expression + horizon_days. Forecasting expects series_expression + grain + horizon_steps. Clustering accepts cluster_count.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "description": {
+            "type": "string"
+        },
+        "inference_cadence": {
+            "description": "How often inference runs. Used to project daily prediction event volume against the inference population size.",
+            "enum": ["hourly", "daily", "weekly", "monthly", "never"],
+            "type": "string"
+        },
+        "inference_population": {
+            "additionalProperties": {},
+            "description": "Population definition used to estimate events-per-day output. Same kind=\"hogql\" constraint as training_population.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "name": {
+            "description": "Human-readable label for the pipeline (only used by structural checks like output property name conventions). Use the same value you intend to pass to automl-create.",
+            "type": "string"
+        },
+        "output_property_name": {
+            "description": "Property name predictions are written to. Validation checks the naming convention (recommended \"automl_\" prefix; reserved \"$\" prefix is blocked).",
+            "type": "string"
+        },
+        "retraining_cadence": {
+            "description": "How often the model is refit. Compared against inference_cadence — info finding when retraining is more frequent than inference.",
+            "enum": ["hourly", "daily", "weekly", "monthly", "never"],
+            "type": "string"
+        },
+        "task_type": {
+            "description": "Task type the pipeline targets. Validation rules dispatch on this — classification runs the positive base-rate check, forecasting counts distinct series, clustering sanity-checks cluster_count against training-set size.",
+            "enum": ["clustering", "classification", "regression", "forecasting"],
+            "type": "string"
+        },
+        "training_population": {
+            "additionalProperties": {},
+            "description": "Population definition to size for training. Only kind=\"hogql\" populations are sized by data-touching checks; other shapes are accepted but flagged as not-counted.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        }
+    },
+    "required": ["name", "task_type", "config", "training_population", "inference_population"],
+    "type": "object"
+}
