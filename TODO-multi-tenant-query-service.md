@@ -30,6 +30,7 @@ The tenant predicate must be injected structurally through the HogQL AST, not ap
 - Working endpoint name: `tenant_query`.
 - Current path: `POST /api/environments/:project_id/tenant_query/`.
 - Current config path: `POST /api/environments/:project_id/tenant_query/config/`.
+- Current config load path: `POST /api/environments/:project_id/tenant_query/config/load/`.
 - Request method: `POST` only.
 - Request body shape:
 
@@ -210,6 +211,14 @@ The endpoint should validate:
 
 Current branch has focused tests for config validation, Postgres metadata inference, default/max limits, timeout capping, tenant predicate injection, CTEs, metadata export, structured logging, and endpoint wiring.
 OpenAPI and generated frontend/MCP types have been regenerated.
+
+16. ✅ Add the direct Postgres source configuration UI.
+    Direct Postgres sources now show a `Multi-tenancy` tab where admins can:
+    - enable or disable the tenant query service
+    - choose the tenant column from columns common to queryable tables when metadata is available
+    - set default timeout, max timeout, and max result limit
+    - inspect which queryable tables currently have or miss the selected tenant column
+    - run playground queries against the configured connection and inspect prepared HogQL, prepared Postgres SQL, and result rows
 
 ## Deferred implementation choices
 

@@ -54,6 +54,7 @@ import type {
     QueryTabStateListParams,
     ResetPasswordResponseApi,
     TableApi,
+    TenantQueryConfigLoadRequestApi,
     TenantQueryConfigRequestApi,
     TenantQueryConfigResponseApi,
     TenantQueryErrorSummaryResponseApi,
@@ -219,6 +220,27 @@ export const tenantQueryConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tenantQueryConfigRequestApi),
+    })
+}
+
+/**
+ * Returns the tenant query configuration for a direct Postgres connection.
+ * @summary Load tenant query configuration
+ */
+export const getTenantQueryConfigLoadCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/config/load/`
+}
+
+export const tenantQueryConfigLoadCreate = async (
+    projectId: string,
+    tenantQueryConfigLoadRequestApi: TenantQueryConfigLoadRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryConfigResponseApi> => {
+    return apiMutator<TenantQueryConfigResponseApi>(getTenantQueryConfigLoadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryConfigLoadRequestApi),
     })
 }
 

@@ -54,6 +54,14 @@ export const TenantQueryConfigCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Returns the tenant query configuration for a direct Postgres connection.
+ * @summary Load tenant query configuration
+ */
+export const TenantQueryConfigLoadCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid().describe('Direct Postgres connection ID to inspect.'),
+})
+
+/**
  * Groups failed tenant query executions by tenant, referenced tables, original query, and error.
  * @summary Summarize tenant query errors
  */

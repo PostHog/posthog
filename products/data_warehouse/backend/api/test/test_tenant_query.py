@@ -690,3 +690,27 @@ class TestTenantQuery(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["tenant_column_type"] == "integer"
         configure_query.assert_called_once()
+
+    def test_config_load_endpoint_uses_tenant_query_config_service(self):
+        with patch("products.data_warehouse.backend.api.tenant_query.get_tenant_query_config") as get_config:
+            get_config.return_value = {
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "enabled": True,
+                "tenant_column_name": "customer_id",
+                "tenant_column_type": "integer",
+                "default_timeout_ms": 30_000,
+                "max_timeout_ms": 120_000,
+                "max_result_limit": 100_000,
+                "enabled_tables": ["trips"],
+            }
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/tenant_query/config/load/",
+                {
+                    "connection_id": "00000000-0000-0000-0000-000000000001",
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["enabled"] is True
+        get_config.assert_called_once()

@@ -20,6 +20,7 @@ from products.data_warehouse.backend.tenant_query import (
     MAX_TENANT_QUERY_OBSERVABILITY_LIMIT,
     configure_tenant_query,
     execute_tenant_query,
+    get_tenant_query_config,
     get_tenant_query_execution,
     list_tenant_query_executions,
     summarize_tenant_query_errors,
@@ -118,6 +119,10 @@ class TenantQueryConfigRequestSerializer(serializers.Serializer):
             if default_timeout_ms > max_timeout_ms:
                 raise serializers.ValidationError("default_timeout_ms must be less than or equal to max_timeout_ms.")
         return attrs
+
+
+class TenantQueryConfigLoadRequestSerializer(serializers.Serializer):
+    connection_id = serializers.UUIDField(help_text="Direct Postgres connection ID to inspect.")
 
 
 class TenantQueryConfigResponseSerializer(serializers.Serializer):
@@ -335,7 +340,7 @@ class TenantQueryUsageSummaryResponseSerializer(serializers.Serializer):
 class TenantQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     serializer_class = TenantQueryRequestSerializer
     scope_object = "query"
-    scope_object_read_actions = ["create", "executions", "execution", "errors_summary", "usage_summary"]
+    scope_object_read_actions = ["create", "config_load", "executions", "execution", "errors_summary", "usage_summary"]
     scope_object_write_actions: list[str] = ["configure"]
 
     def _require_project_admin(self) -> None:
@@ -365,6 +370,32 @@ class TenantQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 tenant_value=validated_data.get("tenant_value"),
                 query=validated_data["query"],
                 timeout_ms=validated_data.get("timeout_ms"),
+            )
+        except ExposedHogQLError as error:
+            raise ValidationError(str(error)) from error
+
+        return Response(result)
+
+    @validated_request(
+        TenantQueryConfigLoadRequestSerializer,
+        responses={200: OpenApiResponse(response=TenantQueryConfigResponseSerializer)},
+        tags=[ProductKey.DATA_WAREHOUSE],
+        summary="Load tenant query configuration",
+        description="Returns the tenant query configuration for a direct Postgres connection.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="config/load",
+        required_scopes=["external_data_source:read"],
+    )
+    def config_load(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        validated_data = cast(ValidatedRequest, request).validated_data
+
+        try:
+            result = get_tenant_query_config(
+                team=self.team,
+                connection_id=str(validated_data["connection_id"]),
             )
         except ExposedHogQLError as error:
             raise ValidationError(str(error)) from error

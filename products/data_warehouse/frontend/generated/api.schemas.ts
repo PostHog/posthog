@@ -147,6 +147,11 @@ export interface TenantQueryConfigResponseApi {
     enabled_tables: string[]
 }
 
+export interface TenantQueryConfigLoadRequestApi {
+    /** Direct Postgres connection ID to inspect. */
+    connection_id: string
+}
+
 export interface TenantQueryObservabilityRequestApi {
     /** Optional direct Postgres connection ID to filter executions. */
     connection_id?: string

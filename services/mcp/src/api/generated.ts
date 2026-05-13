@@ -38441,6 +38441,11 @@ export namespace Schemas {
       Uuid: 'uuid',
     } as const;
 
+    export interface TenantQueryConfigLoadRequest {
+      /** Direct Postgres connection ID to inspect. */
+      connection_id: string;
+    }
+
     export interface TenantQueryConfigRequest {
       /** Direct Postgres connection ID to configure. */
       connection_id: string;
