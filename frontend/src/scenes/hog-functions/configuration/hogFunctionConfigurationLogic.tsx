@@ -1342,13 +1342,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         duplicate: async () => {
             if (values.hogFunction) {
+                if (!values.hogFunction.template) {
+                    lemonToast.error('Cannot duplicate: this function has no associated template')
+                    return
+                }
                 const newConfig = {
                     ...values.configuration,
                     name: `${values.configuration.name} (copy)`,
                 }
-                // TODO: What to do if no template?
-                const originalTemplate = values.hogFunction.template!
-                router.actions.push(urls.hogFunctionNew(originalTemplate.id), undefined, {
+                router.actions.push(urls.hogFunctionNew(values.hogFunction.template.id), undefined, {
                     configuration: newConfig,
                 })
             }
