@@ -291,10 +291,10 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 actions.setDates(nextDateFrom, nextDateTo)
             }
 
-            const nextEndpointFilter = endpointFilter ? endpointFilter.split(',') : []
+            const nextEndpointFilter: string[] = endpointFilter ? endpointFilter.split(',') : []
             if (
                 nextEndpointFilter.length !== values.endpointFilter.length ||
-                nextEndpointFilter.some((v, i) => v !== values.endpointFilter[i])
+                nextEndpointFilter.some((v: string, i: number) => v !== values.endpointFilter[i])
             ) {
                 actions.setEndpointFilter(nextEndpointFilter)
             }
