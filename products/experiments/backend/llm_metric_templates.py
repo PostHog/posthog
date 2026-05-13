@@ -60,7 +60,7 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
                 EventPropertyFilter(
                     key="$ai_evaluation_result",
                     operator=PropertyOperator.EXACT,
-                    value=1,
+                    value=True,
                 ),
             ],
         ),
