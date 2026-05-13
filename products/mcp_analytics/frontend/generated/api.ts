@@ -14,7 +14,9 @@ import type {
     MCPMissingCapabilityCreateApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
+    McpAnalyticsSessionsListParams,
     PaginatedMCPAnalyticsSubmissionListApi,
+    PaginatedMCPSessionListApi,
 } from './api.schemas'
 
 export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
@@ -120,5 +122,35 @@ export const mcpAnalyticsMissingCapabilitiesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(mCPMissingCapabilityCreateApi),
+    })
+}
+
+export const getMcpAnalyticsSessionsListUrl = (projectId: string, params?: McpAnalyticsSessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/mcp_analytics/sessions/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/sessions/`
+}
+
+/**
+ * List MCP sessions for the current project, derived by grouping mcp_tool_call events by $session_id. Ordered by most recent activity first.
+ */
+export const mcpAnalyticsSessionsList = async (
+    projectId: string,
+    params?: McpAnalyticsSessionsListParams,
+    options?: RequestInit
+): Promise<PaginatedMCPSessionListApi> => {
+    return apiMutator<PaginatedMCPSessionListApi>(getMcpAnalyticsSessionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

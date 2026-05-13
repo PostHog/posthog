@@ -191,6 +191,32 @@ export interface MCPMissingCapabilityCreateApi {
     blocked?: boolean
 }
 
+export interface MCPSessionApi {
+    /** PostHog $session_id grouping all mcp_tool_call events. */
+    readonly session_id: string
+    /** Number of mcp_tool_call events in the session. */
+    readonly event_count: number
+    /** Timestamp of the first mcp_tool_call event in the session. */
+    readonly first_seen: string
+    /** Timestamp of the most recent mcp_tool_call event in the session. */
+    readonly last_seen: string
+    /** Number of distinct PostHog distinct_ids that produced events in the session. */
+    readonly distinct_id_count: number
+    /** Distinct $mcp_tool_name values seen in the session. */
+    readonly tools_used: readonly string[]
+    /** Most recent $mcp_client_name observed in the session. */
+    readonly mcp_client_name: string
+}
+
+export interface PaginatedMCPSessionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MCPSessionApi[]
+}
+
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
@@ -203,6 +229,17 @@ export type McpAnalyticsFeedbackListParams = {
 }
 
 export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type McpAnalyticsSessionsListParams = {
     /**
      * Number of results to return per page.
      */

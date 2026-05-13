@@ -11,6 +11,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { MCPSessionsTable } from './sessions/MCPSessionsTable'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -34,7 +35,7 @@ export function MCPAnalyticsScene(): JSX.Element {
         {
             key: 'sessions',
             label: 'Sessions',
-            content: <div>Sessions</div>,
+            content: <MCPSessionsTable />,
             link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
         },
