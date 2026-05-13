@@ -44,7 +44,7 @@ from posthog.temporal.mcp_analytics.data import (
     fetch_span_reasoning_snippets,
 )
 from posthog.temporal.mcp_analytics.event_emission import emit_intent_clusters_event
-from posthog.temporal.mcp_analytics.labeling import label_cluster
+from posthog.temporal.mcp_analytics.labeling import MAX_LABELING_SAMPLES, label_cluster
 from posthog.temporal.mcp_analytics.models import (
     EmbeddingEmitActivityInputs,
     EmbeddingEmitResult,
@@ -67,21 +67,47 @@ def _parse_window(window_start: str, window_end: str) -> tuple[datetime, datetim
 
 
 def _emit_mcp_embedding_requests(inputs: EmbeddingEmitActivityInputs) -> EmbeddingEmitResult:
+    from concurrent.futures import ThreadPoolExecutor
+
     window_start, window_end = _parse_window(inputs.window_start, inputs.window_end)
     team = Team.objects.get(id=inputs.team_id)
 
-    intent_stats = fetch_intent_stats(
-        team=team,
-        window_start=window_start,
-        window_end=window_end,
-        max_samples=inputs.max_intent_samples,
-    )
-    already_intent = fetch_already_embedded_document_ids(
-        team=team,
-        document_type=INTENT_DOCUMENT_TYPE,
-        embedding_model=inputs.embedding_model,
-        since=window_start,
-    )
+    # The four ClickHouse lookups are independent of each other — fan them out so the
+    # activity's wall time is bounded by the slowest single query, not the sum.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        intent_stats_future = executor.submit(
+            fetch_intent_stats,
+            team=team,
+            window_start=window_start,
+            window_end=window_end,
+            max_samples=inputs.max_intent_samples,
+        )
+        already_intent_future = executor.submit(
+            fetch_already_embedded_document_ids,
+            team=team,
+            document_type=INTENT_DOCUMENT_TYPE,
+            embedding_model=inputs.embedding_model,
+            since=window_start,
+        )
+        span_snippets_future = executor.submit(
+            fetch_span_reasoning_snippets,
+            team=team,
+            window_start=window_start,
+            window_end=window_end,
+            max_samples=inputs.max_span_samples,
+        )
+        already_span_future = executor.submit(
+            fetch_already_embedded_document_ids,
+            team=team,
+            document_type=AI_SPAN_REASONING_DOCUMENT_TYPE,
+            embedding_model=inputs.embedding_model,
+            since=window_start,
+        )
+        intent_stats = intent_stats_future.result()
+        already_intent = already_intent_future.result()
+        span_snippets = span_snippets_future.result()
+        already_span = already_span_future.result()
+
     intents_emitted = 0
     for stat in intent_stats:
         if stat.intent in already_intent:
@@ -104,18 +130,6 @@ def _emit_mcp_embedding_requests(inputs: EmbeddingEmitActivityInputs) -> Embeddi
         )
         intents_emitted += 1
 
-    span_snippets = fetch_span_reasoning_snippets(
-        team=team,
-        window_start=window_start,
-        window_end=window_end,
-        max_samples=inputs.max_span_samples,
-    )
-    already_span = fetch_already_embedded_document_ids(
-        team=team,
-        document_type=AI_SPAN_REASONING_DOCUMENT_TYPE,
-        embedding_model=inputs.embedding_model,
-        since=window_start,
-    )
     spans_emitted = 0
     for document_id, content in span_snippets:
         if document_id in already_span:
@@ -298,7 +312,7 @@ def _build_intent_clusters(
     # Fan out LLM labeling so the activity's wall time isn't N * one-call-latency.
     # Each label_cluster() is a single blocking HTTP call; bounding concurrency keeps
     # us inside provider rate limits.
-    label_inputs = [[m.stat for m in members[:15]] for _, members, _, _ in pending]
+    label_inputs = [[m.stat for m in members[:MAX_LABELING_SAMPLES]] for _, members, _, _ in pending]
     if not label_inputs:
         return []
     with ThreadPoolExecutor(max_workers=min(len(label_inputs), 8)) as executor:

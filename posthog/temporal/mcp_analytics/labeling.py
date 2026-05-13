@@ -19,6 +19,11 @@ logger = structlog.get_logger(__name__)
 LABELING_MODEL = "gpt-5-mini"
 LABELING_PROVIDER = "openai"
 
+# Single source of truth for how many of a cluster's closest-to-centroid intents
+# the labeler sees. Callers should slice their inputs to this before invoking
+# `label_cluster` rather than relying on `_build_user_prompt` to truncate.
+MAX_LABELING_SAMPLES = 15
+
 _SYSTEM_PROMPT = """\
 You label clusters of user / agent intents collected from MCP (Model Context Protocol) tool calls.
 
@@ -48,7 +53,7 @@ class _LabelResponse(BaseModel):
 
 def _build_user_prompt(samples: list[IntentStat]) -> str:
     bullets = []
-    for s in samples[:25]:
+    for s in samples:
         bullets.append(
             f"- {s.intent!r} — {s.total_calls} calls, "
             f"{s.error_rate:.0%} errors, {s.empty_rate:.0%} empty responses, "
