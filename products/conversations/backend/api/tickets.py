@@ -421,10 +421,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 if did in distinct_ids_set:
                     distinct_id_to_person[did] = person
 
-        # Attach person to each ticket (dynamic attribute for serialization)
         for ticket in tickets:
             if ticket.distinct_id:
                 ticket.person = distinct_id_to_person.get(ticket.distinct_id)
+
+        # Fallback: for email-channel tickets with no person match,
+        # try matching on properties.email (handles cases where the
+        # person's distinct_id differs from their email address)
+        unmatched = [
+            t
+            for t in tickets
+            if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
+        ]
+        for ticket in unmatched:
+            person = get_person_by_email_property(self.team_id, ticket.email_from)
+            if person is not None:
+                ticket.person = person
 
     @extend_schema(
         parameters=[
@@ -823,6 +835,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         detail=False,
         methods=["POST"],
         pagination_class=None,
+        permission_classes=[IsAuthenticated],
         throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
     )
     def compose(self, request, *args, **kwargs):
