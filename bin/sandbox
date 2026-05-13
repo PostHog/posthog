@@ -2225,32 +2225,32 @@ def _build_test_dockerfile(install: str, base_tag: str) -> str:
     """Single-tool throwaway Dockerfile used by `sandbox tools add --test`.
 
     Mirrors _generate_personal_dockerfile so a passing test means the
-    install snippet will work inside the real personal image.
+    install snippet will work inside the real personal image. Built
+    line-by-line because Dockerfile heredoc terminators are sensitive
+    to leading whitespace: a textwrap.dedent template misindents the
+    closing marker once the user's unindented snippet is interpolated.
     """
-    snippet_lines = install.strip().splitlines()
-    body = "\n".join(snippet_lines)
-    return textwrap.dedent(
-        f"""\
-        # syntax=docker/dockerfile:1.4
-        FROM {base_tag}
-
-        ARG SANDBOX_UID
-        ARG SANDBOX_GID
-
-        RUN groupadd -g ${{SANDBOX_GID}} sandbox 2>/dev/null || true \\
-         && useradd  -u ${{SANDBOX_UID}} -g ${{SANDBOX_GID}} -m -s /bin/bash sandbox
-
-        USER sandbox
-        ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global
-        ENV PATH=/home/sandbox/.npm-global/bin:${{PATH}}
-        RUN mkdir -p /home/sandbox/.npm-global/bin
-
-        RUN <<'__POSTHOG_SANDBOX_EOF__'
-        set -e
-        {body}
-        __POSTHOG_SANDBOX_EOF__
-        """
-    )
+    lines = [
+        "# syntax=docker/dockerfile:1.4",
+        f"FROM {base_tag}",
+        "",
+        "ARG SANDBOX_UID",
+        "ARG SANDBOX_GID",
+        "",
+        "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\",
+        " && useradd  -u ${SANDBOX_UID} -g ${SANDBOX_GID} -m -s /bin/bash sandbox",
+        "",
+        "USER sandbox",
+        "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
+        "ENV PATH=/home/sandbox/.npm-global/bin:${PATH}",
+        "RUN mkdir -p /home/sandbox/.npm-global/bin",
+        "",
+        "RUN <<'__POSTHOG_SANDBOX_EOF__'",
+        "set -e",
+    ]
+    lines.extend(install.strip().splitlines())
+    lines.append("__POSTHOG_SANDBOX_EOF__")
+    return "\n".join(lines) + "\n"
 
 
 def _test_install_snippet(install: str) -> bool:
