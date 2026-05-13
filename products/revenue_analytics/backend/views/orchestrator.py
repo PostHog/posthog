@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from typing import Optional
 
 from django.db.models import Prefetch
+
+from opentelemetry import trace
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 
@@ -22,13 +25,21 @@ from products.revenue_analytics.backend.views.sources.registry import BUILDERS
 
 SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE]
 
+tracer = trace.get_tracer(__name__)
+
+
+@contextmanager
+def _traced_measure(name: str, timings: HogQLTimings) -> Iterator[None]:
+    with tracer.start_as_current_span(name), timings.measure(name):
+        yield
+
 
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:
-    with timings.measure("for_events"):
+    with _traced_measure("for_events", timings):
         for event in team.revenue_analytics_config.events:
             yield SourceHandle(type="events", team=team, event=event)
 
-    with timings.measure("for_schema_sources"):
+    with _traced_measure("for_schema_sources", timings):
         queryset = (
             ExternalDataSource.objects.filter(
                 team_id=team.pk,

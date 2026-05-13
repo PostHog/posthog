@@ -1,6 +1,7 @@
 import dataclasses
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -153,6 +154,12 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
 tracer = trace.get_tracer(__name__)
+
+
+@contextmanager
+def _traced_measure(name: str, timings: HogQLTimings) -> Iterator[None]:
+    with tracer.start_as_current_span(name), timings.measure(name):
+        yield
 
 
 @dataclasses.dataclass
@@ -832,7 +839,7 @@ class Database(BaseModel):
 
         from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
-        with timings.measure("team"):
+        with _traced_measure("team", timings):
             if team_id is None and team is None:
                 raise ValueError("Either team_id or team must be provided")
 
@@ -849,7 +856,7 @@ class Database(BaseModel):
             span = trace.get_current_span()
             span.set_attribute("team_id", team.pk)
 
-        with timings.measure("feature_flags"):
+        with _traced_measure("feature_flags", timings):
             is_managed_viewset_enabled = posthoganalytics.feature_enabled(
                 "managed-viewsets",
                 str(team.uuid),
@@ -868,7 +875,7 @@ class Database(BaseModel):
                 send_feature_flag_events=False,
             )
 
-        with timings.measure("database"):
+        with _traced_measure("database", timings):
             database = Database(
                 timezone=team.timezone,
                 week_start_day=team.week_start_day,
@@ -889,7 +896,7 @@ class Database(BaseModel):
                 if direct_source is not None:
                     database._direct_connection_metadata = direct_source.connection_metadata
 
-        with timings.measure("filter_system_tables_for_user"):
+        with _traced_measure("filter_system_tables_for_user", timings):
             if team is not None:
                 is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
                     "hogql-access-control",
@@ -907,7 +914,7 @@ class Database(BaseModel):
                     else:
                         database._filter_all_scoped_system_tables()
 
-        with timings.measure("modifiers"):
+        with _traced_measure("modifiers", timings):
             modifiers = create_default_modifiers_for_team(team, modifiers)
 
             if not database._is_direct_query():
@@ -938,7 +945,7 @@ class Database(BaseModel):
 
                 _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
-        with timings.measure("session_table"):
+        with _traced_measure("session_table", timings):
             if not database._is_direct_query() and (
                 modifiers.sessionTableVersion == SessionTableVersion.V2
                 or modifiers.sessionTableVersion == SessionTableVersion.AUTO
@@ -1000,11 +1007,11 @@ class Database(BaseModel):
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
-        with timings.measure("virtual_fields"):
+        with _traced_measure("virtual_fields", timings):
             if not database._is_direct_query():
                 _use_virtual_fields(database, modifiers, timings)
 
-        with timings.measure("group_type_mapping"):
+        with _traced_measure("group_type_mapping", timings):
             if not database._is_direct_query():
                 group_types = get_group_types_for_project(team.project_id)
                 _setup_group_key_fields(database, group_types)
@@ -1020,7 +1027,7 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
-        with timings.measure("data_warehouse_saved_query"):
+        with _traced_measure("data_warehouse_saved_query", timings):
             if database._is_direct_query():
                 queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
                 if not is_managed_viewset_enabled:
@@ -1048,7 +1055,7 @@ class Database(BaseModel):
                             table_conflict_mode="ignore",
                         )
 
-        with timings.measure("endpoint_saved_query"):
+        with _traced_measure("endpoint_saved_query", timings):
             if not database._is_direct_query():
                 endpoint_saved_queries = []
                 try:
@@ -1070,7 +1077,7 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
-        with timings.measure("revenue_analytics_views"):
+        with _traced_measure("revenue_analytics_views", timings):
             if not database._is_direct_query():
                 revenue_views: list[RevenueAnalyticsBaseView] = []
                 try:
@@ -1091,7 +1098,7 @@ class Database(BaseModel):
                         capture_exception(e)
                         continue
 
-        with timings.measure("data_warehouse_tables"):
+        with _traced_measure("data_warehouse_tables", timings):
 
             class WarehousePropertiesVirtualTable(VirtualTable):
                 fields: dict[str, FieldOrTable]
@@ -1267,7 +1274,7 @@ class Database(BaseModel):
             return root_node
 
         if modifiers.dataWarehouseEventsModifiers:
-            with timings.measure("data_warehouse_event_modifiers"):
+            with _traced_measure("data_warehouse_event_modifiers", timings):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                     with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
                         # Apply mappings to every matching namespace. A saved query and a warehouse table can share a
@@ -1302,7 +1309,7 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
-        with timings.measure("warehouse_foreign_keys"):
+        with _traced_measure("warehouse_foreign_keys", timings):
             for hogql_table, warehouse_table_model in warehouse_tables_to_process:
                 add_postgres_foreign_key_lazy_joins(
                     hogql_table=hogql_table,
@@ -1311,7 +1318,7 @@ class Database(BaseModel):
                     schemas=_get_active_external_data_schemas(warehouse_table_model),
                 )
 
-        with timings.measure("data_warehouse_joins"):
+        with _traced_measure("data_warehouse_joins", timings):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
                 # User will be prompted on UI to resolve missing tables underlying the JOIN
