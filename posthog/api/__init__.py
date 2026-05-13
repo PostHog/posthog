@@ -41,6 +41,7 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.automl.backend.presentation.views import AutoMLPipelineViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1301,6 +1302,13 @@ environments_router.register(
     UserInterviewViewSet,
     "environment_user_interviews",
     ["team_id"],
+)
+
+projects_router.register(
+    r"automl_pipelines",
+    AutoMLPipelineViewSet,
+    "project_automl_pipelines",
+    ["project_id"],
 )
 
 visual_review_repos_router = projects_router.register(

@@ -1,5 +1,15 @@
-"""URL routing for AutoML. Empty until endpoints land in a follow-up commit."""
+"""URL routes for AutoML.
 
-from django.urls.resolvers import URLPattern, URLResolver
+Real wiring lives in ``posthog/api/__init__.py`` (nested router). This flat
+``DefaultRouter`` is kept as a documentation/reference of the registered
+viewsets and isn't imported anywhere.
+"""
 
-urlpatterns: list[URLPattern | URLResolver] = []
+from rest_framework.routers import DefaultRouter
+
+from .views import AutoMLPipelineViewSet
+
+router = DefaultRouter()
+router.register(r"automl_pipelines", AutoMLPipelineViewSet, basename="automl_pipelines")
+
+urlpatterns = router.urls

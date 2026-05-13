@@ -1,6 +1,6 @@
 """Business logic for AutoML.
 
-Validation, queries, and orchestration helpers live here.
+Validation, queries, and state transitions live here.
 The facade is a thin layer that calls into this module and
 converts ORM models to frozen dataclasses.
 """
@@ -13,16 +13,42 @@ from ..facade import contracts
 from ..facade.enums import PipelineStatus
 from ..models import AutoMLPipeline
 
+# Allowed status transitions: source -> set of allowed destinations.
+# Lifecycle helpers below funnel writes through this map so the state
+# machine stays explicit.
+_ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    PipelineStatus.DRAFT.value: {PipelineStatus.BOOTSTRAP_PENDING.value, PipelineStatus.ARCHIVED.value},
+    PipelineStatus.BOOTSTRAP_PENDING.value: {
+        PipelineStatus.BOOTSTRAP_RUNNING.value,
+        PipelineStatus.PAUSED.value,
+        PipelineStatus.ARCHIVED.value,
+        PipelineStatus.FAILED.value,
+    },
+    PipelineStatus.BOOTSTRAP_RUNNING.value: {
+        PipelineStatus.ACTIVE.value,
+        PipelineStatus.FAILED.value,
+        PipelineStatus.PAUSED.value,
+    },
+    PipelineStatus.ACTIVE.value: {PipelineStatus.PAUSED.value, PipelineStatus.ARCHIVED.value},
+    PipelineStatus.PAUSED.value: {PipelineStatus.ACTIVE.value, PipelineStatus.ARCHIVED.value},
+    PipelineStatus.FAILED.value: {PipelineStatus.BOOTSTRAP_PENDING.value, PipelineStatus.ARCHIVED.value},
+    PipelineStatus.ARCHIVED.value: set(),
+}
 
-def create_pipeline(params: contracts.CreatePipelineInput) -> AutoMLPipeline:
+
+def create_pipeline(
+    *,
+    team_id: int,
+    params: contracts.CreatePipelineInput,
+    created_by_id: int | None = None,
+) -> AutoMLPipeline:
     """Persist a new pipeline in draft state.
 
-    Validation lives here, not on the facade. Population / config validation
-    against schema, MCP-style ``automl-validate`` checks (volume, base rate,
-    leakage), and any sanity gating will be added incrementally.
+    Setup-time validation (volume, base rate, leakage) lands as a separate
+    ``automl-validate`` facade method once we have checks against real data.
     """
     return AutoMLPipeline.objects.create(
-        team_id=params.team_id,
+        team_id=team_id,
         name=params.name,
         description=params.description,
         task_type=params.task_type.value,
@@ -34,7 +60,7 @@ def create_pipeline(params: contracts.CreatePipelineInput) -> AutoMLPipeline:
         inference_cadence=params.inference_cadence.value,
         retraining_cadence=params.retraining_cadence.value,
         output_property_name=params.output_property_name,
-        created_by_id=params.created_by_id,
+        created_by_id=created_by_id,
     )
 
 
@@ -50,3 +76,74 @@ def list_pipelines(*, team_id: int) -> list[AutoMLPipeline]:
 def get_pipeline(*, team_id: int, pipeline_id: UUID) -> AutoMLPipeline | None:
     """Fetch one pipeline by ID, scoped to a team."""
     return AutoMLPipeline.objects.filter(team_id=team_id, id=pipeline_id).first()
+
+
+def update_pipeline(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    params: contracts.UpdatePipelineInput,
+) -> AutoMLPipeline | None:
+    """Apply partial config updates. Status transitions go through transition_pipeline."""
+    pipeline = get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
+    if pipeline is None:
+        return None
+
+    dirty = False
+    if params.name is not None:
+        pipeline.name = params.name
+        dirty = True
+    if params.description is not None:
+        pipeline.description = params.description
+        dirty = True
+    if params.autonomy is not None:
+        pipeline.autonomy = params.autonomy.value
+        dirty = True
+    if params.inference_cadence is not None:
+        pipeline.inference_cadence = params.inference_cadence.value
+        dirty = True
+    if params.retraining_cadence is not None:
+        pipeline.retraining_cadence = params.retraining_cadence.value
+        dirty = True
+    if params.output_property_name is not None:
+        pipeline.output_property_name = params.output_property_name
+        dirty = True
+    if params.config is not None:
+        pipeline.config = params.config
+        dirty = True
+    if params.training_population is not None:
+        pipeline.training_population = params.training_population
+        dirty = True
+    if params.inference_population is not None:
+        pipeline.inference_population = params.inference_population
+        dirty = True
+
+    if dirty:
+        pipeline.save()
+    return pipeline
+
+
+def transition_pipeline(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    new_status: PipelineStatus,
+) -> AutoMLPipeline:
+    """Transition a pipeline's status, raising on disallowed moves.
+
+    Raises ``PipelineNotFoundError`` if the pipeline doesn't exist or
+    ``PipelineStateTransitionError`` if the transition isn't permitted
+    from the current state.
+    """
+    pipeline = get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
+    if pipeline is None:
+        raise contracts.PipelineNotFoundError(f"pipeline {pipeline_id} not found in team {team_id}")
+
+    if new_status.value not in _ALLOWED_TRANSITIONS.get(pipeline.status, set()):
+        raise contracts.PipelineStateTransitionError(
+            f"cannot transition from {pipeline.status!r} to {new_status.value!r}",
+        )
+
+    pipeline.status = new_status.value
+    pipeline.save(update_fields=["status", "updated_at"])
+    return pipeline
