@@ -135,7 +135,7 @@ export function pickUserVisibleTurn(trace: LLMTrace | undefined): LLMTraceEvent 
             continue
         }
         const ts = new Date(event.createdAt).getTime()
-        if (ts >= latestTs) {
+        if (ts > latestTs) {
             latest = event
             latestTs = ts
         }
