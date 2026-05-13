@@ -203,6 +203,13 @@ class DeploymentViewSet(
     # context. `safely_get_queryset` re-applies the team filter explicitly.
     queryset = Deployment.all_teams.all()
 
+    def _should_skip_parents_filter(self) -> bool:
+        # The router's default `parents_query_dict` filter assumes a `team` FK
+        # and rewrites `project_id` to `team__project_id` — but `Deployment`
+        # stores `team_id` as a plain `BigIntegerField`. `safely_get_queryset`
+        # below applies the team scope directly using `self.team_id`.
+        return True
+
     def safely_get_queryset(self, queryset: Any) -> Any:
         # TODO(deployments-v1): wire filters (status, author, search) once
         # `DeploymentsFilters` is implemented on the frontend.
