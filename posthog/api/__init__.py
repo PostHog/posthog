@@ -112,6 +112,7 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
+from products.uptime.backend.presentation.views import MonitorViewSet as UptimeMonitorViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
@@ -1593,4 +1594,17 @@ environments_router.register(
     mcp_store.MCPServerInstallationViewSet,
     "environment_mcp_server_installations",
     ["team_id"],
+)
+
+environments_router.register(
+    r"uptime/monitors",
+    UptimeMonitorViewSet,
+    "environment_uptime_monitors",
+    ["team_id"],
+)
+projects_router.register(
+    r"uptime/monitors",
+    UptimeMonitorViewSet,
+    "project_uptime_monitors",
+    ["project_id"],
 )

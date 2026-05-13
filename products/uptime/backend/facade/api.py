@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from uuid import UUID
+
+from .. import logic
+from ..models import Monitor
+from . import contracts
+
+
+def _to_dto(obj: Monitor) -> contracts.MonitorDTO:
+    return contracts.MonitorDTO(
+        id=obj.id,
+        name=obj.name,
+        url=obj.url,
+        created_at=obj.created_at,
+    )
+
+
+def create(input: contracts.CreateMonitorInput) -> contracts.MonitorDTO:
+    obj = logic.create_monitor(team_id=input.team_id, name=input.name, url=input.url)
+    return _to_dto(obj)
+
+
+def list_all() -> list[contracts.MonitorDTO]:
+    return [_to_dto(obj) for obj in logic.list_monitors()]
+
+
+def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[contracts.PingDTO]:
+    rows = logic.list_recent_pings(team_id=team_id, monitor_id=monitor_id, limit=limit)
+    return [
+        contracts.PingDTO(
+            monitor_id=row["monitor_id"],
+            timestamp=row["timestamp"],
+            latency_ms=row["latency_ms"],
+            status_code=row["status_code"],
+            outcome=row["outcome"],
+        )
+        for row in rows
+    ]

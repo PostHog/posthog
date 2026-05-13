@@ -93,6 +93,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.tracing",
+    "products.uptime",
     "products.user_interviews",
     "products.visual_review",
     "products.warehouse_sources_queue",
@@ -588,4 +589,20 @@ expose = [
 ]
 from = [
     "products.business_knowledge",
+]
+
+[[modules]]
+path = "products.uptime"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.sql.*",
+    "backend\\.tasks.*",
+]
+from = [
+    "products.uptime",
 ]

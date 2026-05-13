@@ -74,6 +74,7 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
+    "products.uptime.backend.apps.UptimeConfig",
 ]
 
 INSTALLED_APPS = [
