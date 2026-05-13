@@ -12,8 +12,33 @@ from posthog.models.quick_filter import QuickFilter, QuickFilterContext
 
 class QuickFilterSerializer(serializers.ModelSerializer):
     contexts = serializers.SerializerMethodField()
-    name = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=200)
-    property_name = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=500)
+    name = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=200,
+        help_text="Human-readable name shown in the quick filter bar.",
+    )
+    property_name = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=500,
+        help_text="Name of the property to filter on (e.g. '$browser', 'plan', '$group_0').",
+    )
+    property_type = serializers.ChoiceField(
+        choices=QuickFilter._meta.get_field("property_type").choices,
+        required=False,
+        default="event",
+        help_text=(
+            "Type of property the filter targets. Defaults to 'event' to preserve legacy behavior. "
+            "Use 'group' for group properties (also set group_type_index)."
+        ),
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text="Group type index when property_type is 'group'. Ignored for other property types.",
+    )
 
     class Meta:
         model = QuickFilter
@@ -21,6 +46,8 @@ class QuickFilterSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "property_name",
+            "property_type",
+            "group_type_index",
             "type",
             "options",
             "contexts",
@@ -102,6 +129,8 @@ class QuickFilterSerializer(serializers.ModelSerializer):
 
         instance.name = validated_data.get("name", instance.name)
         instance.property_name = validated_data.get("property_name", instance.property_name)
+        instance.property_type = validated_data.get("property_type", instance.property_type)
+        instance.group_type_index = validated_data.get("group_type_index", instance.group_type_index)
         instance.type = validated_data.get("type", instance.type)
         instance.options = validated_data.get("options", instance.options)
         instance.save()

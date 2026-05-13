@@ -7281,10 +7281,21 @@ export interface QuickFilterOption {
     operator: PropertyOperator
 }
 
+export type QuickFilterPropertyType =
+    | 'event'
+    | 'person'
+    | 'session'
+    | 'group'
+    | 'data_warehouse_person_property'
+
 export interface QuickFilter {
     id: string
     name: string
     property_name: string
+    /** Defaults to 'event' for backwards compatibility with quick filters created before property_type existed. */
+    property_type?: QuickFilterPropertyType
+    /** Required when property_type is 'group'. */
+    group_type_index?: number | null
     type: QuickFilterType
     options: QuickFilterOption[]
     contexts: QuickFilterContext[]

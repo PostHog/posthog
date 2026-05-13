@@ -988,6 +988,19 @@ class DisplayType(StrEnum):
     AREA = "area"
 
 
+class ColumnRenderAs(StrEnum):
+    DEFAULT = "default"
+    SPARKLINE = "sparkline"
+
+
+class SparklineColumnSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str | None = None
+    type: Literal["bar", "line"] | None = None
+
+
 class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -995,6 +1008,8 @@ class ChartSettingsDisplay(BaseModel):
     color: str | None = None
     displayType: DisplayType | None = None
     label: str | None = None
+    renderAs: ColumnRenderAs | None = None
+    sparkline: SparklineColumnSettings | None = None
     trendLine: bool | None = None
     yAxisPosition: YAxisPosition | None = None
 
@@ -1040,6 +1055,12 @@ class ColorMode(StrEnum):
     DARK = "dark"
 
 
+class ConditionalFormattingDisplayMode(StrEnum):
+    BACKGROUND = "background"
+    BADGE = "badge"
+    DOT = "dot"
+
+
 class ConditionalFormattingRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1048,8 +1069,10 @@ class ConditionalFormattingRule(BaseModel):
     color: str
     colorMode: ColorMode | None = None
     columnName: str
+    displayMode: ConditionalFormattingDisplayMode | None = None
     id: str
     input: str
+    label: str | None = None
     templateId: str
 
 

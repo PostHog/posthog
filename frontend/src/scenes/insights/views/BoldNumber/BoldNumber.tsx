@@ -2,13 +2,15 @@ import './BoldNumber.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
 
 import { IconTrending } from '@posthog/icons'
-import { LemonRow, Link } from '@posthog/lemon-ui'
+import { LemonRow, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { execHog } from 'lib/hog'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -20,8 +22,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
-import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    convertTableValue,
+    dataVisualizationLogic,
+} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { ConditionalFormattingRule, NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
@@ -271,8 +276,41 @@ function BoldNumberComparison({
     )
 }
 
+function matchScalarConditionalFormattingRule(
+    rules: ConditionalFormattingRule[],
+    sourceColumnName: string,
+    cellValue: unknown,
+    cellType: string
+): ConditionalFormattingRule | undefined {
+    for (const rule of rules) {
+        if (rule.columnName !== sourceColumnName) {
+            continue
+        }
+        const isValidHog = !!rule.bytecode && rule.bytecode.length > 0 && rule.bytecode[0] === '_H'
+        if (!isValidHog) {
+            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                formatRule: rule,
+            })
+            continue
+        }
+        const res = execHog(rule.bytecode, {
+            globals: {
+                value: cellValue,
+                input: convertTableValue(rule.input, cellType),
+            },
+            functions: {},
+            maxAsyncSteps: 0,
+        })
+        if (res.result) {
+            return rule
+        }
+    }
+    return undefined
+}
+
 export function HogQLBoldNumber(): JSX.Element {
-    const { response, responseLoading, tabularData } = useValues(dataVisualizationLogic)
+    const { response, responseLoading, tabularData, sourceTabularColumns, conditionalFormattingRules } =
+        useValues(dataVisualizationLogic)
 
     if (!response || responseLoading) {
         return (
@@ -301,14 +339,45 @@ export function HogQLBoldNumber(): JSX.Element {
     }
 
     const value = formattedValue ?? directValue ?? resultsValue ?? resultValue
+    const firstCell = tabularData[0]?.[0]
+    const firstColumn = sourceTabularColumns[0]
+    const sourceColumnName = firstCell?.sourceColumnName ?? firstColumn?.column.name ?? ''
+    const sourceColumnType = firstColumn?.column.type.name ?? firstCell?.type ?? ''
+
+    const matchedRule = sourceColumnName
+        ? matchScalarConditionalFormattingRule(
+              conditionalFormattingRules,
+              sourceColumnName,
+              firstCell?.value,
+              sourceColumnType
+          )
+        : undefined
+    const displayMode = matchedRule?.displayMode ?? 'background'
+
+    const containerStyle: React.CSSProperties =
+        matchedRule && displayMode === 'background' ? { backgroundColor: matchedRule.color } : {}
 
     return (
-        <div className="BoldNumber LemonTable HogQL ph-no-capture">
+        <div className="BoldNumber LemonTable HogQL ph-no-capture" style={containerStyle}>
+            {matchedRule && displayMode === 'dot' && (
+                <span
+                    aria-hidden
+                    className="inline-block w-3 h-3 rounded-full absolute top-3 left-3"
+                    style={{ backgroundColor: matchedRule.color }}
+                />
+            )}
             <div className="BoldNumber__value">
                 <Textfit min={32} max={120}>
                     {String(value ?? 'Error')}
                 </Textfit>
             </div>
+            {matchedRule && displayMode === 'badge' && (
+                <div className="flex justify-center mt-2">
+                    <LemonTag style={{ backgroundColor: matchedRule.color, borderColor: 'transparent' }}>
+                        {matchedRule.label?.trim() || String(value ?? '')}
+                    </LemonTag>
+                </div>
+            )}
         </div>
     )
 }

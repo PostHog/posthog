@@ -5,14 +5,20 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ConditionalFormattingRule,
+    DataVisualizationNode,
+    HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -56,6 +62,53 @@ function getDisplayedColumnTitle(
 ): React.ReactNode {
     const { title } = renderColumnMeta(columnName, query, context)
     return label || title || columnName
+}
+
+function coerceToNumberArray(value: unknown): number[] | null {
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const out: number[] = []
+    for (const item of value) {
+        const num = typeof item === 'number' ? item : item == null ? NaN : Number(item)
+        if (!Number.isFinite(num)) {
+            return null
+        }
+        out.push(num)
+    }
+    return out
+}
+
+function matchConditionalFormattingRule(
+    rules: ConditionalFormattingRule[],
+    sourceColumnName: string,
+    cellValue: any,
+    cellType: string
+): ConditionalFormattingRule | undefined {
+    for (const rule of rules) {
+        if (rule.columnName !== sourceColumnName) {
+            continue
+        }
+        const isValidHog = !!rule.bytecode && rule.bytecode.length > 0 && rule.bytecode[0] === '_H'
+        if (!isValidHog) {
+            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                formatRule: rule,
+            })
+            continue
+        }
+        const res = execHog(rule.bytecode, {
+            globals: {
+                value: cellValue,
+                input: convertTableValue(rule.input, cellType),
+            },
+            functions: {},
+            maxAsyncSteps: 0,
+        })
+        if (res.result) {
+            return rule
+        }
+    }
+    return undefined
 }
 
 export const Table = (props: TableProps): JSX.Element => {
@@ -133,21 +186,75 @@ export const Table = (props: TableProps): JSX.Element => {
                         return <div className="truncate">{renderedSourceColumnTitle}</div>
                     }
 
-                    return (
-                        <div className="truncate">
-                            {renderColumn(
-                                cell.sourceColumnName ?? column.name,
-                                cell.formattedValue,
-                                data,
-                                recordIndex,
-                                rowCount,
-                                {
-                                    kind: NodeKind.DataTableNode,
-                                    source: props.query.source,
-                                }
-                            )}
-                        </div>
+                    const sourceColumnName = cell.sourceColumnName ?? column.name
+                    const sourceColumnType =
+                        sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
+                    const matchedRule = matchConditionalFormattingRule(
+                        conditionalFormattingRules,
+                        sourceColumnName,
+                        cell.value,
+                        sourceColumnType
                     )
+                    const displayMode = matchedRule?.displayMode ?? 'background'
+
+                    if (settings?.display?.renderAs === 'sparkline') {
+                        const numbers = coerceToNumberArray(cell.value)
+                        if (numbers === null) {
+                            return (
+                                <Tooltip title="Sparkline columns require an array of numbers (e.g. groupArray(value)).">
+                                    <span className="text-muted italic">—</span>
+                                </Tooltip>
+                            )
+                        }
+                        const sparkline = settings.display.sparkline
+                        return (
+                            <Sparkline
+                                data={numbers}
+                                color={sparkline?.color ?? 'primary'}
+                                type={sparkline?.type ?? 'line'}
+                                maximumIndicator={false}
+                                className="h-6 w-24"
+                            />
+                        )
+                    }
+
+                    const renderedCell = renderColumn(
+                        sourceColumnName,
+                        cell.formattedValue,
+                        data,
+                        recordIndex,
+                        rowCount,
+                        {
+                            kind: NodeKind.DataTableNode,
+                            source: props.query.source,
+                        }
+                    )
+
+                    if (matchedRule && displayMode === 'dot') {
+                        return (
+                            <div className="truncate flex items-center gap-2">
+                                <span
+                                    aria-hidden
+                                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                                    style={{ backgroundColor: matchedRule.color }}
+                                />
+                                <span className="truncate">{renderedCell}</span>
+                            </div>
+                        )
+                    }
+
+                    if (matchedRule && displayMode === 'badge') {
+                        const badgeLabel = matchedRule.label?.trim() ? matchedRule.label : renderedCell
+                        return (
+                            <div className="truncate">
+                                <LemonTag style={{ backgroundColor: matchedRule.color, borderColor: 'transparent' }}>
+                                    {badgeLabel}
+                                </LemonTag>
+                            </div>
+                        )
+                    }
+
+                    return <div className="truncate">{renderedCell}</div>
                 },
                 style: (_, data) => {
                     const cell = data[index]
@@ -159,61 +266,40 @@ export const Table = (props: TableProps): JSX.Element => {
                     const sourceColumnName = cell.sourceColumnName ?? column.name
                     const sourceColumnType =
                         sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                    const cf = conditionalFormattingRules
-                        .filter((n) => n.columnName === sourceColumnName)
-                        .filter((n) => {
-                            const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                            if (!isValidHog) {
-                                posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                                    formatRule: n,
-                                })
-                            }
+                    const matchedRule = matchConditionalFormattingRule(
+                        conditionalFormattingRules,
+                        sourceColumnName,
+                        cell.value,
+                        sourceColumnType
+                    )
 
-                            return isValidHog
-                        })
-                        .map((n) => {
-                            const res = execHog(n.bytecode, {
-                                globals: {
-                                    value: cell.value,
-                                    input: convertTableValue(n.input, sourceColumnType),
-                                },
-                                functions: {},
-                                maxAsyncSteps: 0,
-                            })
+                    // Only the 'background' display mode (default) tints the cell. 'badge' and 'dot' are rendered
+                    // inside the cell content by the render() function above.
+                    if (!matchedRule || (matchedRule.displayMode ?? 'background') !== 'background') {
+                        return undefined
+                    }
 
-                            return {
-                                rule: n,
-                                result: res.result,
-                            }
-                        })
+                    const ruleColor = matchedRule.color
+                    const colorMode = matchedRule.colorMode ?? 'light'
 
-                    const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
-
-                    if (conditionalFormattingMatches) {
-                        const ruleColor = conditionalFormattingMatches.rule.color
-                        const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-                        // If the color mode matches the current theme, return as it was saved
-                        if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                            return {
-                                backgroundColor: ruleColor,
-                            }
-                        }
-
-                        // If the color mode is dark, but we're in light mode - then lighten the color
-                        if (colorMode === 'dark' && !isDarkModeOn) {
-                            return {
-                                backgroundColor: lightenDarkenColor(ruleColor, 30),
-                            }
-                        }
-
-                        // If the color mode is light, but we're in dark mode - then darken the color
+                    // If the color mode matches the current theme, return as it was saved
+                    if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
                         return {
-                            backgroundColor: lightenDarkenColor(ruleColor, -30),
+                            backgroundColor: ruleColor,
                         }
                     }
 
-                    return undefined
+                    // If the color mode is dark, but we're in light mode - then lighten the color
+                    if (colorMode === 'dark' && !isDarkModeOn) {
+                        return {
+                            backgroundColor: lightenDarkenColor(ruleColor, 30),
+                        }
+                    }
+
+                    // If the color mode is light, but we're in dark mode - then darken the color
+                    return {
+                        backgroundColor: lightenDarkenColor(ruleColor, -30),
+                    }
                 },
             }
         }

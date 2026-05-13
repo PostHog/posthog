@@ -98,8 +98,10 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
 
     const builtCFLogic = conditionalFormattingLogic({ key: dataVisualizationProps.key, rule: propsRule })
 
-    const { selectColumn, updateInput, selectTemplate, selectColor, deleteRule } = useActions(builtCFLogic)
+    const { selectColumn, updateInput, selectTemplate, selectColor, setDisplayMode, setLabel, deleteRule } =
+        useActions(builtCFLogic)
     const { rule, template } = useValues(builtCFLogic)
+    const displayMode = rule.displayMode ?? 'background'
 
     return (
         <div className="gap-2 flex flex-col">
@@ -137,6 +139,17 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
                 onSelect={(value) => selectTemplate(value)}
             />
 
+            <LemonSelect
+                className="w-full"
+                value={displayMode}
+                onSelect={(value) => setDisplayMode(value)}
+                options={[
+                    { label: 'Background color', value: 'background' },
+                    { label: 'Badge', value: 'badge' },
+                    { label: 'Dot', value: 'dot' },
+                ]}
+            />
+
             <div className="flex flex-1">
                 <LemonColorPicker
                     selectedColor={rule.color}
@@ -162,6 +175,14 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
                     onClick={() => deleteRule()}
                 />
             </div>
+
+            {displayMode === 'badge' && (
+                <LemonInput
+                    placeholder="Badge label (defaults to cell value)"
+                    value={rule.label ?? ''}
+                    onChange={(value) => setLabel(value)}
+                />
+            )}
         </div>
     )
 }

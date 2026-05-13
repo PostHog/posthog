@@ -1096,12 +1096,25 @@ export interface ChartSettingsFormatting {
     decimalPlaces?: number
 }
 
+export type ColumnRenderAs = 'default' | 'sparkline'
+
+export interface SparklineColumnSettings {
+    /** Color name from vars.scss (e.g. 'primary', 'success', 'muted'). Defaults to 'primary'. */
+    color?: string
+    /** 'bar' draws bars, 'line' draws a line. Defaults to 'line'. */
+    type?: 'bar' | 'line'
+}
+
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** When set on a HogQL table column, the cell is rendered as the corresponding visualization.
+     * Requires the column to return an array of numbers per row (e.g. `groupArray(value) AS trend`). */
+    renderAs?: ColumnRenderAs
+    sparkline?: SparklineColumnSettings
 }
 
 export interface HeatmapGradientStop {
@@ -1161,6 +1174,8 @@ export interface ChartSettings {
     heatmap?: HeatmapSettings
 }
 
+export type ConditionalFormattingDisplayMode = 'background' | 'badge' | 'dot'
+
 export interface ConditionalFormattingRule {
     id: string
     templateId: string
@@ -1169,6 +1184,10 @@ export interface ConditionalFormattingRule {
     input: string
     color: string
     colorMode?: 'light' | 'dark'
+    /** How the rule is rendered when matched. Defaults to 'background' for backwards compatibility. */
+    displayMode?: ConditionalFormattingDisplayMode
+    /** Optional label override used by 'badge' display mode. Falls back to the cell value when omitted. */
+    label?: string
 }
 
 export interface TableSettings {

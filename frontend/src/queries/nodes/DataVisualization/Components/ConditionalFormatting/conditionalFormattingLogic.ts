@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 
-import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
+import { ConditionalFormattingDisplayMode, ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES, FormattingTemplate } from '../../types'
@@ -28,6 +28,8 @@ export const conditionalFormattingLogic = kea<conditionalFormattingLogicType>([
         selectTemplate: (templateId: string) => ({ templateId }),
         updateBytecode: (bytecode: any[]) => ({ bytecode }),
         selectColor: (color: string) => ({ color }),
+        setDisplayMode: (displayMode: ConditionalFormattingDisplayMode) => ({ displayMode }),
+        setLabel: (label: string) => ({ label }),
         deleteRule: true,
     }),
     reducers(({ props }) => ({
@@ -48,6 +50,12 @@ export const conditionalFormattingLogic = kea<conditionalFormattingLogicType>([
                 },
                 selectColor: (state, { color }) => {
                     return { ...state, color }
+                },
+                setDisplayMode: (state, { displayMode }) => {
+                    return { ...state, displayMode }
+                },
+                setLabel: (state, { label }) => {
+                    return { ...state, label }
                 },
             },
         ],

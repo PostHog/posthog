@@ -41,6 +41,49 @@ class TestQuickFilters(APIBaseTest):
         self.assertEqual(data["property_name"], "$browser")
         self.assertEqual(len(data["options"]), 2)
         self.assertEqual(data["contexts"], ["dashboards"])
+        # Quick filters without an explicit property_type default to 'event'
+        self.assertEqual(data["property_type"], "event")
+        self.assertIsNone(data["group_type_index"])
+
+    def test_create_group_quick_filter(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/quick_filters/",
+            {
+                "name": "Customer plan",
+                "property_name": "plan",
+                "property_type": "group",
+                "group_type_index": 0,
+                "type": "manual-options",
+                "options": [
+                    {"id": "free", "value": "free", "label": "Free", "operator": "exact"},
+                    {"id": "paid", "value": "paid", "label": "Paid", "operator": "exact"},
+                ],
+                "contexts": ["dashboards"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["property_type"], "group")
+        self.assertEqual(data["group_type_index"], 0)
+
+        stored = QuickFilter.objects.get(id=data["id"])
+        self.assertEqual(stored.property_type, "group")
+        self.assertEqual(stored.group_type_index, 0)
+
+    def test_update_quick_filter_property_type(self):
+        _, quick_filter = self._create_quick_filter("Plan", "plan")
+        self.assertEqual(quick_filter.property_type, "event")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/quick_filters/{quick_filter.id}/",
+            {"property_type": "group", "group_type_index": 2},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        quick_filter.refresh_from_db()
+        self.assertEqual(quick_filter.property_type, "group")
+        self.assertEqual(quick_filter.group_type_index, 2)
 
     def test_list_quick_filters(self):
         self._create_quick_filter("Filter 1", "$prop1")
