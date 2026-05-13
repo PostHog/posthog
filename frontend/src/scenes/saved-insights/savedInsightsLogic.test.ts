@@ -299,10 +299,12 @@ describe('savedInsightsLogic', () => {
     })
 
     describe('hideOnDashboard filter', () => {
-        it('defaults to false and preserves true through cleanFilters', () => {
-            expect(cleanFilters({}).hideOnDashboard).toBe(false)
-            expect(cleanFilters({ hideOnDashboard: true }).hideOnDashboard).toBe(true)
-            expect(cleanFilters({ hideOnDashboard: false }).hideOnDashboard).toBe(false)
+        it.each([
+            [undefined, false],
+            [true, true],
+            [false, false],
+        ])('cleanFilters({ hideOnDashboard: %s }).hideOnDashboard === %s', (input, expected) => {
+            expect(cleanFilters({ hideOnDashboard: input as boolean | undefined }).hideOnDashboard).toBe(expected)
         })
 
         it('sends hide_on_dashboard=true query param when filter is enabled', async () => {
