@@ -15,13 +15,20 @@ from celery import shared_task
 
 from posthog.models.user import User
 from posthog.push_notifications import send_push_to_user
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def send_user_push(user_id: int, title: str, body: str, data: dict[str, Any] | None = None) -> None:
-    """Fan out a push notification to every device registered for ``user_id``."""
+    """Fan out a push notification to every device registered for ``user_id``.
+
+    User push tokens are user-scoped, not team-scoped, so this task intentionally
+    operates outside the team-scoping audit. The downstream ``send_push_to_user``
+    helper filters tokens by ``user=user`` — there is no cross-team query happening.
+    """
     try:
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:

@@ -30,7 +30,9 @@ class TestUserPushTokenEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         tokens = UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]")
         self.assertEqual(tokens.count(), 1)
-        self.assertEqual(tokens.first().platform, "android")
+        token_row = tokens.first()
+        assert token_row is not None
+        self.assertEqual(token_row.platform, "android")
 
     def test_register_rejects_invalid_platform(self):
         response = self.client.post(

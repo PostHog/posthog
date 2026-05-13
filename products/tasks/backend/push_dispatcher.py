@@ -83,7 +83,9 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     # If the user has lost access to the task's team (e.g. removed from the
     # organization), don't push them task titles for runs they shouldn't see
     # anymore. The push body and data payload both carry the task identity.
-    if not user.organization_memberships.filter(organization__teams=task_run.team_id).exists():
+    # `user.teams` already accounts for both org membership and project-level
+    # RBAC, so it's the most accurate "can this user still see this run" gate.
+    if not user.teams.filter(id=task_run.team_id).exists():
         logger.debug(
             "push_dispatcher.recipient_lost_access",
             user_id=user.id,
