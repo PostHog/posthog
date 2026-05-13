@@ -109,6 +109,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result["date_start"] == dt.date(2024, 1, 1)
         assert result["date_end"] == dt.date(2024, 1, 31)
@@ -131,6 +132,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result["campaign_group_id"] == 123456789
         assert result["campaign_id"] == 987654321
@@ -150,6 +152,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result["impressions"] == 1000
         assert result["clicks"] == 50
@@ -176,6 +179,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result[field_name] == expected
 
@@ -194,6 +198,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert str(result["created_time"]) == "2024-03-05"
         assert str(result["last_modified_time"]) == "2024-03-06"
@@ -213,6 +218,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result["campaign_id"] == 555666777
         assert result["account_id"] == 888999000
@@ -232,6 +238,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         # API returns dict objects, pipeline handles JSON conversion later
         assert result["targetingCriteria"]["locations"] == ["US", "CA"]
@@ -252,6 +259,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result is not None
         assert result["missing_field"] is None
@@ -271,6 +279,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result is not None
         assert result["id"] == 147756353
@@ -291,6 +300,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result is None
 
@@ -310,6 +320,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result is not None
         assert result["created_time"] == dt.date(2021, 7, 7)
@@ -330,6 +341,7 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
+        assert result is not None
 
         assert result is not None
         assert result["created_time"] is None
