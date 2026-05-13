@@ -434,9 +434,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
         ]
         for ticket in unmatched:
-            person = get_person_by_email_property(self.team_id, ticket.email_from)
-            if person is not None:
-                ticket.person = person
+            email = ticket.email_from
+            if email:
+                found = get_person_by_email_property(self.team_id, email)
+                if found is not None:
+                    ticket.person = found
 
     @extend_schema(
         parameters=[
