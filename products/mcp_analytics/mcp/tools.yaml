@@ -9,6 +9,9 @@ feature: mcp_analytics
 url_prefix: /mcp-analytics
 ui_apps: {}
 tools:
+    mcp-analytics-missing-tools-list:
+        operation: mcp_analytics_missing_tools_list
+        enabled: false
     mcp-feedback-list:
         operation: mcp_analytics_feedback_list
         enabled: false

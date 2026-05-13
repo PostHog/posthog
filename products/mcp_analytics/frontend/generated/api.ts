@@ -14,7 +14,9 @@ import type {
     MCPMissingCapabilityCreateApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
+    McpAnalyticsMissingToolsListParams,
     PaginatedMCPAnalyticsSubmissionListApi,
+    PaginatedMCPMissingToolsCandidatesListApi,
 } from './api.schemas'
 
 export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
@@ -121,4 +123,37 @@ export const mcpAnalyticsMissingCapabilitiesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(mCPMissingCapabilityCreateApi),
     })
+}
+
+export const getMcpAnalyticsMissingToolsListUrl = (projectId: string, params?: McpAnalyticsMissingToolsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/mcp_analytics/missing_tools/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/missing_tools/`
+}
+
+/**
+ * Return candidate missing MCP tools for the current team. Combines intent clusters from the latest $mcp_intent_clusters event with on-demand semantic search over $ai_span reasoning text for LLM-stated tool gaps.
+ */
+export const mcpAnalyticsMissingToolsList = async (
+    projectId: string,
+    params?: McpAnalyticsMissingToolsListParams,
+    options?: RequestInit
+): Promise<PaginatedMCPMissingToolsCandidatesListApi> => {
+    return apiMutator<PaginatedMCPMissingToolsCandidatesListApi>(
+        getMcpAnalyticsMissingToolsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

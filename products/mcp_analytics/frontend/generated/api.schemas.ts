@@ -191,6 +191,76 @@ export interface MCPMissingCapabilityCreateApi {
     blocked?: boolean
 }
 
+export interface MCPIntentClusterSampleIntentApi {
+    /** The natural-language intent string captured on the mcp_tool_call. */
+    intent: string
+    /** How many mcp_tool_call events had this intent in the window. */
+    total_calls: number
+    /** Fraction (0-1) of those calls that errored. */
+    error_rate: number
+    /** Fraction (0-1) of those calls where the tool returned an empty response. */
+    empty_rate: number
+}
+
+export interface MCPIntentClusterApi {
+    /** Stable cluster identifier within the clustering run. */
+    cluster_id: number
+    /** LLM-generated short title for this cluster. */
+    title: string
+    /** LLM-generated description of what this cluster of intents covers. */
+    description: string
+    /** LLM-estimated likelihood (0-1) that this cluster represents a missing tool capability. */
+    gap_score: number
+    /** Number of distinct intents in this cluster. */
+    size: number
+    /** Aggregated error rate across all mcp_tool_call events for intents in this cluster. */
+    aggregate_error_rate: number
+    /** Aggregated empty-response rate across all mcp_tool_call events for intents in this cluster. */
+    aggregate_empty_rate: number
+    /** Average number of distinct MCP tools attempted per intent in this cluster. */
+    avg_distinct_tools_attempted: number
+    /** A handful of representative intents from the cluster, closest to the centroid first. */
+    sample_intents: MCPIntentClusterSampleIntentApi[]
+}
+
+export interface MCPLLMStatedGapApi {
+    /** The probe phrase whose semantic neighborhood produced this match. */
+    probe_phrase: string
+    /** The $ai_span reasoning text fragment that matched the probe. */
+    matched_text: string
+    /** Cosine distance between the probe and the matched text (lower = closer). */
+    distance: number
+    /** UUID of the $ai_span event for linking back to its trace. */
+    document_id: string
+    /**
+     * Timestamp of the $ai_span event, if available.
+     * @nullable
+     */
+    timestamp: string | null
+}
+
+export interface MCPMissingToolsCandidatesApi {
+    /** Identifier of the clustering run these results came from. */
+    clustering_run_id: string
+    /** ISO-8601 start of the window the clusters cover. */
+    window_start: string
+    /** ISO-8601 end of the window the clusters cover. */
+    window_end: string
+    /** Intent clusters ranked by gap_score (highest first). */
+    intent_clusters: MCPIntentClusterApi[]
+    /** LLM-stated gaps from $ai_span reasoning text, ranked by cosine distance (closest first). */
+    llm_stated_gaps: MCPLLMStatedGapApi[]
+}
+
+export interface PaginatedMCPMissingToolsCandidatesListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MCPMissingToolsCandidatesApi[]
+}
+
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
@@ -203,6 +273,17 @@ export type McpAnalyticsFeedbackListParams = {
 }
 
 export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type McpAnalyticsMissingToolsListParams = {
     /**
      * Number of results to return per page.
      */
