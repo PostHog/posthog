@@ -596,6 +596,46 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "AI summary context" in response.json()["detail"]
 
+    def test_cannot_create_hourly_subscription_when_feature_flag_disabled(self):
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=False):
+            response = self._create_subscription(frequency="hourly")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Hourly subscriptions" in response.json()["detail"]
+
+    def test_can_create_hourly_subscription_when_feature_flag_enabled(self):
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            response = self._create_subscription(frequency="hourly")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["frequency"] == "hourly"
+
+    def test_cannot_create_second_active_hourly_subscription_in_org(self):
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            first = self._create_subscription(frequency="hourly", title="first hourly")
+            assert first.status_code == status.HTTP_201_CREATED
+
+            second = self._create_subscription(frequency="hourly", title="second hourly")
+
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only one active hourly subscription" in str(second.json())
+
+    def test_can_replace_hourly_subscription_after_disable(self):
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            first = self._create_subscription(frequency="hourly", title="first hourly")
+            assert first.status_code == status.HTTP_201_CREATED
+
+            # Disable the first hourly subscription — it should free up the org slot.
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{first.json()['id']}",
+                {"enabled": False},
+            )
+            assert patch_response.status_code == status.HTTP_200_OK
+
+            second = self._create_subscription(frequency="hourly", title="second hourly")
+
+        assert second.status_code == status.HTTP_201_CREATED
+
     def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
         # Build raw rows so we can place an org over its tier cap to exercise
         # grandfathering paths without going through the enforced API.

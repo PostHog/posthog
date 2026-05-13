@@ -43,16 +43,21 @@ export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
-export const frequencyOptionsSingular: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+export type FrequencyOptionValue = 'hourly' | 'daily' | 'weekly' | 'monthly'
+
+export const frequencyOptionsSingular: LemonSelectOptions<FrequencyOptionValue> = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
     { value: 'monthly', label: 'month' },
 ]
-export const frequencyOptionsPlural: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+export const frequencyOptionsPlural: LemonSelectOptions<FrequencyOptionValue> = [
     { value: 'daily', label: 'days' },
     { value: 'weekly', label: 'weeks' },
     { value: 'monthly', label: 'months' },
 ]
+
+export const hourlyFrequencyOptionSingular: LemonSelectOptions<FrequencyOptionValue> = [{ value: 'hourly', label: 'hour' }]
+export const hourlyFrequencyOptionPlural: LemonSelectOptions<FrequencyOptionValue> = [{ value: 'hourly', label: 'hours' }]
 
 export const weekdayOptions: LemonSelectOptionLeaf<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
@@ -96,6 +101,7 @@ const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
 }
 
 const RRULE_FREQ_MAP: Record<string, number> = {
+    hourly: RRule.HOURLY,
     daily: RRule.DAILY,
     weekly: RRule.WEEKLY,
     monthly: RRule.MONTHLY,

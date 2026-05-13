@@ -26,7 +26,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import (
+    SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+    SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY,
+    AvailableFeature,
+)
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -158,7 +162,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "target_value": {
                 "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
             },
-            "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
+            "frequency": {
+                "help_text": (
+                    "How often to deliver: hourly, daily, weekly, monthly, or yearly. "
+                    "Hourly is feature-flagged and limited to one active subscription per organization."
+                )
+            },
             "interval": {
                 "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
             },
@@ -284,6 +293,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
+        # Hourly frequency is feature-flagged and capped at one active
+        # subscription per organization. Fire whenever the row is *becoming*
+        # an active hourly subscription (frequency=hourly AND enabled=True AND
+        # deleted=False) but wasn't before — catches creates, frequency
+        # changes, re-enables, and undeletes.
+        if self._is_becoming_active_hourly(attrs):
+            organization = self.context["get_organization"]()
+            if not self._hourly_frequency_feature_enabled():
+                raise exceptions.PermissionDenied("Hourly subscriptions are not enabled for this organization.")
+            self._validate_hourly_org_limit(organization)
+
         return attrs
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
@@ -346,6 +366,63 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         except Exception:
             # Telemetry must never poison the validation path.
             pass
+
+    def _is_becoming_active_hourly(self, attrs: dict) -> bool:
+        pre_frequency = self.instance.frequency if self.instance else None
+        pre_enabled = self.instance.enabled if self.instance else True
+        pre_deleted = self.instance.deleted if self.instance else False
+        post_frequency = attrs.get("frequency", pre_frequency)
+        post_enabled = attrs.get("enabled", pre_enabled)
+        post_deleted = attrs.get("deleted", pre_deleted)
+
+        pre_active_hourly = (
+            pre_frequency == Subscription.SubscriptionFrequency.HOURLY and pre_enabled and not pre_deleted
+        )
+        post_active_hourly = (
+            post_frequency == Subscription.SubscriptionFrequency.HOURLY and post_enabled and not post_deleted
+        )
+        return post_active_hourly and not pre_active_hourly
+
+    def _validate_hourly_org_limit(self, organization) -> None:
+        existing = Subscription.objects.filter(
+            team__organization_id=organization.id,
+            frequency=Subscription.SubscriptionFrequency.HOURLY,
+            enabled=True,
+            deleted=False,
+        )
+        if self.instance is not None:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise ValidationError(
+                {
+                    "frequency": [
+                        "Only one active hourly subscription is allowed per organization. "
+                        "Disable or delete the existing hourly subscription before adding another."
+                    ]
+                }
+            )
+
+    def _hourly_frequency_feature_enabled(self) -> bool:
+        """Evaluate the hourly-frequency feature flag for the caller's organization.
+
+        Scoped by organization so the gate is stable across a team's members.
+        `only_evaluate_locally=False` so we respect server-side cohort / property
+        conditions — this isn't on a hot path.
+        """
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
+            return False
+        organization = self.context["get_organization"]()
+        org_id = str(organization.id) if organization else ""
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY,
+                str(request.user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+        )
 
     def _prompt_guide_feature_enabled(self) -> bool:
         """Evaluate the prompt-guide feature flag for the caller's organization.
