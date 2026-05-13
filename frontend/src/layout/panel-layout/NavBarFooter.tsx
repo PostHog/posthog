@@ -1,4 +1,4 @@
-import { IconDownload, IconGear } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { DebugNotice } from 'lib/components/DebugNotice'
@@ -41,16 +41,6 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                 >
                     <IconGear />
                     {!isLayoutNavCollapsed && 'Settings'}
-                </Link>
-                <Link
-                    to={urls.exports()}
-                    buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
-                    tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
-                    tooltipPlacement="right"
-                    data-attr="navbar-exports-button"
-                >
-                    <IconDownload />
-                    {!isLayoutNavCollapsed && 'Exports'}
                 </Link>
                 <HealthMenu iconOnly={isLayoutNavCollapsed} />
                 <HelpMenu iconOnly={isLayoutNavCollapsed} />
