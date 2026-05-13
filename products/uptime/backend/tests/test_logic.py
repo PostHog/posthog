@@ -4,7 +4,14 @@ from zoneinfo import ZoneInfo
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from products.uptime.backend.logic import bulk_create_monitors, list_suggested_urls
+from products.uptime.backend.facade.enums import PingOutcome
+from products.uptime.backend.logic import (
+    DAILY_BUCKETS,
+    bulk_create_monitors,
+    list_monitor_summaries,
+    list_suggested_urls,
+    record_ping,
+)
 from products.uptime.backend.models import Monitor
 from products.uptime.backend.tests.conftest import UptimeTeamScopedTestMixin
 
@@ -109,6 +116,125 @@ class TestListSuggestedUrls(UptimeTeamScopedTestMixin, ClickhouseTestMixin, Base
         assert len(results) == 2
         # Excludes a.com and b.com (monitored), leaves c-f, top 2 by ingestion order tie
         assert all(r["host"] not in {"a.com", "b.com"} for r in results)
+
+
+class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _ping(
+        self,
+        monitor: Monitor,
+        *,
+        outcome: PingOutcome,
+        latency_ms: int = 100,
+        status_code: int | None = 200,
+        timestamp: datetime | None = None,
+    ) -> None:
+        record_ping(
+            team_id=self.team.id,
+            monitor_id=monitor.id,
+            timestamp=timestamp or datetime.now(tz=ZoneInfo("UTC")),
+            latency_ms=latency_ms,
+            status_code=status_code,
+            outcome=outcome,
+        )
+
+    def test_returns_no_data_for_monitor_without_pings(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="fresh", url="https://fresh.io")
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        assert len(results) == 1
+        row = results[0]
+        assert row["id"] == monitor.id
+        assert row["status"] == "no_data"
+        assert row["uptime_30d"] is None
+        assert row["last_ping_at"] is None
+        assert row["last_ping_outcome"] is None
+        assert row["avg_latency_24h_ms"] is None
+        assert len(row["daily_buckets"]) == DAILY_BUCKETS
+        assert all(b["status"] == "no_data" for b in row["daily_buckets"])
+
+    def test_returns_up_for_monitor_with_only_successes(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="ok", url="https://ok.io")
+        for _ in range(5):
+            self._ping(monitor, outcome=PingOutcome.SUCCESS, latency_ms=120)
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["status"] == "up"
+        assert row["uptime_30d"] == 1.0
+        assert row["avg_latency_24h_ms"] == 120
+        assert row["last_ping_outcome"] == PingOutcome.SUCCESS
+
+    def test_derives_status_from_last_ping(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="flaky", url="https://flaky.io")
+        now = datetime.now(tz=ZoneInfo("UTC"))
+        self._ping(monitor, outcome=PingOutcome.SUCCESS, timestamp=now - timedelta(minutes=10))
+        self._ping(monitor, outcome=PingOutcome.FAILURE, timestamp=now - timedelta(minutes=1))
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["status"] == "down"
+        assert row["last_ping_outcome"] == PingOutcome.FAILURE
+
+    def test_daily_buckets_classify_per_day(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="d", url="https://d.io")
+        now = datetime.now(tz=ZoneInfo("UTC"))
+
+        # Today: 4 success, 0 failure -> up
+        for _ in range(4):
+            self._ping(monitor, outcome=PingOutcome.SUCCESS, timestamp=now)
+        # Yesterday: 3 success, 1 failure -> degraded
+        for _ in range(3):
+            self._ping(monitor, outcome=PingOutcome.SUCCESS, timestamp=now - timedelta(days=1))
+        self._ping(monitor, outcome=PingOutcome.FAILURE, timestamp=now - timedelta(days=1))
+        # 2 days ago: 2 failure, 0 success -> down
+        for _ in range(2):
+            self._ping(monitor, outcome=PingOutcome.FAILURE, timestamp=now - timedelta(days=2))
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        # daily_buckets is oldest-first; today is the last entry
+        today_bucket = row["daily_buckets"][-1]
+        yesterday_bucket = row["daily_buckets"][-2]
+        two_days_ago_bucket = row["daily_buckets"][-3]
+        assert today_bucket["status"] == "up"
+        assert yesterday_bucket["status"] == "degraded"
+        assert two_days_ago_bucket["status"] == "down"
+
+    def test_uptime_30d_is_pings_minus_failures(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="u", url="https://u.io")
+        for _ in range(9):
+            self._ping(monitor, outcome=PingOutcome.SUCCESS)
+        self._ping(monitor, outcome=PingOutcome.FAILURE)
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["uptime_30d"] == 0.9
+
+    def test_ignores_other_team_pings(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="mine", url="https://mine.io")
+        self._ping(monitor, outcome=PingOutcome.SUCCESS)
+        # Foreign ping under a different team_id should not affect our summary
+        record_ping(
+            team_id=self.team.id + 999,
+            monitor_id=monitor.id,
+            timestamp=datetime.now(tz=ZoneInfo("UTC")),
+            latency_ms=999,
+            status_code=500,
+            outcome=PingOutcome.FAILURE,
+        )
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["status"] == "up"
+        assert row["uptime_30d"] == 1.0
 
 
 class TestBulkCreateMonitors(UptimeTeamScopedTestMixin, BaseTest):

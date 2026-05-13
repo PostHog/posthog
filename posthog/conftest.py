@@ -101,6 +101,7 @@ def reset_clickhouse_tables():
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
     )
+    from products.uptime.backend.sql import TRUNCATE_UPTIME_PINGS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
@@ -128,6 +129,7 @@ def reset_clickhouse_tables():
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        TRUNCATE_UPTIME_PINGS_TABLE_SQL,
     ]
 
     # Drop created Kafka tables because some tests don't expect it.

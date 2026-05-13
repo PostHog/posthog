@@ -1,17 +1,37 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { Monitor, Ping, SuggestedUrl, uptimeSceneLogic } from './uptimeSceneLogic'
+import {
+    DailyBucket,
+    DailyStatus,
+    MonitorStatus,
+    MonitorSummary,
+    OverallStats,
+    Ping,
+    SuggestedUrl,
+    uptimeSceneLogic,
+} from './uptimeSceneLogic'
 
 export const scene: SceneExport = {
     component: UptimeScene,
@@ -19,12 +39,20 @@ export const scene: SceneExport = {
 }
 
 export function UptimeScene(): JSX.Element {
-    const { monitors, monitorsLoading, suggestedUrls, selectedMonitorId, pings, pingsLoading } =
-        useValues(uptimeSceneLogic)
+    const {
+        monitorSummaries,
+        monitorSummariesLoading,
+        suggestedUrls,
+        overallStats,
+        selectedMonitorId,
+        pings,
+        pingsLoading,
+    } = useValues(uptimeSceneLogic)
     const { selectMonitor, pingNow, setCreateModalOpen, setSuggestModalOpen } = useActions(uptimeSceneLogic)
 
-    const selectedMonitor = monitors.find((m) => m.id === selectedMonitorId) ?? null
+    const selectedMonitor = monitorSummaries.find((m) => m.id === selectedMonitorId) ?? null
     const hasSuggestions = suggestedUrls.length > 0
+    const hasMonitors = monitorSummaries.length > 0
 
     return (
         <SceneContent>
@@ -51,48 +79,25 @@ export function UptimeScene(): JSX.Element {
             />
             <CreateMonitorModal />
             <SuggestUrlsModal />
-            <LemonTable
-                loading={monitorsLoading}
-                dataSource={monitors}
-                columns={[
-                    { title: 'Name', dataIndex: 'name' },
-                    { title: 'URL', dataIndex: 'url' },
-                    {
-                        title: 'Created',
-                        dataIndex: 'created_at',
-                        render: (_, row: Monitor) => dayjs(row.created_at).fromNow(),
-                    },
-                    {
-                        title: 'Actions',
-                        key: 'actions',
-                        render: (_, row: Monitor) => (
-                            <div className="flex gap-2">
-                                <LemonButton type="secondary" size="small" onClick={() => selectMonitor(row.id)}>
-                                    View pings
-                                </LemonButton>
-                                <LemonButton type="secondary" size="small" onClick={() => pingNow(row.id)}>
-                                    Ping now
-                                </LemonButton>
-                            </div>
-                        ),
-                    },
-                ]}
-                emptyState={
-                    hasSuggestions ? (
-                        <div className="flex flex-col items-center gap-2 py-4">
-                            <div>
-                                We spotted <strong>{suggestedUrls.length}</strong> URL
-                                {suggestedUrls.length === 1 ? '' : 's'} in your traffic. Pick which to monitor.
-                            </div>
-                            <LemonButton type="primary" onClick={() => setSuggestModalOpen(true)}>
-                                Add from traffic
-                            </LemonButton>
-                        </div>
-                    ) : (
-                        'No monitors yet. Create one to start tracking uptime.'
-                    )
-                }
-            />
+
+            {hasMonitors && <OverallStatusBanner stats={overallStats} />}
+
+            {!hasMonitors && !monitorSummariesLoading ? (
+                <EmptyState hasSuggestions={hasSuggestions} onOpenSuggest={() => setSuggestModalOpen(true)} />
+            ) : (
+                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                    {monitorSummariesLoading && !hasMonitors
+                        ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)
+                        : monitorSummaries.map((monitor) => (
+                              <MonitorTile
+                                  key={monitor.id}
+                                  monitor={monitor}
+                                  onViewPings={() => selectMonitor(monitor.id)}
+                                  onPingNow={() => pingNow(monitor.id)}
+                              />
+                          ))}
+                </div>
+            )}
 
             <LemonModal
                 isOpen={selectedMonitorId !== null}
@@ -133,6 +138,194 @@ export function UptimeScene(): JSX.Element {
                 />
             </LemonModal>
         </SceneContent>
+    )
+}
+
+function OverallStatusBanner({ stats }: { stats: OverallStats }): JSX.Element {
+    const { total, operational, down, noData, avgUptime, avgLatencyMs } = stats
+    const allUp = down === 0 && operational === total - noData && total > 0
+    const someDown = down > 0
+
+    const banner = someDown
+        ? { label: `${down} of ${total} monitors down`, tone: 'danger' as const }
+        : allUp
+          ? { label: `All systems operational — ${operational} of ${total} up`, tone: 'success' as const }
+          : { label: `Awaiting data — ${noData} of ${total} monitors`, tone: 'muted' as const }
+
+    return (
+        <div className="flex flex-col gap-2 p-4 border rounded bg-surface-primary">
+            <div className="flex items-center gap-2">
+                <StatusDot status={someDown ? 'down' : allUp ? 'up' : 'no_data'} size="lg" />
+                <span className={cn('font-semibold text-base', toneToTextClass(banner.tone))}>{banner.label}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-secondary">
+                <Stat label="Monitors" value={String(total)} />
+                {down > 0 && (
+                    <LemonTag type="danger" size="small">
+                        {down} down
+                    </LemonTag>
+                )}
+                <Stat
+                    label="Uptime (30d)"
+                    value={avgUptime !== null ? formatPercent(avgUptime) : '—'}
+                    hint="Successful checks ÷ total checks across all monitors"
+                />
+                <Stat label="Avg latency (24h)" value={avgLatencyMs !== null ? `${avgLatencyMs} ms` : '—'} />
+            </div>
+        </div>
+    )
+}
+
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }): JSX.Element {
+    const content = (
+        <div className="flex items-baseline gap-1.5">
+            <span className="text-secondary">{label}</span>
+            <span className="font-medium text-primary">{value}</span>
+        </div>
+    )
+    return hint ? <Tooltip title={hint}>{content}</Tooltip> : content
+}
+
+function MonitorTile({
+    monitor,
+    onViewPings,
+    onPingNow,
+}: {
+    monitor: MonitorSummary
+    onViewPings: () => void
+    onPingNow: () => void
+}): JSX.Element {
+    const tone = monitor.status === 'up' ? 'success' : monitor.status === 'down' ? 'danger' : 'muted'
+
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+            <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <StatusDot status={monitor.status} />
+                    <div className="min-w-0 flex flex-col">
+                        <div className="font-semibold truncate" title={monitor.name}>
+                            {monitor.name}
+                        </div>
+                        <Link
+                            to={monitor.url}
+                            target="_blank"
+                            className="text-xs text-secondary truncate"
+                            title={monitor.url}
+                        >
+                            {monitor.url}
+                        </Link>
+                    </div>
+                </div>
+                <LemonTag type={tone} size="small">
+                    {statusLabel(monitor.status)}
+                </LemonTag>
+            </div>
+
+            <div className="flex items-baseline justify-between gap-2">
+                <div className="flex flex-col">
+                    <span className="text-2xl font-semibold">
+                        {monitor.uptime_30d !== null ? formatPercent(monitor.uptime_30d) : '—'}
+                    </span>
+                    <span className="text-xs text-secondary">30d uptime</span>
+                </div>
+                <div className="flex flex-col items-end">
+                    <span className="text-sm font-medium">
+                        {monitor.avg_latency_24h_ms !== null ? `${monitor.avg_latency_24h_ms} ms` : '—'}
+                    </span>
+                    <span className="text-xs text-secondary">avg 24h</span>
+                </div>
+            </div>
+
+            <StatusTimeline buckets={monitor.daily_buckets} />
+
+            <div className="flex items-center justify-between text-xs text-secondary">
+                <span>
+                    {monitor.last_ping_at ? `Last checked ${dayjs(monitor.last_ping_at).fromNow()}` : 'No checks yet'}
+                </span>
+            </div>
+
+            <div className="flex gap-2 min-w-0">
+                <LemonButton type="secondary" size="small" onClick={onViewPings} className="flex-1 min-w-0 truncate">
+                    View pings
+                </LemonButton>
+                <LemonButton type="secondary" size="small" onClick={onPingNow} className="flex-1 min-w-0 truncate">
+                    Ping now
+                </LemonButton>
+            </div>
+        </LemonCard>
+    )
+}
+
+function StatusTimeline({ buckets }: { buckets: DailyBucket[] }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-px h-6">
+                {buckets.map((b) => (
+                    <Tooltip key={b.date} title={bucketTooltipText(b)}>
+                        <div
+                            className={cn(
+                                'flex-1 h-full rounded-sm cursor-help transition-opacity hover:opacity-80',
+                                dailyStatusToBgClass(b.status)
+                            )}
+                        />
+                    </Tooltip>
+                ))}
+            </div>
+            <div className="flex justify-between text-[10px] text-secondary">
+                <span>{buckets.length}d ago</span>
+                <span>Today</span>
+            </div>
+        </div>
+    )
+}
+
+function StatusDot({ status, size = 'md' }: { status: MonitorStatus; size?: 'md' | 'lg' }): JSX.Element {
+    const dimensions = size === 'lg' ? 'w-3 h-3' : 'w-2.5 h-2.5'
+    const colorClass = status === 'up' ? 'bg-success' : status === 'down' ? 'bg-danger' : 'bg-border-bold'
+    return (
+        <span
+            className={cn('inline-block rounded-full shrink-0', dimensions, colorClass, {
+                'animate-pulse': status === 'down',
+            })}
+            aria-label={statusLabel(status)}
+        />
+    )
+}
+
+function SkeletonCard(): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+            <div className="h-4 bg-border rounded w-3/4" />
+            <div className="h-3 bg-border rounded w-1/2" />
+            <div className="h-6 bg-border rounded w-2/3 mt-2" />
+            <div className="h-6 bg-border rounded" />
+        </LemonCard>
+    )
+}
+
+function EmptyState({
+    hasSuggestions,
+    onOpenSuggest,
+}: {
+    hasSuggestions: boolean
+    onOpenSuggest: () => void
+}): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col items-center gap-3 p-8 text-center">
+            <div className="text-xl font-semibold">No monitors yet</div>
+            {hasSuggestions ? (
+                <>
+                    <div className="text-secondary">
+                        We spotted URLs in your traffic. Pick which to start monitoring.
+                    </div>
+                    <LemonButton type="primary" onClick={onOpenSuggest}>
+                        Add from traffic
+                    </LemonButton>
+                </>
+            ) : (
+                <div className="text-secondary">Create a monitor to start tracking uptime.</div>
+            )}
+        </LemonCard>
     )
 }
 
@@ -288,4 +481,60 @@ function SuggestUrlsModal(): JSX.Element {
             />
         </LemonModal>
     )
+}
+
+function statusLabel(status: MonitorStatus): string {
+    switch (status) {
+        case 'up':
+            return 'Operational'
+        case 'down':
+            return 'Down'
+        case 'no_data':
+            return 'No data'
+    }
+}
+
+function dailyStatusToBgClass(status: DailyStatus): string {
+    switch (status) {
+        case 'up':
+            return 'bg-success'
+        case 'degraded':
+            return 'bg-warning'
+        case 'down':
+            return 'bg-danger'
+        case 'no_data':
+            return 'bg-border'
+    }
+}
+
+function bucketTooltipText(bucket: DailyBucket): string {
+    const date = dayjs(bucket.date).format('MMM D, YYYY')
+    if (bucket.status === 'no_data') {
+        return `${date} — no checks`
+    }
+    if (bucket.status === 'up') {
+        return `${date} — all ${bucket.total} checks succeeded`
+    }
+    if (bucket.status === 'down') {
+        return `${date} — all ${bucket.total} checks failed`
+    }
+    return `${date} — ${bucket.failed} of ${bucket.total} checks failed`
+}
+
+function formatPercent(value: number): string {
+    if (value >= 1) {
+        return '100%'
+    }
+    return `${(value * 100).toFixed(2)}%`
+}
+
+function toneToTextClass(tone: 'success' | 'danger' | 'muted'): string {
+    switch (tone) {
+        case 'success':
+            return 'text-success'
+        case 'danger':
+            return 'text-danger'
+        case 'muted':
+            return 'text-secondary'
+    }
 }

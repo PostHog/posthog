@@ -40,9 +40,9 @@ export interface CreateMonitorApi {
  * * `success` - SUCCESS
  * `failure` - FAILURE
  */
-export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
+export type PingOutcomeApi = (typeof PingOutcomeApi)[keyof typeof PingOutcomeApi]
 
-export const OutcomeEnumApi = {
+export const PingOutcomeApi = {
     Success: 'success',
     Failure: 'failure',
 } as const
@@ -53,7 +53,7 @@ export interface PingDTOApi {
     latency_ms: number
     /** @nullable */
     status_code: number | null
-    outcome: OutcomeEnumApi
+    outcome: PingOutcomeApi
 }
 
 export interface PaginatedPingDTOListApi {
@@ -100,6 +100,67 @@ export interface PaginatedSuggestedUrlDTOListApi {
     results: SuggestedUrlDTOApi[]
 }
 
+/**
+ * * `up` - up
+ * `down` - down
+ * `no_data` - no_data
+ */
+export type MonitorSummaryDTOStatusEnumApi =
+    (typeof MonitorSummaryDTOStatusEnumApi)[keyof typeof MonitorSummaryDTOStatusEnumApi]
+
+export const MonitorSummaryDTOStatusEnumApi = {
+    Up: 'up',
+    Down: 'down',
+    NoData: 'no_data',
+} as const
+
+/**
+ * * `up` - up
+ * `degraded` - degraded
+ * `down` - down
+ * `no_data` - no_data
+ */
+export type DailyBucketDTOStatusEnumApi = (typeof DailyBucketDTOStatusEnumApi)[keyof typeof DailyBucketDTOStatusEnumApi]
+
+export const DailyBucketDTOStatusEnumApi = {
+    Up: 'up',
+    Degraded: 'degraded',
+    Down: 'down',
+    NoData: 'no_data',
+} as const
+
+export interface DailyBucketDTOApi {
+    date: string
+    total: number
+    failed: number
+    status: DailyBucketDTOStatusEnumApi
+}
+
+export interface MonitorSummaryDTOApi {
+    id: string
+    name: string
+    url: string
+    created_at: string
+    status: MonitorSummaryDTOStatusEnumApi
+    /** @nullable */
+    uptime_30d: number | null
+    /** @nullable */
+    avg_latency_24h_ms: number | null
+    /** @nullable */
+    last_ping_at: string | null
+    last_ping_outcome: PingOutcomeApi | null
+    daily_buckets: DailyBucketDTOApi[]
+}
+
+export interface PaginatedMonitorSummaryDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MonitorSummaryDTOApi[]
+}
+
 export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
@@ -140,6 +201,17 @@ export type UptimeMonitorsSuggestedUrlsListParams = {
     days?: number
     /**
      * Maximum number of suggestions to return. Defaults to 20.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UptimeMonitorsSummaryListParams = {
+    /**
+     * Number of results to return per page.
      */
     limit?: number
     /**

@@ -235,6 +235,7 @@ from products.error_tracking.backend.sql import (
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
 from products.event_definitions.backend.models.property_definition import PROPERTY_DEFINITIONS_TABLE_SQL
+from products.uptime.backend.sql import DISTRIBUTED_UPTIME_PINGS_TABLE_SQL, SHARDED_UPTIME_PINGS_TABLE_SQL
 
 # Queries to create tables, you must pass function, otherwise the table is created before
 # objects are mocked and the ambr will go into infinite loop update.
@@ -289,6 +290,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     TOPHOG_DATA_TABLE_SQL,
     AI_EVENTS_DATA_TABLE_SQL,
     PROPERTY_VALUES_TABLE_SQL,
+    SHARDED_UPTIME_PINGS_TABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
@@ -345,6 +347,7 @@ CREATE_DISTRIBUTED_TABLE_QUERIES = (
     DISTRIBUTED_TOPHOG_TABLE_SQL,
     DISTRIBUTED_AI_EVENTS_TABLE_SQL,
     DISTRIBUTED_PROPERTY_VALUES_TABLE_SQL,
+    DISTRIBUTED_UPTIME_PINGS_TABLE_SQL,
 )
 CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_LOG_ENTRIES_TABLE_SQL,

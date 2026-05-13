@@ -13,12 +13,14 @@ import type {
     CreateMonitorApi,
     MonitorDTOApi,
     PaginatedMonitorDTOListApi,
+    PaginatedMonitorSummaryDTOListApi,
     PaginatedPingDTOListApi,
     PaginatedSuggestedUrlDTOListApi,
     UptimeMonitorsBulkCreateCreateParams,
     UptimeMonitorsListParams,
     UptimeMonitorsPingsListParams,
     UptimeMonitorsSuggestedUrlsListParams,
+    UptimeMonitorsSummaryListParams,
 } from './api.schemas'
 
 export const getUptimeMonitorsListUrl = (projectId: string, params?: UptimeMonitorsListParams) => {
@@ -176,6 +178,36 @@ export const uptimeMonitorsSuggestedUrlsList = async (
     options?: RequestInit
 ): Promise<PaginatedSuggestedUrlDTOListApi> => {
     return apiMutator<PaginatedSuggestedUrlDTOListApi>(getUptimeMonitorsSuggestedUrlsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUptimeMonitorsSummaryListUrl = (projectId: string, params?: UptimeMonitorsSummaryListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/uptime/monitors/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/uptime/monitors/summary/`
+}
+
+/**
+ * Per-monitor status, 30-day uptime, 24h latency, last ping, and 30 daily status buckets.
+ */
+export const uptimeMonitorsSummaryList = async (
+    projectId: string,
+    params?: UptimeMonitorsSummaryListParams,
+    options?: RequestInit
+): Promise<PaginatedMonitorSummaryDTOListApi> => {
+    return apiMutator<PaginatedMonitorSummaryDTOListApi>(getUptimeMonitorsSummaryListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

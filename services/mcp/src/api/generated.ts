@@ -8348,6 +8348,29 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `up` - up
+    * `degraded` - degraded
+    * `down` - down
+    * `no_data` - no_data
+     */
+    export type DailyBucketDTOStatusEnum = typeof DailyBucketDTOStatusEnum[keyof typeof DailyBucketDTOStatusEnum];
+
+
+    export const DailyBucketDTOStatusEnum = {
+      Up: 'up',
+      Degraded: 'degraded',
+      Down: 'down',
+      NoData: 'no_data',
+    } as const;
+
+    export interface DailyBucketDTO {
+      date: string;
+      total: number;
+      failed: number;
+      status: DailyBucketDTOStatusEnum;
+    }
+
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -20118,6 +20141,48 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * * `up` - up
+    * `down` - down
+    * `no_data` - no_data
+     */
+    export type MonitorSummaryDTOStatusEnum = typeof MonitorSummaryDTOStatusEnum[keyof typeof MonitorSummaryDTOStatusEnum];
+
+
+    export const MonitorSummaryDTOStatusEnum = {
+      Up: 'up',
+      Down: 'down',
+      NoData: 'no_data',
+    } as const;
+
+    /**
+     * * `success` - SUCCESS
+    * `failure` - FAILURE
+     */
+    export type PingOutcome = typeof PingOutcome[keyof typeof PingOutcome];
+
+
+    export const PingOutcome = {
+      Success: 'success',
+      Failure: 'failure',
+    } as const;
+
+    export interface MonitorSummaryDTO {
+      id: string;
+      name: string;
+      url: string;
+      created_at: string;
+      status: MonitorSummaryDTOStatusEnum;
+      /** @nullable */
+      uptime_30d: number | null;
+      /** @nullable */
+      avg_latency_24h_ms: number | null;
+      /** @nullable */
+      last_ping_at: string | null;
+      last_ping_outcome: PingOutcome | null;
+      daily_buckets: DailyBucketDTO[];
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -20752,18 +20817,6 @@ export namespace Schemas {
       /** @nullable */
       success?: boolean | null;
     }
-
-    /**
-     * * `success` - SUCCESS
-    * `failure` - FAILURE
-     */
-    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
-
-
-    export const OutcomeEnum = {
-      Success: 'success',
-      Failure: 'failure',
-    } as const;
 
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
@@ -21623,6 +21676,15 @@ export namespace Schemas {
       results: MonitorDTO[];
     }
 
+    export interface PaginatedMonitorSummaryDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MonitorSummaryDTO[];
+    }
+
     export interface PaginatedNodeList {
       count: number;
       /** @nullable */
@@ -21797,7 +21859,7 @@ export namespace Schemas {
       latency_ms: number;
       /** @nullable */
       status_code: number | null;
-      outcome: OutcomeEnum;
+      outcome: PingOutcome;
     }
 
     export interface PaginatedPingDTOList {
@@ -38078,6 +38140,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsUptimeMonitorsSummaryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsUserProductListListParams = {
     /**
      * Number of results to return per page.
@@ -43637,6 +43710,17 @@ export namespace Schemas {
     days?: number;
     /**
      * Maximum number of suggestions to return. Defaults to 20.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UptimeMonitorsSummaryListParams = {
+    /**
+     * Number of results to return per page.
      */
     limit?: number;
     /**

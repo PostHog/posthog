@@ -1,12 +1,22 @@
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import MonitorDTO, PingDTO, SuggestedUrlDTO
+from ..facade.contracts import DailyBucketDTO, MonitorDTO, MonitorSummaryDTO, PingDTO, SuggestedUrlDTO
 
 
 class MonitorSerializer(DataclassSerializer):
     class Meta:
         dataclass = MonitorDTO
+
+
+class DailyBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DailyBucketDTO
+
+
+class MonitorSummarySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = MonitorSummaryDTO
 
 
 class CreateMonitorSerializer(serializers.Serializer):

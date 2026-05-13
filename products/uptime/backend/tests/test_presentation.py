@@ -66,6 +66,28 @@ class TestSuggestedUrlsEndpoint(UptimeTeamScopedTestMixin, ClickhouseTestMixin, 
         assert [r["host"] for r in response.json()] == ["github.com"]
 
 
+class TestSummaryEndpoint(UptimeTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.id}/uptime/monitors/summary/"
+
+    def test_returns_summary_for_each_monitor(self) -> None:
+        Monitor.objects.create(team_id=self.team.id, name="a", url="https://a.io")
+        Monitor.objects.create(team_id=self.team.id, name="b", url="https://b.io")
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 2
+        assert {row["name"] for row in data} == {"a", "b"}
+        for row in data:
+            assert row["status"] == "no_data"
+            assert len(row["daily_buckets"]) == 30
+            assert row["uptime_30d"] is None
+
+
 class TestBulkCreateEndpoint(UptimeTeamScopedTestMixin, APIBaseTest):
     def _url(self) -> str:
         return f"/api/environments/{self.team.id}/uptime/monitors/bulk_create/"

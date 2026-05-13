@@ -12,6 +12,7 @@ from .serializers import (
     BulkCreateMonitorSerializer,
     CreateMonitorSerializer,
     MonitorSerializer,
+    MonitorSummarySerializer,
     PingSerializer,
     SuggestedUrlSerializer,
 )
@@ -24,6 +25,15 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, **kwargs) -> Response:
         items = api.list_all()
         return Response(MonitorSerializer(items, many=True).data)
+
+    @extend_schema(
+        responses={200: MonitorSummarySerializer(many=True)},
+        description="Per-monitor status, 30-day uptime, 24h latency, last ping, and 30 daily status buckets.",
+    )
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request: Request, **kwargs) -> Response:
+        summaries = api.list_monitor_summaries(team_id=self.team_id)
+        return Response(MonitorSummarySerializer(summaries, many=True).data)
 
     @extend_schema(request=CreateMonitorSerializer, responses={201: MonitorSerializer})
     def create(self, request: Request, **kwargs) -> Response:

@@ -33,6 +33,33 @@ def list_all() -> list[contracts.MonitorDTO]:
     return [_to_dto(obj) for obj in logic.list_monitors()]
 
 
+def list_monitor_summaries(*, team_id: int) -> list[contracts.MonitorSummaryDTO]:
+    rows = logic.list_monitor_summaries(team_id=team_id)
+    return [
+        contracts.MonitorSummaryDTO(
+            id=row["id"],
+            name=row["name"],
+            url=row["url"],
+            created_at=row["created_at"],
+            status=row["status"],
+            uptime_30d=row["uptime_30d"],
+            avg_latency_24h_ms=row["avg_latency_24h_ms"],
+            last_ping_at=row["last_ping_at"],
+            last_ping_outcome=row["last_ping_outcome"],
+            daily_buckets=[
+                contracts.DailyBucketDTO(
+                    date=bucket["date"],
+                    total=bucket["total"],
+                    failed=bucket["failed"],
+                    status=bucket["status"],
+                )
+                for bucket in row["daily_buckets"]
+            ],
+        )
+        for row in rows
+    ]
+
+
 def list_suggested_urls(*, team_id: int, days: int = 30, limit: int = 20) -> list[contracts.SuggestedUrlDTO]:
     rows = logic.list_suggested_urls(team_id=team_id, days=days, limit=limit)
     return [

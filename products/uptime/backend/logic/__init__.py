@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -15,6 +18,10 @@ from posthog.models.team.team import Team
 
 from ..facade.enums import PingOutcome
 from ..models import Monitor
+
+DailyStatus = Literal["up", "degraded", "down", "no_data"]
+OverallStatus = Literal["up", "down", "no_data"]
+DAILY_BUCKETS = 30
 
 
 def create_monitor(*, team_id: int, name: str, url: str) -> Monitor:
@@ -141,6 +148,140 @@ def record_ping(
             }
         ],
     )
+
+
+def list_monitor_summaries(*, team_id: int) -> list[dict]:
+    """One row per monitor with current status, uptime %, latency, last ping, and 30 daily buckets.
+
+    Pings are aggregated server-side in ClickHouse for the last 30 days. Monitors with no pings
+    show status='no_data' and uptime/latency=None — the UI renders them as "no data yet" tiles.
+    """
+    tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_monitor_summaries")
+
+    monitors = list(Monitor.objects.filter(team_id=team_id).order_by("-created_at"))
+    if not monitors:
+        return []
+
+    daily_rows = sync_execute(
+        """
+        SELECT
+            monitor_id,
+            toDate(timestamp) AS day,
+            count() AS total,
+            countIf(outcome = 'failure') AS failed,
+            avgIf(latency_ms, outcome = 'success') AS avg_latency
+        FROM uptime_pings
+        WHERE team_id = %(team_id)s
+          AND timestamp > now() - INTERVAL 30 DAY
+        GROUP BY monitor_id, day
+        """,
+        {"team_id": team_id},
+    )
+
+    latest_rows = sync_execute(
+        """
+        SELECT
+            monitor_id,
+            argMax(timestamp, timestamp) AS last_ping_at,
+            argMax(outcome, timestamp) AS last_outcome,
+            avgIf(latency_ms, outcome = 'success' AND timestamp > now() - INTERVAL 1 DAY) AS avg_latency_24h
+        FROM uptime_pings
+        WHERE team_id = %(team_id)s
+        GROUP BY monitor_id
+        """,
+        {"team_id": team_id},
+    )
+
+    per_monitor_days: dict[UUID, dict[date, dict]] = {}
+    for row in daily_rows:
+        monitor_id = UUID(str(row[0]))
+        day_value = row[1] if isinstance(row[1], date) else _to_date(row[1])
+        per_monitor_days.setdefault(monitor_id, {})[day_value] = {
+            "total": int(row[2]),
+            "failed": int(row[3]),
+            "avg_latency": float(row[4]) if row[4] is not None else None,
+        }
+
+    per_monitor_latest: dict[UUID, dict] = {}
+    for row in latest_rows:
+        monitor_id = UUID(str(row[0]))
+        per_monitor_latest[monitor_id] = {
+            "last_ping_at": row[1],
+            "last_outcome": row[2],
+            "avg_latency_24h": float(row[3]) if row[3] is not None else None,
+        }
+
+    today = timezone.now().astimezone(ZoneInfo("UTC")).date()
+    day_window = [today - timedelta(days=i) for i in reversed(range(DAILY_BUCKETS))]
+
+    summaries: list[dict] = []
+    for monitor in monitors:
+        days_for_monitor = per_monitor_days.get(monitor.id, {})
+        latest = per_monitor_latest.get(monitor.id)
+
+        daily_buckets: list[dict] = []
+        total_pings = 0
+        total_failed = 0
+        for day_value in day_window:
+            data = days_for_monitor.get(day_value)
+            if data is None:
+                daily_buckets.append({"date": day_value, "total": 0, "failed": 0, "status": "no_data"})
+            else:
+                total_pings += data["total"]
+                total_failed += data["failed"]
+                daily_buckets.append(
+                    {
+                        "date": day_value,
+                        "total": data["total"],
+                        "failed": data["failed"],
+                        "status": _day_status(data["total"], data["failed"]),
+                    }
+                )
+
+        uptime_30d = (total_pings - total_failed) / total_pings if total_pings else None
+
+        if latest and latest["last_outcome"]:
+            overall_status: OverallStatus = "up" if latest["last_outcome"] == PingOutcome.SUCCESS.value else "down"
+            last_ping_at = latest["last_ping_at"]
+            last_outcome = PingOutcome(latest["last_outcome"])
+            avg_latency_24h = int(latest["avg_latency_24h"]) if latest["avg_latency_24h"] is not None else None
+        else:
+            overall_status = "no_data"
+            last_ping_at = None
+            last_outcome = None
+            avg_latency_24h = None
+
+        summaries.append(
+            {
+                "id": monitor.id,
+                "name": monitor.name,
+                "url": monitor.url,
+                "created_at": monitor.created_at,
+                "status": overall_status,
+                "uptime_30d": uptime_30d,
+                "avg_latency_24h_ms": avg_latency_24h,
+                "last_ping_at": last_ping_at,
+                "last_ping_outcome": last_outcome,
+                "daily_buckets": daily_buckets,
+            }
+        )
+    return summaries
+
+
+def _day_status(total: int, failed: int) -> DailyStatus:
+    if total == 0:
+        return "no_data"
+    if failed == 0:
+        return "up"
+    if failed >= total:
+        return "down"
+    return "degraded"
+
+
+def _to_date(value: date | datetime) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    return value
 
 
 def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[dict]:

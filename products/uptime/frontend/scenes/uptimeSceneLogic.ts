@@ -34,6 +34,38 @@ export interface SuggestedUrl {
     last_seen: string
 }
 
+export type MonitorStatus = 'up' | 'down' | 'no_data'
+export type DailyStatus = 'up' | 'degraded' | 'down' | 'no_data'
+
+export interface DailyBucket {
+    date: string
+    total: number
+    failed: number
+    status: DailyStatus
+}
+
+export interface MonitorSummary {
+    id: string
+    name: string
+    url: string
+    created_at: string
+    status: MonitorStatus
+    uptime_30d: number | null
+    avg_latency_24h_ms: number | null
+    last_ping_at: string | null
+    last_ping_outcome: 'success' | 'failure' | null
+    daily_buckets: DailyBucket[]
+}
+
+export interface OverallStats {
+    total: number
+    operational: number
+    down: number
+    noData: number
+    avgUptime: number | null
+    avgLatencyMs: number | null
+}
+
 export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     path(['products', 'uptime', 'frontend', 'scenes', 'uptimeSceneLogic']),
 
@@ -82,11 +114,13 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     }),
 
     loaders(({ values }) => ({
-        monitors: [
-            [] as Monitor[],
+        monitorSummaries: [
+            [] as MonitorSummary[],
             {
-                loadMonitors: async () => {
-                    return await api.get<Monitor[]>(`api/projects/${values.currentProjectId}/uptime/monitors/`)
+                loadMonitorSummaries: async () => {
+                    return await api.get<MonitorSummary[]>(
+                        `api/projects/${values.currentProjectId}/uptime/monitors/summary/`
+                    )
                 },
             },
         ],
@@ -127,7 +161,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 lemonToast.success(`Monitor "${created.name}" created`)
                 actions.resetCreateMonitor()
                 actions.setCreateModalOpen(false)
-                actions.loadMonitors()
+                actions.loadMonitorSummaries()
                 actions.loadSuggestedUrls()
             },
         },
@@ -154,7 +188,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             )
             lemonToast.success(`Added ${created.length} monitor${created.length === 1 ? '' : 's'}`)
             actions.setSuggestModalOpen(false)
-            actions.loadMonitors()
+            actions.loadMonitorSummaries()
             actions.loadSuggestedUrls()
         },
     })),
@@ -184,10 +218,43 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                     .map((s) => ({ name: s.host, url: s.url }))
             },
         ],
+        overallStats: [
+            (s) => [s.monitorSummaries],
+            (summaries: MonitorSummary[]): OverallStats => {
+                const total = summaries.length
+                const operational = summaries.filter((m) => m.status === 'up').length
+                const down = summaries.filter((m) => m.status === 'down').length
+                const noData = summaries.filter((m) => m.status === 'no_data').length
+
+                // Ping-weighted uptime across all monitors: one rarely-pinged outlier can't drag
+                // the figure below a fleet of healthy high-volume monitors. Equivalent to
+                // (total successes) / (total checks) over the last 30 days.
+                let totalChecks = 0
+                let totalFailures = 0
+                for (const m of summaries) {
+                    for (const bucket of m.daily_buckets) {
+                        totalChecks += bucket.total
+                        totalFailures += bucket.failed
+                    }
+                }
+
+                const latencies = summaries.map((m) => m.avg_latency_24h_ms).filter((l): l is number => l !== null)
+                return {
+                    total,
+                    operational,
+                    down,
+                    noData,
+                    avgUptime: totalChecks > 0 ? (totalChecks - totalFailures) / totalChecks : null,
+                    avgLatencyMs: latencies.length
+                        ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
+                        : null,
+                }
+            },
+        ],
     }),
 
     afterMount(({ actions }) => {
-        actions.loadMonitors()
+        actions.loadMonitorSummaries()
         actions.loadSuggestedUrls()
     }),
 ])
