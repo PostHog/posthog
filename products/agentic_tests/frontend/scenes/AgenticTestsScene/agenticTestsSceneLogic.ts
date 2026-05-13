@@ -1,9 +1,16 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
+import {
+    agenticTestsActivateCreate,
+    agenticTestsDestroy,
+    agenticTestsList,
+    agenticTestsPauseCreate,
+    agenticTestsRejectCreate,
+    agenticTestsRunNowCreate,
+} from '../../generated/api'
 import {
     AgenticTestApi as AgenticTest,
     AgenticTestStatusEnumApi as AgenticTestStatus,
@@ -12,7 +19,14 @@ import type { agenticTestsSceneLogicType } from './agenticTestsSceneLogicType'
 
 export type StatusFilter = 'all' | 'active' | 'paused' | 'rejected'
 
-const baseUrl = (): string => `api/projects/${getCurrentTeamId()}/agentic_tests/`
+const STATUS_ORDER: Record<AgenticTestStatus, number> = {
+    active: 0,
+    paused: 1,
+    proposed: 2,
+    rejected: 3,
+}
+
+const projectId = (): string => String(getCurrentTeamId())
 
 export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
     path(['products', 'agentic_tests', 'frontend', 'scenes', 'AgenticTestsScene', 'agenticTestsSceneLogic']),
@@ -34,31 +48,31 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
             [] as AgenticTest[],
             {
                 loadTests: async () => {
-                    const response = await api.get<{ results: AgenticTest[] }>(baseUrl())
-                    return response.results
+                    const response = await agenticTestsList(projectId())
+                    return [...response.results]
                 },
             },
         ],
     }),
     listeners(({ actions }) => ({
         deleteTest: async ({ id }) => {
-            await api.delete(`${baseUrl()}${id}/`)
+            await agenticTestsDestroy(projectId(), id)
             actions.loadTests()
         },
         runNow: async ({ id }) => {
-            await api.create(`${baseUrl()}${id}/run_now/`, {})
+            await agenticTestsRunNowCreate(projectId(), id)
             actions.loadTests()
         },
         activateTest: async ({ id }) => {
-            await api.create(`${baseUrl()}${id}/activate/`, {})
+            await agenticTestsActivateCreate(projectId(), id)
             actions.loadTests()
         },
         pauseTest: async ({ id }) => {
-            await api.create(`${baseUrl()}${id}/pause/`, {})
+            await agenticTestsPauseCreate(projectId(), id)
             actions.loadTests()
         },
         rejectTest: async ({ id }) => {
-            await api.create(`${baseUrl()}${id}/reject/`, {})
+            await agenticTestsRejectCreate(projectId(), id)
             actions.loadTests()
         },
     })),
@@ -71,7 +85,7 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
             (s) => [s.tests, s.searchTerm, s.statusFilter],
             (tests: AgenticTest[], searchTerm: string, statusFilter: StatusFilter): AgenticTest[] => {
                 const search = searchTerm.trim().toLowerCase()
-                return tests.filter((t: AgenticTest) => {
+                const matches = tests.filter((t: AgenticTest) => {
                     if (t.status === 'proposed') {
                         return false
                     }
@@ -83,6 +97,9 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
                     }
                     return true
                 })
+                return matches.sort(
+                    (a, b) => STATUS_ORDER[a.status as AgenticTestStatus] - STATUS_ORDER[b.status as AgenticTestStatus]
+                )
             },
         ],
     }),

@@ -3,11 +3,19 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { AgenticTestAssertion, AgenticTestAssertionType, defaultAssertion } from '../../assertions'
+import {
+    agenticTestRunsList,
+    agenticTestsActivateCreate,
+    agenticTestsCreate,
+    agenticTestsPartialUpdate,
+    agenticTestsPauseCreate,
+    agenticTestsRetrieve,
+    agenticTestsRunNowCreate,
+} from '../../generated/api'
 import { AgenticTestApi, AgenticTestRunApi } from '../../generated/api.schemas'
 import type { agenticTestSceneLogicType } from './agenticTestSceneLogicType'
 
@@ -28,8 +36,7 @@ export interface AgenticTestSceneProps {
     id: string | 'new'
 }
 
-const baseUrl = (): string => `api/projects/${getCurrentTeamId()}/agentic_tests/`
-const runsUrl = (): string => `api/projects/${getCurrentTeamId()}/agentic_test_runs/`
+const projectId = (): string => String(getCurrentTeamId())
 
 const emptyDraft: AgenticTestDraft = {
     name: '',
@@ -68,7 +75,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     if (!props.id || props.id === 'new') {
                         return null
                     }
-                    return await api.get<AgenticTest>(`${baseUrl()}${props.id}/`)
+                    return (await agenticTestsRetrieve(projectId(), props.id)) as unknown as AgenticTest
                 },
             },
         ],
@@ -79,10 +86,8 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     if (!props.id || props.id === 'new') {
                         return []
                     }
-                    const response = await api.get<{ results: AgenticTestRun[] }>(
-                        `${runsUrl()}?agentic_test=${props.id}`
-                    )
-                    return response.results
+                    const response = await agenticTestRunsList(projectId(), { agentic_test: props.id })
+                    return [...response.results]
                 },
             },
         ],
@@ -104,9 +109,9 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     return
                 }
                 const isNew = !props.id || props.id === 'new'
-                const saved = isNew
-                    ? await api.create<AgenticTest>(baseUrl(), draft)
-                    : await api.update<AgenticTest>(`${baseUrl()}${props.id}/`, draft)
+                const saved = (isNew
+                    ? await agenticTestsCreate(projectId(), draft as any)
+                    : await agenticTestsPartialUpdate(projectId(), props.id, draft as any)) as unknown as AgenticTest
                 lemonToast.success(isNew ? 'Agentic test created' : 'Agentic test saved')
                 if (isNew && saved.id) {
                     router.actions.push(`/agentic_tests/${saved.id}`)
@@ -151,7 +156,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 lemonToast.warning('Save the test before running it')
                 return
             }
-            await api.create(`${baseUrl()}${props.id}/run_now/`, {})
+            await agenticTestsRunNowCreate(projectId(), props.id)
             lemonToast.success('Run queued — refreshing history')
             actions.loadRuns()
             actions.loadTest()
@@ -160,14 +165,14 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             if (!props.id || props.id === 'new') {
                 return
             }
-            await api.create(`${baseUrl()}${props.id}/activate/`, {})
+            await agenticTestsActivateCreate(projectId(), props.id)
             actions.loadTest()
         },
         pause: async () => {
             if (!props.id || props.id === 'new') {
                 return
             }
-            await api.create(`${baseUrl()}${props.id}/pause/`, {})
+            await agenticTestsPauseCreate(projectId(), props.id)
             actions.loadTest()
         },
     })),
