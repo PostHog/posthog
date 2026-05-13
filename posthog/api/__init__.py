@@ -1170,6 +1170,13 @@ environments_router.register(
 )
 
 projects_router.register(
+    r"conversations/channels",
+    conversations.ChatChannelViewSet,
+    "environment_conversations_channels",
+    ["team_id"],
+)
+
+projects_router.register(
     r"hog_function_templates",
     hog_function_template.PublicHogFunctionTemplateViewSet,
     "project_hog_function_templates",

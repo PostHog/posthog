@@ -148,6 +148,26 @@ export interface ChatMessage {
     isPrivate?: boolean
 }
 
+export interface ChatChannel {
+    id: string
+    name: string
+    description?: string
+    is_default: boolean
+    member_count: number
+    is_member: boolean
+    created_by?: { id: number; first_name?: string; email?: string } | null
+    created_at: string
+    updated_at: string
+}
+
+export interface ChatChannelMember {
+    id: number
+    first_name: string
+    last_name: string
+    email: string
+    joined_at: string
+}
+
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
     { value: 'all', label: 'All statuses' },
     { value: 'new', label: 'New' },

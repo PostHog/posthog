@@ -1,4 +1,5 @@
 from .assignment import TicketAssignment
+from .chat_channel import ChatChannel, ChatChannelMembership
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .email_message_mapping import EmailMessageMapping
 from .github_comment_mapping import GithubCommentMapping
@@ -12,6 +13,8 @@ from .ticket_view import TicketView
 __all__ = [
     "Channel",
     "ChannelDetail",
+    "ChatChannel",
+    "ChatChannelMembership",
     "ConversationRestoreToken",
     "EmailChannel",
     "EmailMessageMapping",

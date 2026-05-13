@@ -40,6 +40,8 @@ import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/Project
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
+import { ChannelsNavSection } from 'products/conversations/frontend/components/ChannelsNav/ChannelsNavSection'
+
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
 import { inlineEditAppsLogic } from './inlineEditAppsLogic'
@@ -316,6 +318,8 @@ export function NavTabBrowse(): JSX.Element {
                     </div>
                 </Collapsible.Panel>
             </Collapsible>
+
+            {!isLayoutNavCollapsed && <ChannelsNavSection />}
 
             {!isLayoutNavCollapsed && (
                 <Collapsible

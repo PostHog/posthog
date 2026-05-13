@@ -25,11 +25,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
+        ChannelDetail: {
+            name: 'Channel',
+            import: () => import('./frontend/scenes/channel/ChannelScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
     },
     routes: {
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
+        '/channels/:channelId': ['ChannelDetail', 'channelDetail'],
     },
     redirects: {
         '/support': '/support/tickets',
@@ -39,6 +46,7 @@ export const manifest: ProductManifest = {
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
         supportSettings: (): string => '/support/settings',
+        channelDetail: (channelId: string): string => `/channels/${channelId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
