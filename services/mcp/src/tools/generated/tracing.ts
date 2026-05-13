@@ -2,11 +2,13 @@
 import { z } from 'zod'
 
 import {
+    TracingSpansAggregateCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansTraceCreateBody,
     TracingSpansTraceCreateParams,
+    TracingSpansTreeCreateBody,
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
@@ -124,10 +126,54 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
         },
     })
 
+const ApmSpansAggregateSchema = TracingSpansAggregateCreateBody
+
+const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> => ({
+    name: 'apm-spans-aggregate',
+    schema: ApmSpansAggregateSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansAggregateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansTreeSchema = TracingSpansTreeCreateBody
+
+const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
+    name: 'apm-spans-tree',
+    schema: ApmSpansTreeSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansTreeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,
+    'apm-spans-aggregate': apmSpansAggregate,
+    'apm-spans-tree': apmSpansTree,
 }
