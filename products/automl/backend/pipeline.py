@@ -1,4 +1,4 @@
-"""End-to-end orchestration: load → train (AutoGluon + MLflow) → predict → write parquet."""
+"""End-to-end orchestration: load → train (AutoGluon) → predict → write parquet."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ logger = structlog.get_logger(__name__)
 @dataclass
 class PipelineResult:
     model_path: str
-    mlflow_run_id: str
     metrics: dict[str, float]
     predictions_path: str
     predictions_count: int
@@ -37,7 +36,6 @@ def run_end_to_end(
     test_fraction: float = 0.15,
     presets: str = "medium_quality",
     eval_metric: Optional[str] = None,
-    experiment_name: str = "automl-hackathon",
     s3_region: Optional[str] = None,
 ) -> PipelineResult:
     if model_dir is None:
@@ -71,7 +69,6 @@ def run_end_to_end(
             test_fraction=test_fraction,
             presets=presets,
             eval_metric=eval_metric,
-            experiment_name=experiment_name,
         )
 
         logger.info("phase_predict")
@@ -87,12 +84,10 @@ def run_end_to_end(
     logger.info(
         "pipeline_done",
         predictions_count=len(preds),
-        mlflow_run_id=result.mlflow_run_id,
         model_path=result.model_path,
     )
     return PipelineResult(
         model_path=result.model_path,
-        mlflow_run_id=result.mlflow_run_id,
         metrics=result.metrics,
         predictions_path=predictions_output,
         predictions_count=len(preds),

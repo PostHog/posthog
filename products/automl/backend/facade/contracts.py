@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from .enums import AutonomyLevel, Cadence, PipelineStatus, TaskType
+from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, TaskType
 
 
 class ValidationSeverity(StrEnum):
@@ -43,12 +43,69 @@ class AutoMLPipelineDTO:
     inference_cadence: Cadence
     retraining_cadence: Cadence
     output_property_name: str
-    # System-managed runtime state (bootstrap_task_id, mlflow_run_id, ...).
+    # System-managed runtime state (bootstrap_task_id, bootstrap_error, ...).
+    # Model version pointers live on AutoMLModelVersion.role, not here.
     # Read-only from the API — populated by the facade's lifecycle methods.
     runtime: dict[str, Any]
     created_by_id: int | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class AutoMLModelVersionDTO:
+    """The public shape of a trained model version on an AutoML pipeline.
+
+    One row per training run. ``id`` is what lands on emitted predictions as
+    ``$model_version_id``. ``role`` drives whether the version serves traffic
+    (champion), runs head-to-head (challenger), or is audit-only (archived).
+    """
+
+    id: UUID
+    pipeline_id: UUID
+    team_id: int
+    role: ModelRole
+    metrics: dict[str, Any]
+    leaderboard: list[dict[str, Any]]
+    training_params: dict[str, Any]
+    tracking_metadata: dict[str, Any]
+    eval_metric: str
+    problem_type: str
+    artifact_uri: str
+    features_hash: str
+    rows_train: int | None
+    rows_val: int | None
+    rows_test: int | None
+    training_task_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class RecordTrainingResultInput:
+    """Inputs for persisting a completed training run as an ``AutoMLModelVersion``.
+
+    Required: the metrics + leaderboard the trainer returned. Everything else is
+    optional — defaults keep early bootstrap producers (where we don't yet have
+    every field plumbed) viable without forcing them to fabricate values.
+
+    ``role`` defaults to ``challenger`` so a newly trained model never auto-takes
+    over from the existing champion. Promotion is a separate explicit step.
+    """
+
+    metrics: dict[str, Any]
+    leaderboard: list[dict[str, Any]]
+    role: ModelRole = ModelRole.CHALLENGER
+    training_params: dict[str, Any] = field(default_factory=dict)
+    tracking_metadata: dict[str, Any] = field(default_factory=dict)
+    eval_metric: str = ""
+    problem_type: str = ""
+    artifact_uri: str = ""
+    features_hash: str = ""
+    rows_train: int | None = None
+    rows_val: int | None = None
+    rows_test: int | None = None
+    training_task_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +154,10 @@ class PipelineNotFoundError(Exception):
 
 class PipelineStateTransitionError(Exception):
     """Raised when a status transition isn't allowed from the current state."""
+
+
+class ModelVersionNotFoundError(Exception):
+    """Raised by the facade when a model-version lookup misses (wrong team or wrong id)."""
 
 
 @dataclass(frozen=True)

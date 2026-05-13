@@ -19,8 +19,9 @@ from products.tasks.backend.models import Task
 from ..models import AutoMLPipeline
 
 # Placeholder orchestration brief. Replace with frozen-harness instructions once
-# the real training contract (evaluator scripts, recipe template, MLflow wiring)
-# lands. Keeping it terse so future diffs to this file show real intent changes.
+# the real training contract (evaluator scripts, recipe template, AutoMLModelVersion
+# persistence) lands. Keeping it terse so future diffs to this file show real intent
+# changes.
 _ORCHESTRATION_TEMPLATE = """\
 # AutoML bootstrap: {pipeline_name}
 
@@ -42,8 +43,8 @@ A future revision will:
 
 1. Pull the latest feature recipe from PostHog (HogQL via the `execute-sql` MCP tool).
 2. Run `products.automl.backend.training.trainer.train(...)` against a snapshot.
-3. Log the model + metrics to MLflow.
-4. Persist the champion `model_recipe.json` back to the pipeline.
+3. Persist the result via the AutoML facade's `record_training_result(...)`.
+4. Promote the champion via `promote_to_champion(...)` once gates pass.
 5. Emit predictions as `$automl_prediction` events.
 """
 
@@ -69,7 +70,7 @@ def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Tas
         # access to emit prediction events. Narrow scopes once the training contract
         # stabilizes — tracked in the security-audit follow-ups.
         posthog_mcp_scopes="full",
-        # AutoML produces MLflow + S3 artifacts, not git commits.
+        # AutoML produces model artifacts in object storage, not git commits.
         create_pr=False,
     )
 

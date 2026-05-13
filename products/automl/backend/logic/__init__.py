@@ -10,9 +10,11 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
+
 from ..facade import contracts
-from ..facade.enums import PipelineStatus
-from ..models import AutoMLPipeline
+from ..facade.enums import ModelRole, PipelineStatus
+from ..models import AutoMLModelVersion, AutoMLPipeline
 from .validation import run_validation
 
 __all__ = [
@@ -23,6 +25,10 @@ __all__ = [
     "transition_pipeline",
     "set_runtime",
     "run_validation",
+    "record_training_result",
+    "list_model_versions",
+    "get_active_model",
+    "promote_to_champion",
 ]
 
 # Allowed status transitions: source -> set of allowed destinations.
@@ -164,10 +170,104 @@ def transition_pipeline(
 def set_runtime(*, pipeline: AutoMLPipeline, **updates: Any) -> AutoMLPipeline:
     """Merge keys into the pipeline's `runtime` JSON and persist.
 
-    `runtime` is system-managed (bootstrap_task_id, mlflow_run_id, last_inference_at,
-    bootstrap_error, ...). User-configured intent lives in `config` — never touch
-    that from runtime paths.
+    `runtime` is system-managed (bootstrap_task_id, bootstrap_error,
+    last_inference_at, ...). Model version pointers live on
+    ``AutoMLModelVersion.role`` instead. User-configured intent lives in
+    `config` — never touch that from runtime paths.
     """
     pipeline.runtime = {**pipeline.runtime, **updates}
     pipeline.save(update_fields=["runtime", "updated_at"])
     return pipeline
+
+
+def record_training_result(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    params: contracts.RecordTrainingResultInput,
+) -> AutoMLModelVersion:
+    """Persist one trained model version on a pipeline.
+
+    Looks the pipeline up scoped to the team so cross-team writes fail closed.
+    Default role is challenger — promotion to champion is a separate explicit
+    step via ``promote_to_champion`` (and never happens implicitly here).
+    """
+    pipeline = get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
+    if pipeline is None:
+        raise contracts.PipelineNotFoundError(f"pipeline {pipeline_id} not found in team {team_id}")
+
+    return AutoMLModelVersion.objects.create(
+        team_id=team_id,
+        pipeline=pipeline,
+        role=params.role.value,
+        metrics=params.metrics,
+        leaderboard=params.leaderboard,
+        training_params=params.training_params,
+        tracking_metadata=params.tracking_metadata,
+        eval_metric=params.eval_metric,
+        problem_type=params.problem_type,
+        artifact_uri=params.artifact_uri,
+        features_hash=params.features_hash,
+        rows_train=params.rows_train,
+        rows_val=params.rows_val,
+        rows_test=params.rows_test,
+        training_task_id=params.training_task_id,
+    )
+
+
+def list_model_versions(*, team_id: int, pipeline_id: UUID) -> list[AutoMLModelVersion]:
+    """List every model version for a pipeline, newest first.
+
+    Returns archived versions too — they're part of the audit trail and `$model_version_id`
+    on past predictions still needs to resolve.
+    """
+    return list(AutoMLModelVersion.objects.filter(team_id=team_id, pipeline_id=pipeline_id).order_by("-created_at"))
+
+
+def get_active_model(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    role: ModelRole,
+) -> AutoMLModelVersion | None:
+    """Fetch the version currently holding a role on a pipeline.
+
+    The partial unique constraint enforces at-most-one active version per
+    (pipeline, role) so `.first()` is the only possible answer.
+    """
+    return AutoMLModelVersion.objects.filter(team_id=team_id, pipeline_id=pipeline_id, role=role.value).first()
+
+
+def promote_to_champion(*, team_id: int, model_version_id: UUID) -> AutoMLModelVersion:
+    """Make ``model_version_id`` the champion for its pipeline.
+
+    Atomic: in one transaction, the current champion (if any and different)
+    is archived first, then the target version's role is set to champion.
+    The partial unique constraint on (pipeline, role) means concurrent
+    promotions to the same pipeline fail-closed at the DB layer rather than
+    racing to two champions.
+
+    No-op if the target is already the champion. Promotion from any starting
+    role is allowed (challenger → champion, archived → champion) — the
+    audit trail comes from the archived row, not from the transition path.
+    """
+    with transaction.atomic():
+        target = AutoMLModelVersion.objects.select_for_update().filter(team_id=team_id, id=model_version_id).first()
+        if target is None:
+            raise contracts.ModelVersionNotFoundError(f"model version {model_version_id} not found in team {team_id}")
+
+        if target.role == ModelRole.CHAMPION.value:
+            return target
+
+        current_champion = (
+            AutoMLModelVersion.objects.select_for_update()
+            .filter(team_id=team_id, pipeline_id=target.pipeline_id, role=ModelRole.CHAMPION.value)
+            .first()
+        )
+        if current_champion is not None and current_champion.id != target.id:
+            current_champion.role = ModelRole.ARCHIVED.value
+            current_champion.save(update_fields=["role", "updated_at"])
+
+        target.role = ModelRole.CHAMPION.value
+        target.save(update_fields=["role", "updated_at"])
+        return target

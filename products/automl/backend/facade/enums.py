@@ -46,3 +46,20 @@ class Cadence(StrEnum):
     WEEKLY = "weekly"
     MONTHLY = "monthly"
     NEVER = "never"
+
+
+class ModelRole(StrEnum):
+    """Lifecycle role of a trained model version on a pipeline.
+
+    Champion is the model whose predictions update person/group properties
+    and drive derived cohorts. Challenger runs head-to-head against the
+    champion (event-only emission). Archived rows are kept for audit /
+    `$model_version_id` provenance on past predictions but never serve traffic.
+
+    See `io-spec.md` in the `/phs automl` skill: ``model_recipe.json``
+    is "Versioned per training run, role-tagged (champion/challenger/archived)".
+    """
+
+    CHAMPION = "champion"
+    CHALLENGER = "challenger"
+    ARCHIVED = "archived"

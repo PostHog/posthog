@@ -1,6 +1,6 @@
 # AutoML hackathon prototype
 
-End-to-end pipeline: **DuckDB → Polars → AutoGluon → MLflow → predictions parquet**, with HogQL feature pulls from any PostHog tenant.
+End-to-end pipeline: **DuckDB → Polars → AutoGluon → predictions parquet**, with HogQL feature pulls from any PostHog tenant.
 
 ## Layout
 
@@ -16,7 +16,7 @@ products/automl/
     │   ├── posthog_source.py # HogQL via public API + personal API key (no Django)
     │   └── synthetic.py      # per-user fixture with a binary churn target
     ├── training/
-    │   └── trainer.py        # AutoGluon TabularPredictor + MLflow + train/val/test split
+    │   └── trainer.py        # AutoGluon TabularPredictor + train/val/test split
     ├── inference/
     │   └── predictor.py      # load model, predict_batch, write parquet
     ├── pipeline.py           # run_end_to_end orchestration
@@ -31,7 +31,7 @@ This product is a `uv` workspace member. ML deps live in `products/automl/pyproj
 uv sync --package automl
 ```
 
-Pulls in `autogluon.tabular[catboost,fastai,lightgbm,xgboost]`, `mlflow`, `torch`, `polars`, `duckdb`, `pyarrow`, `requests`, `structlog`, `click`. First install is large (~2 GB) and takes a few minutes.
+Pulls in `autogluon.tabular[catboost,fastai,lightgbm,xgboost]`, `torch`, `polars`, `duckdb`, `pyarrow`, `requests`, `structlog`, `click`. First install is large (~2 GB) and takes a few minutes.
 
 ## CLI overview
 
@@ -55,7 +55,7 @@ python -m products.automl.backend.cli run \
   --time-limit-s 30
 ```
 
-The `run` command prints a JSON result with `model_path`, `mlflow_run_id`, `metrics`, `predictions_path`, `predictions_count`. Structured logs (`pipeline_start`, `train_split`, `training_complete`, `pipeline_done`, etc.) go to stderr.
+The `run` command prints a JSON result with `model_path`, `metrics`, `predictions_path`, `predictions_count`. Structured logs (`pipeline_start`, `train_split`, `training_complete`, `pipeline_done`, etc.) go to stderr.
 
 ## Pull real features from any PostHog tenant via HogQL
 
@@ -106,23 +106,22 @@ python -m products.automl.backend.cli run \
 
 ### `run` flags
 
-| Flag                   | Default            | Notes                                                                                |
-| ---------------------- | ------------------ | ------------------------------------------------------------------------------------ |
-| `--train-parquet`      | (required)         | Path or `s3://` URL.                                                                 |
-| `--target`             | (required)         | Target column name.                                                                  |
-| `--predictions-output` | (required)         | Path or `s3://` URL for predictions parquet.                                         |
-| `--id-column`          | `user_id`          | Carried through to predictions.                                                      |
-| `--model-dir`          | tempdir            | Where the AutoGluon model is persisted.                                              |
-| `--where`              | unset              | Optional SQL WHERE applied during parquet load (caller-controlled, no sanitization). |
-| `--time-limit-s`       | `60`               | AutoGluon training budget. Set low for pipecleaning.                                 |
-| `--val-fraction`       | `0.15`             | Validation fraction → AutoGluon `tuning_data`.                                       |
-| `--test-fraction`      | `0.15`             | Final held-out test fraction, used only for leaderboard scoring.                     |
-| `--presets`            | `medium_quality`   | AutoGluon preset.                                                                    |
-| `--eval-metric`        | auto               | E.g. `roc_auc` for imbalanced targets like weekly/biweekly churn.                    |
-| `--experiment-name`    | `automl-hackathon` | MLflow experiment.                                                                   |
-| `--s3-region`          | unset              | Override AWS region.                                                                 |
+| Flag                   | Default          | Notes                                                                                |
+| ---------------------- | ---------------- | ------------------------------------------------------------------------------------ |
+| `--train-parquet`      | (required)       | Path or `s3://` URL.                                                                 |
+| `--target`             | (required)       | Target column name.                                                                  |
+| `--predictions-output` | (required)       | Path or `s3://` URL for predictions parquet.                                         |
+| `--id-column`          | `user_id`        | Carried through to predictions.                                                      |
+| `--model-dir`          | tempdir          | Where the AutoGluon model is persisted.                                              |
+| `--where`              | unset            | Optional SQL WHERE applied during parquet load (caller-controlled, no sanitization). |
+| `--time-limit-s`       | `60`             | AutoGluon training budget. Set low for pipecleaning.                                 |
+| `--val-fraction`       | `0.15`           | Validation fraction → AutoGluon `tuning_data`.                                       |
+| `--test-fraction`      | `0.15`           | Final held-out test fraction, used only for leaderboard scoring.                     |
+| `--presets`            | `medium_quality` | AutoGluon preset.                                                                    |
+| `--eval-metric`        | auto             | E.g. `roc_auc` for imbalanced targets like weekly/biweekly churn.                    |
+| `--s3-region`          | unset            | Override AWS region.                                                                 |
 
-Split semantics: shuffled 70/15/15 by default. The val frame is passed to AutoGluon as `tuning_data` (used internally for HPO + model selection / stacking). The test frame is held out completely and only used to score the final leaderboard reported in the result + MLflow. Class counts are logged on every run (`train_class_counts` in the `train_split` log line).
+Split semantics: shuffled 70/15/15 by default. The val frame is passed to AutoGluon as `tuning_data` (used internally for HPO + model selection / stacking). The test frame is held out completely and only used to score the final leaderboard reported in the result. Class counts are logged on every run (`train_class_counts` in the `train_split` log line).
 
 ## Swap in real S3 data
 
@@ -137,19 +136,6 @@ python -m products.automl.backend.cli run \
 DuckDB authenticates via the standard AWS credential chain (env vars, `~/.aws/credentials`, IAM role). For glob patterns or partitioned datasets, point at the directory (`s3://bucket/path/`) — DuckDB's `read_parquet` accepts paths and globs.
 
 For Postgres-resident features, instantiate `DataLoader(postgres_connection="host=… dbname=… user=… password=…")` and use `loader.query("SELECT … FROM pg.public.users JOIN read_parquet('s3://…')")` — DuckDB stitches both sources in one query.
-
-## View MLflow runs
-
-MLflow defaults to a local file backend at `./mlruns/`:
-
-```bash
-mlflow ui
-# open http://127.0.0.1:5000
-```
-
-Each run logs: target, row counts (total/train/val/test), val and test fractions, presets, time limit, eval metric, number of features, plus per-model leaderboard metrics on the test set (`best_*`). The AutoGluon model directory and full leaderboard JSON are attached as artifacts.
-
-To send runs to a remote tracking server, export `MLFLOW_TRACKING_URI` before running the CLI.
 
 ## Tuning levers for large-org HogQL queries
 

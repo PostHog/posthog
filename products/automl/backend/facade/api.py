@@ -11,14 +11,38 @@ from __future__ import annotations
 from uuid import UUID
 
 from .. import logic
-from ..models import AutoMLPipeline
+from ..models import AutoMLModelVersion, AutoMLPipeline
 from ..training import bootstrap
 from . import contracts
-from .enums import AutonomyLevel, Cadence, PipelineStatus, TaskType
+from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, TaskType
 
 # Re-export domain exceptions so callers don't have to dig into contracts.
 PipelineNotFoundError = contracts.PipelineNotFoundError
 PipelineStateTransitionError = contracts.PipelineStateTransitionError
+ModelVersionNotFoundError = contracts.ModelVersionNotFoundError
+
+
+def _version_to_dto(obj: AutoMLModelVersion) -> contracts.AutoMLModelVersionDTO:
+    return contracts.AutoMLModelVersionDTO(
+        id=obj.id,
+        pipeline_id=obj.pipeline_id,  # type: ignore[attr-defined]
+        team_id=obj.team_id,
+        role=ModelRole(obj.role),
+        metrics=obj.metrics,
+        leaderboard=obj.leaderboard,
+        training_params=obj.training_params,
+        tracking_metadata=obj.tracking_metadata,
+        eval_metric=obj.eval_metric,
+        problem_type=obj.problem_type,
+        artifact_uri=obj.artifact_uri,
+        features_hash=obj.features_hash,
+        rows_train=obj.rows_train,
+        rows_val=obj.rows_val,
+        rows_test=obj.rows_test,
+        training_task_id=obj.training_task_id,
+        created_at=obj.created_at,
+        updated_at=obj.updated_at,
+    )
 
 
 def _to_dto(obj: AutoMLPipeline) -> contracts.AutoMLPipelineDTO:
@@ -123,6 +147,68 @@ def archive(*, team_id: int, pipeline_id: UUID) -> contracts.AutoMLPipelineDTO:
     """Soft-delete a pipeline by transitioning to ``ARCHIVED``. Raises if not found or already archived."""
     obj = logic.transition_pipeline(team_id=team_id, pipeline_id=pipeline_id, new_status=PipelineStatus.ARCHIVED)
     return _to_dto(obj)
+
+
+def record_training_result(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    params: contracts.RecordTrainingResultInput,
+) -> contracts.AutoMLModelVersionDTO:
+    """Persist a completed training run as an ``AutoMLModelVersion``.
+
+    Called by the orchestration agent (or a future Temporal activity) when
+    a training run finishes. Default role is challenger — promotion to
+    champion is a separate explicit step. Raises ``PipelineNotFoundError``
+    if the pipeline doesn't exist on the team.
+    """
+    obj = logic.record_training_result(team_id=team_id, pipeline_id=pipeline_id, params=params)
+    return _version_to_dto(obj)
+
+
+def list_model_versions(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+) -> list[contracts.AutoMLModelVersionDTO]:
+    """List every model version for a pipeline, newest first.
+
+    Archived versions are included — they're part of the audit trail and the
+    ``$model_version_id`` on past predictions still needs to resolve.
+    """
+    return [_version_to_dto(obj) for obj in logic.list_model_versions(team_id=team_id, pipeline_id=pipeline_id)]
+
+
+def get_active_model(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    role: ModelRole,
+) -> contracts.AutoMLModelVersionDTO | None:
+    """Fetch the version currently holding a role on a pipeline.
+
+    Returns ``None`` when no version holds that role. The partial unique
+    constraint guarantees at most one champion and one challenger per
+    pipeline.
+    """
+    obj = logic.get_active_model(team_id=team_id, pipeline_id=pipeline_id, role=role)
+    return _version_to_dto(obj) if obj else None
+
+
+def promote_to_champion(
+    *,
+    team_id: int,
+    model_version_id: UUID,
+) -> contracts.AutoMLModelVersionDTO:
+    """Make ``model_version_id`` the champion for its pipeline.
+
+    Atomic two-step: the existing champion (if any and different) is archived
+    in the same transaction the target version is set to champion. No-op if
+    the target is already the champion. Raises
+    ``ModelVersionNotFoundError`` if the version doesn't belong to the team.
+    """
+    obj = logic.promote_to_champion(team_id=team_id, model_version_id=model_version_id)
+    return _version_to_dto(obj)
 
 
 def validate(

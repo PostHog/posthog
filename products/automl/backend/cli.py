@@ -198,7 +198,6 @@ def generate_fixture(output_path: str, n_users: int, seed: int) -> None:
 )
 @click.option("--presets", default="medium_quality", show_default=True)
 @click.option("--eval-metric", default=None, help="AutoGluon eval metric (auto if omitted).")
-@click.option("--experiment-name", default="automl-hackathon", show_default=True)
 @click.option("--s3-region", default=None, help="Override AWS region for S3 reads/writes.")
 def run(
     train_parquet: str,
@@ -212,7 +211,6 @@ def run(
     test_fraction: float,
     presets: str,
     eval_metric: Optional[str],
-    experiment_name: str,
     s3_region: Optional[str],
 ) -> None:
     """Load → train → predict → write parquet."""
@@ -228,7 +226,6 @@ def run(
         test_fraction=test_fraction,
         presets=presets,
         eval_metric=eval_metric,
-        experiment_name=experiment_name,
         s3_region=s3_region,
     )
     click.echo(json.dumps(asdict(result), indent=2, default=str))

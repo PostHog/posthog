@@ -86,7 +86,7 @@ def test_enqueue_bootstrap_training_passes_canonical_args(team, user):
     assert kwargs["mode"] == "background"
     # Full MCP scopes during stub phase — narrowing is a security-audit follow-up.
     assert kwargs["posthog_mcp_scopes"] == "full"
-    # No PR — model artifacts go to MLflow + S3, not git.
+    # No PR — model artifacts go to object storage, not git.
     assert kwargs["create_pr"] is False
     # Team + user threading.
     assert kwargs["team"].id == team.id

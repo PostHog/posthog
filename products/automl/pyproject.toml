@@ -1,12 +1,11 @@
 [project]
 name = "automl"
 version = "0.1.0"
-description = "AutoML hackathon prototype: DuckDB → Polars → AutoGluon → MLflow"
+description = "AutoML hackathon prototype: DuckDB → Polars → AutoGluon"
 readme = "README.md"
 requires-python = "==3.12.12"
 dependencies = [
     "autogluon-tabular[catboost,fastai,lightgbm,xgboost]>=1.2",
-    "mlflow>=2.18",
     "polars>=1.37",
     "duckdb>=1.5",
     "pyarrow>=18.1",

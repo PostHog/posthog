@@ -2066,6 +2066,8 @@ importers:
 
   products/analytics_platform: {}
 
+  products/automl: {}
+
   products/batch_exports: {}
 
   products/business_knowledge:
