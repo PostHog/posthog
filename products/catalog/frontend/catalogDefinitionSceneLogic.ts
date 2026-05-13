@@ -8,8 +8,17 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { catalogNodesPartialUpdate, catalogNodesRetrieve } from 'products/catalog/frontend/generated/api'
-import type { CatalogNodeDTOApi, PatchedUpdateNodeInputApi } from 'products/catalog/frontend/generated/api.schemas'
+import {
+    catalogColumnsPartialUpdate,
+    catalogNodesPartialUpdate,
+    catalogNodesRetrieve,
+} from 'products/catalog/frontend/generated/api'
+import type {
+    CatalogColumnDTOApi,
+    CatalogNodeDTOApi,
+    PatchedUpdateColumnInputApi,
+    PatchedUpdateNodeInputApi,
+} from 'products/catalog/frontend/generated/api.schemas'
 
 import type { catalogDefinitionSceneLogicType } from './catalogDefinitionSceneLogicType'
 
@@ -29,6 +38,10 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
         setEdits: (edits: PatchedUpdateNodeInputApi) => ({ edits }),
         clearEdits: true,
         saveDefinition: true,
+        setColumnEdits: (columnId: string, edits: PatchedUpdateColumnInputApi) => ({ columnId, edits }),
+        clearColumnEdits: (columnId: string) => ({ columnId }),
+        saveColumn: (columnId: string) => ({ columnId }),
+        replaceColumn: (column: CatalogColumnDTOApi) => ({ column }),
     }),
 
     loaders(({ values, props }) => ({
@@ -50,6 +63,33 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
                 clearEdits: () => ({}),
             },
         ],
+        pendingColumnEdits: [
+            {} as Record<string, PatchedUpdateColumnInputApi>,
+            {
+                setColumnEdits: (state, { columnId, edits }) => ({
+                    ...state,
+                    [columnId]: { ...state[columnId], ...edits },
+                }),
+                clearColumnEdits: (state, { columnId }) => {
+                    const next = { ...state }
+                    delete next[columnId]
+                    return next
+                },
+            },
+        ],
+        definition: {
+            // Swap a column row in-place after a successful column save so the
+            // table reflects the new values without a full refetch.
+            replaceColumn: (state, { column }) => {
+                if (!state) {
+                    return state
+                }
+                return {
+                    ...state,
+                    columns: state.columns.map((c) => (c.id === column.id ? column : c)),
+                }
+            },
+        },
     }),
 
     selectors({
@@ -79,6 +119,20 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
                 lemonToast.success('Definition saved')
             } catch (error) {
                 lemonToast.error(`Failed to save definition: ${(error as Error).message}`)
+            }
+        },
+        saveColumn: async ({ columnId }) => {
+            const edits = values.pendingColumnEdits[columnId]
+            if (!edits || Object.keys(edits).length === 0) {
+                return
+            }
+            try {
+                const updated = await catalogColumnsPartialUpdate(String(values.currentProjectId), columnId, edits)
+                actions.replaceColumn(updated)
+                actions.clearColumnEdits(columnId)
+                lemonToast.success(`Column ${updated.name} saved`)
+            } catch (error) {
+                lemonToast.error(`Failed to save column: ${(error as Error).message}`)
             }
         },
     })),
