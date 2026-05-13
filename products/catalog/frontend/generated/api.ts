@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CatalogColumnDTOApi,
+    CatalogGraphDTOApi,
     CatalogNodeDTOApi,
     CatalogNodesListParams,
     CatalogRelationshipDTOApi,
@@ -167,6 +168,23 @@ export const catalogNodesPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateNodeInputApi),
+    })
+}
+
+export const getCatalogNodesGraphRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/nodes/graph/`
+}
+
+/**
+ * Return all nodes plus relationships for the team in one payload — drives the graph view.
+ */
+export const catalogNodesGraphRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CatalogGraphDTOApi> => {
+    return apiMutator<CatalogGraphDTOApi>(getCatalogNodesGraphRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

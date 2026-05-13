@@ -1,5 +1,6 @@
 {
     "products": [
+        { "path": "Catalog", "category": "Unreleased", "iconType": null, "type": null, "intents": ["catalog"] },
         {
             "path": "Web scripts",
             "category": "Tools",

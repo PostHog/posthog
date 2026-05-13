@@ -15,7 +15,7 @@ pass.
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import CatalogColumnDTO, CatalogNodeDTO, CatalogRelationshipDTO
+from ..facade.contracts import CatalogColumnDTO, CatalogGraphDTO, CatalogNodeDTO, CatalogRelationshipDTO
 
 # --- Output serializers -------------------------------------------------------
 
@@ -38,6 +38,17 @@ class CatalogNodeDTOSerializer(DataclassSerializer):
 class CatalogRelationshipDTOSerializer(DataclassSerializer):
     class Meta:
         dataclass = CatalogRelationshipDTO
+
+
+class CatalogGraphDTOSerializer(DataclassSerializer):
+    """Bundles nodes and relationships for the graph view. Drives the React Flow scene
+    so the client can render the whole topology in one fetch."""
+
+    nodes = CatalogNodeDTOSerializer(many=True, read_only=True)
+    relationships = CatalogRelationshipDTOSerializer(many=True, read_only=True)
+
+    class Meta:
+        dataclass = CatalogGraphDTO
 
 
 # --- Input serializers --------------------------------------------------------

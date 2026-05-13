@@ -25,6 +25,7 @@ from uuid import UUID
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -42,6 +43,7 @@ from ..facade.contracts import (
 )
 from .serializers import (
     CatalogColumnDTOSerializer,
+    CatalogGraphDTOSerializer,
     CatalogNodeDTOSerializer,
     CatalogRelationshipDTOSerializer,
     ProposeRelationshipInputSerializer,
@@ -74,14 +76,24 @@ class CatalogNodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "catalog"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "graph"]
     scope_object_write_actions = ["create", "partial_update"]
 
     @extend_schema(responses={200: CatalogNodeDTOSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
         """List all catalog nodes for the team, ordered by business domain then name."""
         nodes = catalog_api.CatalogAPI.list_nodes(cast(int, self.team_id))
+        page = self.paginate_queryset(nodes)
+        if page is not None:
+            return self.get_paginated_response(CatalogNodeDTOSerializer(instance=page, many=True).data)
         return Response(CatalogNodeDTOSerializer(instance=nodes, many=True).data)
+
+    @extend_schema(responses={200: CatalogGraphDTOSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def graph(self, request: Request, **kwargs) -> Response:
+        """Return all nodes plus relationships for the team in one payload — drives the graph view."""
+        graph = catalog_api.CatalogAPI.get_graph(cast(int, self.team_id))
+        return Response(CatalogGraphDTOSerializer(instance=graph).data)
 
     @extend_schema(parameters=[_NODE_ID_PARAM], responses={200: CatalogNodeDTOSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:

@@ -6271,6 +6271,7 @@ export enum ProductKey {
     ACTIONS = 'actions',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    CATALOG = 'catalog',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
