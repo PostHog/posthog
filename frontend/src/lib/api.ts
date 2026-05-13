@@ -5785,6 +5785,11 @@ const api = {
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
         },
+        async dependentHogFunctions(
+            integrationId: IntegrationType['id']
+        ): Promise<{ id: string; name: string; enabled: boolean; type: string }[]> {
+            return await new ApiRequest().integration(integrationId).withAction('dependent_hog_functions').get()
+        },
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },

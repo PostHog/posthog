@@ -2,6 +2,7 @@ import re
 import hmac
 import json
 import time
+import uuid
 import hashlib
 from datetime import timedelta
 
@@ -18,6 +19,7 @@ from rest_framework import status
 
 from posthog.api.integration import IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -2935,3 +2937,161 @@ class TestAnthropicIntegration:
         body = response.json()
         assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
         assert body["has_more"] is False
+
+
+class TestIntegrationDeletionDisablesHogFunctions:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token"},
+        )
+
+    def _create_hog_function(self, integration_id: int, *, enabled: bool = True, deleted: bool = False) -> HogFunction:
+        return HogFunction.objects.create(
+            id=uuid.uuid4(),
+            team=self.team,
+            name=f"Alert using integration {integration_id}",
+            hog="return event",
+            type="internal_destination",
+            enabled=enabled,
+            deleted=deleted,
+            inputs={"slack": {"value": integration_id}},
+            inputs_schema=[{"key": "slack", "type": "integration", "required": True}],
+        )
+
+    def test_deleting_integration_disables_dependent_hog_functions(self, client: HttpClient):
+        hf = self._create_hog_function(self.integration.id)
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        hf.refresh_from_db()
+        assert hf.enabled is False
+
+    def test_deleting_integration_does_not_affect_unrelated_hog_functions(self, client: HttpClient):
+        other_integration = Integration.objects.create(
+            team=self.team,
+            kind="linear",
+            config={},
+            sensitive_config={},
+        )
+        hf_other = self._create_hog_function(other_integration.id)
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        hf_other.refresh_from_db()
+        assert hf_other.enabled is True
+
+    def test_deleting_integration_skips_already_deleted_hog_functions(self, client: HttpClient):
+        hf_deleted = self._create_hog_function(self.integration.id, deleted=True)
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        hf_deleted.refresh_from_db()
+        # Should remain unchanged — already soft-deleted
+        assert hf_deleted.enabled is True
+        assert hf_deleted.deleted is True
+
+    def test_deleting_integration_skips_already_disabled_hog_functions(self, client: HttpClient):
+        hf_disabled = self._create_hog_function(self.integration.id, enabled=False)
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        hf_disabled.refresh_from_db()
+        assert hf_disabled.enabled is False
+
+    def test_deleting_integration_disables_multiple_dependent_functions(self, client: HttpClient):
+        hf1 = self._create_hog_function(self.integration.id)
+        hf2 = self._create_hog_function(self.integration.id)
+        hf1.name = "First alert"
+        hf1.save()
+        hf2.name = "Second alert"
+        hf2.save()
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        hf1.refresh_from_db()
+        hf2.refresh_from_db()
+        assert hf1.enabled is False
+        assert hf2.enabled is False
+
+    def test_dependent_hog_functions_endpoint_returns_functions(self, client: HttpClient):
+        hf = self._create_hog_function(self.integration.id)
+
+        client.force_login(self.user)
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/dependent_hog_functions/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == str(hf.id)
+        assert data[0]["name"] == hf.name
+        assert data[0]["enabled"] is True
+        assert data[0]["type"] == "internal_destination"
+
+    def test_dependent_hog_functions_endpoint_excludes_deleted(self, client: HttpClient):
+        self._create_hog_function(self.integration.id, deleted=True)
+
+        client.force_login(self.user)
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/dependent_hog_functions/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 0
+
+    def test_dependent_hog_functions_endpoint_returns_empty_when_none(self, client: HttpClient):
+        client.force_login(self.user)
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/dependent_hog_functions/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_deleting_integration_does_not_affect_other_teams(self, client: HttpClient):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            config={},
+            sensitive_config={},
+        )
+        # Create a function on the other team that happens to reference the same integration ID
+        hf_other_team = HogFunction.objects.create(
+            id=uuid.uuid4(),
+            team=other_team,
+            name="Other team alert",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            inputs={"slack": {"value": self.integration.id}},
+            inputs_schema=[{"key": "slack", "type": "integration", "required": True}],
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        hf_other_team.refresh_from_db()
+        assert hf_other_team.enabled is True

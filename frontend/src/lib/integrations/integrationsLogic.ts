@@ -355,10 +355,21 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
+            let dependentFunctions: { id: string; name: string; enabled: boolean; type: string }[] = []
+            try {
+                dependentFunctions = await api.integrations.dependentHogFunctions(id)
+            } catch {
+                // If the endpoint fails, proceed without the list
+            }
+
+            const enabledDependents = dependentFunctions.filter((f) => f.enabled)
+            const description = enabledDependents.length
+                ? `The following destinations will be disabled:\n\n${enabledDependents.map((f) => `• ${f.name}`).join('\n')}\n\nThis cannot be undone.`
+                : 'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.'
+
             LemonDialog.open({
                 title: `Do you want to disconnect from this ${integration.kind} integration?`,
-                description:
-                    'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+                description,
                 primaryButton: {
                     children: 'Yes, disconnect',
                     status: 'danger',

@@ -614,6 +614,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "dependent_hog_functions",
     ]
     scope_object_write_actions = [
         "create",
@@ -647,7 +648,30 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def perform_destroy(self, instance) -> None:
+    @staticmethod
+    def _get_dependent_hog_functions(integration: Integration) -> list:
+        """Find active hog functions that reference this integration ID in their inputs."""
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        candidates = HogFunction.objects.filter(
+            team=integration.team,
+            deleted=False,
+        )
+
+        integration_id = integration.id
+        return [
+            hf
+            for hf in candidates
+            if hf.inputs
+            and any(
+                isinstance(input_val, dict) and input_val.get("value") == integration_id
+                for input_val in hf.inputs.values()
+            )
+        ]
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
@@ -655,7 +679,46 @@ class IntegrationViewSet(
             except Exception as e:
                 capture_exception(e)
 
-        super().perform_destroy(instance)
+        # Find and disable any hog functions that depend on this integration.
+        dependent_functions = self._get_dependent_hog_functions(instance)
+        disabled_functions = [hf for hf in dependent_functions if hf.enabled]
+
+        if disabled_functions:
+            from posthog.models.hog_functions.hog_function import HogFunction
+
+            function_ids = [hf.id for hf in disabled_functions]
+            HogFunction.objects.filter(id__in=function_ids).update(enabled=False)
+            logger.info(
+                "Disabled hog functions dependent on deleted integration",
+                integration_id=instance.id,
+                integration_kind=instance.kind,
+                disabled_count=len(function_ids),
+                function_ids=[str(fid) for fid in function_ids],
+            )
+
+        instance.delete()
+
+        return Response(status=204)
+
+    @extend_schema(
+        responses={200: None},
+        description="List hog functions that depend on this integration and would be disabled if it is deleted.",
+    )
+    @action(methods=["GET"], detail=True)
+    def dependent_hog_functions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        dependent = self._get_dependent_hog_functions(instance)
+        return Response(
+            [
+                {
+                    "id": str(hf.id),
+                    "name": hf.name,
+                    "enabled": hf.enabled,
+                    "type": hf.type,
+                }
+                for hf in dependent
+            ]
+        )
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
