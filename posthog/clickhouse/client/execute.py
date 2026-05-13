@@ -343,6 +343,11 @@ def sync_execute(
     # Only enable if not explicitly disabled — setdefault preserves existing value
     if team_id is not None and is_enable_analyzer_team(team_id):
         core_settings.setdefault("enable_analyzer", 1)
+    elif TEST:
+        # Exercise the new analyzer in the test suite. Applied at the top level so
+        # nested HogQL settings clauses don't trigger ClickHouse error 80
+        # ("Setting 'enable_analyzer' is changed in the subquery").
+        core_settings.setdefault("enable_analyzer", 1)
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
