@@ -66,6 +66,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.deployments",
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
