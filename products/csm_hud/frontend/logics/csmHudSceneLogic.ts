@@ -88,12 +88,13 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
     })),
     actions({
         setRenewalsPlanFilter: (filter: 'all' | 'annual') => ({ filter }),
+        setCsmFilter: (email: string) => ({ email }),
     }),
     reducers({
         renewalsPlanFilter: ['annual' as 'all' | 'annual', { setRenewalsPlanFilter: (_, { filter }) => filter }],
+        csmFilter: ['', { setCsmFilter: (_, { email }) => email }],
     }),
     selectors({
-        csmEmail: [(s) => [s.user], (user): string | null => user?.email ?? null],
         // TODO restore before merge: gate behind FEATURE_FLAGS.SCENE_CSM_HUD + is_staff + @posthog.com
         canAccess: [() => [], (): boolean => true],
     }),
@@ -102,16 +103,18 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
             [] as FleetRow[],
             {
                 loadFleet: async () => {
-                    const csmEmail = values.csmEmail
-                    if (!csmEmail || !values.canAccess) {
+                    if (!values.canAccess) {
                         return []
                     }
+                    const trimmed = values.csmFilter.trim()
+                    // Empty filter → match every account that has any CSM assigned.
+                    // `%` is a wildcard, so `LIKE '%'` is a no-op constraint kept
+                    // in the query just to avoid two SQL variants.
+                    const pattern = trimmed === '' ? '%' : `%"email":"${trimmed}"%`
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
                         query: FLEET_SQL,
-                        values: {
-                            csmPattern: `%"email":"${csmEmail}"%`,
-                        },
+                        values: { csmPattern: pattern },
                     }
                     const response = await api.query(query)
                     return (response.results ?? []).map(mapFleetRow)
@@ -173,6 +176,9 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                 actions.loadProjection(fleet)
                 actions.loadActivity(fleet)
             }
+        },
+        setCsmFilter: () => {
+            actions.loadFleet()
         },
     })),
     afterMount(({ actions, values }) => {

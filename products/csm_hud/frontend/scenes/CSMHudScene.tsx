@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,8 +33,8 @@ export const scene: SceneExport = {
 }
 
 export function CSMHudScene(): JSX.Element {
-    const { canAccess, fleetLoading } = useValues(csmHudSceneLogic)
-    const { loadFleet } = useActions(csmHudSceneLogic)
+    const { canAccess, fleetLoading, csmFilter, user } = useValues(csmHudSceneLogic)
+    const { loadFleet, setCsmFilter } = useActions(csmHudSceneLogic)
     const { location } = useValues(router)
 
     if (!canAccess) {
@@ -78,9 +78,24 @@ export function CSMHudScene(): JSX.Element {
                 description="Customer Success Manager portfolio dashboard."
                 resourceType={{ type: 'csm_hud' }}
                 actions={
-                    <LemonButton type="secondary" loading={fleetLoading} onClick={() => loadFleet()}>
-                        Refresh
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            value={csmFilter}
+                            onChange={setCsmFilter}
+                            placeholder="Filter to CSM email (blank = all)"
+                            size="small"
+                            className="w-72"
+                        />
+                        {user?.email && csmFilter !== user.email && (
+                            <LemonButton type="tertiary" size="small" onClick={() => setCsmFilter(user.email)}>
+                                Mine
+                            </LemonButton>
+                        )}
+                        <LemonButton type="secondary" loading={fleetLoading} onClick={() => loadFleet()}>
+                            Refresh
+                        </LemonButton>
+                    </div>
                 }
             />
             <LemonTabs activeKey={activeTab} tabs={tabs} sceneInset />
