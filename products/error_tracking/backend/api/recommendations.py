@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import override
 
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 
 import structlog
@@ -17,7 +17,11 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingRecommendation
+from products.error_tracking.backend.models import (
+    ErrorTrackingRecommendation,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
+)
 from products.error_tracking.backend.recommendations import RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
 from products.error_tracking.backend.recommendations.base import Recommendation
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
@@ -81,6 +85,37 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         if not rec:
             return False
         return rec.is_completed(self._enriched_meta(obj))
+
+
+class SourceMapsSetupCheckQuerySerializer(serializers.Serializer):
+    since_minutes = serializers.IntegerField(
+        required=False,
+        default=15,
+        min_value=1,
+        max_value=60 * 24,
+        help_text="How many minutes back to look for uploads and frame activity. Defaults to 15.",
+    )
+
+
+class _SourceMapsSetupCheckSymbolSetSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Symbol set ID.")
+    ref = serializers.CharField(help_text="Symbol set reference (chunk ID).")
+    created_at = serializers.DateTimeField(help_text="When the symbol set row was created.")
+    has_uploaded_file = serializers.BooleanField(
+        help_text="Whether the symbol set actually has bytes uploaded to storage."
+    )
+
+
+class _SourceMapsSetupCheckFramesSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="JavaScript frames created in the window.")
+    resolved = serializers.IntegerField(help_text="Of those, how many resolved via a symbol set.")
+    unresolved = serializers.IntegerField(help_text="Of those, how many are still unresolved.")
+
+
+class SourceMapsSetupCheckSerializer(serializers.Serializer):
+    since_minutes = serializers.IntegerField(help_text="The window the response describes.")
+    symbol_sets = _SourceMapsSetupCheckSymbolSetSerializer(many=True, help_text="Symbol sets created in the window.")
+    frames = _SourceMapsSetupCheckFramesSerializer(help_text="JS frame resolution stats over the window.")
 
 
 def _is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:
@@ -220,3 +255,51 @@ class ErrorTrackingRecommendationViewSet(
         recommendation.dismissed_at = None
         recommendation.save(update_fields=["dismissed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses=SourceMapsSetupCheckSerializer,
+        parameters=[SourceMapsSetupCheckQuerySerializer],
+    )
+    @action(detail=False, methods=["get"], url_path="source_maps_setup_check")
+    def source_maps_setup_check(self, request: Request, *args, **kwargs) -> Response:
+        """Live read of symbol-set uploads and JavaScript frame resolution over the last N minutes.
+        Used by the source maps setup wizard to confirm a build pipeline is producing uploads."""
+        params = SourceMapsSetupCheckQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        minutes = params.validated_data["since_minutes"]
+        since = timezone.now() - timedelta(minutes=minutes)
+
+        symbol_sets = list(
+            ErrorTrackingSymbolSet.objects.filter(team=self.team, created_at__gte=since).order_by("-created_at")[:20]
+        )
+
+        frame_counts = ErrorTrackingStackFrame.objects.filter(
+            team=self.team,
+            created_at__gte=since,
+            contents__lang="javascript",
+        ).aggregate(
+            total=Count("id"),
+            resolved=Count("id", filter=Q(resolved=True)),
+        )
+        total = frame_counts["total"] or 0
+        resolved = frame_counts["resolved"] or 0
+
+        payload = {
+            "since_minutes": minutes,
+            "symbol_sets": [
+                {
+                    "id": str(ss.id),
+                    "ref": ss.ref,
+                    "created_at": ss.created_at,
+                    "has_uploaded_file": bool(ss.storage_ptr),
+                }
+                for ss in symbol_sets
+            ],
+            "frames": {
+                "total": total,
+                "resolved": resolved,
+                "unresolved": total - resolved,
+            },
+        }
+        return Response(SourceMapsSetupCheckSerializer(payload).data, status=status.HTTP_200_OK)
