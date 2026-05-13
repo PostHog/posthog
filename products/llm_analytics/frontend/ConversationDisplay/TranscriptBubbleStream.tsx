@@ -44,7 +44,7 @@ function extractText(message: CompatMessage): string {
  * Renders a deduplicated turn as a chat-app-style bubble stream — user on the
  * right, everything else (assistant, tool responses, etc.) on the left. Skips
  * `system` and `available tools` pseudo-messages; their context is implicit in
- * the assistant's reply and reachable via the per-turn "Show reasoning" panel.
+ * the assistant's reply and reachable via the per-turn "Show steps" panel.
  *
  * Deliberately minimal: no headers, no per-message expand toggles, no metadata
  * row, no playground button. The Trace page's `ConversationMessagesDisplay`
@@ -52,7 +52,7 @@ function extractText(message: CompatMessage): string {
  *
  * Messages with empty extractable text (e.g. an assistant message whose only
  * payload is `tool_calls`) are dropped — they'd render as empty bubbles. Tool
- * calls are surfaced through the reasoning panel until the dedicated tool-call
+ * calls are surfaced through the steps panel until the dedicated tool-call
  * rendering polish lands as its own follow-up.
  */
 export function TranscriptBubbleStream({
