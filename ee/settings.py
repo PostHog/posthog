@@ -142,6 +142,22 @@ SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)
 HARMONIC_API_KEY = get_from_env("HARMONIC_API_KEY", "", type_cast=str)
 HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai", type_cast=str)
 
+# People Data Labs (PDL) API for person enrichment
+PDL_API_KEY = get_from_env("PDL_API_KEY", "", type_cast=str)
+PDL_BASE_URL = get_from_env("PDL_BASE_URL", "https://api.peopledatalabs.com/v5", type_cast=str)
+
+# CoreSignal API for person enrichment (fallback when PDL has no match)
+CORESIGNAL_API_KEY = get_from_env("CORESIGNAL_API_KEY", "", type_cast=str)
+CORESIGNAL_BASE_URL = get_from_env("CORESIGNAL_BASE_URL", "https://api.coresignal.com/cdapi/v2", type_cast=str)
+
+# Optional: send `person_enriched` events (and the $set property updates that ride
+# with them) to a real PostHog project — usually Cloud — instead of the local team.
+# When unset, events go to the local team's API token at SITE_URL.
+PEOPLE_ENRICHMENT_POSTHOG_API_KEY = get_from_env("PEOPLE_ENRICHMENT_POSTHOG_API_KEY", "", type_cast=str)
+PEOPLE_ENRICHMENT_POSTHOG_HOST = get_from_env(
+    "PEOPLE_ENRICHMENT_POSTHOG_HOST", "https://us.i.posthog.com", type_cast=str
+)
+
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)

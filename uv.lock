@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-04T09:17:41.700000357Z"
+exclude-newer = "2026-05-06T20:21:09.646321Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -2179,6 +2179,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6b/61/60b05ecdaec969c93551d47458711982fc66fa04bc35cd629f41abd45771/elevenlabs-2.1.0.tar.gz", hash = "sha256:182b3a8d7ba3eb4f427407e23c49b187d1e115de41663cc396facb65cdd62e44", size = 239885, upload-time = "2025-05-22T18:29:55.849Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/f2/d94eef076fdfa415e99ae3f8522c3542c4e5a50b555c2c795369659105b8/elevenlabs-2.1.0-py3-none-any.whl", hash = "sha256:b404e02d92fe273b8bd138ebe95f4b02e18dd15b990fedb1e76633bdb86a16f6", size = 682926, upload-time = "2025-05-22T18:29:54.049Z" },
+]
+
+[[package]]
+name = "email-validator"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dnspython" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f5/22/900cb125c76b7aaa450ce02fd727f452243f2e91a61af068b40adba60ea9/email_validator-2.3.0.tar.gz", hash = "sha256:9fc05c37f2f6cf439ff414f8fc46d917929974a82244c20eb10231ba60c54426", size = 51238, upload-time = "2025-08-26T13:09:06.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/15/545e2b6cf2e3be84bc1ed85613edd75b8aea69807a71c26f4ca6a9258e82/email_validator-2.3.0-py3-none-any.whl", hash = "sha256:80f13f623413e6b197ae73bb10bf4eb0908faf509ad8362c5edeb0be7fd450b4", size = 35604, upload-time = "2025-08-26T13:09:05.858Z" },
 ]
 
 [[package]]
@@ -5015,6 +5028,20 @@ wheels = [
 ]
 
 [[package]]
+name = "peopledatalabs"
+version = "6.4.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "email-validator" },
+    { name = "pydantic" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b8/c1/6c4eb1d8416ea69bb025d523401c873d2361df423e440a66a82fa3728aa8/peopledatalabs-6.4.13.tar.gz", hash = "sha256:474f236d9b3ad350f1d2aa3f0a779d4b41e3095f7f3f55da9652efa492b373da", size = 14265, upload-time = "2026-01-12T09:25:29.591Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/ba/ec88535c5608b62a8a45d4f742dd5332e07a5a89aa459e89d6eee23bead2/peopledatalabs-6.4.13-py3-none-any.whl", hash = "sha256:0979dc83c394147426f11cb167d00cb3255245a413b22b509c3b4d5f62f33574", size = 18437, upload-time = "2026-01-12T09:25:28.544Z" },
+]
+
+[[package]]
 name = "pex"
 version = "2.42.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5298,6 +5325,7 @@ dependencies = [
     { name = "orjson" },
     { name = "pandas" },
     { name = "paramiko" },
+    { name = "peopledatalabs" },
     { name = "pillow" },
     { name = "pixelhog" },
     { name = "playwright" },
@@ -5562,6 +5590,7 @@ requires-dist = [
     { name = "orjson", specifier = "==3.11.6" },
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "==3.4.1" },
+    { name = "peopledatalabs", specifier = ">=6.4.13,<7" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.54.0" },

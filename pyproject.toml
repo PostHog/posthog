@@ -194,6 +194,7 @@ dependencies = [
     "google-re2>=1.1.20251105,<2",
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
+    "peopledatalabs>=6.4.13,<7",
 ]
 
 [dependency-groups]
