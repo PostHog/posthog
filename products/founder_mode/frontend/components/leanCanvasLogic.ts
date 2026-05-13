@@ -131,6 +131,28 @@ const EMPTY_IDEATION: LeanCanvasIdeation = LEAN_CANVAS_CELL_KEYS.reduce((acc, ke
     return acc
 }, {} as LeanCanvasIdeation)
 
+// Step 2's validation pipeline (logic/validation/schemas.py::IdeationInput) reads
+// {what, how, who, problem} from the saved ideation. We project the richer canvas onto
+// those four legacy keys so the existing pipeline keeps working without backend changes.
+// Mapping:
+//   what    → unique value proposition (the customer-facing promise)
+//   how     → solution (the features that deliver on the promise)
+//   who     → customer segments (target + early adopters)
+//   problem → problem (already aligned)
+function deriveLegacyIdeationFields(canvas: LeanCanvasIdeation): {
+    what: string
+    how: string
+    who: string
+    problem: string
+} {
+    return {
+        what: canvas.usp,
+        how: canvas.solution,
+        who: canvas.customer_segments,
+        problem: canvas.problem,
+    }
+}
+
 interface FounderProjectResponse {
     id: string
     name: string
@@ -190,14 +212,21 @@ export const leanCanvasLogic = kea<leanCanvasLogicType>([
                 // save after a Next click). The current_project_id is connected from founderLogic
                 // so subsequent saves PATCH instead of creating duplicates.
                 saveProgress: async () => {
-                    const ideation = values.ideation
+                    // Spread the canvas state with the legacy {what, how, who, problem} shape
+                    // so Step 2's IdeationInput pydantic schema accepts the payload. The two
+                    // shapes coexist in the same JSON column — the canvas keys carry richer
+                    // context for future consumers, the legacy keys keep validation working.
+                    const ideation = {
+                        ...values.ideation,
+                        ...deriveLegacyIdeationFields(values.ideation),
+                    }
                     if (values.currentProjectId) {
                         return await api.update<FounderProjectResponse>(projectDetailUrl(values.currentProjectId), {
                             ideation,
                         })
                     }
                     return await api.create<FounderProjectResponse>(FOUNDER_PROJECTS_URL, {
-                        name: deriveProjectName(ideation),
+                        name: deriveProjectName(values.ideation),
                         ideation,
                     })
                 },
