@@ -318,7 +318,7 @@
         "feature_flag": "tracing"
     },
     "apm-attributes-list": {
-        "description": "List available span or resource attribute names. Use attribute_type \"span\" for span-level attributes or \"resource\" for resource-level attributes (e.g. k8s labels). Use this to discover available attribute keys before building filters.",
+        "description": "List available span or resource attribute names. Use attribute_type \"span_attribute\" for span-level attributes or \"span_resource_attribute\" for resource-level attributes (e.g. k8s labels). Use this to discover available attribute keys before building filters.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "List tracing span attributes",

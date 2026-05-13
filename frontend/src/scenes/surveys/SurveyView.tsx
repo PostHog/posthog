@@ -66,6 +66,7 @@ import {
 import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from './constants'
 import { SurveyHeadline } from './SurveyHeadline'
+import { SurveySceneMenuBar } from './SurveySceneMenuBar'
 import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
@@ -129,6 +130,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <SceneContent>
+                    <SurveySceneMenuBar id={id} />
                     <ScenePanel>
                         <ScenePanelInfoSection>
                             <SceneFile dataAttrKey={RESOURCE_TYPE} />
