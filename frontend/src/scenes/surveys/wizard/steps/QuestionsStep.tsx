@@ -27,6 +27,7 @@ import {
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
+import { splitChoicesOnPaste } from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
@@ -195,23 +196,17 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
         }
 
         const handlePasteIntoChoice = (event: React.ClipboardEvent<HTMLInputElement>, choiceIndex: number): void => {
-            const pasted = event.clipboardData.getData('text')
-            const segments = pasted
-                .split(/[\n\t]+/)
-                .map((segment) => segment.trim())
-                .filter((segment) => segment.length > 0)
-            if (segments.length <= 1) {
+            const merged = splitChoicesOnPaste(
+                event.clipboardData.getData('text'),
+                choices,
+                choiceIndex,
+                hasOpenChoice ?? false
+            )
+            if (!merged) {
                 return
             }
             event.preventDefault()
-            const openTail = hasOpenChoice && choiceIndex !== choices.length - 1 ? [choices[choices.length - 1]] : []
-            const head = choices.slice(0, choiceIndex)
-            const tailStart = choiceIndex + 1
-            const tailEnd = hasOpenChoice ? choices.length - 1 : choices.length
-            const tail = choices.slice(tailStart, tailEnd)
-            onUpdate({
-                choices: [...head, ...segments, ...tail, ...openTail],
-            } as Partial<MultipleSurveyQuestion>)
+            onUpdate({ choices: merged } as Partial<MultipleSurveyQuestion>)
         }
 
         return (

@@ -27,7 +27,7 @@ import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } fr
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion } from './utils'
+import { isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -712,28 +712,17 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             if (editingLanguage) {
                                                 return
                                             }
-                                            const pasted = event.clipboardData.getData('text')
-                                            // Split on newlines or tabs (spreadsheet rows). Commas are intentionally
-                                            // not split on because they appear in regular answer text.
-                                            const segments = pasted
-                                                .split(/[\n\t]+/)
-                                                .map((segment) => segment.trim())
-                                                .filter((segment) => segment.length > 0)
-                                            if (segments.length <= 1) {
+                                            const merged = splitChoicesOnPaste(
+                                                event.clipboardData.getData('text'),
+                                                value || [],
+                                                choiceIndex,
+                                                hasOpenChoice
+                                            )
+                                            if (!merged) {
                                                 return
                                             }
                                             event.preventDefault()
-                                            const current = value || []
-                                            // Preserve the open-ended choice as the last entry if present.
-                                            const openTail =
-                                                hasOpenChoice && choiceIndex !== current.length - 1
-                                                    ? [current[current.length - 1]]
-                                                    : []
-                                            const head = current.slice(0, choiceIndex)
-                                            const tailStart = choiceIndex + 1
-                                            const tailEnd = hasOpenChoice ? current.length - 1 : current.length
-                                            const tail = current.slice(tailStart, tailEnd)
-                                            handleChoicesChange([...head, ...segments, ...tail, ...openTail])
+                                            handleChoicesChange(merged)
                                         }
 
                                         return (

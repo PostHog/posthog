@@ -66,13 +66,13 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
                                 </Tooltip>
                             )}
 
-                            {isThumb ? (
+                            {isThumb && (value == '1' || value == '2') ? (
                                 <span className="flex items-center gap-1">
                                     {getThumbIcon(value)}
                                     Thumbs {value == '1' ? 'up' : 'down'}
                                 </span>
                             ) : (
-                                String(value)
+                                String(value ?? '')
                             )}
                         </span>
                     )
