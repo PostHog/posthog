@@ -2,6 +2,11 @@
 import { ApiClient } from './api-client.js'
 import type { CLIConfig } from './config.js'
 
+export type AuthenticatedConfig = CLIConfig & {
+  host: string
+  projectId: string
+}
+
 // Define Context interface to match MCP expectations
 export interface Context {
   api: ApiClient
@@ -16,9 +21,14 @@ export interface Context {
   trackEvent: () => Promise<void>
 }
 
-export function createMCPContext(config: Required<CLIConfig>): Context {
+export function createMCPContext(config: AuthenticatedConfig): Context {
+  const apiToken = config.accessToken || config.apiKey
+  if (!apiToken) {
+    throw new Error('Missing PostHog API key or OAuth access token')
+  }
+
   const apiClient = new ApiClient({
-    apiToken: config.apiKey,
+    apiToken,
     baseUrl: config.host,
     clientUserAgent: 'PostHog-CLI-2.0/0.1.0'
   })
