@@ -10,6 +10,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ConversationsTab } from '../components/ConversationsTab'
+import { EngagementTab } from '../components/EngagementTab'
+import { ExpansionTab } from '../components/ExpansionTab'
 import { FleetTab } from '../components/FleetTab'
 import { RenewalsTab } from '../components/RenewalsTab'
 import { csmHudSceneLogic } from '../logics/csmHudSceneLogic'
@@ -27,10 +30,6 @@ const TAB_FROM_PATH: Record<string, TabKey> = {
 export const scene: SceneExport = {
     component: CSMHudScene,
     logic: csmHudSceneLogic,
-}
-
-function ComingSoon({ label }: { label: string }): JSX.Element {
-    return <div className="text-muted py-8 text-center">{label} tab — coming next.</div>
 }
 
 export function CSMHudScene(): JSX.Element {
@@ -55,19 +54,19 @@ export function CSMHudScene(): JSX.Element {
         {
             key: 'engagement',
             label: 'Engagement',
-            content: <ComingSoon label="Engagement" />,
+            content: <EngagementTab />,
             link: urls.csmHudEngagement(),
         },
         {
             key: 'conversations',
             label: 'Conversations',
-            content: <ComingSoon label="Conversations" />,
+            content: <ConversationsTab />,
             link: urls.csmHudConversations(),
         },
         {
             key: 'expansion',
             label: 'Expansion',
-            content: <ComingSoon label="Expansion" />,
+            content: <ExpansionTab />,
             link: urls.csmHudExpansion(),
         },
     ]

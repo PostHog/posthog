@@ -6,6 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
+import { AccountActivity, loadActivity } from '../queries/activity'
 import { loadProjection } from '../queries/projection'
 import type { ProjectionRow } from '../utils/projection'
 import type { csmHudSceneLogicType } from './csmHudSceneLogicType'
@@ -141,11 +142,36 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                 },
             },
         ],
+        activity: [
+            {} as Record<string, AccountActivity>,
+            {
+                loadActivity: async (fleet: FleetRow[]) => {
+                    if (fleet.length === 0) {
+                        return {}
+                    }
+                    const accountIds: string[] = []
+                    const zendeskByAccount: Record<string, number> = {}
+                    for (const row of fleet) {
+                        if (!row.externalId) {
+                            continue
+                        }
+                        accountIds.push(row.externalId)
+                        const raw = row.traits['zendesk.id']
+                        const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10)
+                        if (Number.isFinite(n) && n > 0) {
+                            zendeskByAccount[row.externalId] = n
+                        }
+                    }
+                    return loadActivity({ accountIds, zendeskByAccount })
+                },
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         loadFleetSuccess: ({ fleet }) => {
             if (fleet.length > 0) {
                 actions.loadProjection(fleet)
+                actions.loadActivity(fleet)
             }
         },
     })),
