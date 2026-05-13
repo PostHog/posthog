@@ -46,7 +46,7 @@ function stringify(value: unknown): string {
   }
 
   if (typeof value === 'string') {
-    return value
+    return value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
   }
 
   return String(value)
