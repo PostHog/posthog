@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -41,6 +42,8 @@ class TestCatalogHogQLExposure(BaseTest):
         db = Database.create_for(team=self.team)
         tables_table = db.tables.children["system"].children["tables"].get()
         columns_table = db.tables.children["system"].children["columns"].get()
+        assert isinstance(tables_table, Table)
+        assert isinstance(columns_table, Table)
 
         assert "description" in tables_table.fields
         assert "synthetic_description" not in tables_table.fields
@@ -61,6 +64,7 @@ class TestCatalogHogQLExposure(BaseTest):
 
         db = Database.create_for(team=self.team)
         rel_table = db.tables.children["system"].children["relationships"].get()
+        assert isinstance(rel_table, Table)
         assert "confidence" in rel_table.fields
         assert "reasoning" in rel_table.fields
         assert "kind" in rel_table.fields

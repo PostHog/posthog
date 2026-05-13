@@ -56,7 +56,7 @@ class TestCatalogAPIUpsert(BaseTest):
             )
         )
         assert first.id == second.id
-        assert second.description.startswith("Identifier")
+        assert second.description is not None and second.description.startswith("Identifier")
         assert second.semantic_type == "entity_id"
 
     def test_propose_relationship_is_idempotent_on_edge_tuple(self) -> None:

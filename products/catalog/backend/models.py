@@ -115,7 +115,9 @@ class CatalogColumn(UUIDModel):
     def save(self, *args, **kwargs) -> None:
         # Keep the denormalized `team_id` in sync with the parent node so callers
         # only have to set `node` — the HogQL printer expects `team_id` on every row.
-        if self.team_id is None and self.node_id is not None:
+        # Django's stubs type `team_id` as a non-nullable int, but at runtime it's
+        # absent until first save when the caller only set `node`.
+        if not getattr(self, "team_id", None) and self.node_id is not None:
             self.team_id = self.node.team_id
         super().save(*args, **kwargs)
 

@@ -56,9 +56,9 @@ def to_relationship_dto(rel: CatalogRelationship) -> contracts.CatalogRelationsh
     return contracts.CatalogRelationshipDTO(
         id=rel.id,
         source_node_id=rel.source_node_id,
-        source_column=rel.source_column.name if rel.source_column_id else None,
+        source_column=rel.source_column.name if rel.source_column else None,
         target_node_id=rel.target_node_id,
-        target_column=rel.target_column.name if rel.target_column_id else None,
+        target_column=rel.target_column.name if rel.target_column else None,
         kind=rel.kind,
         confidence=rel.confidence,
         reasoning=rel.reasoning,
