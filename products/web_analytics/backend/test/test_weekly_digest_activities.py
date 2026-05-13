@@ -1,4 +1,3 @@
-import math
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -14,7 +13,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
-    _get_org_id_batches,
+    _get_org_batch_page,
     _is_user_targeted_for_digest,
     _run_wa_digest_batch,
     _send_digest_for_user,
@@ -25,6 +24,7 @@ from products.web_analytics.backend.temporal.weekly_digest.types import (
     DigestBatchInput,
     DigestBatchResult,
     DigestOutcome,
+    OrgBatchPageInput,
     OrgDigestCounts,
     WAWeeklyDigestInput,
 )
@@ -329,7 +329,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
         self.mock_email_class.assert_not_called()
 
 
-class TestGetOrgIdBatches(APIBaseTest):
+class TestGetOrgBatchPage(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.kill_switch_patcher = patch(
@@ -355,21 +355,57 @@ class TestGetOrgIdBatches(APIBaseTest):
 
     def test_returns_empty_list_when_kill_switch_active(self):
         self.mock_kill_switch.return_value = KillSwitchLevel.LIGHT
-        batches = _get_org_id_batches(WAWeeklyDigestInput())
-        assert batches == []
+        page = _get_org_batch_page(OrgBatchPageInput(workflow_input=WAWeeklyDigestInput()))
+        assert page.batches == []
+        assert page.cursor is None
 
     def test_raises_when_email_unavailable(self):
         self.mock_email_available.return_value = False
         with self.assertRaises(ApplicationError) as ctx:
-            _get_org_id_batches(WAWeeklyDigestInput())
+            _get_org_batch_page(OrgBatchPageInput(workflow_input=WAWeeklyDigestInput()))
         assert ctx.exception.type == WA_DIGEST_EMAIL_UNAVAILABLE_TYPE
         assert ctx.exception.non_retryable is True
 
     def test_kill_switch_short_circuits_before_email_check(self):
         self.mock_kill_switch.return_value = KillSwitchLevel.LIGHT
         self.mock_email_available.return_value = False
-        batches = _get_org_id_batches(WAWeeklyDigestInput())
-        assert batches == []
+        page = _get_org_batch_page(OrgBatchPageInput(workflow_input=WAWeeklyDigestInput()))
+        assert page.batches == []
+        assert page.cursor is None
+
+    def test_keyset_pagination_returns_first_middle_and_final_pages(self):
+        orgs = [self.organization]
+        orgs.extend(Organization.objects.create(name=f"Org {i}") for i in range(4))
+        expected_ids = sorted(str(org.id) for org in orgs)
+
+        first_page = _get_org_batch_page(
+            OrgBatchPageInput(
+                workflow_input=WAWeeklyDigestInput(active_since_days=None, batch_size=2),
+                page_size=2,
+            )
+        )
+        assert [oid for batch in first_page.batches for oid in batch] == expected_ids[:2]
+        assert first_page.cursor == expected_ids[1]
+
+        middle_page = _get_org_batch_page(
+            OrgBatchPageInput(
+                workflow_input=WAWeeklyDigestInput(active_since_days=None, batch_size=2),
+                cursor=first_page.cursor,
+                page_size=2,
+            )
+        )
+        assert [oid for batch in middle_page.batches for oid in batch] == expected_ids[2:4]
+        assert middle_page.cursor == expected_ids[3]
+
+        final_page = _get_org_batch_page(
+            OrgBatchPageInput(
+                workflow_input=WAWeeklyDigestInput(active_since_days=None, batch_size=2),
+                cursor=middle_page.cursor,
+                page_size=2,
+            )
+        )
+        assert [oid for batch in final_page.batches for oid in batch] == expected_ids[4:]
+        assert final_page.cursor is None
 
     def test_active_since_filter_excludes_orgs_with_only_dormant_members(self):
         self.user.last_login = timezone.now()
@@ -385,44 +421,31 @@ class TestGetOrgIdBatches(APIBaseTest):
             level=OrganizationMembership.Level.MEMBER,
         )
 
-        batches = _get_org_id_batches(WAWeeklyDigestInput(active_since_days=30, batch_size=100))
-        all_org_ids = {oid for batch in batches for oid in batch}
+        page = _get_org_batch_page(OrgBatchPageInput(workflow_input=WAWeeklyDigestInput(active_since_days=30)))
+        all_org_ids = {oid for batch in page.batches for oid in batch}
         assert str(self.organization.id) in all_org_ids
         assert str(dormant_org.id) not in all_org_ids
 
-    def test_admin_org_ids_override_bypasses_filters(self):
+    def test_admin_org_ids_override_pages_by_index_and_bypasses_filters(self):
         override = ["1111", "2222", "3333"]
-        batches = _get_org_id_batches(WAWeeklyDigestInput(org_ids=override, batch_size=2, active_since_days=1))
-        flat = [oid for batch in batches for oid in batch]
-        assert flat == override
-        assert [len(b) for b in batches] == [2, 1]
-
-    def test_admin_org_ids_override_bypasses_rollout(self):
-        override = [f"org-{i:04d}" for i in range(20)]
-        batches = _get_org_id_batches(WAWeeklyDigestInput(org_ids=override, rollout_percentage=0.1, batch_size=100))
-        flat = [oid for batch in batches for oid in batch]
-        assert flat == override
-
-    @parameterized.expand(
-        [
-            ("ten_percent", 0.1),
-            ("fifty_percent", 0.5),
-        ]
-    )
-    def test_rollout_filter_is_deterministic(self, _name, percentage):
-        all_org_ids = [f"org-{i:04d}" for i in range(100)]
-        with patch("products.web_analytics.backend.temporal.weekly_digest.activities.Organization") as mock_org_model:
-            mock_org_model.objects.all.return_value.values_list.return_value = all_org_ids
-            first = _get_org_id_batches(
-                WAWeeklyDigestInput(rollout_percentage=percentage, batch_size=10, active_since_days=None)
+        first_page = _get_org_batch_page(
+            OrgBatchPageInput(
+                workflow_input=WAWeeklyDigestInput(org_ids=override, batch_size=2, active_since_days=1),
+                page_size=2,
             )
-            second = _get_org_id_batches(
-                WAWeeklyDigestInput(rollout_percentage=percentage, batch_size=10, active_since_days=None)
+        )
+        assert [oid for batch in first_page.batches for oid in batch] == ["1111", "2222"]
+        assert first_page.cursor == "2"
+
+        second_page = _get_org_batch_page(
+            OrgBatchPageInput(
+                workflow_input=WAWeeklyDigestInput(org_ids=override, batch_size=2, active_since_days=1),
+                cursor=first_page.cursor,
+                page_size=2,
             )
-        first_flat = [oid for batch in first for oid in batch]
-        second_flat = [oid for batch in second for oid in batch]
-        assert first_flat == second_flat
-        assert len(first_flat) == math.ceil(100 * percentage)
+        )
+        assert [oid for batch in second_page.batches for oid in batch] == ["3333"]
+        assert second_page.cursor is None
 
 
 class TestRunWaDigestBatch(APIBaseTest):

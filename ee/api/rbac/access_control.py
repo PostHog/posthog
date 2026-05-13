@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
@@ -492,6 +493,18 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 else:
                     role_resource_overrides[(str(role_id), resource_type)] = level
 
+        # Resource-level role overrides only take effect if the organization has the
+        # ROLE_BASED_ACCESS feature; otherwise role rows in the DB are inert for
+        # resource access and we must not surface them as the effective access level.
+        # NOTE: project-level role overrides are intentionally NOT gated here because
+        # UserTeamPermissions.effective_membership_level_for_parent_membership honors
+        # role-backed project AccessControl rows whenever ADVANCED_PERMISSIONS is
+        # enabled (no ROLE_BASED_ACCESS check), so gating the preview here would lie
+        # about a user's actual project access.
+        role_based_resource_access_supported = team.organization.is_feature_available(
+            AvailableFeature.ROLE_BASED_ACCESS
+        )
+
         # Build results for each role
         roles = Role.objects.filter(organization=team.organization)
         results = []
@@ -508,7 +521,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:
-                resource_role_level = role_resource_overrides.get((rid, resource))
+                resource_role_level = (
+                    role_resource_overrides.get((rid, resource)) if role_based_resource_access_supported else None
+                )
                 resource_default = resource_default_levels.get(resource)
                 resource_result = get_effective_access_level_for_role(
                     resource=resource,
@@ -590,6 +605,18 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 else:
                     member_resource_overrides[(str(member_id), resource_type)] = level
 
+        # Resource-level role overrides only take effect if the organization has the
+        # ROLE_BASED_ACCESS feature; otherwise role rows in the DB are inert for
+        # resource access and we must not let them influence members' effective
+        # resource access level. NOTE: project-level role overrides are intentionally
+        # NOT gated here because UserTeamPermissions.effective_membership_level_for_
+        # parent_membership honors role-backed project AccessControl rows whenever
+        # ADVANCED_PERMISSIONS is enabled (no ROLE_BASED_ACCESS check), so gating the
+        # preview here would lie about a user's actual project access.
+        role_based_resource_access_supported = team.organization.is_feature_available(
+            AvailableFeature.ROLE_BASED_ACCESS
+        )
+
         # Build results for each member
         memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
@@ -619,11 +646,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             for resource in ACCESS_CONTROL_RESOURCES:
                 resource_member_level = member_resource_overrides.get((mid, resource))
                 resource_default = resource_default_levels.get(resource)
-                resource_role_levels: list[AccessControlLevel] = [
-                    role_resource_overrides[(rid, resource)]
-                    for rid in member_role_ids
-                    if (rid, resource) in role_resource_overrides
-                ]
+                resource_role_levels: list[AccessControlLevel] = (
+                    [
+                        role_resource_overrides[(rid, resource)]
+                        for rid in member_role_ids
+                        if (rid, resource) in role_resource_overrides
+                    ]
+                    if role_based_resource_access_supported
+                    else []
+                )
                 resource_result = get_effective_access_level_for_member(
                     resource=resource,
                     default_level=resource_default,
