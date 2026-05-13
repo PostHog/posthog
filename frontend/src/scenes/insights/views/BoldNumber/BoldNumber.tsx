@@ -2,7 +2,6 @@ import './BoldNumber.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
@@ -10,7 +9,6 @@ import React from 'react'
 import { IconTrending } from '@posthog/icons'
 import { LemonRow, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { execHog } from 'lib/hog'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -21,12 +19,14 @@ import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
-    convertTableValue,
-    dataVisualizationLogic,
-} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { ConditionalFormattingRule, NodeKind } from '~/queries/schema/schema-general'
+    matchConditionalFormattingRule,
+    resolveConditionalFormattingBackground,
+} from '~/queries/nodes/DataVisualization/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
@@ -276,41 +276,10 @@ function BoldNumberComparison({
     )
 }
 
-function matchScalarConditionalFormattingRule(
-    rules: ConditionalFormattingRule[],
-    sourceColumnName: string,
-    cellValue: unknown,
-    cellType: string
-): ConditionalFormattingRule | undefined {
-    for (const rule of rules) {
-        if (rule.columnName !== sourceColumnName) {
-            continue
-        }
-        const isValidHog = !!rule.bytecode && rule.bytecode.length > 0 && rule.bytecode[0] === '_H'
-        if (!isValidHog) {
-            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                formatRule: rule,
-            })
-            continue
-        }
-        const res = execHog(rule.bytecode, {
-            globals: {
-                value: cellValue,
-                input: convertTableValue(rule.input, cellType),
-            },
-            functions: {},
-            maxAsyncSteps: 0,
-        })
-        if (res.result) {
-            return rule
-        }
-    }
-    return undefined
-}
-
 export function HogQLBoldNumber(): JSX.Element {
     const { response, responseLoading, tabularData, sourceTabularColumns, conditionalFormattingRules } =
         useValues(dataVisualizationLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!response || responseLoading) {
         return (
@@ -345,7 +314,7 @@ export function HogQLBoldNumber(): JSX.Element {
     const sourceColumnType = firstColumn?.column.type.name ?? firstCell?.type ?? ''
 
     const matchedRule = sourceColumnName
-        ? matchScalarConditionalFormattingRule(
+        ? matchConditionalFormattingRule(
               conditionalFormattingRules,
               sourceColumnName,
               firstCell?.value,
@@ -355,14 +324,18 @@ export function HogQLBoldNumber(): JSX.Element {
     const displayMode = matchedRule?.displayMode ?? 'background'
 
     const containerStyle: React.CSSProperties =
-        matchedRule && displayMode === 'background' ? { backgroundColor: matchedRule.color } : {}
+        matchedRule && displayMode === 'background'
+            ? { backgroundColor: resolveConditionalFormattingBackground(matchedRule, isDarkModeOn) }
+            : {}
 
+    // `relative` makes this the positioned ancestor so the dot mode lands in the tile's corner
+    // instead of the nearest layout/viewport ancestor.
     return (
-        <div className="BoldNumber LemonTable HogQL ph-no-capture" style={containerStyle}>
+        <div className="BoldNumber LemonTable HogQL ph-no-capture relative" style={containerStyle}>
             {matchedRule && displayMode === 'dot' && (
                 <span
                     aria-hidden
-                    className="inline-block w-3 h-3 rounded-full absolute top-3 left-3"
+                    className="absolute top-3 left-3 inline-block h-3 w-3 rounded-full"
                     style={{ backgroundColor: matchedRule.color }}
                 />
             )}

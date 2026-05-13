@@ -7281,12 +7281,7 @@ export interface QuickFilterOption {
     operator: PropertyOperator
 }
 
-export type QuickFilterPropertyType =
-    | 'event'
-    | 'person'
-    | 'session'
-    | 'group'
-    | 'data_warehouse_person_property'
+export type QuickFilterPropertyType = 'event' | 'person' | 'session' | 'group' | 'data_warehouse_person_property'
 
 export interface QuickFilter {
     id: string

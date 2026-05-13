@@ -85,6 +85,37 @@ class TestQuickFilters(APIBaseTest):
         self.assertEqual(quick_filter.property_type, "group")
         self.assertEqual(quick_filter.group_type_index, 2)
 
+    def test_create_group_quick_filter_without_group_type_index_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/quick_filters/",
+            {
+                "name": "Plan",
+                "property_name": "plan",
+                "property_type": "group",
+                "type": "manual-options",
+                "options": [{"id": "free", "value": "free", "label": "Free", "operator": "exact"}],
+                "contexts": ["dashboards"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("group_type_index", response.json())
+
+    def test_create_event_quick_filter_with_group_type_index_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/quick_filters/",
+            {
+                "name": "Browser",
+                "property_name": "$browser",
+                "property_type": "event",
+                "group_type_index": 0,
+                "type": "manual-options",
+                "options": [{"id": "chrome", "value": "Chrome", "label": "Chrome", "operator": "exact"}],
+                "contexts": ["dashboards"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("group_type_index", response.json())
+
     def test_list_quick_filters(self):
         self._create_quick_filter("Filter 1", "$prop1")
         self._create_quick_filter("Filter 2", "$prop2")

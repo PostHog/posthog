@@ -10552,6 +10552,13 @@
                 "label": {
                     "type": "string"
                 },
+                "renderAs": {
+                    "$ref": "#/definitions/ColumnRenderAs",
+                    "description": "When set on a HogQL table column, the cell is rendered as the corresponding visualization. Requires the column to return an array of numbers per row (e.g. `groupArray(value) AS trend`)."
+                },
+                "sparkline": {
+                    "$ref": "#/definitions/SparklineColumnSettings"
+                },
                 "trendLine": {
                     "type": "boolean"
                 },
@@ -10632,6 +10639,10 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ColumnRenderAs": {
+            "enum": ["default", "sparkline"],
+            "type": "string"
+        },
         "CompareFilter": {
             "additionalProperties": false,
             "properties": {
@@ -10646,6 +10657,10 @@
                 }
             },
             "type": "object"
+        },
+        "ConditionalFormattingDisplayMode": {
+            "enum": ["background", "badge", "dot"],
+            "type": "string"
         },
         "ConditionalFormattingRule": {
             "additionalProperties": false,
@@ -10664,10 +10679,18 @@
                 "columnName": {
                     "type": "string"
                 },
+                "displayMode": {
+                    "$ref": "#/definitions/ConditionalFormattingDisplayMode",
+                    "description": "How the rule is rendered when matched. Defaults to 'background' for backwards compatibility."
+                },
                 "id": {
                     "type": "string"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Optional label override used by 'badge' display mode. Falls back to the cell value when omitted.",
                     "type": "string"
                 },
                 "templateId": {
@@ -36241,6 +36264,21 @@
                 "error_count",
                 "avg_start_offset_nano"
             ],
+            "type": "object"
+        },
+        "SparklineColumnSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "description": "Color name from vars.scss (e.g. 'primary', 'success', 'muted'). Defaults to 'primary'.",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "'bar' draws bars, 'line' draws a line. Defaults to 'line'.",
+                    "enum": ["bar", "line"],
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "StepOrderValue": {

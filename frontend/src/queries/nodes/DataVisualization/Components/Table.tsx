@@ -1,15 +1,12 @@
 import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { execHog } from 'lib/hog'
-import { lightenDarkenColor } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -24,7 +21,8 @@ import { QueryContext } from '~/queries/types'
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
-import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { TableDataCell, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { matchConditionalFormattingRule, resolveConditionalFormattingBackground } from '../utils'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -79,38 +77,6 @@ function coerceToNumberArray(value: unknown): number[] | null {
     return out
 }
 
-function matchConditionalFormattingRule(
-    rules: ConditionalFormattingRule[],
-    sourceColumnName: string,
-    cellValue: any,
-    cellType: string
-): ConditionalFormattingRule | undefined {
-    for (const rule of rules) {
-        if (rule.columnName !== sourceColumnName) {
-            continue
-        }
-        const isValidHog = !!rule.bytecode && rule.bytecode.length > 0 && rule.bytecode[0] === '_H'
-        if (!isValidHog) {
-            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                formatRule: rule,
-            })
-            continue
-        }
-        const res = execHog(rule.bytecode, {
-            globals: {
-                value: cellValue,
-                input: convertTableValue(rule.input, cellType),
-            },
-            functions: {},
-            maxAsyncSteps: 0,
-        })
-        if (res.result) {
-            return rule
-        }
-    }
-    return undefined
-}
-
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -130,6 +96,32 @@ export const Table = (props: TableProps): JSX.Element => {
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
+
+    // Bytecode evaluation for conditional formatting is shared between render() and style() via
+    // a per-row WeakMap. Each `data` array (one per row) becomes a stable key for memoizing the
+    // evaluated rules, so a row's hog bytecode runs at most once per column per render.
+    const conditionalFormattingCache = new WeakMap<object, Map<number, ConditionalFormattingRule | null>>()
+
+    const getMatchedRule = (
+        data: TableDataCell<any>[],
+        index: number,
+        sourceColumnName: string,
+        cellValue: unknown,
+        cellType: string
+    ): ConditionalFormattingRule | undefined => {
+        let perRow = conditionalFormattingCache.get(data)
+        if (!perRow) {
+            perRow = new Map()
+            conditionalFormattingCache.set(data, perRow)
+        }
+        if (perRow.has(index)) {
+            return perRow.get(index) ?? undefined
+        }
+        const matched =
+            matchConditionalFormattingRule(conditionalFormattingRules, sourceColumnName, cellValue, cellType) ?? null
+        perRow.set(index, matched)
+        return matched ?? undefined
+    }
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
@@ -189,12 +181,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     const sourceColumnName = cell.sourceColumnName ?? column.name
                     const sourceColumnType =
                         sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                    const matchedRule = matchConditionalFormattingRule(
-                        conditionalFormattingRules,
-                        sourceColumnName,
-                        cell.value,
-                        sourceColumnType
-                    )
+                    const matchedRule = getMatchedRule(data, index, sourceColumnName, cell.value, sourceColumnType)
                     const displayMode = matchedRule?.displayMode ?? 'background'
 
                     if (settings?.display?.renderAs === 'sparkline') {
@@ -266,12 +253,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     const sourceColumnName = cell.sourceColumnName ?? column.name
                     const sourceColumnType =
                         sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                    const matchedRule = matchConditionalFormattingRule(
-                        conditionalFormattingRules,
-                        sourceColumnName,
-                        cell.value,
-                        sourceColumnType
-                    )
+                    const matchedRule = getMatchedRule(data, index, sourceColumnName, cell.value, sourceColumnType)
 
                     // Only the 'background' display mode (default) tints the cell. 'badge' and 'dot' are rendered
                     // inside the cell content by the render() function above.
@@ -279,27 +261,7 @@ export const Table = (props: TableProps): JSX.Element => {
                         return undefined
                     }
 
-                    const ruleColor = matchedRule.color
-                    const colorMode = matchedRule.colorMode ?? 'light'
-
-                    // If the color mode matches the current theme, return as it was saved
-                    if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                        return {
-                            backgroundColor: ruleColor,
-                        }
-                    }
-
-                    // If the color mode is dark, but we're in light mode - then lighten the color
-                    if (colorMode === 'dark' && !isDarkModeOn) {
-                        return {
-                            backgroundColor: lightenDarkenColor(ruleColor, 30),
-                        }
-                    }
-
-                    // If the color mode is light, but we're in dark mode - then darken the color
-                    return {
-                        backgroundColor: lightenDarkenColor(ruleColor, -30),
-                    }
+                    return { backgroundColor: resolveConditionalFormattingBackground(matchedRule, isDarkModeOn) }
                 },
             }
         }

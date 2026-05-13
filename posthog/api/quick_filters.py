@@ -95,6 +95,22 @@ class QuickFilterSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate(self, attrs):
+        property_type = attrs.get("property_type") or getattr(self.instance, "property_type", "event")
+        group_type_index = attrs.get(
+            "group_type_index",
+            getattr(self.instance, "group_type_index", None) if self.instance else None,
+        )
+        if property_type == "group" and group_type_index is None:
+            raise ValidationError({"group_type_index": "group_type_index is required when property_type is 'group'"})
+        if property_type != "group" and group_type_index is not None and "group_type_index" in attrs:
+            # Disallow setting group_type_index for non-group property types — silently ignoring it
+            # would produce a filter that doesn't match user intent.
+            raise ValidationError(
+                {"group_type_index": f"group_type_index is only valid when property_type is 'group' (got {property_type!r})"}
+            )
+        return attrs
+
     def validate_contexts(self, value):
         if not isinstance(value, list):
             raise ValidationError("Contexts must be a list")

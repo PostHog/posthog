@@ -988,32 +988,6 @@ class DisplayType(StrEnum):
     AREA = "area"
 
 
-class ColumnRenderAs(StrEnum):
-    DEFAULT = "default"
-    SPARKLINE = "sparkline"
-
-
-class SparklineColumnSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    color: str | None = None
-    type: Literal["bar", "line"] | None = None
-
-
-class ChartSettingsDisplay(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    color: str | None = None
-    displayType: DisplayType | None = None
-    label: str | None = None
-    renderAs: ColumnRenderAs | None = None
-    sparkline: SparklineColumnSettings | None = None
-    trendLine: bool | None = None
-    yAxisPosition: YAxisPosition | None = None
-
-
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
@@ -1029,6 +1003,11 @@ class ChartSettingsFormatting(BaseModel):
     prefix: str | None = None
     style: Style | None = None
     suffix: str | None = None
+
+
+class ColumnRenderAs(StrEnum):
+    DEFAULT = "default"
+    SPARKLINE = "sparkline"
 
 
 class CompareFilter(BaseModel):
@@ -1050,15 +1029,15 @@ class CompareFilter(BaseModel):
     )
 
 
-class ColorMode(StrEnum):
-    LIGHT = "light"
-    DARK = "dark"
-
-
 class ConditionalFormattingDisplayMode(StrEnum):
     BACKGROUND = "background"
     BADGE = "badge"
     DOT = "dot"
+
+
+class ColorMode(StrEnum):
+    LIGHT = "light"
+    DARK = "dark"
 
 
 class ConditionalFormattingRule(BaseModel):
@@ -1069,10 +1048,18 @@ class ConditionalFormattingRule(BaseModel):
     color: str
     colorMode: ColorMode | None = None
     columnName: str
-    displayMode: ConditionalFormattingDisplayMode | None = None
+    displayMode: ConditionalFormattingDisplayMode | None = Field(
+        default=None,
+        description=("How the rule is rendered when matched. Defaults to 'background' for backwards compatibility."),
+    )
     id: str
     input: str
-    label: str | None = None
+    label: str | None = Field(
+        default=None,
+        description=(
+            "Optional label override used by 'badge' display mode. Falls back to the cell value when omitted."
+        ),
+    )
     templateId: str
 
 
@@ -4643,6 +4630,25 @@ class SpanPropertyFilterType(StrEnum):
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 
 
+class Type(StrEnum):
+    BAR = "bar"
+    LINE = "line"
+
+
+class SparklineColumnSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str | None = Field(
+        default=None,
+        description=("Color name from vars.scss (e.g. 'primary', 'success', 'muted'). Defaults to 'primary'."),
+    )
+    type: Type | None = Field(
+        default=None,
+        description="'bar' draws bars, 'line' draws a line. Defaults to 'line'.",
+    )
+
+
 class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
@@ -6492,20 +6498,24 @@ class CampaignFieldPreference(BaseModel):
     match_field: MatchField
 
 
-class Settings(BaseModel):
+class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    display: ChartSettingsDisplay | None = None
-    formatting: ChartSettingsFormatting | None = None
-
-
-class ChartAxis(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+    color: str | None = None
+    displayType: DisplayType | None = None
+    label: str | None = None
+    renderAs: ColumnRenderAs | None = Field(
+        default=None,
+        description=(
+            "When set on a HogQL table column, the cell is rendered as the"
+            " corresponding visualization. Requires the column to return an array of"
+            " numbers per row (e.g. `groupArray(value) AS trend`)."
+        ),
     )
-    column: str
-    settings: Settings | None = None
+    sparkline: SparklineColumnSettings | None = None
+    trendLine: bool | None = None
+    yAxisPosition: YAxisPosition | None = None
 
 
 class ClickhouseQueryProgress(BaseModel):
@@ -8614,16 +8624,6 @@ class SurveyQuestionSchema(BaseModel):
     shuffleOptions: bool | None = None
     type: SurveyQuestionType
     upperBoundLabel: str | None = None
-
-
-class TableSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list[ChartAxis] | None = None
-    conditionalFormatting: list[ConditionalFormattingRule] | None = None
-    pinnedColumns: list[str] | None = None
-    transpose: bool | None = None
 
 
 class TaskExecutionItem(BaseModel):
@@ -12749,6 +12749,22 @@ class CalendarHeatmapResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: ChartSettingsDisplay | None = None
+    formatting: ChartSettingsFormatting | None = None
+
+
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+    settings: Settings | None = None
 
 
 class ChartSettings(BaseModel):
@@ -18177,6 +18193,16 @@ class SurveyCreationSchema(BaseModel):
     should_launch: bool | None = None
     start_date: str | None = None
     type: SurveyType
+
+
+class TableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[ChartAxis] | None = None
+    conditionalFormatting: list[ConditionalFormattingRule] | None = None
+    pinnedColumns: list[str] | None = None
+    transpose: bool | None = None
 
 
 class TeamTaxonomyQueryResponse(BaseModel):

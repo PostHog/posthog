@@ -15,9 +15,19 @@ const PROPERTY_FILTER_TYPE_BY_QUICK_FILTER_TYPE: Record<QuickFilterPropertyType,
     data_warehouse_person_property: PropertyFilterType.DataWarehousePersonProperty,
 }
 
-function buildPropertyFilter(filter: QuickFilter | undefined, selection: SelectedQuickFilter): AnyPropertyFilter {
+function buildPropertyFilter(
+    filter: QuickFilter | undefined,
+    selection: SelectedQuickFilter
+): AnyPropertyFilter | null {
     const propertyTypeKey = filter?.property_type ?? 'event'
     const type = PROPERTY_FILTER_TYPE_BY_QUICK_FILTER_TYPE[propertyTypeKey] ?? PropertyFilterType.Event
+
+    // A group property filter without group_type_index would be silently dropped by query parsing.
+    // The serializer now rejects this combination at write time, but legacy rows may still exist —
+    // skip them rather than emit a no-op filter that gives the user a misleading "filtered" UI.
+    if (type === PropertyFilterType.Group && (filter?.group_type_index == null || filter.group_type_index < 0)) {
+        return null
+    }
 
     const base = {
         key: selection.propertyName,
@@ -26,8 +36,8 @@ function buildPropertyFilter(filter: QuickFilter | undefined, selection: Selecte
         type,
     } as AnyPropertyFilter
 
-    if (type === PropertyFilterType.Group && filter?.group_type_index != null) {
-        return { ...base, group_type_index: filter.group_type_index } as AnyPropertyFilter
+    if (type === PropertyFilterType.Group) {
+        return { ...base, group_type_index: filter!.group_type_index } as AnyPropertyFilter
     }
 
     return base
@@ -60,12 +70,14 @@ export const dashboardQuickFiltersLogic = kea<dashboardQuickFiltersLogicType>([
                 quickFilters: QuickFilter[]
             ): Record<string, AnyPropertyFilter> => {
                 const filtersById = new Map(quickFilters.map((f) => [f.id, f]))
-                return Object.fromEntries(
-                    Object.entries(selectedQuickFilters).map(([filterId, selection]) => [
-                        filterId,
-                        buildPropertyFilter(filtersById.get(filterId), selection),
-                    ])
-                )
+                const entries: [string, AnyPropertyFilter][] = []
+                for (const [filterId, selection] of Object.entries(selectedQuickFilters)) {
+                    const propertyFilter = buildPropertyFilter(filtersById.get(filterId), selection)
+                    if (propertyFilter) {
+                        entries.push([filterId, propertyFilter])
+                    }
+                }
+                return Object.fromEntries(entries)
             },
         ],
     }),
