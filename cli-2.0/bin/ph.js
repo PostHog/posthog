@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
-import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const require = createRequire(import.meta.url)
 const currentDir = dirname(fileURLToPath(import.meta.url))
-const tsxCli = require.resolve('tsx/cli')
-const entrypoint = resolve(currentDir, '../src/index.ts')
+const entrypoint = resolve(currentDir, '../dist/index.js')
 
-const result = spawnSync(process.execPath, [tsxCli, entrypoint, ...process.argv.slice(2)], {
+if (!existsSync(entrypoint)) {
+  console.error('Built CLI not found. Run: pnpm build')
+  process.exit(1)
+}
+
+const result = spawnSync(process.execPath, [entrypoint, ...process.argv.slice(2)], {
   stdio: 'inherit',
 })
 
