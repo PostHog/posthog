@@ -210,7 +210,7 @@ class DeploymentViewSet(
         request=None,
         responses={status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(response=DeploymentActionResponseSerializer)},
     )
-    @action(detail=True, methods=["POST"])
+    @action(detail=True, methods=["post"])
     def redeploy(self, request: Request, **kwargs: Any) -> Response:
         # TODO(deployments-v1): enqueue a redeploy by cloning this deployment's commit_sha.
         return Response(
@@ -222,7 +222,7 @@ class DeploymentViewSet(
         request=None,
         responses={status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(response=DeploymentActionResponseSerializer)},
     )
-    @action(detail=True, methods=["POST"])
+    @action(detail=True, methods=["post"])
     def rollback(self, request: Request, **kwargs: Any) -> Response:
         # TODO(deployments-v1): make this deployment the currently-serving one,
         # creating a new `rollback`-trigger deployment that points at it.
@@ -235,7 +235,7 @@ class DeploymentViewSet(
         request=None,
         responses={status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(response=DeploymentActionResponseSerializer)},
     )
-    @action(detail=True, methods=["POST"], url_path="refresh_preview")
+    @action(detail=True, methods=["post"], url_path="refresh-preview")
     def refresh_preview(self, request: Request, **kwargs: Any) -> Response:
         # TODO(deployments-v1): re-capture `preview_image_url` via the
         # microlink-backed `preview_capture` service.

@@ -3,6 +3,10 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from parameterized import parameterized
+
+from posthog.models.utils import uuid7
+
 
 class TestDeploymentsAPI(APIBaseTest):
     @patch("products.deployments.backend.access.posthoganalytics.feature_enabled", return_value=True)
@@ -18,3 +22,18 @@ class TestDeploymentsAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/deployments/")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("redeploy",),
+            ("rollback",),
+            ("refresh-preview",),
+        ]
+    )
+    @patch("products.deployments.backend.access.posthoganalytics.feature_enabled", return_value=True)
+    def test_stub_action_returns_501_when_flag_on(self, action: str, _mock_flag: object) -> None:
+        # The stubs never call get_object, so the deployment id only has to be a
+        # syntactically valid UUID — no row needs to exist for the URL to route.
+        response = self.client.post(f"/api/projects/{self.team.id}/deployments/{uuid7()}/{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_501_NOT_IMPLEMENTED)
