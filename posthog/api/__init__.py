@@ -41,6 +41,11 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.catalog.backend.presentation.views import (
+    CatalogColumnViewSet,
+    CatalogNodeViewSet,
+    CatalogRelationshipViewSet,
+)
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1301,6 +1306,25 @@ environments_router.register(
     UserInterviewViewSet,
     "environment_user_interviews",
     ["team_id"],
+)
+
+projects_router.register(
+    r"catalog/nodes",
+    CatalogNodeViewSet,
+    "project_catalog_nodes",
+    ["project_id"],
+)
+projects_router.register(
+    r"catalog/columns",
+    CatalogColumnViewSet,
+    "project_catalog_columns",
+    ["project_id"],
+)
+projects_router.register(
+    r"catalog/relationships",
+    CatalogRelationshipViewSet,
+    "project_catalog_relationships",
+    ["project_id"],
 )
 
 visual_review_repos_router = projects_router.register(
