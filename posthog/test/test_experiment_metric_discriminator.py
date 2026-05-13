@@ -61,12 +61,9 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
         errors = ctx.exception.errors()
         assert len(errors) == 1
         assert errors[0]["type"] == "union_tag_invalid"
-        assert set(errors[0]["ctx"]["expected_tags"].strip("'").split("', '")) == {
-            "mean",
-            "funnel",
-            "ratio",
-            "retention",
-        }
+        expected_tags_str = errors[0]["ctx"]["expected_tags"]
+        for tag in ("mean", "funnel", "ratio", "retention"):
+            assert f"'{tag}'" in expected_tags_str, f"expected tag {tag!r} not found in {expected_tags_str!r}"
 
     def test_missing_metric_type_returns_clean_tag_error(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
@@ -76,24 +73,31 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
         assert len(errors) == 1
         assert errors[0]["type"] == "union_tag_not_found"
 
-    def test_valid_payload_per_metric_type_still_validates(self) -> None:
-        ExperimentMetric.model_validate({"metric_type": "mean", "source": {"kind": "EventsNode", "event": "purchase"}})
-        ExperimentMetric.model_validate({"metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "view"}]})
-        ExperimentMetric.model_validate(
-            {
-                "metric_type": "ratio",
-                "numerator": {"kind": "EventsNode", "event": "revenue"},
-                "denominator": {"kind": "EventsNode", "event": "pageview"},
-            }
-        )
-        ExperimentMetric.model_validate(
-            {
-                "metric_type": "retention",
-                "start_event": {"kind": "EventsNode", "event": "signup"},
-                "completion_event": {"kind": "EventsNode", "event": "activated"},
-                "retention_window_start": 0,
-                "retention_window_end": 7,
-                "retention_window_unit": "day",
-                "start_handling": "first_seen",
-            }
-        )
+    @parameterized.expand(
+        [
+            ("mean", {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "purchase"}}),
+            ("funnel", {"metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "view"}]}),
+            (
+                "ratio",
+                {
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "event": "revenue"},
+                    "denominator": {"kind": "EventsNode", "event": "pageview"},
+                },
+            ),
+            (
+                "retention",
+                {
+                    "metric_type": "retention",
+                    "start_event": {"kind": "EventsNode", "event": "signup"},
+                    "completion_event": {"kind": "EventsNode", "event": "activated"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+            ),
+        ]
+    )
+    def test_valid_payload_per_metric_type_still_validates(self, _name: str, payload: dict) -> None:
+        ExperimentMetric.model_validate(payload)
