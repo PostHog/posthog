@@ -43,8 +43,8 @@ function tenantColumnOptionsFromSchemas(
     selectedTenantColumn: string
 ): LemonSelectOptions<string> {
     const enabledSchemas = schemas.filter((schema) => schema.should_sync)
-    if (enabledSchemas.some((schema) => !schema.table?.columns?.length)) {
-        return selectedTenantColumn ? [{ label: selectedTenantColumn, value: selectedTenantColumn }] : []
+    if (enabledSchemas.length === 0 || enabledSchemas.some((schema) => !schema.table?.columns?.length)) {
+        return []
     }
 
     const columnSets = enabledSchemas
@@ -240,6 +240,11 @@ function TenantQueryTabInner(): JSX.Element {
                             <LemonInput
                                 value={value}
                                 onChange={onChange}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault()
+                                    }
+                                }}
                                 placeholder="customer_id"
                                 disabledReason={!hasQueryableTables ? 'Enable at least one table first' : undefined}
                             />
