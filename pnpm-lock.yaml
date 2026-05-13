@@ -676,6 +676,9 @@ importers:
       '@posthog/products-metrics':
         specifier: workspace:*
         version: link:../products/metrics
+      '@posthog/products-mindmap':
+        specifier: workspace:*
+        version: link:../products/mindmap
       '@posthog/products-notebooks':
         specifier: workspace:*
         version: link:../products/notebooks
