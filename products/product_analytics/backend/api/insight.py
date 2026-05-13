@@ -1762,6 +1762,13 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "no_dashboard":
+                if request.GET["no_dashboard"] == "true":
+                    queryset = queryset.exclude(
+                        id__in=DashboardTile.objects.filter(deleted=False)
+                        .values_list("insight__id", flat=True)
+                        .all()
+                    )
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
