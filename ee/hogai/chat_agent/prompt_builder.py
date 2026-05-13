@@ -8,6 +8,7 @@ from ee.hogai.chat_agent.prompts import (
     AGENT_PROMPT,
     BASIC_FUNCTIONALITY_PROMPT,
     DOING_TASKS_PROMPT,
+    PERSONA_PROMPTS,
     PROACTIVENESS_PROMPT,
     PRODUCT_ADVOCACY_PROMPT,
     ROLE_PROMPT,
@@ -28,7 +29,7 @@ from ee.hogai.chat_agent.toolkit import DEFAULT_TOOLS
 from ee.hogai.core.agent_modes.prompt_builder import ROOT_GROUPS_PROMPT, AgentPromptBuilderBase
 from ee.hogai.core.plan_mode import EXECUTION_CAPABILITIES_PROMPT, PLANNING_TASK_PROMPT
 from ee.hogai.tools.switch_mode import _get_default_tools_prompt, _get_modes_prompt
-from ee.hogai.utils.feature_flags import has_plan_mode_feature_flag
+from ee.hogai.utils.feature_flags import get_max_persona_variant, has_plan_mode_feature_flag
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
@@ -108,6 +109,8 @@ class ChatAgentPromptBuilder(AgentPromptBuilderBase):
             switching_to_plan = SWITCHING_TO_PLAN_PROMPT
         else:
             switching_to_plan = ""
+        persona_variant = get_max_persona_variant(self._team, self._user)
+        persona = PERSONA_PROMPTS.get(persona_variant, "")
         return format_prompt_string(
             AGENT_PROMPT,
             role=ROLE_PROMPT,
@@ -121,4 +124,5 @@ class ChatAgentPromptBuilder(AgentPromptBuilderBase):
             product_advocacy=PRODUCT_ADVOCACY_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
             switching_to_plan=switching_to_plan,
+            persona=persona,
         )

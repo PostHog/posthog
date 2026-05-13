@@ -7,6 +7,9 @@ from posthog.models import Team, User
 LlmGatewayVariant = Literal["control", "gateway-anthropic", "gateway-bedrock"]
 _VALID_LLM_GATEWAY_VARIANTS: set[str] = {"control", "gateway-anthropic", "gateway-bedrock"}
 
+MaxPersonaVariant = Literal["control", "pirate", "ye-olde-english", "caveman"]
+_VALID_MAX_PERSONA_VARIANTS: set[str] = {"control", "pirate", "ye-olde-english", "caveman"}
+
 
 def is_privacy_mode_enabled(team: Team) -> bool:
     """
@@ -99,6 +102,22 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
+
+
+def get_max_persona_variant(team: Team, user: User) -> MaxPersonaVariant:
+    variant = cast(
+        "str | bool | None",
+        posthoganalytics.get_feature_flag(
+            "weird-max-persona",
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        ),
+    )
+    if isinstance(variant, str) and variant in _VALID_MAX_PERSONA_VARIANTS:
+        return cast("MaxPersonaVariant", variant)
+    return "control"
 
 
 def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
