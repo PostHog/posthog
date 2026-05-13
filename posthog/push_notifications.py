@@ -110,6 +110,17 @@ def _send_batch(
     if not isinstance(tickets, list):
         return 0
 
+    # Expo's contract is one ticket per message in order. If we ever get a
+    # mismatch, `zip` silently truncates and the tail tokens fall into a hole
+    # — never counted as accepted, never pruned. Log so a contract regression
+    # shows up in monitoring instead of looking like quiet success.
+    if len(tickets) != len(tokens):
+        logger.warning(
+            "expo_push.ticket_count_mismatch",
+            expected=len(tokens),
+            received=len(tickets),
+        )
+
     accepted = 0
     invalid_tokens: list[str] = []
     for token, ticket in zip(tokens, tickets):

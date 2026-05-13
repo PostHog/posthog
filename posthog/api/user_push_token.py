@@ -4,6 +4,10 @@ The mobile app uploads its Expo push token after the user grants notification
 permission. The backend fans out push notifications to every stored token
 belonging to a user when something relevant happens (e.g. a PostHog Code task
 run finishes or needs the user's input).
+
+This is **device self-registration only**: every request acts on the
+authenticated user, never on someone else. The nested URL prefix is here only
+to match the rest of `/api/users/@me/…`.
 """
 
 from typing import cast
@@ -26,6 +30,13 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 
 logger = structlog.get_logger(__name__)
+
+# Hard cap on how many push tokens a single user can register. Realistic users
+# have 1-3 devices; the cap exists to prevent an authenticated user from
+# amplifying every task-run state change into N outbound Expo requests.
+# When the cap is hit, the oldest tokens are evicted to make room — that
+# matches the natural "I lost my old phone" use case.
+MAX_TOKENS_PER_USER = 20
 
 
 class UserPushTokenRegisterRequestSerializer(serializers.Serializer):
@@ -76,18 +87,20 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
     serializer_class = UserPushTokenItemSerializer
 
     def _get_user(self) -> User:
+        """Always return the authenticated user.
+
+        Push tokens are inherently device-self-registration: there's no admin
+        flow where a staff member should register a device on someone else's
+        behalf (doing so would route that user's notifications to the staff
+        member's device). So we explicitly reject any non-``@me`` path even
+        for staff, rather than inheriting the impersonation behaviour from
+        ``UserViewSet``.
+        """
         request_user = cast(User, self.request.user)
         uuid_param = self.kwargs.get("parent_lookup_uuid")
-        if uuid_param is None or uuid_param == "@me":
-            return request_user
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-        user = User.objects.filter(uuid=uuid_param, is_active=True).first()
-        if user is None:
-            raise exceptions.NotFound()
-        return user
+        if uuid_param is not None and uuid_param != "@me":
+            raise exceptions.PermissionDenied("Push tokens can only be managed via the `@me` path.")
+        return request_user
 
     @validated_request(
         request_serializer=UserPushTokenRegisterRequestSerializer,
@@ -109,11 +122,19 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         token: str = data["token"]
         platform: str = data["platform"]
 
-        push_token, _created = UserPushToken.objects.update_or_create(
+        # `last_seen_at` is explicit in defaults (rather than relying on the
+        # model's `auto_now=True`) because `update_or_create` passes
+        # `defaults.keys()` as `update_fields` on the update path — fields not
+        # listed there won't be written even though `pre_save` ran for them.
+        push_token, created = UserPushToken.objects.update_or_create(
             user=user,
             token=token,
             defaults={"platform": platform, "last_seen_at": django_timezone.now()},
         )
+
+        if created:
+            self._enforce_per_user_cap(user)
+
         return Response(UserPushTokenItemSerializer(push_token).data)
 
     @validated_request(
@@ -130,3 +151,15 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         token = request.validated_data["token"]
         UserPushToken.objects.filter(user=self._get_user(), token=token).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @staticmethod
+    def _enforce_per_user_cap(user: User) -> None:
+        """Trim the user's tokens back down to ``MAX_TOKENS_PER_USER``, evicting oldest first."""
+        excess_ids = list(
+            UserPushToken.objects.filter(user=user)
+            .order_by("-last_seen_at", "-created_at")
+            .values_list("id", flat=True)[MAX_TOKENS_PER_USER:]
+        )
+        if excess_ids:
+            UserPushToken.objects.filter(id__in=excess_ids).delete()
+            logger.info("user_push_token.evicted_excess", user_id=user.id, count=len(excess_ids))

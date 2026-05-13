@@ -298,9 +298,10 @@ async def _relay_loop(
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
                                     # Interactive run finished a turn — the agent is now idle waiting
-                                    # for the user. The dispatcher only enqueues a Celery task, so
-                                    # it's safe to call inline without blocking the event loop.
-                                    _safe_dispatch_awaiting_input(task_run)
+                                    # for the user. Hop off the event loop because the dispatcher
+                                    # does sync Redis (cache.add) and a potential network call to
+                                    # the feature-flag service.
+                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
                             elif not agent_active[0] and _is_session_update(event_data):
                                 agent_active[0] = True
 

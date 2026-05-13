@@ -103,6 +103,50 @@ class TestUserPushTokenEndpoints(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_staff_cannot_register_token_for_another_user(self):
+        """Even staff get rejected at /users/{uuid}/push_tokens/ — registration is device-self only.
+
+        Without this guard a staff session could register their own device token against
+        another user's account, routing that user's task push notifications to the staff
+        member's phone.
+        """
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        victim = self._create_user("victim@example.com")
+
+        response = self.client.post(
+            f"/api/users/{victim.uuid}/push_tokens/",
+            {"token": "ExponentPushToken[attacker]", "platform": "ios"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(UserPushToken.objects.filter(user=victim).exists())
+        self.assertFalse(UserPushToken.objects.filter(user=self.user).exists())
+
+    def test_per_user_token_cap_evicts_oldest(self):
+        """Registering more than MAX_TOKENS_PER_USER trims oldest rows on insert."""
+        from posthog.api.user_push_token import MAX_TOKENS_PER_USER
+
+        # Pre-populate up to the cap. We bypass last_seen_at's auto_now by an explicit
+        # save right after — ordering is by last_seen_at desc, then created_at desc.
+        for i in range(MAX_TOKENS_PER_USER):
+            UserPushToken.objects.create(
+                user=self.user,
+                token=f"ExponentPushToken[old-{i}]",
+                platform="ios",
+            )
+
+        response = self.client.post(
+            "/api/users/@me/push_tokens/",
+            {"token": "ExponentPushToken[new]", "platform": "ios"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # New token survives, total count stays at the cap.
+        self.assertEqual(UserPushToken.objects.filter(user=self.user).count(), MAX_TOKENS_PER_USER)
+        self.assertTrue(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[new]").exists())
+
 
 class TestPushNotifications(APIBaseTest):
     def _stub_response(self, *, ok: list[str], not_registered: list[str] | None = None):
@@ -171,6 +215,26 @@ class TestPushNotifications(APIBaseTest):
 
         self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
         self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
+
+    @patch("posthog.push_notifications.logger.warning")
+    @patch("posthog.push_notifications.requests.post")
+    def test_send_push_logs_when_expo_returns_fewer_tickets(self, mock_post, mock_warning):
+        """If Expo ever returns fewer tickets than messages, zip silently drops the tail —
+        log a warning so the contract violation surfaces in monitoring."""
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[a]", platform="ios")
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[b]", platform="ios")
+
+        class _ShortResponse:
+            status_code = 200
+            text = ""
+
+            def json(self_inner):
+                return {"data": [{"status": "ok"}]}  # one ticket for two messages
+
+        mock_post.return_value = _ShortResponse()
+        send_push_to_user(self.user, title="t", body="b")
+        events = [call.args[0] for call in mock_warning.call_args_list]
+        self.assertIn("expo_push.ticket_count_mismatch", events)
 
     @patch("posthog.push_notifications.requests.post")
     def test_send_push_swallows_http_errors(self, mock_post):

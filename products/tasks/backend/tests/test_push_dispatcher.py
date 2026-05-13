@@ -3,6 +3,8 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import TransactionTestCase
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team, User
 
 from products.tasks.backend.models import Task, TaskRun
@@ -31,39 +33,25 @@ class TestPushDispatcher(TransactionTestCase):
         )
         self.task_run = TaskRun.objects.create(task=self.task, team=self.team)
 
+    @parameterized.expand(
+        [
+            ("completed", notify_task_run_completed, "finished"),
+            ("failed", notify_task_run_failed, "failed"),
+            ("cancelled", notify_task_run_cancelled, "cancelled"),
+            ("awaiting", notify_task_run_awaiting_input, "needs your input"),
+        ]
+    )
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_notify_completed_enqueues_push(self, mock_delay, _flag):
-        notify_task_run_completed(self.task_run)
+    def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay, _flag):
+        notify_fn(self.task_run)
         mock_delay.assert_called_once()
-        args, _kwargs = mock_delay.call_args
-        user_id, title, body, data = args
+        user_id, title, body, data = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
         self.assertEqual(title, "PostHog Code")
-        self.assertIn("finished", body)
+        self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
-
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_notify_failed_enqueues_push(self, mock_delay, _flag):
-        notify_task_run_failed(self.task_run)
-        mock_delay.assert_called_once()
-        self.assertIn("failed", mock_delay.call_args.args[2])
-
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_notify_cancelled_enqueues_push(self, mock_delay, _flag):
-        notify_task_run_cancelled(self.task_run)
-        mock_delay.assert_called_once()
-        self.assertIn("cancelled", mock_delay.call_args.args[2])
-
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_notify_awaiting_input_enqueues_push(self, mock_delay, _flag):
-        notify_task_run_awaiting_input(self.task_run)
-        mock_delay.assert_called_once()
-        self.assertIn("needs your input", mock_delay.call_args.args[2])
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
