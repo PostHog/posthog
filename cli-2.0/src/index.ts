@@ -75,11 +75,8 @@ async function main() {
         let commandName = tool.name
         let aliases: string[] = []
         
-        // Use the exact tool name, just remove the feature prefix if present
-        commandName = tool.name
-        
         // Remove feature prefix if the tool name starts with the group name
-        const groupPrefix = groupName.replace(/-/g, '-') // keep dashes for matching
+        const groupPrefix = groupName // keep dashes for matching
         const groupSingular = groupPrefix.replace(/s$/, '') // remove trailing 's' for singular
         
         if (commandName.startsWith(groupSingular + '-')) {
@@ -117,17 +114,35 @@ async function main() {
         
         const description = tool.description || `Execute ${tool.name}`
         
+        const isReadOperation = commandName === 'get' || commandName === 'list' || commandName === 'retrieve'
+        const isWriteOperation = commandName === 'create' || commandName === 'update' || commandName === 'delete'
+        
         subCommands = subCommands.command(
           [commandName, ...aliases], 
           description.split('\n')[0], // Use first line of description
           {
-            id: commandName === 'get' || commandName === 'delete' || commandName === 'update' ? 
+            id: isWriteOperation && commandName !== 'create' ? 
               { type: 'string', describe: 'Resource ID', demandOption: true } : 
-              { type: 'string', describe: 'Resource ID (optional)' }
+              { type: 'string', describe: 'Resource ID (optional)' },
+            ...(isWriteOperation && commandName !== 'delete' ? {
+              data: { type: 'string', describe: 'JSON data for the request body' }
+            } : {})
           },
-          async (argv) => {
+          async (argv: any) => {
             const params: any = {}
             if (argv.id) params.id = argv.id
+            
+            // Parse JSON data for create/update operations
+            if (argv.data) {
+              try {
+                const jsonData = JSON.parse(argv.data as string)
+                Object.assign(params, jsonData)
+              } catch (error) {
+                console.error('Invalid JSON in --data parameter:', (error as Error).message)
+                process.exit(1)
+              }
+            }
+            
             await executeGeneratedTool(argv, tool.name, params)
           }
         )
