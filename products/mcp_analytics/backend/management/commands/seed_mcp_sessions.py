@@ -64,6 +64,14 @@ class Command(BaseCommand):
 
             for call_idx in range(calls):
                 timestamp = session_start + timedelta(seconds=call_idx * rng.randint(15, 90))
+                tool_name = rng.choice(TOOL_NAMES)
+                # Skew error rate and latency per tool so the Tool quality tab has variation.
+                tool_error_rate = (hash(tool_name) % 30) / 100.0
+                is_error = rng.random() < tool_error_rate
+                base_latency = 80 + (hash(tool_name) % 400)
+                duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
+                if is_error:
+                    duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
                 create_event(
                     event_uuid=uuid.uuid4(),
                     event="mcp_tool_call",
@@ -72,11 +80,13 @@ class Command(BaseCommand):
                     timestamp=timestamp,
                     properties={
                         "$session_id": session_id,
-                        "$mcp_tool_name": rng.choice(TOOL_NAMES),
+                        "$mcp_tool_name": tool_name,
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
                         "$mcp_protocol_version": "2025-03-26",
                         "$mcp_transport": "streamable_http",
+                        "$mcp_duration_ms": duration_ms,
+                        "$mcp_is_error": is_error,
                     },
                 )
                 total_events += 1

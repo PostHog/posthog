@@ -4,6 +4,8 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
+
 export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tool-quality'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
@@ -18,7 +20,7 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsToolQuality: 'tool-quality',
 }
 
-export const mcpAnalyticsSceneLogic = kea([
+export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
     tabAwareScene(),
     connect(() => ({

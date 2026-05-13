@@ -2,13 +2,15 @@ import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 
 import api from 'lib/api'
 
-interface MCPAnalyticsDashboard {
+import type { mcpAnalyticsDashboardLogicType } from './mcpAnalyticsDashboardLogicType'
+
+export interface MCPAnalyticsDashboard {
     id: number
     name: string
     description: string
 }
 
-export const mcpAnalyticsDashboardLogic = kea([
+export const mcpAnalyticsDashboardLogic = kea<mcpAnalyticsDashboardLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsDashboardLogic']),
 
     actions({

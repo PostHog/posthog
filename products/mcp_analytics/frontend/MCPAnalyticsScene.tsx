@@ -11,6 +11,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPSessionsTable } from './sessions/MCPSessionsTable'
 
 export const scene: SceneExport = {
@@ -42,7 +43,7 @@ export function MCPAnalyticsScene(): JSX.Element {
         {
             key: 'tool-quality',
             label: 'Tool quality',
-            content: <div>Tool quality</div>,
+            content: <MCPAnalyticsToolQuality />,
             link: combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
