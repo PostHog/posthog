@@ -1,0 +1,3846 @@
+{
+    "version": "2.0",
+    "generated_at": "2026-05-13T22:43:29.870Z",
+    "commands": {
+        "actions": {
+            "description": "Manage actions",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create action",
+                    "category": "Actions",
+                    "endpoint": "/api/projects/{project_id}/actions/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "action-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete action",
+                    "category": "Actions",
+                    "endpoint": "/api/projects/{project_id}/actions/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "action-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get action",
+                    "category": "Actions",
+                    "endpoint": "/api/projects/{project_id}/actions/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "action-get"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update action",
+                    "category": "Actions",
+                    "endpoint": "/api/projects/{project_id}/actions/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "action-update"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all actions",
+                    "category": "Actions",
+                    "endpoint": "/api/projects/{project_id}/actions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "actions-get-all"
+                }
+            }
+        },
+        "activity-logs": {
+            "description": "Manage activity-logs",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List recent activity in the project.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/activity_log/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "activity-log-list"
+                }
+            }
+        },
+        "logs": {
+            "description": "Manage logs",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get available activity log filter options.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/activity_log/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "advanced-activity-logs-filters"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List activity logs with advanced filtering.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/activity_log/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "advanced-activity-logs-list"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get sync job logs for a data warehouse table.",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sync-logs"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List log attribute values",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-attribute-values-list"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "List log attributes",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-attributes-list"
+                },
+                "count": {
+                    "name": "count",
+                    "humanName": "count",
+                    "description": "Count logs",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-count"
+                },
+                "ranges": {
+                    "name": "ranges",
+                    "humanName": "ranges",
+                    "description": "Count logs by time bucket",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-count-ranges"
+                },
+                "list-3": {
+                    "name": "list-3",
+                    "humanName": "list-3",
+                    "description": "List services with stats",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "logs-services-create"
+                },
+                "query": {
+                    "name": "query",
+                    "humanName": "query",
+                    "description": "Query logs sparkline",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-sparkline-query"
+                },
+                "logs": {
+                    "name": "logs",
+                    "humanName": "logs",
+                    "description": "Query logs",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/query/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "query-logs"
+                }
+            }
+        },
+        "feedback": {
+            "description": "Manage feedback",
+            "subcommands": {
+                "feedback": {
+                    "name": "feedback",
+                    "humanName": "feedback",
+                    "description": "Optional: submit feedback about the PostHog MCP server.",
+                    "category": "Feedback",
+                    "endpoint": "/api/projects/{project_id}/agents/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "agent-feedback"
+                }
+            }
+        },
+        "alerts": {
+            "description": "Manage alerts",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create alert",
+                    "category": "Alerts",
+                    "endpoint": "/api/projects/{project_id}/alerts/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "alert-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete alert",
+                    "category": "Alerts",
+                    "endpoint": "/api/projects/{project_id}/alerts/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "alert-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get alert",
+                    "category": "Alerts",
+                    "endpoint": "/api/projects/{project_id}/alerts/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "alert-get"
+                },
+                "simulate": {
+                    "name": "simulate",
+                    "humanName": "simulate",
+                    "description": "Simulate detector on insight",
+                    "category": "Alerts",
+                    "endpoint": "/api/projects/{project_id}/alerts/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "alert-simulate"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update alert",
+                    "category": "Alerts",
+                    "endpoint": "/api/projects/{project_id}/alerts/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "alert-update"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List alerts",
+                    "category": "Alerts",
+                    "endpoint": "/api/projects/{project_id}/alerts/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "alerts-list"
+                },
+                "create-1": {
+                    "name": "create-1",
+                    "humanName": "create-1",
+                    "description": "Create log alert",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-create"
+                },
+                "create-2": {
+                    "name": "create-2",
+                    "humanName": "create-2",
+                    "description": "Attach alert destination",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-destinations-create"
+                },
+                "delete-1": {
+                    "name": "delete-1",
+                    "humanName": "delete-1",
+                    "description": "Detach alert destination",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/{id}/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-destinations-delete-create"
+                },
+                "delete-2": {
+                    "name": "delete-2",
+                    "humanName": "delete-2",
+                    "description": "Delete log alert",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-destroy"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List log alerts",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-list"
+                },
+                "update-1": {
+                    "name": "update-1",
+                    "humanName": "update-1",
+                    "description": "Update log alert",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-partial-update"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get log alert",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-retrieve"
+                },
+                "create-3": {
+                    "name": "create-3",
+                    "humanName": "create-3",
+                    "description": "Simulate log alert",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/logs/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-simulate-create"
+                }
+            }
+        },
+        "annotations": {
+            "description": "Manage annotations",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create annotation",
+                    "category": "Annotations",
+                    "endpoint": "/api/projects/{project_id}/annotations/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "annotation-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete annotation",
+                    "category": "Annotations",
+                    "endpoint": "/api/projects/{project_id}/annotations/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "annotation-delete"
+                },
+                "retrieve": {
+                    "name": "retrieve",
+                    "humanName": "retrieve",
+                    "description": "Retrieve annotation",
+                    "category": "Annotations",
+                    "endpoint": "/api/projects/{project_id}/annotations/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "annotation-retrieve"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List annotations",
+                    "category": "Annotations",
+                    "endpoint": "/api/projects/{project_id}/annotations/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "annotations-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update annotation",
+                    "category": "Annotations",
+                    "endpoint": "/api/projects/{project_id}/annotations/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "annotations-partial-update"
+                }
+            }
+        },
+        "apm": {
+            "description": "Manage apm",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List tracing attribute values",
+                    "category": "Tracing",
+                    "endpoint": "/api/projects/{project_id}/apms/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "apm-attribute-values-list"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List tracing span attributes",
+                    "category": "Tracing",
+                    "endpoint": "/api/projects/{project_id}/apms/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "apm-attributes-list"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "List tracing service names",
+                    "category": "Tracing",
+                    "endpoint": "/api/projects/{project_id}/apms/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "apm-services-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Retrieve trace spans",
+                    "category": "Tracing",
+                    "endpoint": "/api/projects/{project_id}/apms/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "apm-trace-get"
+                },
+                "spans": {
+                    "name": "spans",
+                    "humanName": "spans",
+                    "description": "Query tracing spans",
+                    "category": "Tracing",
+                    "endpoint": "/api/projects/{project_id}/querys/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "query-apm-spans"
+                }
+            }
+        },
+        "approvals": {
+            "description": "Manage approvals",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List approval policies for the project.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/approvals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "approval-policies-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get a specific approval policy.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/approvals/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "approval-policy-get"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get details of a specific approval request.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/changes/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "change-request-get"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List pending and resolved approval requests.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/changes/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "change-requests-list"
+                }
+            }
+        },
+        "batch-exports": {
+            "description": "Manage batch-exports",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create batch export",
+                    "category": "Data pipelines",
+                    "endpoint": "/api/projects/{project_id}/batch_exports/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "batch-export-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete batch export",
+                    "category": "Data pipelines",
+                    "endpoint": "/api/projects/{project_id}/batch_exports/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "batch-export-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get batch export",
+                    "category": "Data pipelines",
+                    "endpoint": "/api/projects/{project_id}/batch_exports/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "batch-export-get"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update batch export",
+                    "category": "Data pipelines",
+                    "endpoint": "/api/projects/{project_id}/batch_exports/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "batch-export-update"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List batch exports",
+                    "category": "Data pipelines",
+                    "endpoint": "/api/projects/{project_id}/batch_exports/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "batch-exports-list"
+                }
+            }
+        },
+        "hog-functions": {
+            "description": "Manage hog-functions",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List function templates",
+                    "category": "Function templates",
+                    "endpoint": "/api/projects/{project_id}/cdps/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cdp-function-templates-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get function template",
+                    "category": "Function templates",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cdp-function-templates-retrieve"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create function",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete function",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-delete"
+                },
+                "create-1": {
+                    "name": "create-1",
+                    "humanName": "create-1",
+                    "description": "Test-invoke function",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-invocations-create"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List functions",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-list"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get function logs",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-logs-retrieve"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get function metrics",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-metrics-retrieve"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update function",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-partial-update"
+                },
+                "update-1": {
+                    "name": "update-1",
+                    "humanName": "update-1",
+                    "description": "Reorder transformation execution",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-rearrange-partial-update"
+                },
+                "get-3": {
+                    "name": "get-3",
+                    "humanName": "get-3",
+                    "description": "Get function",
+                    "category": "Functions",
+                    "endpoint": "/api/projects/{project_id}/cdps/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cdp-functions-retrieve"
+                },
+                "hog": {
+                    "name": "hog",
+                    "humanName": "hog",
+                    "description": "Dry-run Hog evaluation code against sample events.",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "evaluation-test-hog"
+                },
+                "get-4": {
+                    "name": "get-4",
+                    "humanName": "get-4",
+                    "description": "Get workflow logs",
+                    "category": "Workflows",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "hog-flows-logs-retrieve"
+                },
+                "get-5": {
+                    "name": "get-5",
+                    "humanName": "get-5",
+                    "description": "Get workflow metrics",
+                    "category": "Workflows",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "hog-flows-metrics-retrieve"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "List tables and columns available to HogQL queries.",
+                    "category": "Insights & analytics",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "hogql-schema"
+                },
+                "question": {
+                    "name": "question",
+                    "humanName": "question",
+                    "description": "Queries project's PostHog data based on a provided natural language question.",
+                    "category": "Insights & analytics",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "query-generate-hogql-from-question"
+                }
+            }
+        },
+        "cohorts": {
+            "description": "Manage cohorts",
+            "subcommands": {
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Add persons to static cohort",
+                    "category": "Cohorts",
+                    "endpoint": "/api/projects/{project_id}/cohorts/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "cohorts-add-persons-to-static-cohort-partial-update"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create cohort",
+                    "category": "Cohorts",
+                    "endpoint": "/api/projects/{project_id}/cohorts/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "cohorts-create"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List all cohorts",
+                    "category": "Cohorts",
+                    "endpoint": "/api/projects/{project_id}/cohorts/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cohorts-list"
+                },
+                "update-1": {
+                    "name": "update-1",
+                    "humanName": "update-1",
+                    "description": "Update cohort",
+                    "category": "Cohorts",
+                    "endpoint": "/api/projects/{project_id}/cohorts/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "cohorts-partial-update"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get cohort",
+                    "category": "Cohorts",
+                    "endpoint": "/api/projects/{project_id}/cohorts/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "cohorts-retrieve"
+                },
+                "update-2": {
+                    "name": "update-2",
+                    "humanName": "update-2",
+                    "description": "Remove person from static cohort",
+                    "category": "Cohorts",
+                    "endpoint": "/api/projects/{project_id}/cohorts/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "cohorts-rm-person-from-static-cohort-partial-update"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get person cohorts",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/cohorts/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "persons-cohorts-retrieve"
+                }
+            }
+        },
+        "comments": {
+            "description": "Manage comments",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get comment counts.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/comments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "comment-count"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get a specific comment.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/comments/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "comment-get"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all replies in a comment thread.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/comments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "comment-thread"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List comments and discussion threads.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/comments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "comments-list"
+                }
+            }
+        },
+        "support": {
+            "description": "Manage support",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List support tickets",
+                    "category": "Conversations",
+                    "endpoint": "/api/projects/{project_id}/conversations/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "conversations-tickets-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get support ticket",
+                    "category": "Conversations",
+                    "endpoint": "/api/projects/{project_id}/conversations/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "conversations-tickets-retrieve"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update support ticket",
+                    "category": "Conversations",
+                    "endpoint": "/api/projects/{project_id}/conversations/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "conversations-tickets-update"
+                }
+            }
+        },
+        "feature-flags": {
+            "description": "Manage feature-flags",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create feature flag",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "create-feature-flag"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete feature flag",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "delete-feature-flag"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all feature flags",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "feature-flag-get-all"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get feature flag definition",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "feature-flag-get-definition"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get feature flag activity log",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-activity-retrieve"
+                },
+                "copy": {
+                    "name": "copy",
+                    "humanName": "copy",
+                    "description": "Copy feature flag across projects",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-copy-flags-create"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get dependent feature flags",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-dependent-flags-retrieve"
+                },
+                "evaluation-reasons": {
+                    "name": "evaluation-reasons",
+                    "humanName": "evaluation-reasons",
+                    "description": "Get feature flag evaluation reasons",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/evaluation_reasons/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-evaluation-reasons-retrieve"
+                },
+                "status": {
+                    "name": "status",
+                    "humanName": "status",
+                    "description": "Get feature flag status",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-status-retrieve"
+                },
+                "test-evaluation": {
+                    "name": "test-evaluation",
+                    "humanName": "test-evaluation",
+                    "description": "Test feature flag evaluation",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/test_evaluation/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-test-evaluation-create"
+                },
+                "blast-radius": {
+                    "name": "blast-radius",
+                    "humanName": "blast-radius",
+                    "description": "Get user blast radius",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/{id}/user_blast_radius/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "feature-flags-user-blast-radius-create"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update feature flag",
+                    "category": "Feature flags",
+                    "endpoint": "/api/projects/{project_id}/feature_flags/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "update-feature-flag"
+                }
+            }
+        },
+        "dashboards": {
+            "description": "Manage dashboards",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create dashboard",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/dashboards/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "dashboard-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete dashboard",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/dashboards/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "dashboard-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get dashboard",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/dashboards/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "dashboard-get"
+                },
+                "tiles": {
+                    "name": "tiles",
+                    "humanName": "tiles",
+                    "description": "Reorder dashboard tiles",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/dashboards/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "dashboard-reorder-tiles"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update dashboard",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/dashboards/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "dashboard-update"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all dashboards",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/dashboards/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "dashboards-get-all"
+                }
+            }
+        },
+        "insights": {
+            "description": "Manage insights",
+            "subcommands": {
+                "run": {
+                    "name": "run",
+                    "humanName": "run",
+                    "description": "Run dashboard insights",
+                    "category": "Dashboards",
+                    "endpoint": "/api/projects/{project_id}/insights/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "dashboard-insights-run"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create insight",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "insight-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete insight",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "insight-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get insight",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "insight-get"
+                },
+                "results": {
+                    "name": "results",
+                    "humanName": "results",
+                    "description": "Run a saved insight's query and return results.",
+                    "category": "Insights & analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "insight-query"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update insight",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "insight-update"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get insight activity log",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "insights-activity-retrieve"
+                },
+                "recent-activity": {
+                    "name": "recent-activity",
+                    "humanName": "recent-activity",
+                    "description": "Get recent insight activity across the project",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "insights-all-activity-retrieve"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all insights",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "insights-list"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get most-viewed insights",
+                    "category": "Product analytics",
+                    "endpoint": "/api/projects/{project_id}/insights/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "insights-trending-retrieve"
+                }
+            }
+        },
+        "data-warehouse": {
+            "description": "Manage data-warehouse",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List data pipeline health issues",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/datas/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "data-warehouse-data-health-issues-retrieve"
+                },
+                "cancel": {
+                    "name": "cancel",
+                    "humanName": "cancel",
+                    "description": "Cancel running sync",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-cancel"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete synced table data",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-delete-data"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Refresh candidate incremental fields for a schema",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-incremental-fields-create"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List data import schemas",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update data import schema",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-partial-update"
+                },
+                "reload": {
+                    "name": "reload",
+                    "humanName": "reload",
+                    "description": "Trigger sync for a table schema",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-reload"
+                },
+                "resync": {
+                    "name": "resync",
+                    "humanName": "resync",
+                    "description": "Resync table schema from scratch",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-resync"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get data import schema",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-schemas-retrieve"
+                },
+                "create-1": {
+                    "name": "create-1",
+                    "humanName": "create-1",
+                    "description": "Check Postgres CDC prerequisites",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-check-cdc-prerequisites-create"
+                },
+                "create-2": {
+                    "name": "create-2",
+                    "humanName": "create-2",
+                    "description": "Create data warehouse source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-create"
+                },
+                "create-3": {
+                    "name": "create-3",
+                    "humanName": "create-3",
+                    "description": "Create and register a webhook for a source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-create-webhook-create"
+                },
+                "schema": {
+                    "name": "schema",
+                    "humanName": "schema",
+                    "description": "Discover tables and sync methods for a source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-db-schema"
+                },
+                "delete-1": {
+                    "name": "delete-1",
+                    "humanName": "delete-1",
+                    "description": "Delete a source's webhook",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-delete-webhook-create"
+                },
+                "delete-2": {
+                    "name": "delete-2",
+                    "humanName": "delete-2",
+                    "description": "Delete data warehouse source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-destroy"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "List sync job history for a source with optional date and schema filters.",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-jobs"
+                },
+                "list-3": {
+                    "name": "list-3",
+                    "humanName": "list-3",
+                    "description": "List data warehouse sources",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-list"
+                },
+                "update-1": {
+                    "name": "update-1",
+                    "humanName": "update-1",
+                    "description": "Update data warehouse source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-partial-update"
+                },
+                "schemas": {
+                    "name": "schemas",
+                    "humanName": "schemas",
+                    "description": "Refresh available schemas",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-refresh-schemas"
+                },
+                "reload-1": {
+                    "name": "reload-1",
+                    "humanName": "reload-1",
+                    "description": "Trigger sync for a source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-reload"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get data warehouse source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-retrieve"
+                },
+                "update-2": {
+                    "name": "update-2",
+                    "humanName": "update-2",
+                    "description": "Update webhook inputs (signing secret, etc.)",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-update-webhook-inputs-create"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get webhook status for a source",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-webhook-info-retrieve"
+                },
+                "get-3": {
+                    "name": "get-3",
+                    "humanName": "get-3",
+                    "description": "Get source type configurations",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/externals/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "external-data-sources-wizard"
+                },
+                "list-4": {
+                    "name": "list-4",
+                    "humanName": "list-4",
+                    "description": "Read core data warehouse schemas and table lists.",
+                    "category": "Data schema",
+                    "endpoint": "/api/projects/{project_id}/reads/",
+                    "method": "GET",
+                    "inputs": {
+                        "type": "object",
+                        "properties": {},
+                        "description": "No input required. Returns core data warehouse schemas."
+                    },
+                    "mcp_tool": "read-data-warehouse-schema"
+                }
+            }
+        },
+        "debug": {
+            "description": "Manage debug",
+            "subcommands": {
+                "apps": {
+                    "name": "apps",
+                    "humanName": "apps",
+                    "description": "Debug tool for testing MCP Apps SDK.",
+                    "category": "Debug",
+                    "endpoint": "/api/projects/{project_id}/debugs/",
+                    "method": "GET",
+                    "inputs": {
+                        "type": "object",
+                        "properties": {
+                            "message": {
+                                "description": "Optional message to include in the debug data",
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "mcp_tool": "debug-mcp-ui-apps"
+                }
+            }
+        },
+        "docs": {
+            "description": "Manage docs",
+            "subcommands": {
+                "search": {
+                    "name": "search",
+                    "humanName": "search",
+                    "description": "Search documentation",
+                    "category": "Docs",
+                    "endpoint": "/api/projects/{project_id}/docs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "docs-search"
+                }
+            }
+        },
+        "early-access-features": {
+            "description": "Manage early-access-features",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create early access feature",
+                    "category": "Early access features",
+                    "endpoint": "/api/projects/{project_id}/early_access_features/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "early-access-feature-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete early access feature",
+                    "category": "Early access features",
+                    "endpoint": "/api/projects/{project_id}/early_access_features/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "early-access-feature-destroy"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List early access features",
+                    "category": "Early access features",
+                    "endpoint": "/api/projects/{project_id}/early_access_features/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "early-access-feature-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update early access feature",
+                    "category": "Early access features",
+                    "endpoint": "/api/projects/{project_id}/early_access_features/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "early-access-feature-partial-update"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get early access feature",
+                    "category": "Early access features",
+                    "endpoint": "/api/projects/{project_id}/early_access_features/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "early-access-feature-retrieve"
+                }
+            }
+        },
+        "endpoints": {
+            "description": "Manage endpoints",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create endpoint",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete endpoint",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get endpoint",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-get"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get materialization status",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-materialization-status"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get endpoint OpenAPI spec",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-openapi-spec"
+                },
+                "end": {
+                    "name": "end",
+                    "humanName": "end",
+                    "description": "Run endpoint",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-run"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update endpoint",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-update"
+                },
+                "get-3": {
+                    "name": "get-3",
+                    "humanName": "get-3",
+                    "description": "Get endpoint versions",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "endpoint-versions"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all endpoints",
+                    "category": "Endpoints",
+                    "endpoint": "/api/projects/{project_id}/endpoints/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "endpoints-get-all"
+                }
+            }
+        },
+        "error-tracking": {
+            "description": "Manage error-tracking",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create error tracking assignment rule",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-assignment-rules-create"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List error tracking assignment rules",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-assignment-rules-list"
+                },
+                "create-1": {
+                    "name": "create-1",
+                    "humanName": "create-1",
+                    "description": "Create error tracking grouping rule",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-grouping-rules-create"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List error tracking grouping rules",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-grouping-rules-list"
+                },
+                "create-2": {
+                    "name": "create-2",
+                    "humanName": "create-2",
+                    "description": "Merge error tracking issues",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-issues-merge-create"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update error tracking issue",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-issues-partial-update"
+                },
+                "create-3": {
+                    "name": "create-3",
+                    "humanName": "create-3",
+                    "description": "Split error tracking issue fingerprints",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-issues-split-create"
+                },
+                "create-4": {
+                    "name": "create-4",
+                    "humanName": "create-4",
+                    "description": "Create error tracking suppression rule",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-suppression-rules-create"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "List error tracking suppression rules",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-suppression-rules-list"
+                },
+                "retrieve": {
+                    "name": "retrieve",
+                    "humanName": "retrieve",
+                    "description": "Download error tracking symbol set",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-symbol-sets-download-retrieve"
+                },
+                "list-3": {
+                    "name": "list-3",
+                    "humanName": "list-3",
+                    "description": "List error tracking symbol sets",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-symbol-sets-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get error tracking symbol set",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "error-tracking-symbol-sets-retrieve"
+                },
+                "issue": {
+                    "name": "issue",
+                    "humanName": "issue",
+                    "description": "Query error tracking issue",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "query-error-tracking-issue"
+                },
+                "list-4": {
+                    "name": "list-4",
+                    "humanName": "list-4",
+                    "description": "Query error tracking issues list",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "query-error-tracking-issues-list"
+                }
+            }
+        },
+        "events": {
+            "description": "Manage events",
+            "subcommands": {
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update an event definition's metadata.",
+                    "category": "Events & properties",
+                    "endpoint": "/api/projects/{project_id}/events/{id}/",
+                    "method": "PATCH",
+                    "inputs": {
+                        "type": "object",
+                        "properties": {
+                            "eventName": {
+                                "type": "string",
+                                "description": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")"
+                            },
+                            "data": {
+                                "type": "object",
+                                "properties": {
+                                    "description": {
+                                        "description": "Description explaining when the event is triggered",
+                                        "type": "string"
+                                    },
+                                    "tags": {
+                                        "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "verified": {
+                                        "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                                        "type": "boolean"
+                                    },
+                                    "hidden": {
+                                        "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "description": "The event definition data to update"
+                            }
+                        },
+                        "required": ["eventName", "data"]
+                    },
+                    "mcp_tool": "event-definition-update"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List all event definitions in the project with optional filtering.",
+                    "category": "Events & properties",
+                    "endpoint": "/api/projects/{project_id}/events/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "event-definitions-list"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List alert events",
+                    "category": "Logs",
+                    "endpoint": "/api/projects/{project_id}/events/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "logs-alerts-events-list"
+                },
+                "events": {
+                    "name": "events",
+                    "humanName": "events",
+                    "description": "Query error tracking issue events",
+                    "category": "Error tracking",
+                    "endpoint": "/api/projects/{project_id}/error_tracking/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "query-error-tracking-issue-events"
+                }
+            }
+        },
+        "sql": {
+            "description": "Manage sql",
+            "subcommands": {
+                "sql": {
+                    "name": "sql",
+                    "humanName": "sql",
+                    "description": "Execute an SQL query.",
+                    "category": "SQL",
+                    "endpoint": "/api/projects/{project_id}/executes/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "execute-sql"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create SQL variable",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/sqls/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "sql-variables-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete SQL variable",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/sqls/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "sql-variables-delete"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update SQL variable",
+                    "category": "Data warehouse",
+                    "endpoint": "/api/projects/{project_id}/sqls/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "sql-variables-update"
+                }
+            }
+        },
+        "experiments": {
+            "description": "Manage experiments",
+            "subcommands": {
+                "archive": {
+                    "name": "archive",
+                    "humanName": "archive",
+                    "description": "Archive experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-archive"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "POST",
+                    "inputs": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Experiment name - should clearly describe what is being tested"
+                            },
+                            "description": {
+                                "description": "Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes",
+                                "type": "string"
+                            },
+                            "feature_flag_key": {
+                                "type": "string",
+                                "description": "Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name"
+                            },
+                            "primary_metrics": {
+                                "description": "Primary metrics to measure experiment success. IMPORTANT: Each metric needs event_name to track data. For funnels, provide funnel_steps array with event names for each step. Ask user what events they track, or use project-property-definitions to find available events.",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "description": "Human-readable metric name",
+                                            "type": "string"
+                                        },
+                                        "metric_type": {
+                                            "type": "string",
+                                            "enum": ["mean", "funnel", "ratio"],
+                                            "description": "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics"
+                                        },
+                                        "event_name": {
+                                            "type": "string",
+                                            "description": "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events."
+                                        },
+                                        "funnel_steps": {
+                                            "description": "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "number"
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "operator": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["key"]
+                                            }
+                                        },
+                                        "description": {
+                                            "description": "What this metric measures and why it's important for the experiment",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["metric_type", "event_name"]
+                                }
+                            },
+                            "secondary_metrics": {
+                                "description": "Secondary metrics to monitor for potential side effects or additional insights. Each metric needs event_name.",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "description": "Human-readable metric name",
+                                            "type": "string"
+                                        },
+                                        "metric_type": {
+                                            "type": "string",
+                                            "enum": ["mean", "funnel", "ratio"],
+                                            "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
+                                        },
+                                        "event_name": {
+                                            "type": "string",
+                                            "description": "REQUIRED: PostHog event name. Use '$pageview' if unsure."
+                                        },
+                                        "funnel_steps": {
+                                            "description": "For funnel metrics only: Array of event names for each funnel step",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "number"
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "operator": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["key"]
+                                            }
+                                        },
+                                        "description": {
+                                            "description": "What this secondary metric measures",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["metric_type", "event_name"]
+                                }
+                            },
+                            "variants": {
+                                "description": "Experiment variants. If not specified, defaults to 50/50 control/test split. Ask user how many variants they need and what each tests",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string",
+                                            "description": "Variant key (e.g., 'control', 'variant_a', 'new_design')"
+                                        },
+                                        "name": {
+                                            "description": "Human-readable variant name",
+                                            "type": "string"
+                                        },
+                                        "split_percent": {
+                                            "description": "Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.",
+                                            "type": "number",
+                                            "minimum": 0,
+                                            "maximum": 100
+                                        },
+                                        "rollout_percentage": {
+                                            "description": "Deprecated: use split_percent instead. Accepted for backward compatibility.",
+                                            "type": "number",
+                                            "minimum": 0,
+                                            "maximum": 100
+                                        }
+                                    },
+                                    "required": ["key"]
+                                }
+                            },
+                            "minimum_detectable_effect": {
+                                "default": 30,
+                                "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments",
+                                "type": "number"
+                            },
+                            "filter_test_accounts": {
+                                "default": true,
+                                "description": "Whether to filter out internal test accounts",
+                                "type": "boolean"
+                            },
+                            "target_properties": {
+                                "description": "Properties to target specific user segments (e.g., country, subscription type)",
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            },
+                            "draft": {
+                                "default": true,
+                                "description": "Create as draft (true) or launch immediately (false). Recommend draft for review first",
+                                "type": "boolean"
+                            },
+                            "holdout_id": {
+                                "description": "Holdout group ID if this experiment should exclude users from other experiments",
+                                "type": "number"
+                            },
+                            "allow_unknown_events": {
+                                "description": "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it).",
+                                "type": "boolean"
+                            }
+                        },
+                        "required": ["name", "feature_flag_key"]
+                    },
+                    "mcp_tool": "experiment-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "experiment-delete"
+                },
+                "duplicate": {
+                    "name": "duplicate",
+                    "humanName": "duplicate",
+                    "description": "Duplicate experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-duplicate"
+                },
+                "end": {
+                    "name": "end",
+                    "humanName": "end",
+                    "description": "End experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-end"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get experiment details",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-get"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Deprecated alias for experiment-list.",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-get-all"
+                },
+                "launch": {
+                    "name": "launch",
+                    "humanName": "launch",
+                    "description": "Launch experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-launch"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "Get all experiments",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-list"
+                },
+                "pause": {
+                    "name": "pause",
+                    "humanName": "pause",
+                    "description": "Pause experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-pause"
+                },
+                "reset": {
+                    "name": "reset",
+                    "humanName": "reset",
+                    "description": "Reset experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-reset"
+                },
+                "results": {
+                    "name": "results",
+                    "humanName": "results",
+                    "description": "Get comprehensive experiment results including metrics and exposure data.",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/{id}/",
+                    "method": "GET",
+                    "inputs": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "number",
+                                "description": "The ID of the experiment to get comprehensive results for"
+                            },
+                            "refresh": {
+                                "default": false,
+                                "description": "Force refresh of results instead of using cached values. Defaults to false.",
+                                "type": "boolean"
+                            }
+                        },
+                        "required": ["id"]
+                    },
+                    "mcp_tool": "experiment-results-get"
+                },
+                "resume": {
+                    "name": "resume",
+                    "humanName": "resume",
+                    "description": "Resume experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-resume"
+                },
+                "variant": {
+                    "name": "variant",
+                    "humanName": "variant",
+                    "description": "Ship experiment variant",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-ship-variant"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get experiment velocity stats",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-stats"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get experiment timeseries results",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-timeseries-results"
+                },
+                "archive-1": {
+                    "name": "archive-1",
+                    "humanName": "archive-1",
+                    "description": "Unarchive experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "experiment-unarchive"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update experiment",
+                    "category": "Experiments",
+                    "endpoint": "/api/projects/{project_id}/experiments/{id}/",
+                    "method": "PATCH",
+                    "inputs": {
+                        "type": "object",
+                        "properties": {
+                            "experimentId": {
+                                "type": "number",
+                                "description": "The ID of the experiment to update"
+                            },
+                            "data": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "description": "Update experiment name",
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "description": "Update experiment description",
+                                        "type": "string"
+                                    },
+                                    "primary_metrics": {
+                                        "description": "Update primary metrics",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "description": "Human-readable metric name",
+                                                    "type": "string"
+                                                },
+                                                "metric_type": {
+                                                    "type": "string",
+                                                    "enum": ["mean", "funnel", "ratio"],
+                                                    "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
+                                                },
+                                                "event_name": {
+                                                    "type": "string",
+                                                    "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"
+                                                },
+                                                "funnel_steps": {
+                                                    "description": "For funnel metrics only: Array of event names for each funnel step",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "properties": {
+                                                    "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "key": {
+                                                                "type": "string"
+                                                            },
+                                                            "value": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "number"
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "number"
+                                                                                }
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    {
+                                                                        "type": "null"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "operator": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["key"]
+                                                    }
+                                                },
+                                                "description": {
+                                                    "description": "What this metric measures",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["metric_type", "event_name"]
+                                        }
+                                    },
+                                    "secondary_metrics": {
+                                        "description": "Update secondary metrics",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "description": "Human-readable metric name",
+                                                    "type": "string"
+                                                },
+                                                "metric_type": {
+                                                    "type": "string",
+                                                    "enum": ["mean", "funnel", "ratio"],
+                                                    "description": "Metric type"
+                                                },
+                                                "event_name": {
+                                                    "type": "string",
+                                                    "description": "PostHog event name"
+                                                },
+                                                "funnel_steps": {
+                                                    "description": "For funnel metrics only: Array of event names",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "properties": {
+                                                    "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "key": {
+                                                                "type": "string"
+                                                            },
+                                                            "value": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "number"
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "number"
+                                                                                }
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    {
+                                                                        "type": "null"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "operator": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["key"]
+                                                    }
+                                                },
+                                                "description": {
+                                                    "description": "What this metric measures",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["metric_type", "event_name"]
+                                        }
+                                    },
+                                    "minimum_detectable_effect": {
+                                        "description": "Update minimum detectable effect in percentage",
+                                        "type": "number"
+                                    },
+                                    "launch": {
+                                        "description": "Launch experiment (set start_date) or keep as draft",
+                                        "type": "boolean"
+                                    },
+                                    "conclude": {
+                                        "description": "Conclude experiment with result",
+                                        "type": "string",
+                                        "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"]
+                                    },
+                                    "conclusion_comment": {
+                                        "description": "Comment about experiment conclusion",
+                                        "type": "string"
+                                    },
+                                    "restart": {
+                                        "description": "Restart concluded experiment as draft (clears start_date, end_date, and conclusion)",
+                                        "type": "boolean"
+                                    },
+                                    "archive": {
+                                        "description": "Archive or unarchive experiment",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "description": "The experiment data to update using user-friendly format"
+                            }
+                        },
+                        "required": ["experimentId", "data"]
+                    },
+                    "mcp_tool": "experiment-update"
+                }
+            }
+        },
+        "projects": {
+            "description": "Manage projects",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/gets/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "get-llm-total-costs-for-project"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get project",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/projects/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "project-get"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update project settings",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/projects/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "project-settings-update"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Fetches projects that the user has access to in the current organization.",
+                    "category": "Organization & project management",
+                    "endpoint": "/api/projects/{project_id}/projects/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "projects-get"
+                },
+                "switch-project": {
+                    "name": "switch-project",
+                    "humanName": "switch-project",
+                    "description": "Change the active project from the default project.",
+                    "category": "Organization & project management",
+                    "endpoint": "/api/projects/{project_id}/switchs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "switch-project"
+                }
+            }
+        },
+        "integrations": {
+            "description": "Manage integrations",
+            "subcommands": {
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete integration",
+                    "category": "Integrations",
+                    "endpoint": "/api/projects/{project_id}/integrations/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "integration-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get integration",
+                    "category": "Integrations",
+                    "endpoint": "/api/projects/{project_id}/integrations/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "integration-get"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List integration channels",
+                    "category": "Integrations",
+                    "endpoint": "/api/projects/{project_id}/integrations/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "integrations-channels-retrieve"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List integrations",
+                    "category": "Integrations",
+                    "endpoint": "/api/projects/{project_id}/integrations/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "integrations-list"
+                }
+            }
+        },
+        "llm-analytics": {
+            "description": "Manage llm-analytics",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get clustering job",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-clustering-job-get"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List clustering jobs",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-clustering-job-list"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get evaluation config",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-config-get"
+                },
+                "key": {
+                    "name": "key",
+                    "humanName": "key",
+                    "description": "Set active evaluation provider key",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-config-set-active-key"
+                },
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create evaluation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete evaluation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-delete"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get evaluation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-get"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List supported llm_judge models",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-judge-models"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "List evaluations",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-list"
+                },
+                "create-1": {
+                    "name": "create-1",
+                    "humanName": "create-1",
+                    "description": "Create evaluation report config",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-create"
+                },
+                "delete-1": {
+                    "name": "delete-1",
+                    "humanName": "delete-1",
+                    "description": "Delete evaluation report config",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-delete"
+                },
+                "generate": {
+                    "name": "generate",
+                    "humanName": "generate",
+                    "description": "Trigger evaluation report generation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-generate"
+                },
+                "get-3": {
+                    "name": "get-3",
+                    "humanName": "get-3",
+                    "description": "Get evaluation report config",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-get"
+                },
+                "list-3": {
+                    "name": "list-3",
+                    "humanName": "list-3",
+                    "description": "List evaluation report configs",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-list"
+                },
+                "list-4": {
+                    "name": "list-4",
+                    "humanName": "list-4",
+                    "description": "List evaluation report runs",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-run-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update evaluation report config",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-report-update"
+                },
+                "run": {
+                    "name": "run",
+                    "humanName": "run",
+                    "description": "Run evaluation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-run"
+                },
+                "results": {
+                    "name": "results",
+                    "humanName": "results",
+                    "description": "Summarize evaluation results",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-summary-create"
+                },
+                "hog": {
+                    "name": "hog",
+                    "humanName": "hog",
+                    "description": "Test Hog evaluation code",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-test-hog"
+                },
+                "update-1": {
+                    "name": "update-1",
+                    "humanName": "update-1",
+                    "description": "Update evaluation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-evaluation-update"
+                },
+                "create-2": {
+                    "name": "create-2",
+                    "humanName": "create-2",
+                    "description": "Create prompt",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-prompt-create"
+                },
+                "duplicate": {
+                    "name": "duplicate",
+                    "humanName": "duplicate",
+                    "description": "Duplicate prompt",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-prompt-duplicate"
+                },
+                "get-4": {
+                    "name": "get-4",
+                    "humanName": "get-4",
+                    "description": "Get prompt",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-prompt-get"
+                },
+                "list-5": {
+                    "name": "list-5",
+                    "humanName": "list-5",
+                    "description": "List prompts",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-prompt-list"
+                },
+                "update-2": {
+                    "name": "update-2",
+                    "humanName": "update-2",
+                    "description": "Update prompt",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-prompt-update"
+                },
+                "create-3": {
+                    "name": "create-3",
+                    "humanName": "create-3",
+                    "description": "Create review queue",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-create"
+                },
+                "delete-2": {
+                    "name": "delete-2",
+                    "humanName": "delete-2",
+                    "description": "Delete review queue",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-delete"
+                },
+                "get-5": {
+                    "name": "get-5",
+                    "humanName": "get-5",
+                    "description": "Get review queue",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-get"
+                },
+                "create-4": {
+                    "name": "create-4",
+                    "humanName": "create-4",
+                    "description": "Create review queue item",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-item-create"
+                },
+                "delete-3": {
+                    "name": "delete-3",
+                    "humanName": "delete-3",
+                    "description": "Delete review queue item",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-item-delete"
+                },
+                "get-6": {
+                    "name": "get-6",
+                    "humanName": "get-6",
+                    "description": "Get review queue item",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-item-get"
+                },
+                "list-6": {
+                    "name": "list-6",
+                    "humanName": "list-6",
+                    "description": "List review queue items",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-item-list"
+                },
+                "update-3": {
+                    "name": "update-3",
+                    "humanName": "update-3",
+                    "description": "Update review queue item",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-item-update"
+                },
+                "list-7": {
+                    "name": "list-7",
+                    "humanName": "list-7",
+                    "description": "List review queues",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-list"
+                },
+                "update-4": {
+                    "name": "update-4",
+                    "humanName": "update-4",
+                    "description": "Update review queue",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-review-queue-update"
+                },
+                "create-5": {
+                    "name": "create-5",
+                    "humanName": "create-5",
+                    "description": "Create scorer",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-score-definition-create"
+                },
+                "get-7": {
+                    "name": "get-7",
+                    "humanName": "get-7",
+                    "description": "Get scorer",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-score-definition-get"
+                },
+                "list-8": {
+                    "name": "list-8",
+                    "humanName": "list-8",
+                    "description": "List scorers",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-score-definition-list"
+                },
+                "version": {
+                    "name": "version",
+                    "humanName": "version",
+                    "description": "Bump scorer to a new version",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-score-definition-new-version"
+                },
+                "update-5": {
+                    "name": "update-5",
+                    "humanName": "update-5",
+                    "description": "Update scorer metadata",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-score-definition-update"
+                },
+                "create-6": {
+                    "name": "create-6",
+                    "humanName": "create-6",
+                    "description": "Analyze sentiment",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-sentiment-create"
+                },
+                "archive": {
+                    "name": "archive",
+                    "humanName": "archive",
+                    "description": "Archive skill",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-archive"
+                },
+                "create-7": {
+                    "name": "create-7",
+                    "humanName": "create-7",
+                    "description": "Create skill",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-create"
+                },
+                "duplicate-1": {
+                    "name": "duplicate-1",
+                    "humanName": "duplicate-1",
+                    "description": "Duplicate skill",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-duplicate"
+                },
+                "create-8": {
+                    "name": "create-8",
+                    "humanName": "create-8",
+                    "description": "Create skill file",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-file-create"
+                },
+                "delete-4": {
+                    "name": "delete-4",
+                    "humanName": "delete-4",
+                    "description": "Delete skill file",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-file-delete"
+                },
+                "get-8": {
+                    "name": "get-8",
+                    "humanName": "get-8",
+                    "description": "Get skill file",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-file-get"
+                },
+                "rename": {
+                    "name": "rename",
+                    "humanName": "rename",
+                    "description": "Rename skill file",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-file-rename"
+                },
+                "get-9": {
+                    "name": "get-9",
+                    "humanName": "get-9",
+                    "description": "Get skill",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-get"
+                },
+                "list-9": {
+                    "name": "list-9",
+                    "humanName": "list-9",
+                    "description": "List skills",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-list"
+                },
+                "update-6": {
+                    "name": "update-6",
+                    "humanName": "update-6",
+                    "description": "Update skill",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-skill-update"
+                },
+                "create-9": {
+                    "name": "create-9",
+                    "humanName": "create-9",
+                    "description": "Summarize trace or generation",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-summarization-create"
+                },
+                "create-10": {
+                    "name": "create-10",
+                    "humanName": "create-10",
+                    "description": "Create tagger",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-tagger-create"
+                },
+                "list-10": {
+                    "name": "list-10",
+                    "humanName": "list-10",
+                    "description": "List taggers",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-tagger-list"
+                },
+                "hog-1": {
+                    "name": "hog-1",
+                    "humanName": "hog-1",
+                    "description": "Test Hog tagger code",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/hog_functions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-tagger-test-hog"
+                },
+                "create-11": {
+                    "name": "create-11",
+                    "humanName": "create-11",
+                    "description": "Create trace review",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "llma-trace-review-create"
+                },
+                "delete-5": {
+                    "name": "delete-5",
+                    "humanName": "delete-5",
+                    "description": "Delete trace review",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "llma-trace-review-delete"
+                },
+                "get-10": {
+                    "name": "get-10",
+                    "humanName": "get-10",
+                    "description": "Get trace review",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-trace-review-get"
+                },
+                "list-11": {
+                    "name": "list-11",
+                    "humanName": "list-11",
+                    "description": "List trace reviews",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "llma-trace-review-list"
+                },
+                "update-7": {
+                    "name": "update-7",
+                    "humanName": "update-7",
+                    "description": "Update trace review",
+                    "category": "LLM analytics",
+                    "endpoint": "/api/projects/{project_id}/llm_analytics/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "llma-trace-review-update"
+                }
+            }
+        },
+        "notebooks": {
+            "description": "Manage notebooks",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create notebook",
+                    "category": "Notebooks",
+                    "endpoint": "/api/projects/{project_id}/notebooks/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "notebooks-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete notebook",
+                    "category": "Notebooks",
+                    "endpoint": "/api/projects/{project_id}/notebooks/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "notebooks-destroy"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List notebooks",
+                    "category": "Notebooks",
+                    "endpoint": "/api/projects/{project_id}/notebooks/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "notebooks-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update notebook",
+                    "category": "Notebooks",
+                    "endpoint": "/api/projects/{project_id}/notebooks/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "notebooks-partial-update"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get notebook",
+                    "category": "Notebooks",
+                    "endpoint": "/api/projects/{project_id}/notebooks/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "notebooks-retrieve"
+                }
+            }
+        },
+        "organizations": {
+            "description": "Manage organizations",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List organization members.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/orgs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "org-members-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get organization details.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/organizations/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "organization-get"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List organizations.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/organizations/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "organizations-list"
+                },
+                "switch-organization": {
+                    "name": "switch-organization",
+                    "humanName": "switch-organization",
+                    "description": "Change the active organization from the default organization.",
+                    "category": "Organization & project management",
+                    "endpoint": "/api/projects/{project_id}/switchs/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "switch-organization"
+                }
+            }
+        },
+        "persons": {
+            "description": "Manage persons",
+            "subcommands": {
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Bulk delete persons",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/persons/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "persons-bulk-delete"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List persons",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/persons/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "persons-list"
+                },
+                "delete-1": {
+                    "name": "delete-1",
+                    "humanName": "delete-1",
+                    "description": "Delete person property",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/persons/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "persons-property-delete"
+                },
+                "set": {
+                    "name": "set",
+                    "humanName": "set",
+                    "description": "Set person property",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/persons/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "persons-property-set"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get person",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/persons/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "persons-retrieve"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get person property values",
+                    "category": "Persons",
+                    "endpoint": "/api/projects/{project_id}/persons/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "persons-values-retrieve"
+                }
+            }
+        },
+        "properties": {
+            "description": "Manage properties",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get properties for events or persons.",
+                    "category": "Events & properties",
+                    "endpoint": "/api/projects/{project_id}/properties/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "properties-list"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get event and property definitions for the project.",
+                    "category": "Organization & project management",
+                    "endpoint": "/api/projects/{project_id}/propertys/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "property-definitions"
+                }
+            }
+        },
+        "session-recordings": {
+            "description": "Manage session-recordings",
+            "subcommands": {
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List session recordings",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "query-session-recordings-list"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete session recording",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get session recording",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-get"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "Create session recording playlist",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-playlist-create"
+                },
+                "list-2": {
+                    "name": "list-2",
+                    "humanName": "list-2",
+                    "description": "Get session recording playlist",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-playlist-get"
+                },
+                "list-3": {
+                    "name": "list-3",
+                    "humanName": "list-3",
+                    "description": "Update session recording playlist",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-playlist-update"
+                },
+                "list-4": {
+                    "name": "list-4",
+                    "humanName": "list-4",
+                    "description": "List session recording playlists",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-playlists-list"
+                },
+                "summarize": {
+                    "name": "summarize",
+                    "humanName": "summarize",
+                    "description": "Generate AI-powered summaries of session recordings via streaming.",
+                    "category": "Session replays",
+                    "endpoint": "/api/projects/{project_id}/session_recordings/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "session-recording-summarize"
+                }
+            }
+        },
+        "roles": {
+            "description": "Manage roles",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get a specific role.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/roles/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "role-get"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List members of a role.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/roles/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "role-members-list"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List organization roles.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/roles/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "roles-list"
+                }
+            }
+        },
+        "subscriptions": {
+            "description": "Manage subscriptions",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create subscription",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-create"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List subscription deliveries",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-deliveries-list"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get subscription delivery",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-deliveries-retrieve"
+                },
+                "list-1": {
+                    "name": "list-1",
+                    "humanName": "list-1",
+                    "description": "List subscriptions",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update subscription",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-partial-update"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get subscription",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-retrieve"
+                },
+                "end": {
+                    "name": "end",
+                    "humanName": "end",
+                    "description": "Send test delivery",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/subscriptions/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "subscriptions-test-delivery-create"
+                }
+            }
+        },
+        "surveys": {
+            "description": "Manage surveys",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Creates a new survey in the project.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "survey-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete a survey by ID.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "survey-delete"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get a specific survey by ID.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "survey-get"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get response statistics for a specific survey.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "survey-stats"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update an existing survey by ID.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "survey-update"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "Get all surveys in the project with optional filtering.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "surveys-get-all"
+                },
+                "get-2": {
+                    "name": "get-2",
+                    "humanName": "get-2",
+                    "description": "Get aggregated response statistics across all surveys.",
+                    "category": "Surveys",
+                    "endpoint": "/api/projects/{project_id}/surveys/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "surveys-global-stats"
+                }
+            }
+        },
+        "usage": {
+            "description": "Manage usage",
+            "subcommands": {
+                "create": {
+                    "name": "create",
+                    "humanName": "create",
+                    "description": "Create usage metric",
+                    "category": "Customer analytics",
+                    "endpoint": "/api/projects/{project_id}/usages/",
+                    "method": "POST",
+                    "inputs": {},
+                    "mcp_tool": "usage-metrics-create"
+                },
+                "delete": {
+                    "name": "delete",
+                    "humanName": "delete",
+                    "description": "Delete usage metric",
+                    "category": "Customer analytics",
+                    "endpoint": "/api/projects/{project_id}/usages/{id}/",
+                    "method": "DELETE",
+                    "inputs": {},
+                    "mcp_tool": "usage-metrics-destroy"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List usage metrics",
+                    "category": "Customer analytics",
+                    "endpoint": "/api/projects/{project_id}/usages/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "usage-metrics-list"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update usage metric",
+                    "category": "Customer analytics",
+                    "endpoint": "/api/projects/{project_id}/usages/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "usage-metrics-partial-update"
+                },
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get usage metric",
+                    "category": "Customer analytics",
+                    "endpoint": "/api/projects/{project_id}/usages/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "usage-metrics-retrieve"
+                }
+            }
+        },
+        "users": {
+            "description": "Manage users",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get user",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/users/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "user-get"
+                },
+                "get-1": {
+                    "name": "get-1",
+                    "humanName": "get-1",
+                    "description": "Get pinned tabs and homepage.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/users/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "user-home-settings-get"
+                },
+                "update": {
+                    "name": "update",
+                    "humanName": "update",
+                    "description": "Update pinned tabs and homepage.",
+                    "category": "Platform Features",
+                    "endpoint": "/api/projects/{project_id}/users/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "user-home-settings-update"
+                },
+                "update-1": {
+                    "name": "update-1",
+                    "humanName": "update-1",
+                    "description": "Update user settings",
+                    "category": "Core",
+                    "endpoint": "/api/projects/{project_id}/users/{id}/",
+                    "method": "PATCH",
+                    "inputs": {},
+                    "mcp_tool": "user-settings-update"
+                }
+            }
+        },
+        "web-analytics": {
+            "description": "Manage web-analytics",
+            "subcommands": {
+                "digest": {
+                    "name": "digest",
+                    "humanName": "digest",
+                    "description": "Summarize web analytics",
+                    "category": "Web analytics",
+                    "endpoint": "/api/projects/{project_id}/web_analytics/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "web-analytics-weekly-digest"
+                }
+            }
+        },
+        "workflows": {
+            "description": "Manage workflows",
+            "subcommands": {
+                "get": {
+                    "name": "get",
+                    "humanName": "get",
+                    "description": "Get workflow",
+                    "category": "Workflows",
+                    "endpoint": "/api/projects/{project_id}/workflows/{id}/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "workflows-get"
+                },
+                "list": {
+                    "name": "list",
+                    "humanName": "list",
+                    "description": "List workflows",
+                    "category": "Workflows",
+                    "endpoint": "/api/projects/{project_id}/workflows/",
+                    "method": "GET",
+                    "inputs": {},
+                    "mcp_tool": "workflows-list"
+                }
+            }
+        }
+    },
+    "stats": {
+        "total_tools": 365,
+        "mapped_tools": 312,
+        "commands_created": 40
+    }
+}
