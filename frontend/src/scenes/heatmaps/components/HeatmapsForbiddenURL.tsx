@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconPlus } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import {
@@ -55,7 +56,8 @@ export function HeatmapsForbiddenURL(): JSX.Element {
                 action={
                     urlToAuthorize && !validationError
                         ? {
-                              children: `Authorize ${urlToAuthorize}`,
+                              children: 'Authorized URL',
+                              icon: <IconPlus />,
                               onClick: () => {
                                   addUrl(urlToAuthorize)
                                   lemonToast.success(`Authorized ${urlToAuthorize}`)
