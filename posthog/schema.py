@@ -727,6 +727,13 @@ class AssistantTool(StrEnum):
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
+    LIST_LLM_SKILLS = "list_llm_skills"
+    GET_LLM_SKILL = "get_llm_skill"
+    GET_LLM_SKILL_FILE = "get_llm_skill_file"
+    CREATE_LLM_SKILL = "create_llm_skill"
+    UPDATE_LLM_SKILL = "update_llm_skill"
+    ARCHIVE_LLM_SKILL = "archive_llm_skill"
+    DUPLICATE_LLM_SKILL = "duplicate_llm_skill"
 
 
 class AssistantToolCall(BaseModel):

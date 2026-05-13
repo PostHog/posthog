@@ -35,6 +35,7 @@ from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
     get_llm_gateway_variant,
+    has_llm_analytics_skills_feature_flag,
     has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
@@ -62,6 +63,31 @@ TASK_TOOLS: list[type[MaxTool]] = [
     ListTaskRunsTool,
     ListRepositoriesTool,
 ]
+
+
+def _llm_analytics_skill_tools() -> list[type[MaxTool]]:
+    """Skills are workflow-encoded instructions that apply across products, so they're exposed
+    cross-mode behind the same feature flag that gates the REST API.
+    """
+    from products.llm_analytics.backend.tools.manage_skills import (
+        ArchiveLLMSkillTool,
+        CreateLLMSkillTool,
+        DuplicateLLMSkillTool,
+        GetLLMSkillFileTool,
+        GetLLMSkillTool,
+        ListLLMSkillsTool,
+        UpdateLLMSkillTool,
+    )
+
+    return [
+        ListLLMSkillsTool,
+        GetLLMSkillTool,
+        GetLLMSkillFileTool,
+        CreateLLMSkillTool,
+        UpdateLLMSkillTool,
+        ArchiveLLMSkillTool,
+        DuplicateLLMSkillTool,
+    ]
 
 
 class ChatAgentPlanToolkit(AgentToolkit):
@@ -93,6 +119,8 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(TaskTool)
         if has_memory_tool_feature_flag(self._team, self._user):
             tools.append(ManageMemoriesTool)
+        if has_llm_analytics_skills_feature_flag(self._team, self._user):
+            tools.extend(_llm_analytics_skill_tools())
         return tools
 
 

@@ -70,7 +70,22 @@ The assistant used run_hog_eval_test because:
 3. The assistant can iterate on the fix by running the tool again
 """.strip()
 
-LLM_ANALYTICS_MODE_DESCRIPTION = "Specialized mode for LLM analytics. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events."
+POSITIVE_EXAMPLE_USE_SKILL = """
+User: Investigate why signups dropped this week — follow our standard playbook
+Assistant: I'll check whether we have a saved skill for this and follow it.
+*Uses list_llm_skills to look for a matching skill*
+*Uses get_llm_skill with the matching name to load the SKILL.md body*
+*Follows the instructions in the skill body and uses any bundled files via get_llm_skill_file*
+""".strip()
+
+POSITIVE_EXAMPLE_USE_SKILL_REASONING = """
+The assistant looked up a skill first because:
+1. The user referenced a "standard playbook", which suggests an encoded workflow
+2. list_llm_skills shows what's available without committing to a plan
+3. Following the saved skill respects how the team prefers this work to be done
+""".strip()
+
+LLM_ANALYTICS_MODE_DESCRIPTION = "Specialized mode for LLM analytics. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events. Manage and follow LLM analytics skills (saved workflows)."
 
 
 class LLMAnalyticsAgentToolkit(AgentToolkit):
@@ -91,13 +106,41 @@ class LLMAnalyticsAgentToolkit(AgentToolkit):
             example=POSITIVE_EXAMPLE_FIX_EVAL_ERRORS,
             reasoning=POSITIVE_EXAMPLE_FIX_EVAL_ERRORS_REASONING,
         ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_USE_SKILL,
+            reasoning=POSITIVE_EXAMPLE_USE_SKILL_REASONING,
+        ),
     ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
+        from products.llm_analytics.backend.tools.manage_skills import (
+            ArchiveLLMSkillTool,
+            CreateLLMSkillTool,
+            DuplicateLLMSkillTool,
+            GetLLMSkillFileTool,
+            GetLLMSkillTool,
+            ListLLMSkillsTool,
+            UpdateLLMSkillTool,
+        )
         from products.llm_analytics.backend.tools.run_hog_eval_test import RunHogEvalTestTool
 
-        return [SearchLLMTracesTool, RunHogEvalTestTool]
+        from ee.hogai.utils.feature_flags import has_llm_analytics_skills_feature_flag
+
+        tools: list[type[MaxTool]] = [SearchLLMTracesTool, RunHogEvalTestTool]
+        if has_llm_analytics_skills_feature_flag(self._team, self._user):
+            tools.extend(
+                [
+                    ListLLMSkillsTool,
+                    GetLLMSkillTool,
+                    GetLLMSkillFileTool,
+                    CreateLLMSkillTool,
+                    UpdateLLMSkillTool,
+                    ArchiveLLMSkillTool,
+                    DuplicateLLMSkillTool,
+                ]
+            )
+        return tools
 
 
 llm_analytics_agent = AgentModeDefinition(

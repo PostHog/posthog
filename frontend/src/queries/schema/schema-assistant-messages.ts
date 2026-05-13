@@ -497,6 +497,13 @@ export type AssistantTool =
     | 'search_llm_traces'
     | 'run_hog_eval_test'
     | 'diagnose_proxy'
+    | 'list_llm_skills'
+    | 'get_llm_skill'
+    | 'get_llm_skill_file'
+    | 'create_llm_skill'
+    | 'update_llm_skill'
+    | 'archive_llm_skill'
+    | 'duplicate_llm_skill'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

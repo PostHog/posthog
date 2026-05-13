@@ -81,6 +81,19 @@ def is_core_memory_disabled(team: Team, user: User) -> bool:
     )
 
 
+def has_llm_analytics_skills_feature_flag(team: Team, user: User) -> bool:
+    """Whether the LLM analytics skills tools (list/get/create/update/archive/duplicate) are
+    available to this user. Mirrors the feature flag gating the underlying REST API.
+    """
+    return posthoganalytics.feature_enabled(
+        "llm-analytics-skills",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def has_mcp_servers_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "mcp-servers",
