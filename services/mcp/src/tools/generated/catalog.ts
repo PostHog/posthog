@@ -9,53 +9,6 @@ import {
 } from '@/generated/catalog/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CatalogNodesCreateSchema = CatalogNodesCreateBody
-
-const catalogNodesCreate = (): ToolBase<typeof CatalogNodesCreateSchema, Schemas.CatalogNodeDTO> => ({
-    name: 'catalog-nodes-create',
-    schema: CatalogNodesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof CatalogNodesCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.kind !== undefined) {
-            body['kind'] = params.kind
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.warehouse_table_id !== undefined) {
-            body['warehouse_table_id'] = params.warehouse_table_id
-        }
-        if (params.saved_query_id !== undefined) {
-            body['saved_query_id'] = params.saved_query_id
-        }
-        if (params.synthetic_description !== undefined) {
-            body['synthetic_description'] = params.synthetic_description
-        }
-        if (params.semantic_role !== undefined) {
-            body['semantic_role'] = params.semantic_role
-        }
-        if (params.business_domain !== undefined) {
-            body['business_domain'] = params.business_domain
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.generator_model !== undefined) {
-            body['generator_model'] = params.generator_model
-        }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
-        const result = await context.api.request<Schemas.CatalogNodeDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/catalog/nodes/`,
-            body,
-        })
-        return result
-    },
-})
-
 const CatalogColumnsCreateSchema = CatalogColumnsCreateBody
 
 const catalogColumnsCreate = (): ToolBase<typeof CatalogColumnsCreateSchema, Schemas.CatalogColumnDTO> => ({
@@ -100,6 +53,53 @@ const catalogColumnsCreate = (): ToolBase<typeof CatalogColumnsCreateSchema, Sch
         const result = await context.api.request<Schemas.CatalogColumnDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/catalog/columns/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CatalogNodesCreateSchema = CatalogNodesCreateBody
+
+const catalogNodesCreate = (): ToolBase<typeof CatalogNodesCreateSchema, Schemas.CatalogNodeDTO> => ({
+    name: 'catalog-nodes-create',
+    schema: CatalogNodesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CatalogNodesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.warehouse_table_id !== undefined) {
+            body['warehouse_table_id'] = params.warehouse_table_id
+        }
+        if (params.saved_query_id !== undefined) {
+            body['saved_query_id'] = params.saved_query_id
+        }
+        if (params.synthetic_description !== undefined) {
+            body['synthetic_description'] = params.synthetic_description
+        }
+        if (params.semantic_role !== undefined) {
+            body['semantic_role'] = params.semantic_role
+        }
+        if (params.business_domain !== undefined) {
+            body['business_domain'] = params.business_domain
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.generator_model !== undefined) {
+            body['generator_model'] = params.generator_model
+        }
+        if (params.confidence !== undefined) {
+            body['confidence'] = params.confidence
+        }
+        const result = await context.api.request<Schemas.CatalogNodeDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/catalog/nodes/`,
             body,
         })
         return result
@@ -154,7 +154,7 @@ const catalogRelationshipsCreate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'catalog-nodes-create': catalogNodesCreate,
     'catalog-columns-create': catalogColumnsCreate,
+    'catalog-nodes-create': catalogNodesCreate,
     'catalog-relationships-create': catalogRelationshipsCreate,
 }
