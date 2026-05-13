@@ -69,7 +69,7 @@ posthog:conversations-tickets-list
 
 Don't pre-filter with `search`. Keyword matching against `search` only hits a few fields (customer name, email, subject line, comment content) and misses tickets where the customer described the issue with different wording — which is most of them. Pull the full new queue and rank in step 3.
 
-If `count` comes back very large (200+), narrow with a recency filter
+If `count` exceeds 100 (the page size), narrow with a recency filter
 (`date_from: "-1d"` if the incident is fresh) before paginating further. New
 tickets older than a day are unlikely to be about a fresh incident.
 
