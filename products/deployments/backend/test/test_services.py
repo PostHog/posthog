@@ -100,6 +100,35 @@ class TestCreateDeployment(_BaseServicesTest):
             )
         self.assertEqual(cm.exception.active_deployment_id, str(first.id))
 
+    def test_workflow_dispatch_failure_marks_row_error(self) -> None:
+        # Regression: if start_build raises (Temporal unreachable), the
+        # row must NOT be left in QUEUED with no workflow id — it has to
+        # be flipped to ERROR(error_step=dispatch) and the caller gets a
+        # typed WorkflowDispatchFailed they can map to 502.
+        workflow = MagicMock()
+        workflow.start_build.side_effect = RuntimeError("temporal is down")
+        with self.assertRaises(create_deployment.WorkflowDispatchFailed) as cm:
+            create_deployment.execute(
+                create_deployment.CreateDeploymentInput(
+                    project_id=str(self.deployment_project.id),
+                    team_id=self.team.id,
+                    triggered_by_user_id=self.user.id,
+                    trigger_kind=TriggerKind.MANUAL,
+                    commit_sha=None,
+                    branch=None,
+                ),
+                cloudflare=NullCloudflareAdapter(),
+                github=NullGitHubAdapter(),
+                workflow=workflow,
+            )
+        # The orphan deployment id is surfaced for operators.
+        self.assertTrue(cm.exception.deployment_id)
+        orphan = Deployment.objects.get(pk=cm.exception.deployment_id)
+        self.assertEqual(orphan.status, Deployment.Status.ERROR.value)
+        self.assertEqual(orphan.error_step, "dispatch")
+        self.assertIn("temporal is down", orphan.error_message)
+        self.assertIsNotNone(orphan.finished_at)
+
     def test_terminal_deployment_does_not_block_new_one(self) -> None:
         first = create_deployment.execute(
             create_deployment.CreateDeploymentInput(
@@ -294,12 +323,43 @@ class TestCancel(_BaseServicesTest):
             workflow=NullWorkflowAdapter(),
         )
         workflow = MagicMock()
-        cancel.execute(
+        signalled = cancel.execute(
             deployment_id=str(deployment.id),
             team_id=self.team.id,
             workflow=workflow,
         )
         workflow.signal_cancel.assert_called_once_with(workflow_id=deployment.temporal_workflow_id)
+        self.assertTrue(signalled)
+
+    def test_cancel_without_workflow_id_flips_row_directly(self) -> None:
+        # Orphan case: the row never got a temporal_workflow_id (e.g.
+        # start_build crashed mid-dispatch). cancel must NOT silently no-op
+        # — it should walk the state machine to CANCELLED so the row
+        # doesn't sit QUEUED forever.
+        deployment = create_deployment.execute(
+            create_deployment.CreateDeploymentInput(
+                project_id=str(self.deployment_project.id),
+                team_id=self.team.id,
+                triggered_by_user_id=self.user.id,
+                trigger_kind=TriggerKind.MANUAL,
+                commit_sha=None,
+                branch=None,
+            ),
+            cloudflare=NullCloudflareAdapter(),
+            github=NullGitHubAdapter(),
+            workflow=NullWorkflowAdapter(),
+        )
+        Deployment.objects.filter(pk=deployment.pk).update(temporal_workflow_id="")
+        workflow = MagicMock()
+        signalled = cancel.execute(
+            deployment_id=str(deployment.id),
+            team_id=self.team.id,
+            workflow=workflow,
+        )
+        workflow.signal_cancel.assert_not_called()
+        self.assertFalse(signalled)
+        deployment.refresh_from_db()
+        self.assertEqual(deployment.status, Deployment.Status.CANCELLED.value)
 
     def test_cancel_terminal_deployment_raises(self) -> None:
         deployment = create_deployment.execute(

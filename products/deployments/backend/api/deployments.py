@@ -118,6 +118,14 @@ class DeploymentViewSet(
             project_id=self.deployment_project_id,
         ).annotate(is_current=is_current)
 
+        # The status / author filters are list-only — applying them on
+        # detail / action lookups would make `get_object()` 404 against
+        # rows the URL clearly references (e.g. redeploying a cancelled
+        # deployment, which is allowed). Matches the convention in
+        # `_filter_queryset_by_access_level` at posthog/api/routing.py.
+        if self.action != "list":
+            return qs
+
         params = self.request.query_params if hasattr(self, "request") else {}
 
         status_filter = params.get("status")
@@ -160,6 +168,7 @@ class DeploymentViewSet(
         responses={
             status.HTTP_201_CREATED: DeploymentSerializer,
             status.HTTP_409_CONFLICT: OpenApiResponse(response=DeploymentConflictResponseSerializer),
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(description="Build workflow dispatch failed."),
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -184,16 +193,35 @@ class DeploymentViewSet(
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        except create_deployment.WorkflowDispatchFailed as exc:
+            # Row has already been marked ERROR by the service; surface
+            # the orphan id so operators / clients can audit.
+            return Response(
+                {"detail": str(exc), "deployment_id": exc.deployment_id},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         return Response(self.get_serializer(deployment).data, status=status.HTTP_201_CREATED)
 
     # ---- Actions ------------------------------------------------------
 
-    @extend_schema(request=None, responses={status.HTTP_201_CREATED: DeploymentSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            status.HTTP_201_CREATED: DeploymentSerializer,
+            status.HTTP_409_CONFLICT: OpenApiResponse(response=DeploymentConflictResponseSerializer),
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(description="Build workflow dispatch failed."),
+        },
+    )
     @action(detail=True, methods=["post"])
     def redeploy(self, request: Request, **kwargs: Any) -> Response:
+        # get_object() runs safely_get_queryset (team + project filter)
+        # and check_object_permissions (RBAC). Without it, the URL's
+        # `deployment_project_id` is unverified — a deployment id from
+        # one project could be redeployed via another project's URL.
+        source = self.get_object()
         try:
             deployment = redeploy.execute(
-                deployment_id=str(self.kwargs["pk"]),
+                deployment_id=str(source.pk),
                 team_id=self.team_id,
                 triggered_by_user_id=request.user.id if request.user.is_authenticated else None,
             )
@@ -204,15 +232,28 @@ class DeploymentViewSet(
                     "active_deployment_id": exc.active_deployment_id,
                 },
                 status=status.HTTP_409_CONFLICT,
+            )
+        except create_deployment.WorkflowDispatchFailed as exc:
+            return Response(
+                {"detail": str(exc), "deployment_id": exc.deployment_id},
+                status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(self.get_serializer(deployment).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=None, responses={status.HTTP_201_CREATED: DeploymentSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            status.HTTP_201_CREATED: DeploymentSerializer,
+            status.HTTP_409_CONFLICT: OpenApiResponse(response=DeploymentConflictResponseSerializer),
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(description="Build workflow dispatch failed."),
+        },
+    )
     @action(detail=True, methods=["post"])
     def rollback(self, request: Request, **kwargs: Any) -> Response:
+        source = self.get_object()
         try:
             deployment = rollback.execute(
-                deployment_id=str(self.kwargs["pk"]),
+                deployment_id=str(source.pk),
                 team_id=self.team_id,
                 triggered_by_user_id=request.user.id if request.user.is_authenticated else None,
             )
@@ -223,6 +264,11 @@ class DeploymentViewSet(
                     "active_deployment_id": exc.active_deployment_id,
                 },
                 status=status.HTTP_409_CONFLICT,
+            )
+        except create_deployment.WorkflowDispatchFailed as exc:
+            return Response(
+                {"detail": str(exc), "deployment_id": exc.deployment_id},
+                status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(self.get_serializer(deployment).data, status=status.HTTP_201_CREATED)
 
@@ -232,17 +278,24 @@ class DeploymentViewSet(
     )
     @action(detail=True, methods=["post"])
     def cancel(self, request: Request, **kwargs: Any) -> Response:
+        source = self.get_object()
         try:
-            cancel.execute(deployment_id=str(self.kwargs["pk"]), team_id=self.team_id)
+            signalled = cancel.execute(deployment_id=str(source.pk), team_id=self.team_id)
         except cancel.DeploymentNotCancellable as exc:
             raise PermissionDenied(detail=str(exc))
-        return Response({"detail": "Cancellation signal sent."}, status=status.HTTP_200_OK)
+        detail = (
+            "Cancellation signal sent."
+            if signalled
+            else "No workflow to signal; deployment marked cancelled without a worker."
+        )
+        return Response({"detail": detail}, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses={status.HTTP_200_OK: DeploymentSerializer})
     @action(detail=True, methods=["post"], url_path="refresh_preview")
     def refresh_preview(self, request: Request, **kwargs: Any) -> Response:
+        source = self.get_object()
         deployment = refresh_preview.execute(
-            deployment_id=str(self.kwargs["pk"]),
+            deployment_id=str(source.pk),
             team_id=self.team_id,
         )
         return Response(self.get_serializer(deployment).data, status=status.HTTP_200_OK)
@@ -250,9 +303,9 @@ class DeploymentViewSet(
     @extend_schema(responses={status.HTTP_200_OK: DeploymentEventSerializer(many=True)})
     @action(detail=True, methods=["get"])
     def events(self, request: Request, **kwargs: Any) -> Response:
-        deployment_id = str(self.kwargs["pk"])
+        source = self.get_object()
         qs = DeploymentEvent.all_teams.filter(
-            deployment_id=deployment_id,
+            deployment_id=source.pk,
             team_id=self.team_id,
         ).order_by("-occurred_at")
         page = self.paginate_queryset(qs)
@@ -271,7 +324,7 @@ class DeploymentViewSet(
         # the HogQL bridge lands. Frontend stream can iterate against
         # the empty shape today and we'll fill it in once the contract
         # is final.
-        deployment_id = str(self.kwargs["pk"])
+        source = self.get_object()
         # TODO(deployments-v1): swap stub for an `execute_hogql_query` call:
         #   SELECT timestamp, level, step, line, exit_code
         #   FROM events
@@ -280,6 +333,6 @@ class DeploymentViewSet(
         #   ORDER BY timestamp ASC
         #   LIMIT 1000
         return Response(
-            {"detail": f"Logs proxy not implemented yet (deployment_id={deployment_id})."},
+            {"detail": f"Logs proxy not implemented yet (deployment_id={source.pk})."},
             status=status.HTTP_200_OK,
         )

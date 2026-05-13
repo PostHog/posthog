@@ -221,6 +221,43 @@ class TestDeploymentsAPINested(_BaseDeploymentsAPITest):
         body = response.json()["results"][0]
         self.assertTrue(body["is_current"])
 
+    def test_action_endpoint_refuses_cross_project_deployment_id(self) -> None:
+        # Regression for the cross-project IDOR on action endpoints: a
+        # deployment belonging to project B must not be reachable via
+        # project A's URL, even within the same team.
+        other_project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Other",
+            slug="other",
+            repo_url="https://github.com/example-org/other",
+        )
+        other_deployment = Deployment.objects.create(
+            project=other_project,
+            team_id=self.team.id,
+            status=Deployment.Status.READY.value,
+            commit_sha="abc1234",
+        )
+        # Hit the WRONG project's URL with the right deployment id.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/{other_deployment.id}/redeploy/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+
+    def test_redeploy_of_cancelled_deployment_succeeds(self) -> None:
+        # Detail / action lookups must NOT inherit the list-only filters
+        # (status / author / hide-cancelled). Redeploying a cancelled row
+        # is a valid operation and the URL clearly references it.
+        cancelled = Deployment.objects.create(
+            project=self.deployment_project,
+            team_id=self.team.id,
+            status=Deployment.Status.CANCELLED.value,
+            commit_sha="abc1234",
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/{cancelled.id}/redeploy/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
 
 class TestDeploymentsFeatureFlag(_BaseDeploymentsAPITest):
     """Re-verifies the feature-flag gate over the new nested URL."""

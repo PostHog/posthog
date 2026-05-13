@@ -57,23 +57,35 @@ def execute(*, deployment_id: UUID | str, screenshot: ScreenshotAdapter | None =
 
         # 4) Best-effort preview screenshot. Failure surfaces as a
         #    preview_capture_failed event but does NOT roll back ready.
-        screenshot_adapter = screenshot or get_screenshot_adapter()
-        image_url = screenshot_adapter.capture(url=deployment.deployment_url) if deployment.deployment_url else None
-        if image_url:
-            Deployment.objects.filter(pk=deployment.pk).update(preview_image_url=image_url)
-            DeploymentEvent.objects.create(
-                deployment_id=deployment.pk,
-                team_id=deployment.team_id,
-                event_type="preview_captured",
-                payload={"url": image_url},
-            )
-        else:
+        #    Guard the empty-URL case explicitly with a distinct payload
+        #    `reason` — otherwise the event log would record a spurious
+        #    "failure" for a capture that was never attempted. Matches
+        #    the shape used by `refresh_preview.execute`.
+        if not deployment.deployment_url:
             DeploymentEvent.objects.create(
                 deployment_id=deployment.pk,
                 team_id=deployment.team_id,
                 event_type="preview_capture_failed",
-                payload={"deployment_url": deployment.deployment_url},
+                payload={"reason": "no_deployment_url"},
             )
+        else:
+            screenshot_adapter = screenshot or get_screenshot_adapter()
+            image_url = screenshot_adapter.capture(url=deployment.deployment_url)
+            if image_url:
+                Deployment.objects.filter(pk=deployment.pk).update(preview_image_url=image_url)
+                DeploymentEvent.objects.create(
+                    deployment_id=deployment.pk,
+                    team_id=deployment.team_id,
+                    event_type="preview_captured",
+                    payload={"url": image_url},
+                )
+            else:
+                DeploymentEvent.objects.create(
+                    deployment_id=deployment.pk,
+                    team_id=deployment.team_id,
+                    event_type="preview_capture_failed",
+                    payload={"deployment_url": deployment.deployment_url},
+                )
 
 
 def _create_annotation(deployment: Deployment) -> None:

@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+import structlog
 
 from ..adapters import (
     CloudflareAdapter,
@@ -20,8 +23,10 @@ from ..adapters import (
     get_workflow_adapter,
 )
 from ..domain.contracts import BuildInput
-from ..domain.trigger import TriggerKind
+from ..domain.trigger import ErrorStep, TriggerKind
 from ..models import Deployment, DeploymentProject
+
+logger = structlog.get_logger(__name__)
 
 
 class ActiveDeploymentExists(Exception):
@@ -34,6 +39,21 @@ class ActiveDeploymentExists(Exception):
     def __init__(self, active_deployment_id: str) -> None:
         self.active_deployment_id = active_deployment_id
         super().__init__(f"Project already has an active deployment: {active_deployment_id}")
+
+
+class WorkflowDispatchFailed(Exception):
+    """Raised when the build workflow couldn't be dispatched.
+
+    The deployment row has already been marked ERROR at this point —
+    callers should surface a 502 to the client. The row carries
+    `error_step=dispatch` and `error_message` describing the failure so
+    operators can audit it.
+    """
+
+    def __init__(self, deployment_id: str, cause: BaseException) -> None:
+        self.deployment_id = deployment_id
+        self.__cause__ = cause
+        super().__init__(f"Failed to start build workflow for deployment {deployment_id}: {cause}")
 
 
 @dataclass(frozen=True)
@@ -101,25 +121,53 @@ def execute(
 
     # Hand off to the build worker. Persist the workflow handle so cancel()
     # can target the right run later.
+    #
+    # The row is already committed in QUEUED state by this point. If
+    # `start_build` raises (e.g. Temporal unreachable), the row would
+    # otherwise sit QUEUED forever with no workflow id — no worker to
+    # advance it and `cancel.execute` would have nothing to signal. So
+    # we flip it to ERROR(error_step=dispatch) on failure and raise a
+    # typed exception the view can map to 502.
     wf = workflow or get_workflow_adapter()
     cf = cloudflare or get_cloudflare_adapter()  # noqa: F841 — held for future provisioning checks
-    handle = wf.start_build(
-        workflow_input=BuildInput(
-            deployment_id=deployment.id,
-            project_id=project.id,
-            team_id=payload.team_id,
-            repo_url=project.repo_url,
-            branch=commit.branch,
-            commit_sha=commit.sha,
-            github_pat=project.github_pat,
-            build_command=project.build_command,
-            output_dir=project.output_dir,
-            framework=project.framework,
-            inject_posthog_snippet=project.inject_posthog_snippet,
-            cloudflare_project_name=project.cloudflare_project_name,
-            trigger_kind=payload.trigger_kind,
+    try:
+        handle = wf.start_build(
+            workflow_input=BuildInput(
+                deployment_id=deployment.id,
+                project_id=project.id,
+                team_id=payload.team_id,
+                repo_url=project.repo_url,
+                branch=commit.branch,
+                commit_sha=commit.sha,
+                github_pat=project.github_pat,
+                build_command=project.build_command,
+                output_dir=project.output_dir,
+                framework=project.framework,
+                inject_posthog_snippet=project.inject_posthog_snippet,
+                cloudflare_project_name=project.cloudflare_project_name,
+                trigger_kind=payload.trigger_kind,
+            )
         )
-    )
+    except Exception as exc:
+        logger.exception(
+            "create_deployment.workflow_dispatch_failed",
+            deployment_id=str(deployment.pk),
+            error=str(exc),
+        )
+        # Direct .update() instead of `update_status.execute` so we don't
+        # walk the state machine for a row that never got off QUEUED —
+        # `assert_valid(QUEUED, ERROR)` is valid but the side-effect
+        # scheduling in update_status (finalize_failure → $exception) is
+        # noise for a dispatch failure that never produced any build
+        # output. Operators see the ERROR row + the structlog event.
+        Deployment.objects.filter(pk=deployment.pk).update(
+            status=Deployment.Status.ERROR.value,
+            error_step=ErrorStep.DISPATCH.value,
+            error_message=f"Failed to dispatch build workflow: {exc}",
+            finished_at=timezone.now(),
+        )
+        raise WorkflowDispatchFailed(str(deployment.pk), exc) from exc
+
     Deployment.objects.filter(pk=deployment.pk).update(
         temporal_workflow_id=handle.workflow_id,
         temporal_run_id=handle.run_id,

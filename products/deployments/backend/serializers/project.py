@@ -10,7 +10,7 @@ from __future__ import annotations
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..models import Deployment, DeploymentProject
+from ..models import DeploymentProject
 
 
 class DeploymentProjectSerializer(serializers.ModelSerializer):
@@ -136,11 +136,6 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_is_current_deployment_ready(self, obj: DeploymentProject) -> bool:
-        """Compatibility shim — older clients may have polled this name."""
-        return obj.current_deployment is not None and obj.current_deployment.status == Deployment.Status.READY
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_ready_to_deploy(self, obj: DeploymentProject) -> bool:
