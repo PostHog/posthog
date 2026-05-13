@@ -144,26 +144,36 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                 actions={
                     <>
                         {!isNew && test?.status === 'active' && (
-                            <LemonButton type="secondary" onClick={pause}>
+                            <LemonButton type="secondary" size="small" onClick={pause}>
                                 Pause
                             </LemonButton>
                         )}
                         {!isNew && test?.status === 'paused' && (
-                            <LemonButton type="secondary" onClick={activate}>
+                            <LemonButton type="secondary" size="small" onClick={activate}>
                                 Resume
                             </LemonButton>
                         )}
                         {!isNew && test?.status === 'proposed' && (
-                            <LemonButton type="secondary" onClick={activate} data-attr="agentic-test-accept-detail">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={activate}
+                                data-attr="agentic-test-accept-detail"
+                            >
                                 Accept proposal
                             </LemonButton>
                         )}
                         {!isNew && (
-                            <LemonButton type="secondary" onClick={runNow} data-attr="agentic-test-run-now-detail">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={runNow}
+                                data-attr="agentic-test-run-now-detail"
+                            >
                                 Run now
                             </LemonButton>
                         )}
-                        <LemonButton type="primary" onClick={submitTestForm} data-attr="agentic-test-save">
+                        <LemonButton type="primary" size="small" onClick={submitTestForm} data-attr="agentic-test-save">
                             {isNew ? 'Create test' : 'Save changes'}
                         </LemonButton>
                     </>
@@ -195,7 +205,8 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                     >
                         <LemonTextArea
                             placeholder="Sign in with test@hedgebox.dev, upload demo.pdf, and verify the file appears in the recent uploads list."
-                            rows={6}
+                            rows={16}
+                            className="text-base"
                             data-attr="agentic-test-prompt"
                         />
                     </Field>
