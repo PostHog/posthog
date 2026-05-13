@@ -17,44 +17,16 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AutomlListSchema = AutomlPipelinesListQueryParams
+const AutomlArchiveSchema = AutomlPipelinesArchiveCreateParams.omit({ project_id: true })
 
-const automlList = (): ToolBase<typeof AutomlListSchema, WithPostHogUrl<Schemas.PaginatedAutoMLPipelineDTOList>> => ({
-    name: 'automl-list',
-    schema: AutomlListSchema,
-    handler: async (context: Context, params: z.infer<typeof AutomlListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAutoMLPipelineDTOList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(
-            context,
-            {
-                ...result,
-                results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/automl/${item.id}`))
-                ),
-            },
-            '/automl'
-        )
-    },
-})
-
-const AutomlGetSchema = AutomlPipelinesRetrieveParams.omit({ project_id: true })
-
-const automlGet = (): ToolBase<typeof AutomlGetSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
-    name: 'automl-get',
-    schema: AutomlGetSchema,
-    handler: async (context: Context, params: z.infer<typeof AutomlGetSchema>) => {
+const automlArchive = (): ToolBase<typeof AutomlArchiveSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
+    name: 'automl-archive',
+    schema: AutomlArchiveSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlArchiveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/`,
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/archive/`,
         })
         return await withPostHogUrl(context, result, `/automl/${result.id}`)
     },
@@ -135,6 +107,94 @@ const automlCreate = (): ToolBase<typeof AutomlCreateSchema, Schemas.AutoMLPipel
     },
 })
 
+const AutomlGetSchema = AutomlPipelinesRetrieveParams.omit({ project_id: true })
+
+const automlGet = (): ToolBase<typeof AutomlGetSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
+    name: 'automl-get',
+    schema: AutomlGetSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlListSchema = AutomlPipelinesListQueryParams
+
+const automlList = (): ToolBase<typeof AutomlListSchema, WithPostHogUrl<Schemas.PaginatedAutoMLPipelineDTOList>> => ({
+    name: 'automl-list',
+    schema: AutomlListSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAutoMLPipelineDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/automl/${item.id}`))
+                ),
+            },
+            '/automl'
+        )
+    },
+})
+
+const AutomlPauseSchema = AutomlPipelinesPauseCreateParams.omit({ project_id: true })
+
+const automlPause = (): ToolBase<typeof AutomlPauseSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
+    name: 'automl-pause',
+    schema: AutomlPauseSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlPauseSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/pause/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlResumeSchema = AutomlPipelinesResumeCreateParams.omit({ project_id: true })
+
+const automlResume = (): ToolBase<typeof AutomlResumeSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
+    name: 'automl-resume',
+    schema: AutomlResumeSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlResumeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/resume/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlStartSchema = AutomlPipelinesStartCreateParams.omit({ project_id: true })
+
+const automlStart = (): ToolBase<typeof AutomlStartSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
+    name: 'automl-start',
+    schema: AutomlStartSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlStartSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/start/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
 const AutomlUpdateSchema = AutomlPipelinesPartialUpdateParams.omit({ project_id: true }).extend(
     AutomlPipelinesPartialUpdateBody.shape
 )
@@ -179,51 +239,6 @@ const automlUpdate = (): ToolBase<typeof AutomlUpdateSchema, WithPostHogUrl<Sche
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/`,
             body,
-        })
-        return await withPostHogUrl(context, result, `/automl/${result.id}`)
-    },
-})
-
-const AutomlStartSchema = AutomlPipelinesStartCreateParams.omit({ project_id: true })
-
-const automlStart = (): ToolBase<typeof AutomlStartSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
-    name: 'automl-start',
-    schema: AutomlStartSchema,
-    handler: async (context: Context, params: z.infer<typeof AutomlStartSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/start/`,
-        })
-        return await withPostHogUrl(context, result, `/automl/${result.id}`)
-    },
-})
-
-const AutomlPauseSchema = AutomlPipelinesPauseCreateParams.omit({ project_id: true })
-
-const automlPause = (): ToolBase<typeof AutomlPauseSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
-    name: 'automl-pause',
-    schema: AutomlPauseSchema,
-    handler: async (context: Context, params: z.infer<typeof AutomlPauseSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/pause/`,
-        })
-        return await withPostHogUrl(context, result, `/automl/${result.id}`)
-    },
-})
-
-const AutomlResumeSchema = AutomlPipelinesResumeCreateParams.omit({ project_id: true })
-
-const automlResume = (): ToolBase<typeof AutomlResumeSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
-    name: 'automl-resume',
-    schema: AutomlResumeSchema,
-    handler: async (context: Context, params: z.infer<typeof AutomlResumeSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/resume/`,
         })
         return await withPostHogUrl(context, result, `/automl/${result.id}`)
     },
@@ -304,29 +319,14 @@ const automlValidate = (): ToolBase<typeof AutomlValidateSchema, Schemas.Validat
     },
 })
 
-const AutomlArchiveSchema = AutomlPipelinesArchiveCreateParams.omit({ project_id: true })
-
-const automlArchive = (): ToolBase<typeof AutomlArchiveSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
-    name: 'automl-archive',
-    schema: AutomlArchiveSchema,
-    handler: async (context: Context, params: z.infer<typeof AutomlArchiveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/archive/`,
-        })
-        return await withPostHogUrl(context, result, `/automl/${result.id}`)
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'automl-list': automlList,
-    'automl-get': automlGet,
+    'automl-archive': automlArchive,
     'automl-create': automlCreate,
-    'automl-update': automlUpdate,
-    'automl-start': automlStart,
+    'automl-get': automlGet,
+    'automl-list': automlList,
     'automl-pause': automlPause,
     'automl-resume': automlResume,
+    'automl-start': automlStart,
+    'automl-update': automlUpdate,
     'automl-validate': automlValidate,
-    'automl-archive': automlArchive,
 }
