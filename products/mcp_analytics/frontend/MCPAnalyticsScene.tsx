@@ -10,22 +10,18 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
-}
-
-type MCPAnalyticsTab = 'dashboard' | 'sessions'
-
-const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
-    dashboard: 'Overview of your MCP usage.',
-    sessions: 'Sessions where users interacted with your MCP tools.',
+    logic: mcpAnalyticsSceneLogic,
 }
 
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
-    const { searchParams, location } = useValues(router)
-    const activeTab: MCPAnalyticsTab = location.pathname.endsWith('/sessions') ? 'sessions' : 'dashboard'
+    const { searchParams } = useValues(router)
+    const { activeTab } = useValues(mcpAnalyticsSceneLogic)
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
@@ -41,6 +37,13 @@ export function MCPAnalyticsScene(): JSX.Element {
             content: <div>Sessions</div>,
             link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
+        },
+        {
+            key: 'tool-quality',
+            label: 'Tool quality',
+            content: <div>Tool quality</div>,
+            link: combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url,
+            'data-attr': 'mcp-analytics-tool-quality-tab',
         },
     ]
 
