@@ -6770,6 +6770,19 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type ColumnRenderAs = typeof ColumnRenderAs[keyof typeof ColumnRenderAs];
+
+
+    export const ColumnRenderAs = {
+      Default: 'default',
+      Sparkline: 'sparkline',
+    } as const;
+
+    export interface SparklineColumnSettings {
+      color?: string | null;
+      type?: 'bar' | 'line' | null;
+    }
+
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -6782,6 +6795,8 @@ export namespace Schemas {
       color?: string | null;
       displayType?: DisplayType | null;
       label?: string | null;
+      renderAs?: ColumnRenderAs | null;
+      sparkline?: SparklineColumnSettings | null;
       trendLine?: boolean | null;
       yAxisPosition?: YAxisPosition | null;
     }
@@ -7605,13 +7620,24 @@ export namespace Schemas {
       Invalid: 'invalid',
     } as const;
 
+    export type ConditionalFormattingDisplayMode = typeof ConditionalFormattingDisplayMode[keyof typeof ConditionalFormattingDisplayMode];
+
+
+    export const ConditionalFormattingDisplayMode = {
+      Background: 'background',
+      Badge: 'badge',
+      Dot: 'dot',
+    } as const;
+
     export interface ConditionalFormattingRule {
       bytecode: unknown[];
       color: string;
       colorMode?: ColorMode | null;
       columnName: string;
+      displayMode?: ConditionalFormattingDisplayMode | null;
       id: string;
       input: string;
+      label?: string | null;
       templateId: string;
     }
 
@@ -22077,6 +22103,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `event` - Event
+    * `person` - Person
+    * `session` - Session
+    * `group` - Group
+    * `data_warehouse_person_property` - Data warehouse person property
+     */
+    export type QuickFilterPropertyTypeEnum = typeof QuickFilterPropertyTypeEnum[keyof typeof QuickFilterPropertyTypeEnum];
+
+
+    export const QuickFilterPropertyTypeEnum = {
+      Event: 'event',
+      Person: 'person',
+      Session: 'session',
+      Group: 'group',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+    } as const;
+
+    /**
      * * `manual-options` - manual-options
     * `auto-discovery` - auto-discovery
      */
@@ -22090,10 +22134,30 @@ export namespace Schemas {
 
     export interface QuickFilter {
       readonly id: string;
-      /** @maxLength 200 */
+      /**
+         * Human-readable name shown in the quick filter bar.
+         * @maxLength 200
+         */
       name: string;
-      /** @maxLength 500 */
+      /**
+         * Name of the property to filter on (e.g. '$browser', 'plan', '$group_0').
+         * @maxLength 500
+         */
       property_name: string;
+      /** Type of property the filter targets. Defaults to 'event' to preserve legacy behavior. Use 'group' for group properties (also set group_type_index).
+
+      * `event` - Event
+      * `person` - Person
+      * `session` - Session
+      * `group` - Group
+      * `data_warehouse_person_property` - Data warehouse person property */
+      property_type?: QuickFilterPropertyTypeEnum;
+      /**
+         * Group type index when property_type is 'group'. Ignored for other property types.
+         * @minimum 0
+         * @nullable
+         */
+      group_type_index?: number | null;
       type?: QuickFilterTypeEnum;
       options?: unknown;
       readonly contexts: readonly string[];
@@ -28168,10 +28232,30 @@ export namespace Schemas {
 
     export interface PatchedQuickFilter {
       readonly id?: string;
-      /** @maxLength 200 */
+      /**
+         * Human-readable name shown in the quick filter bar.
+         * @maxLength 200
+         */
       name?: string;
-      /** @maxLength 500 */
+      /**
+         * Name of the property to filter on (e.g. '$browser', 'plan', '$group_0').
+         * @maxLength 500
+         */
       property_name?: string;
+      /** Type of property the filter targets. Defaults to 'event' to preserve legacy behavior. Use 'group' for group properties (also set group_type_index).
+
+      * `event` - Event
+      * `person` - Person
+      * `session` - Session
+      * `group` - Group
+      * `data_warehouse_person_property` - Data warehouse person property */
+      property_type?: QuickFilterPropertyTypeEnum;
+      /**
+         * Group type index when property_type is 'group'. Ignored for other property types.
+         * @minimum 0
+         * @nullable
+         */
+      group_type_index?: number | null;
       type?: QuickFilterTypeEnum;
       options?: unknown;
       readonly contexts?: readonly string[];

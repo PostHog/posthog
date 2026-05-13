@@ -6496,6 +6496,18 @@ export const DisplayTypeApi = {
     Area: 'area',
 } as const
 
+export type ColumnRenderAsApi = (typeof ColumnRenderAsApi)[keyof typeof ColumnRenderAsApi]
+
+export const ColumnRenderAsApi = {
+    Default: 'default',
+    Sparkline: 'sparkline',
+} as const
+
+export interface SparklineColumnSettingsApi {
+    color?: string | null
+    type?: 'bar' | 'line' | null
+}
+
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
 
 export const YAxisPositionApi = {
@@ -6507,6 +6519,8 @@ export interface ChartSettingsDisplayApi {
     color?: string | null
     displayType?: DisplayTypeApi | null
     label?: string | null
+    renderAs?: ColumnRenderAsApi | null
+    sparkline?: SparklineColumnSettingsApi | null
     trendLine?: boolean | null
     yAxisPosition?: YAxisPositionApi | null
 }
@@ -6574,13 +6588,24 @@ export const ColorModeApi = {
     Dark: 'dark',
 } as const
 
+export type ConditionalFormattingDisplayModeApi =
+    (typeof ConditionalFormattingDisplayModeApi)[keyof typeof ConditionalFormattingDisplayModeApi]
+
+export const ConditionalFormattingDisplayModeApi = {
+    Background: 'background',
+    Badge: 'badge',
+    Dot: 'dot',
+} as const
+
 export interface ConditionalFormattingRuleApi {
     bytecode: unknown[]
     color: string
     colorMode?: ColorModeApi | null
     columnName: string
+    displayMode?: ConditionalFormattingDisplayModeApi | null
     id: string
     input: string
+    label?: string | null
     templateId: string
 }
 
