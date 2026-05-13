@@ -13,6 +13,8 @@
     },
     "dependencies": {
         "chalk": "^5.3.0",
+        "cli-highlight": "^2.1.11",
+        "cli-table3": "^0.6.5",
         "conf": "^12.0.0",
         "eventsource-parser": "^3.0.0",
         "inquirer": "^9.2.0",
