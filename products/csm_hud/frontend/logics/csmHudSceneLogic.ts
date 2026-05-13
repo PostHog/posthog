@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -94,7 +96,7 @@ function mapFleetRow(row: unknown[]): FleetRow {
 export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
     path(['products', 'csm_hud', 'frontend', 'logics', 'csmHudSceneLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setRenewalsPlanFilter: (filter: 'all' | 'annual') => ({ filter }),
@@ -121,8 +123,13 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
         ],
     }),
     selectors({
-        // TODO restore before merge: gate behind FEATURE_FLAGS.SCENE_CSM_HUD + is_staff + @posthog.com
-        canAccess: [() => [], (): boolean => true],
+        canAccess: [
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): boolean =>
+                !!featureFlags[FEATURE_FLAGS.SCENE_CSM_HUD] &&
+                !!user?.is_staff &&
+                !!user?.email?.endsWith('@posthog.com'),
+        ],
     }),
     loaders(({ values, actions }) => ({
         fleet: [

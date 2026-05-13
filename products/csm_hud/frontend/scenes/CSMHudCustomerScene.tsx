@@ -3,7 +3,10 @@ import { useValues } from 'kea'
 import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport, SceneParams } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -167,8 +170,10 @@ export function CSMHudCustomerScene(): JSX.Element {
         tasksLoading,
     } = useValues(customerDetailLogic)
 
-    // TODO restore before merge: gate behind FEATURE_FLAGS.SCENE_CSM_HUD + is_staff + @posthog.com
-    const canAccess = true
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canAccess =
+        !!featureFlags[FEATURE_FLAGS.SCENE_CSM_HUD] && !!user?.is_staff && !!user?.email?.endsWith('@posthog.com')
 
     if (!canAccess) {
         return <NotFound object="page" />
