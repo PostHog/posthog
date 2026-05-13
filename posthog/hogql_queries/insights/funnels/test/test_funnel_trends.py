@@ -1391,6 +1391,69 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(results[1]["breakdown_value"], ["foo"])
             self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+    def test_funnel_hogql_breakdown_with_alias(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Safari"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4), "properties": {"$browser": "Safari"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Safari"}},
+                ],
+            },
+            self.team,
+        )
+
+        def _build_query(breakdown_expr: str) -> FunnelsQuery:
+            return FunnelsQuery(
+                dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-13 23:59:59"),
+                interval="day",
+                series=[
+                    EventsNode(event="step one"),
+                    EventsNode(event="step two"),
+                    EventsNode(event="step three"),
+                ],
+                breakdownFilter=BreakdownFilter(breakdown=breakdown_expr, breakdown_type="hogql"),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelWindowInterval=7,
+                    funnelWindowIntervalUnit="day",
+                    breakdownAttributionType="first_touch",
+                ),
+            )
+
+        aliased = (
+            FunnelsQueryRunner(
+                query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo') AS \"Group\""),
+                team=self.team,
+            )
+            .calculate()
+            .results
+        )
+        baseline = (
+            FunnelsQueryRunner(
+                query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo')"),
+                team=self.team,
+            )
+            .calculate()
+            .results
+        )
+
+        self.assertEqual(
+            [r["breakdown_value"] for r in aliased],
+            [r["breakdown_value"] for r in baseline],
+        )
+        self.assertEqual([r["data"] for r in aliased], [r["data"] for r in baseline])
+
     def test_funnel_step_breakdown_event_with_breakdown_limit(self):
         journeys_for(
             {
