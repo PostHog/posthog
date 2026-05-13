@@ -68,9 +68,17 @@ export function HeatmapNewScene(): JSX.Element {
                     loading={topUrlsLoading}
                     value={displayUrl ? [displayUrl] : []}
                     onChange={(next) => setDisplayUrl(next[0] ?? '')}
-                    options={(topUrls ?? []).map(({ url }) => ({ key: url, label: url }))}
+                    options={(topUrls ?? []).map(({ url }) => ({
+                        key: url,
+                        label: url,
+                        labelComponent: (
+                            <span className="block min-w-0 max-w-full truncate ph-no-capture" title={url}>
+                                {url}
+                            </span>
+                        ),
+                    }))}
                     title={topUrls && topUrls.length > 0 ? 'Most viewed pages' : undefined}
-                    popoverClassName="w-0"
+                    popoverClassName="max-w-0"
                     data-attr="heatmap-new-page-url"
                 />
                 {displayUrl && !isDisplayUrlValid ? (
