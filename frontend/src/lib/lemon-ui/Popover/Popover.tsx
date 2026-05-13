@@ -171,7 +171,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     floating.style.maxWidth = `${Math.min(availableWidth, window.innerWidth - 16)}px` // Ensure popover doesn't extend past window edge
                     floating.style.width = 'initial'
                     if (matchWidth) {
-                        floating.style.minWidth = `${rects.reference.width}px`
+                        // Strictly match the trigger width so long content truncates inside the
+                        // dropdown rather than expanding the floating element (which would trigger
+                        // shift() to push the dropdown off the trigger and over neighbouring UI).
+                        const triggerWidth = `${rects.reference.width}px`
+                        floating.style.minWidth = triggerWidth
+                        floating.style.maxWidth = triggerWidth
                     }
                 },
             }),
