@@ -6,6 +6,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
+    HogQLPropertyFilter,
     PropertyOperator,
 )
 
@@ -51,17 +52,17 @@ def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
 
 
 def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
+    # $ai_evaluation_result is stored as a JSON boolean. The standard EventPropertyFilter
+    # path wraps the property in a Float64 cast, which can't be compared to a boolean
+    # literal. A raw HogQL filter matches the convention used elsewhere (e.g.
+    # eval_reports/report_agent/tools.py).
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
             event="$ai_evaluation",
             properties=[
                 _prompt_filter(prompt_name),
-                EventPropertyFilter(
-                    key="$ai_evaluation_result",
-                    operator=PropertyOperator.EXACT,
-                    value=True,
-                ),
+                HogQLPropertyFilter(key="properties.$ai_evaluation_result = true"),
             ],
         ),
         denominator=EventsNode(
