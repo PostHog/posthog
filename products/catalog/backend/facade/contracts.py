@@ -91,6 +91,17 @@ class UpsertColumnParams:
 
 @dataclass(frozen=True)
 class ProposeRelationshipParams:
+    """Write a candidate relationship to the catalog.
+
+    `confidence == 1.0` is treated as a declarative claim — the facade writes
+    `status=ACCEPTED` on first insert. Any other value writes `status=PROPOSED`
+    (Django's model default), leaving the edge for human review.
+
+    Re-proposing an existing edge never changes its status, regardless of
+    confidence — preserves human review actions (REJECTED, STALE) across
+    re-runs of the catalog traversal.
+    """
+
     team_id: int
     source_node_id: UUID
     target_node_id: UUID

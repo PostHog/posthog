@@ -33,4 +33,10 @@ class CatalogAPI:
 
     @staticmethod
     def propose_relationship(params: ProposeRelationshipParams) -> CatalogRelationshipDTO:
+        """Insert/update a catalog relationship.
+
+        `confidence == 1.0` writes status=ACCEPTED on insert; any other value
+        writes status=PROPOSED. Status is never changed on update — human
+        review actions stick across re-runs. See `logic.propose_relationship`.
+        """
         return logic.propose_relationship(params)

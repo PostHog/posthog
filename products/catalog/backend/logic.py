@@ -152,6 +152,14 @@ def upsert_column(params: contracts.UpsertColumnParams) -> contracts.CatalogColu
 
 @transaction.atomic
 def propose_relationship(params: contracts.ProposeRelationshipParams) -> contracts.CatalogRelationshipDTO:
+    """Insert or update a catalog relationship.
+
+    Status policy:
+      - On INSERT, confidence == 1.0 → status=ACCEPTED (declarative claim).
+        Any other value → status=PROPOSED (model default, awaits review).
+      - On UPDATE, status is never touched. Human review actions (REJECTED,
+        STALE) and prior ACCEPTED stick across re-runs.
+    """
     defaults: dict = {
         "confidence": params.confidence,
         "reasoning": params.reasoning,
@@ -159,7 +167,7 @@ def propose_relationship(params: contracts.ProposeRelationshipParams) -> contrac
         "generator_model": params.generator_model,
     }
 
-    rel, _ = CatalogRelationship.objects.update_or_create(
+    rel, created = CatalogRelationship.objects.update_or_create(
         team_id=params.team_id,
         source_node_id=params.source_node_id,
         source_column_id=params.source_column_id,
@@ -168,6 +176,9 @@ def propose_relationship(params: contracts.ProposeRelationshipParams) -> contrac
         kind=params.kind,
         defaults=defaults,
     )
+    if created and params.confidence == 1.0:
+        rel.status = CatalogRelationship.Status.ACCEPTED
+        rel.save(update_fields=["status"])
     return to_relationship_dto(rel)
 
 
