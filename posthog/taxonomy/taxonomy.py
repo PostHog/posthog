@@ -289,6 +289,83 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
         },
+        # Events emitted by the @posthog/mcp analytics SDK (services/mcp/src/lib/posthog-mcp-analytics.ts).
+        # These coexist with the legacy mcpcat-era events further down while the migration is in progress.
+        "mcp_tool_call": {
+            "label": "MCP tool call",
+            "description": "An MCP server tool was invoked. Carries $mcp_tool_name, $mcp_duration_ms, $mcp_is_error, and (when the client supplied a context argument) $mcp_intent.",
+        },
+        "mcp_tools_list": {
+            "label": "MCP tools listed",
+            "description": "An MCP client requested the list of available tools.",
+        },
+        "mcp_initialize": {
+            "label": "MCP initialize",
+            "description": "MCP client/server handshake completed. Carries $mcp_client_name, $mcp_client_version, $mcp_server_name, $mcp_server_version.",
+        },
+        "mcp_resources_list": {
+            "label": "MCP resources listed",
+            "description": "An MCP client requested the list of available resources.",
+        },
+        "mcp_resource_read": {
+            "label": "MCP resource read",
+            "description": "An MCP resource was fetched. Carries $mcp_resource_name.",
+        },
+        "mcp_prompts_list": {
+            "label": "MCP prompts listed",
+            "description": "An MCP client requested the list of available prompts.",
+        },
+        "mcp_prompt_get": {
+            "label": "MCP prompt fetched",
+            "description": "An MCP prompt was fetched. Carries $mcp_resource_name (prompt name).",
+        },
+        "mcp_custom": {
+            "label": "MCP custom event",
+            "description": "A custom MCP analytics event emitted via publishCustomEvent().",
+        },
+        "posthog_identify": {
+            "label": "MCP identify",
+            "description": "An MCP session was associated with an identified user. Fires only when the identity returned by options.identify() changes for a given session.",
+        },
+        # Legacy MCP events from the mcpcat-era SDK (services/mcp/src/lib/mcpcat.ts) and the in-tree
+        # trackEvent path in services/mcp/src/mcp.ts. They remain while traffic migrates to
+        # @posthog/mcp; expect their volumes to decline as more clients move over.
+        "mcp init": {
+            "label": "MCP init (legacy)",
+            "description": "Legacy MCP initialization event from the mcpcat-era SDK. Being replaced by mcp_initialize from @posthog/mcp.",
+        },
+        "mcp_mcpcat:identify": {
+            "label": "MCP identify (mcpcat, legacy)",
+            "description": "Legacy MCP identify event from the mcpcat-era SDK. Being replaced by posthog_identify from @posthog/mcp.",
+        },
+        "mcp_posthog:identify": {
+            "label": "MCP identify (transitional)",
+            "description": "Transitional MCP identify event from the in-tree analytics path. Being replaced by posthog_identify from @posthog/mcp.",
+        },
+        "mcp_tool_called": {
+            "label": "MCP tool called (legacy)",
+            "description": "Legacy MCP tool-call event from the in-tree analytics path in services/mcp/src/mcp.ts. Being replaced by mcp_tool_call from @posthog/mcp.",
+        },
+        "mcp tool call": {
+            "label": "MCP tool call (legacy)",
+            "description": "Legacy MCP tool-call event from the mcpcat-era SDK. Being replaced by mcp_tool_call from @posthog/mcp.",
+        },
+        "mcp tool response": {
+            "label": "MCP tool response (legacy)",
+            "description": "Legacy MCP tool-response event from the mcpcat-era SDK. Tool responses are now carried inline on mcp_tool_call (in $mcp_response).",
+        },
+        "mcp project switched": {
+            "label": "MCP project switched",
+            "description": "A user switched the active project in their MCP session (services/mcp/src/tools/projects/setActive.ts).",
+        },
+        "mcp organization switched": {
+            "label": "MCP organization switched",
+            "description": "A user switched the active organization in their MCP session (services/mcp/src/tools/organizations/setActive.ts).",
+        },
+        "mcp feedback submitted": {
+            "label": "MCP feedback submitted",
+            "description": "A user submitted feedback through the MCP server's feedback tool.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -2433,6 +2510,134 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_user_prompt": {
             "label": "AI user prompt (LLM)",
             "description": "The user prompt text sent to the LLM.",
+        },
+        # Properties emitted by the @posthog/mcp analytics SDK. All wire keys are $mcp_*-prefixed
+        # so they don't collide with autocapture or other product events. The legacy mcpcat-era
+        # properties (mcp_client_name, tool_name, duration_ms, is_error, etc.) are listed below
+        # and will be removed once traffic finishes migrating to the new SDK.
+        "$mcp_source": {
+            "label": "MCP source",
+            "description": "Constant identifier for the MCP analytics SDK that emitted the event.",
+            "examples": ["posthog_mcp_analytics"],
+        },
+        "$mcp_tool_name": {
+            "label": "MCP tool name",
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
+        },
+        "$mcp_resource_name": {
+            "label": "MCP resource name",
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+        },
+        "$mcp_duration_ms": {
+            "label": "MCP duration (ms)",
+            "description": "Wall-clock duration of the MCP tool/resource call in milliseconds.",
+            "type": "Numeric",
+            "examples": [42, 1280],
+        },
+        "$mcp_is_error": {
+            "label": "MCP is error",
+            "description": "Whether the MCP tool call failed (set from the tool result or a thrown exception).",
+        },
+        "$mcp_server_name": {
+            "label": "MCP server name",
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": ["PostHog"],
+        },
+        "$mcp_server_version": {
+            "label": "MCP server version",
+            "description": "The advertised version of the MCP server that handled the request.",
+        },
+        "$mcp_client_name": {
+            "label": "MCP client name",
+            "description": "The MCP client that initiated the connection.",
+            "examples": ["claude-code", "codex-mcp-client", "Anthropic/ClaudeAI"],
+        },
+        "$mcp_client_version": {
+            "label": "MCP client version",
+            "description": "The version of the MCP client that initiated the connection.",
+        },
+        "$mcp_intent": {
+            "label": "MCP intent",
+            "description": "Free-text description of why the agent is calling this tool. Comes from the client-supplied context argument when present, otherwise from the server's intentFallback callback.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message.",
+            ],
+        },
+        "$mcp_intent_source": {
+            "label": "MCP intent source",
+            "description": "Where $mcp_intent came from. context_parameter means the client supplied it explicitly; inferred means the server's intentFallback produced it.",
+            "examples": ["context_parameter", "inferred"],
+        },
+        "$mcp_parameters": {
+            "label": "MCP parameters",
+            "description": "Sanitized MCP request payload (tool arguments). Large strings and sensitive keys are redacted before capture.",
+        },
+        "$mcp_response": {
+            "label": "MCP response",
+            "description": "Sanitized MCP tool response. Large strings and sensitive keys are redacted before capture.",
+        },
+        # Legacy MCP properties from the mcpcat-era SDK and the in-tree analytics path. These are
+        # still populated on a subset of events while traffic migrates to @posthog/mcp.
+        "mcp_client_name": {
+            "label": "MCP client name (legacy)",
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_client_name.",
+            "examples": ["claude-code", "codex-mcp-client"],
+        },
+        "mcp_client_version": {
+            "label": "MCP client version (legacy)",
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_client_version.",
+        },
+        "mcp_protocol_version": {
+            "label": "MCP protocol version",
+            "description": "The MCP protocol version negotiated during initialize.",
+        },
+        "mcp_transport": {
+            "label": "MCP transport",
+            "description": "The transport used by the MCP client (e.g. stdio, sse, streamable_http).",
+            "examples": ["stdio", "sse", "streamable_http"],
+        },
+        "mcp_consumer": {
+            "label": "MCP consumer",
+            "description": "The upstream surface that initiated the MCP request (e.g. posthog-code for PostHog Code, slack for Slack-launched runs).",
+            "examples": ["posthog-code", "slack"],
+        },
+        "mcp_mode": {
+            "label": "MCP mode",
+            "description": "The MCP server mode (e.g. single-exec for the v2 wrapper, multi-tool for the legacy roster).",
+        },
+        "mcp_region": {
+            "label": "MCP region",
+            "description": "The region the MCP server resolved for the request (e.g. us, eu).",
+            "examples": ["us", "eu"],
+        },
+        "mcp_oauth_client_name": {
+            "label": "MCP OAuth client name",
+            "description": "The OAuth client name captured during the MCP handshake, when present.",
+        },
+        "mcp_version": {
+            "label": "MCP server version (internal)",
+            "description": "Server-resolved MCP version (1 or 2). May differ from the client-reported version because of the mcp-version-2 feature flag.",
+            "type": "Numeric",
+            "examples": [1, 2],
+        },
+        "tool_name": {
+            "label": "Tool name (legacy)",
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_tool_name.",
+        },
+        "resource_name": {
+            "label": "Resource name (legacy)",
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_resource_name.",
+        },
+        "duration_ms": {
+            "label": "Duration (ms, legacy)",
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_duration_ms.",
+            "type": "Numeric",
+        },
+        "is_error": {
+            "label": "Is error (legacy)",
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_is_error.",
         },
         "$csp_document_url": {
             "label": "Document URL",

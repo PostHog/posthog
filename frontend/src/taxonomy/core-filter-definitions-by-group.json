@@ -659,19 +659,34 @@
             "label": "AI Tags (LLM)"
         },
         "$ai_target_event_id": {
-            "description": "The unique identifier of the event being evaluated.",
+            "description": "Deprecated \u2014 use $ai_target_id with $ai_target_type instead. The unique identifier of the event being evaluated.",
             "examples": [
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Target Event ID (LLM)"
         },
         "$ai_target_event_type": {
-            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "description": "Deprecated \u2014 use $ai_target_type instead. The type of event being evaluated (e.g., $ai_generation).",
             "examples": [
                 "$ai_generation",
                 "$ai_span"
             ],
             "label": "AI Target Event Type (LLM)"
+        },
+        "$ai_target_id": {
+            "description": "Identifier of the entity this evaluation targets. Pair with $ai_target_type to know which ID space it belongs to (event UUID, trace ID, etc.).",
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
+            "label": "AI Target ID (LLM)"
+        },
+        "$ai_target_type": {
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "examples": [
+                "generation_uuid",
+                "trace_id"
+            ],
+            "label": "AI Target Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
@@ -1803,6 +1818,86 @@
             ],
             "label": "Locale"
         },
+        "$mcp_client_name": {
+            "description": "The MCP client that initiated the connection.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client name"
+        },
+        "$mcp_client_version": {
+            "description": "The version of the MCP client that initiated the connection.",
+            "label": "MCP client version"
+        },
+        "$mcp_duration_ms": {
+            "description": "Wall-clock duration of the MCP tool/resource call in milliseconds.",
+            "examples": [
+                42,
+                1280
+            ],
+            "label": "MCP duration (ms)",
+            "type": "Numeric"
+        },
+        "$mcp_intent": {
+            "description": "Free-text description of why the agent is calling this tool. Comes from the client-supplied context argument when present, otherwise from the server's intentFallback callback.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message."
+            ],
+            "label": "MCP intent"
+        },
+        "$mcp_intent_source": {
+            "description": "Where $mcp_intent came from. context_parameter means the client supplied it explicitly; inferred means the server's intentFallback produced it.",
+            "examples": [
+                "context_parameter",
+                "inferred"
+            ],
+            "label": "MCP intent source"
+        },
+        "$mcp_is_error": {
+            "description": "Whether the MCP tool call failed (set from the tool result or a thrown exception).",
+            "label": "MCP is error"
+        },
+        "$mcp_parameters": {
+            "description": "Sanitized MCP request payload (tool arguments). Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP parameters"
+        },
+        "$mcp_resource_name": {
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+            "label": "MCP resource name"
+        },
+        "$mcp_response": {
+            "description": "Sanitized MCP tool response. Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP response"
+        },
+        "$mcp_server_name": {
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": [
+                "PostHog"
+            ],
+            "label": "MCP server name"
+        },
+        "$mcp_server_version": {
+            "description": "The advertised version of the MCP server that handled the request.",
+            "label": "MCP server version"
+        },
+        "$mcp_source": {
+            "description": "Constant identifier for the MCP analytics SDK that emitted the event.",
+            "examples": [
+                "posthog_mcp_analytics"
+            ],
+            "label": "MCP source"
+        },
+        "$mcp_tool_name": {
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP tool name"
+        },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
             "examples": [
@@ -2808,6 +2903,11 @@
             ],
             "label": "Distinct ID"
         },
+        "duration_ms": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_duration_ms.",
+            "label": "Duration (ms, legacy)",
+            "type": "Numeric"
+        },
         "epik": {
             "description": "Pinterest Click ID",
             "label": "epik"
@@ -2848,6 +2948,10 @@
             "description": "Impact Click ID",
             "label": "irclid"
         },
+        "is_error": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_is_error.",
+            "label": "Is error (legacy)"
+        },
         "li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID",
             "label": "li_fat_id"
@@ -2855,6 +2959,64 @@
         "mc_cid": {
             "description": "Mailchimp Campaign ID",
             "label": "mc_cid"
+        },
+        "mcp_client_name": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_client_name.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client"
+            ],
+            "label": "MCP client name (legacy)"
+        },
+        "mcp_client_version": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_client_version.",
+            "label": "MCP client version (legacy)"
+        },
+        "mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request (e.g. posthog-code for PostHog Code, slack for Slack-launched runs).",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "mcp_mode": {
+            "description": "The MCP server mode (e.g. single-exec for the v2 wrapper, multi-tool for the legacy roster).",
+            "label": "MCP mode"
+        },
+        "mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when present.",
+            "label": "MCP OAuth client name"
+        },
+        "mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated during initialize.",
+            "label": "MCP protocol version"
+        },
+        "mcp_region": {
+            "description": "The region the MCP server resolved for the request (e.g. us, eu).",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
+        },
+        "mcp_transport": {
+            "description": "The transport used by the MCP client (e.g. stdio, sse, streamable_http).",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable_http"
+            ],
+            "label": "MCP transport"
+        },
+        "mcp_version": {
+            "description": "Server-resolved MCP version (1 or 2). May differ from the client-reported version because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
         },
         "msclkid": {
             "description": "Microsoft Click ID",
@@ -2889,6 +3051,10 @@
             ],
             "label": "Referrer application"
         },
+        "resource_name": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_resource_name.",
+            "label": "Resource name (legacy)"
+        },
         "revenue": {
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
             "examples": [
@@ -2907,6 +3073,10 @@
             ],
             "ignored_in_assistant": true,
             "label": "Token"
+        },
+        "tool_name": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_tool_name.",
+            "label": "Tool name (legacy)"
         },
         "ttclid": {
             "description": "TikTok Click ID",
@@ -3168,6 +3338,78 @@
         "Deep link opened": {
             "description": "When a user opens the mobile app via a deep link.",
             "label": "Deep link opened"
+        },
+        "mcp feedback submitted": {
+            "description": "A user submitted feedback through the MCP server's feedback tool.",
+            "label": "MCP feedback submitted"
+        },
+        "mcp init": {
+            "description": "Legacy MCP initialization event from the mcpcat-era SDK. Being replaced by mcp_initialize from @posthog/mcp.",
+            "label": "MCP init (legacy)"
+        },
+        "mcp organization switched": {
+            "description": "A user switched the active organization in their MCP session (services/mcp/src/tools/organizations/setActive.ts).",
+            "label": "MCP organization switched"
+        },
+        "mcp project switched": {
+            "description": "A user switched the active project in their MCP session (services/mcp/src/tools/projects/setActive.ts).",
+            "label": "MCP project switched"
+        },
+        "mcp tool call": {
+            "description": "Legacy MCP tool-call event from the mcpcat-era SDK. Being replaced by mcp_tool_call from @posthog/mcp.",
+            "label": "MCP tool call (legacy)"
+        },
+        "mcp tool response": {
+            "description": "Legacy MCP tool-response event from the mcpcat-era SDK. Tool responses are now carried inline on mcp_tool_call (in $mcp_response).",
+            "label": "MCP tool response (legacy)"
+        },
+        "mcp_custom": {
+            "description": "A custom MCP analytics event emitted via publishCustomEvent().",
+            "label": "MCP custom event"
+        },
+        "mcp_initialize": {
+            "description": "MCP client/server handshake completed. Carries $mcp_client_name, $mcp_client_version, $mcp_server_name, $mcp_server_version.",
+            "label": "MCP initialize"
+        },
+        "mcp_mcpcat:identify": {
+            "description": "Legacy MCP identify event from the mcpcat-era SDK. Being replaced by posthog_identify from @posthog/mcp.",
+            "label": "MCP identify (mcpcat, legacy)"
+        },
+        "mcp_posthog:identify": {
+            "description": "Transitional MCP identify event from the in-tree analytics path. Being replaced by posthog_identify from @posthog/mcp.",
+            "label": "MCP identify (transitional)"
+        },
+        "mcp_prompt_get": {
+            "description": "An MCP prompt was fetched. Carries $mcp_resource_name (prompt name).",
+            "label": "MCP prompt fetched"
+        },
+        "mcp_prompts_list": {
+            "description": "An MCP client requested the list of available prompts.",
+            "label": "MCP prompts listed"
+        },
+        "mcp_resource_read": {
+            "description": "An MCP resource was fetched. Carries $mcp_resource_name.",
+            "label": "MCP resource read"
+        },
+        "mcp_resources_list": {
+            "description": "An MCP client requested the list of available resources.",
+            "label": "MCP resources listed"
+        },
+        "mcp_tool_call": {
+            "description": "An MCP server tool was invoked. Carries $mcp_tool_name, $mcp_duration_ms, $mcp_is_error, and (when the client supplied a context argument) $mcp_intent.",
+            "label": "MCP tool call"
+        },
+        "mcp_tool_called": {
+            "description": "Legacy MCP tool-call event from the in-tree analytics path in services/mcp/src/mcp.ts. Being replaced by mcp_tool_call from @posthog/mcp.",
+            "label": "MCP tool called (legacy)"
+        },
+        "mcp_tools_list": {
+            "description": "An MCP client requested the list of available tools.",
+            "label": "MCP tools listed"
+        },
+        "posthog_identify": {
+            "description": "An MCP session was associated with an identified user. Fires only when the identity returned by options.identify() changes for a given session.",
+            "label": "MCP identify"
         }
     },
     "groups": {
@@ -3813,19 +4055,34 @@
             "label": "AI Tags (LLM)"
         },
         "$ai_target_event_id": {
-            "description": "The unique identifier of the event being evaluated.",
+            "description": "Deprecated \u2014 use $ai_target_id with $ai_target_type instead. The unique identifier of the event being evaluated.",
             "examples": [
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Target Event ID (LLM)"
         },
         "$ai_target_event_type": {
-            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "description": "Deprecated \u2014 use $ai_target_type instead. The type of event being evaluated (e.g., $ai_generation).",
             "examples": [
                 "$ai_generation",
                 "$ai_span"
             ],
             "label": "AI Target Event Type (LLM)"
+        },
+        "$ai_target_id": {
+            "description": "Identifier of the entity this evaluation targets. Pair with $ai_target_type to know which ID space it belongs to (event UUID, trace ID, etc.).",
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
+            "label": "AI Target ID (LLM)"
+        },
+        "$ai_target_type": {
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "examples": [
+                "generation_uuid",
+                "trace_id"
+            ],
+            "label": "AI Target Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
@@ -5361,6 +5618,86 @@
             ],
             "label": "Locale"
         },
+        "$mcp_client_name": {
+            "description": "The MCP client that initiated the connection.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client name"
+        },
+        "$mcp_client_version": {
+            "description": "The version of the MCP client that initiated the connection.",
+            "label": "MCP client version"
+        },
+        "$mcp_duration_ms": {
+            "description": "Wall-clock duration of the MCP tool/resource call in milliseconds.",
+            "examples": [
+                42,
+                1280
+            ],
+            "label": "MCP duration (ms)",
+            "type": "Numeric"
+        },
+        "$mcp_intent": {
+            "description": "Free-text description of why the agent is calling this tool. Comes from the client-supplied context argument when present, otherwise from the server's intentFallback callback.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message."
+            ],
+            "label": "MCP intent"
+        },
+        "$mcp_intent_source": {
+            "description": "Where $mcp_intent came from. context_parameter means the client supplied it explicitly; inferred means the server's intentFallback produced it.",
+            "examples": [
+                "context_parameter",
+                "inferred"
+            ],
+            "label": "MCP intent source"
+        },
+        "$mcp_is_error": {
+            "description": "Whether the MCP tool call failed (set from the tool result or a thrown exception).",
+            "label": "MCP is error"
+        },
+        "$mcp_parameters": {
+            "description": "Sanitized MCP request payload (tool arguments). Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP parameters"
+        },
+        "$mcp_resource_name": {
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+            "label": "MCP resource name"
+        },
+        "$mcp_response": {
+            "description": "Sanitized MCP tool response. Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP response"
+        },
+        "$mcp_server_name": {
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": [
+                "PostHog"
+            ],
+            "label": "MCP server name"
+        },
+        "$mcp_server_version": {
+            "description": "The advertised version of the MCP server that handled the request.",
+            "label": "MCP server version"
+        },
+        "$mcp_source": {
+            "description": "Constant identifier for the MCP analytics SDK that emitted the event.",
+            "examples": [
+                "posthog_mcp_analytics"
+            ],
+            "label": "MCP source"
+        },
+        "$mcp_tool_name": {
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP tool name"
+        },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
             "examples": [
@@ -6336,6 +6673,11 @@
             ],
             "label": "Distinct ID"
         },
+        "duration_ms": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_duration_ms.",
+            "label": "Duration (ms, legacy)",
+            "type": "Numeric"
+        },
         "email": {
             "description": "The email address of the user.",
             "examples": [
@@ -6386,6 +6728,10 @@
             "description": "Impact Click ID Data from the last time this user was seen.",
             "label": "Latest irclid"
         },
+        "is_error": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_is_error.",
+            "label": "Is error (legacy)"
+        },
         "li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID Data from the last time this user was seen.",
             "label": "Latest li_fat_id"
@@ -6393,6 +6739,64 @@
         "mc_cid": {
             "description": "Mailchimp Campaign ID Data from the last time this user was seen.",
             "label": "Latest mc_cid"
+        },
+        "mcp_client_name": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_client_name.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client"
+            ],
+            "label": "MCP client name (legacy)"
+        },
+        "mcp_client_version": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_client_version.",
+            "label": "MCP client version (legacy)"
+        },
+        "mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request (e.g. posthog-code for PostHog Code, slack for Slack-launched runs).",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "mcp_mode": {
+            "description": "The MCP server mode (e.g. single-exec for the v2 wrapper, multi-tool for the legacy roster).",
+            "label": "MCP mode"
+        },
+        "mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when present.",
+            "label": "MCP OAuth client name"
+        },
+        "mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated during initialize.",
+            "label": "MCP protocol version"
+        },
+        "mcp_region": {
+            "description": "The region the MCP server resolved for the request (e.g. us, eu).",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
+        },
+        "mcp_transport": {
+            "description": "The transport used by the MCP client (e.g. stdio, sse, streamable_http).",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable_http"
+            ],
+            "label": "MCP transport"
+        },
+        "mcp_version": {
+            "description": "Server-resolved MCP version (1 or 2). May differ from the client-reported version because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
         },
         "msclkid": {
             "description": "Microsoft Click ID Data from the last time this user was seen.",
@@ -6427,6 +6831,10 @@
             ],
             "label": "Referrer application"
         },
+        "resource_name": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_resource_name.",
+            "label": "Resource name (legacy)"
+        },
         "revenue": {
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
             "examples": [
@@ -6445,6 +6853,10 @@
             ],
             "ignored_in_assistant": true,
             "label": "Token"
+        },
+        "tool_name": {
+            "description": "Legacy unprefixed property from the mcpcat-era SDK. Replaced by $mcp_tool_name.",
+            "label": "Tool name (legacy)"
         },
         "ttclid": {
             "description": "TikTok Click ID Data from the last time this user was seen.",
