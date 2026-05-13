@@ -174,6 +174,7 @@ from . import (
     schema_property_group,
     search,
     sharing,
+    social_referral,
     tagged_item,
     team,
     uploaded_media,
@@ -715,6 +716,12 @@ organizations_router.register(
     r"role_external_references",
     role_external_reference.RoleExternalReferenceViewSet,
     "organization_role_external_references",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"social_referrals",
+    social_referral.SocialReferralViewSet,
+    "organization_social_referrals",
     ["organization_id"],
 )
 organizations_router.register(
