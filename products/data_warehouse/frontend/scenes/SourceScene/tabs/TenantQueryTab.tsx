@@ -1,11 +1,12 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconPlay } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonInput,
-    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTable,
@@ -15,7 +16,6 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import type { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -34,57 +34,70 @@ interface TenantQueryTabProps {
 
 interface TenantQueryTableRow {
     id: string
-    tableName: string
+    qualifiedName: string
+    displayName: string
+    queryName: string
+    schemaName: string
+    isQueryable: boolean
+    notQueryableReason: string | null
     hasTenantColumn: boolean | null
+    columns: TenantQueryTableColumn[]
 }
 
-interface TenantColumnOption {
-    label: string
-    value: string
+interface TenantQueryTableColumn {
+    name: string
+    type: string | null
 }
 
-function tenantColumnOptionsFromSchemas(schemas: ExternalDataSourceSchema[]): TenantColumnOption[] {
-    const enabledSchemas = schemas.filter((schema) => schema.should_sync)
-    if (enabledSchemas.length === 0 || enabledSchemas.some((schema) => !schema.table?.columns?.length)) {
-        return []
-    }
-
-    const columnSets = enabledSchemas
-        .map((schema) => schema.table?.columns?.map((column) => column.name) ?? [])
-        .map((columns) => new Set(columns))
-
-    const firstColumnSet = columnSets[0]
-    if (!firstColumnSet) {
-        return []
-    }
-
-    const otherColumnSets = columnSets.slice(1)
-    const commonColumns = Array.from(firstColumnSet)
-        .filter((column) => otherColumnSets.every((columnSet) => columnSet.has(column)))
-        .sort((columnA, columnB) => columnA.localeCompare(columnB))
-
-    return commonColumns.map((column) => ({ label: column, value: column }))
+function shouldIgnoreTableRowClick(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement && !!target.closest('button,a,input,textarea,select,[role="button"]')
 }
 
 function tenantQueryTableRows(
     schemas: ExternalDataSourceSchema[],
     selectedTenantColumn: string
 ): TenantQueryTableRow[] {
-    return schemas
-        .filter((schema) => schema.should_sync)
-        .map((schema) => {
-            const qualifiedName = schema.table?.name ?? schema.name
-            const hasTenantColumn = selectedTenantColumn
-                ? (schema.table?.columns ?? []).some((column) => column.name === selectedTenantColumn)
-                : null
+    const rows = schemas.map((schema) => {
+        const qualifiedName = schema.table?.name ?? schema.name
+        const { schemaName, tableName } = splitDirectQuerySchemaName(qualifiedName)
+        const hasTenantColumn = selectedTenantColumn
+            ? (schema.table?.columns ?? []).some((column) => column.name === selectedTenantColumn)
+            : null
+        const notQueryableReason = !schema.should_sync
+            ? 'Disabled in Schemas'
+            : selectedTenantColumn && hasTenantColumn === false
+              ? 'Missing tenant column'
+              : null
+        const columns = (schema.table?.columns ?? [])
+            .filter((column) => column.name !== selectedTenantColumn)
+            .map((column) => ({
+                name: column.name,
+                type: typeof column.type === 'string' ? column.type : null,
+            }))
+            .sort((columnA, columnB) => columnA.name.localeCompare(columnB.name))
 
-            return {
-                id: schema.id,
-                tableName: qualifiedName,
-                hasTenantColumn,
-            }
-        })
-        .sort((rowA, rowB) => rowA.tableName.localeCompare(rowB.tableName))
+        return {
+            id: schema.id,
+            qualifiedName,
+            schemaName,
+            displayName: tableName,
+            queryName: qualifiedName,
+            isQueryable: notQueryableReason === null,
+            notQueryableReason,
+            hasTenantColumn,
+            columns,
+        }
+    })
+
+    const queryableRows = rows.filter((row) => row.isQueryable)
+    const useUnqualifiedQueryNames = new Set(queryableRows.map((row) => row.schemaName)).size === 1
+
+    return rows
+        .map((row) => ({
+            ...row,
+            queryName: useUnqualifiedQueryNames ? row.displayName : row.qualifiedName,
+        }))
+        .sort((rowA, rowB) => rowA.qualifiedName.localeCompare(rowB.qualifiedName))
 }
 
 function tenantColumnTypeLabel(tenantColumnType: unknown): string | null {
@@ -159,6 +172,26 @@ function TenantQueryResultPreview({ response }: { response: TenantQueryResponseA
     )
 }
 
+function TenantQueryTableColumns({ columns }: { columns: TenantQueryTableColumn[] }): JSX.Element {
+    if (columns.length === 0) {
+        return <div className="py-2 text-sm text-muted">No queryable columns available</div>
+    }
+
+    return (
+        <div className="py-2 space-y-2">
+            <div className="text-sm font-semibold">Available columns</div>
+            <div className="flex flex-wrap gap-2">
+                {columns.map((column) => (
+                    <LemonTag key={column.name} type="default" size="small">
+                        <span>{column.name}</span>
+                        {column.type && <span className="text-muted ml-1">{column.type}</span>}
+                    </LemonTag>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element {
     const logic = tenantQueryConfigLogic({ id })
     const {
@@ -169,23 +202,32 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         tenantQueryConfigForm,
         tenantQueryConfigFormChanged,
         isTenantQueryConfigFormSubmitting,
+        expandedTenantQueryTableIds,
+        tenantQueryTableVisibility,
         tenantQueryPlaygroundResponse,
         tenantQueryPlaygroundError,
         isTenantQueryPlaygroundSubmitting,
     } = useValues(logic)
+    const {
+        selectTenantQueryTableInPlayground,
+        setTenantQueryTableExpanded,
+        toggleTenantQueryTableExpanded,
+        setTenantQueryTableVisibility,
+    } = useActions(logic)
 
     if (tenantQueryConfigLoading || !source) {
         return <LemonSkeleton className="h-48" />
     }
 
     const selectedTenantColumn = tenantQueryConfigForm.tenant_column_name.trim()
-    const tenantColumnOptions = tenantColumnOptionsFromSchemas(source.schemas)
-    const tenantColumnOptionValues = new Set(tenantColumnOptions.map((option) => option.value))
-    const shouldUseTenantColumnSelect =
-        tenantColumnOptions.length > 0 && (!selectedTenantColumn || tenantColumnOptionValues.has(selectedTenantColumn))
-    const enabledTables = tenantQueryTableRows(source.schemas, selectedTenantColumn)
+    const tableRows = tenantQueryTableRows(source.schemas, selectedTenantColumn)
+    const queryableTableRows = tableRows.filter((row) => row.isQueryable)
+    const nonQueryableTableRows = tableRows.filter((row) => !row.isQueryable)
+    const visibleTableRows = tableRows.filter((row) =>
+        row.isQueryable ? tenantQueryTableVisibility.queryable : tenantQueryTableVisibility.non_queryable
+    )
     const configuredTenantColumnType = tenantColumnTypeLabel(tenantQueryConfig?.tenant_column_type)
-    const hasQueryableTables = enabledTables.length > 0
+    const hasQueryableTables = queryableTableRows.length > 0
 
     return (
         <div className="space-y-6 max-w-4xl">
@@ -196,6 +238,11 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
             )}
             {tenantQueryConfigWarning && <LemonBanner type="warning">{tenantQueryConfigWarning}</LemonBanner>}
             {tenantQueryConfigError && <LemonBanner type="error">{tenantQueryConfigError}</LemonBanner>}
+            <LemonBanner type="info">
+                Multi-tenancy exposes this direct Postgres connection through read-only HogQL and automatically adds the
+                tenant column filter to every queryable table. Tables without that column are disabled, and the tenant
+                column is hidden from schema exports and query results.
+            </LemonBanner>
 
             <Form
                 logic={tenantQueryConfigLogic}
@@ -222,30 +269,20 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                     label="Tenant column"
                     help="Tables without this column are disabled. The tenant column is hidden from schema exports and query results."
                 >
-                    {({ value, onChange }) =>
-                        shouldUseTenantColumnSelect ? (
-                            <LemonSelect
-                                value={value || undefined}
-                                onChange={(nextValue) => onChange(nextValue ?? '')}
-                                options={tenantColumnOptions as LemonSelectOptions<string>}
-                                placeholder="Select tenant column"
-                                fullWidth
-                            />
-                        ) : (
-                            <LemonInput
-                                value={value}
-                                onChange={onChange}
-                                allowClear
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault()
-                                    }
-                                }}
-                                placeholder="customer_id"
-                                disabledReason={!hasQueryableTables ? 'Enable at least one table first' : undefined}
-                            />
-                        )
-                    }
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            value={value}
+                            onChange={onChange}
+                            allowClear
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                    event.preventDefault()
+                                }
+                            }}
+                            placeholder="customer_id"
+                            disabledReason={!hasQueryableTables ? 'Enable at least one table first' : undefined}
+                        />
+                    )}
                 </LemonField>
 
                 <div className="grid gap-4 md:grid-cols-3">
@@ -262,7 +299,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
 
                 <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-                        <span>{enabledTables.length} queryable tables</span>
+                        <span>{queryableTableRows.length} queryable tables</span>
                         {configuredTenantColumnType && (
                             <LemonTag type="default" size="small">
                                 {configuredTenantColumnType}
@@ -287,6 +324,123 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                     </AccessControlAction>
                 </div>
             </Form>
+
+            {tableRows.length > 0 && (
+                <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-base font-semibold m-0">Tables</h3>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <LemonCheckbox
+                                checked={tenantQueryTableVisibility.queryable}
+                                onChange={(checked) => setTenantQueryTableVisibility('queryable', checked)}
+                                label={`Queryable (${queryableTableRows.length})`}
+                            />
+                            <LemonCheckbox
+                                checked={tenantQueryTableVisibility.non_queryable}
+                                onChange={(checked) => setTenantQueryTableVisibility('non_queryable', checked)}
+                                label={`Non-queryable (${nonQueryableTableRows.length})`}
+                            />
+                        </div>
+                    </div>
+                    <LemonTable
+                        dataSource={visibleTableRows}
+                        rowKey="id"
+                        emptyState="No tables match these filters"
+                        onRow={(row) => ({
+                            onClick: (event) => {
+                                if (shouldIgnoreTableRowClick(event.target)) {
+                                    return
+                                }
+                                toggleTenantQueryTableExpanded(row.id)
+                            },
+                        })}
+                        expandable={{
+                            isRowExpanded: (row) => expandedTenantQueryTableIds.includes(row.id),
+                            onRowExpand: (row) => setTenantQueryTableExpanded(row.id, true),
+                            onRowCollapse: (row) => setTenantQueryTableExpanded(row.id, false),
+                            expandedRowRender: function RenderTenantQueryTableColumns(row) {
+                                return <TenantQueryTableColumns columns={row.columns} />
+                            },
+                        }}
+                        columns={[
+                            {
+                                key: 'tableName',
+                                title: 'Table',
+                                render: function RenderTableName(_, row) {
+                                    return <span>{row.displayName}</span>
+                                },
+                            },
+                            {
+                                key: 'status',
+                                title: 'Status',
+                                render: function RenderTableStatus(_, row) {
+                                    return row.isQueryable ? (
+                                        <LemonTag type="success" size="small">
+                                            Queryable
+                                        </LemonTag>
+                                    ) : (
+                                        <LemonTag
+                                            type={
+                                                row.notQueryableReason === 'Missing tenant column'
+                                                    ? 'danger'
+                                                    : 'default'
+                                            }
+                                            size="small"
+                                        >
+                                            {row.notQueryableReason ?? 'Not queryable'}
+                                        </LemonTag>
+                                    )
+                                },
+                            },
+                            {
+                                key: 'tenantColumn',
+                                title: 'Tenant column',
+                                render: function RenderTenantColumn(_, row) {
+                                    if (!selectedTenantColumn) {
+                                        return <span className="text-muted">Not selected</span>
+                                    }
+
+                                    return row.hasTenantColumn ? (
+                                        <LemonTag type="success" size="small">
+                                            {selectedTenantColumn}
+                                        </LemonTag>
+                                    ) : (
+                                        <LemonTag type="danger" size="small">
+                                            Missing
+                                        </LemonTag>
+                                    )
+                                },
+                            },
+                            {
+                                key: 'playground',
+                                title: '',
+                                align: 'right',
+                                render: function RenderPlaygroundQueryButton(_, row) {
+                                    return (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            icon={<IconPlay />}
+                                            disabledReason={
+                                                !row.isQueryable
+                                                    ? (row.notQueryableReason ?? 'Not queryable')
+                                                    : undefined
+                                            }
+                                            onClick={(event) => {
+                                                event.stopPropagation()
+                                                selectTenantQueryTableInPlayground(row.queryName)
+                                            }}
+                                        >
+                                            Select *
+                                        </LemonButton>
+                                    )
+                                },
+                            },
+                        ]}
+                        pagination={{ pageSize: 50, hideOnSinglePage: true }}
+                    />
+                </div>
+            )}
 
             <div className="border-t pt-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
@@ -352,42 +506,6 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                     </div>
                 )}
             </div>
-
-            {enabledTables.length > 0 && (
-                <LemonTable
-                    dataSource={enabledTables}
-                    columns={[
-                        {
-                            key: 'tableName',
-                            title: 'Queryable table',
-                            render: function RenderTableName(_, row) {
-                                const { tableName } = splitDirectQuerySchemaName(row.tableName)
-                                return <span>{tableName}</span>
-                            },
-                        },
-                        {
-                            key: 'tenantColumn',
-                            title: 'Tenant column',
-                            render: function RenderTenantColumn(_, row) {
-                                if (!selectedTenantColumn) {
-                                    return <span className="text-muted">Not selected</span>
-                                }
-
-                                return row.hasTenantColumn ? (
-                                    <LemonTag type="success" size="small">
-                                        {selectedTenantColumn}
-                                    </LemonTag>
-                                ) : (
-                                    <LemonTag type="danger" size="small">
-                                        Missing
-                                    </LemonTag>
-                                )
-                            },
-                        },
-                    ]}
-                    pagination={{ pageSize: 50, hideOnSinglePage: true }}
-                />
-            )}
         </div>
     )
 }

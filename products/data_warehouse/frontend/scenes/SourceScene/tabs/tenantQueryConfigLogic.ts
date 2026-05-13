@@ -38,6 +38,13 @@ export interface TenantQueryPlaygroundFormValues {
     timeout_ms: number | string | ''
 }
 
+export interface TenantQueryTableVisibility {
+    queryable: boolean
+    non_queryable: boolean
+}
+
+export type TenantQueryTableVisibilityKey = keyof TenantQueryTableVisibility
+
 const DEFAULT_TENANT_QUERY_CONFIG_FORM: TenantQueryConfigFormValues = {
     enabled: false,
     tenant_column_name: '',
@@ -50,6 +57,11 @@ const DEFAULT_TENANT_QUERY_PLAYGROUND_FORM: TenantQueryPlaygroundFormValues = {
     tenant_value: '',
     query: 'select * from system.tables',
     timeout_ms: '',
+}
+
+const DEFAULT_TENANT_QUERY_TABLE_VISIBILITY: TenantQueryTableVisibility = {
+    queryable: true,
+    non_queryable: false,
 }
 
 function configToForm(config: TenantQueryConfigResponseApi | null): TenantQueryConfigFormValues {
@@ -134,6 +146,18 @@ function disabledTablesWarning(disabledTables: string[] | undefined): string | n
     } without the tenant column: ${visibleTables}${suffix}.`
 }
 
+function escapeHogQLIdentifierPart(identifierPart: string): string {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifierPart)) {
+        return identifierPart
+    }
+
+    return `\`${identifierPart.replace(/`/g, '``')}\``
+}
+
+function selectAllQueryForTable(tableName: string): string {
+    return `select * from ${tableName.split('.').map(escapeHogQLIdentifierPart).join('.')}`
+}
+
 export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
     path(['products', 'dataWarehouse', 'tenantQueryConfigLogic']),
     props({} as TenantQueryConfigLogicProps),
@@ -146,6 +170,13 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
         setTenantQueryConfigWarning: (warning: string | null) => ({ warning }),
         setTenantQueryPlaygroundResponse: (response: TenantQueryResponseApi | null) => ({ response }),
         setTenantQueryPlaygroundError: (error: string | null) => ({ error }),
+        selectTenantQueryTableInPlayground: (tableName: string) => ({ tableName }),
+        setTenantQueryTableExpanded: (tableId: string, expanded: boolean) => ({ tableId, expanded }),
+        toggleTenantQueryTableExpanded: (tableId: string) => ({ tableId }),
+        setTenantQueryTableVisibility: (visibility: TenantQueryTableVisibilityKey, visible: boolean) => ({
+            visibility,
+            visible,
+        }),
     }),
     loaders(({ props, values }) => ({
         tenantQueryConfig: [
@@ -192,6 +223,28 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             {
                 setTenantQueryPlaygroundError: (_, { error }) => error,
                 submitTenantQueryPlaygroundRequest: () => null,
+            },
+        ],
+        expandedTenantQueryTableIds: [
+            [] as string[],
+            {
+                setTenantQueryTableExpanded: (state, { tableId, expanded }) =>
+                    expanded
+                        ? Array.from(new Set([...state, tableId]))
+                        : state.filter((expandedTableId) => expandedTableId !== tableId),
+                toggleTenantQueryTableExpanded: (state, { tableId }) =>
+                    state.includes(tableId)
+                        ? state.filter((expandedTableId) => expandedTableId !== tableId)
+                        : [...state, tableId],
+            },
+        ],
+        tenantQueryTableVisibility: [
+            DEFAULT_TENANT_QUERY_TABLE_VISIBILITY,
+            {
+                setTenantQueryTableVisibility: (state, { visibility, visible }) => ({
+                    ...state,
+                    [visibility]: visible,
+                }),
             },
         ],
     }),
@@ -292,6 +345,11 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             if (!values.tenantQueryConfigFormChanged) {
                 actions.resetTenantQueryConfigForm(configToForm(tenantQueryConfig))
             }
+        },
+        selectTenantQueryTableInPlayground: ({ tableName }) => {
+            actions.setTenantQueryPlaygroundValue('query', selectAllQueryForTable(tableName))
+            actions.setTenantQueryPlaygroundResponse(null)
+            actions.setTenantQueryPlaygroundError(null)
         },
     })),
     afterMount(({ actions }) => {
