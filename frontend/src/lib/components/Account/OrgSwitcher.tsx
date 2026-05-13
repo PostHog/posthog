@@ -8,7 +8,6 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -195,86 +194,91 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                 </div>
 
                 {/* Results */}
-                <ScrollableShadows
-                    direction="vertical"
-                    styledScrollbars
-                    className="flex-1 overflow-y-auto max-h-[400px]"
-                >
-                    <Combobox.List
-                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
-                        tabIndex={-1}
+                <Combobox.List className="flex flex-col min-h-0 flex-1" tabIndex={-1}>
+                    <ScrollableShadows
+                        direction="vertical"
+                        styledScrollbars
+                        className="flex-1 overflow-y-auto max-h-[400px]"
                     >
-                        {/* Current Organization */}
-                        {currentOrgItem && (
-                            <Combobox.Group items={[currentOrgItem]}>
-                                <Combobox.Collection>
-                                    {(item: OrgListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active fullWidth>
-                                                    <IconCheck className="text-tertiary" />
-                                                    <UploadedLogo
-                                                        size="xsmall"
-                                                        name={item.org.name}
-                                                        entityId={item.org.id}
-                                                        mediaId={item.org.logo_media_id}
-                                                    />
-                                                    <span className="truncate">{item.org.name}</span>
-                                                    <div className="ml-auto">
-                                                        <AccessLevelIndicator organization={item.org} />
-                                                    </div>
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
+                        <div
+                            className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${
+                                !dialog && 'pt-0.5'
+                            }`}
+                        >
+                            {/* Current Organization */}
+                            {currentOrgItem && (
+                                <Combobox.Group items={[currentOrgItem]}>
+                                    <Combobox.Collection>
+                                        {(item: OrgListItem) => (
+                                            <Combobox.Item
+                                                key={item.id}
+                                                value={item}
+                                                onClick={() => handleItemClick(item)}
+                                                render={(props) => (
+                                                    <ButtonPrimitive {...props} menuItem active fullWidth>
+                                                        <IconCheck className="text-tertiary" />
+                                                        <UploadedLogo
+                                                            size="xsmall"
+                                                            name={item.org.name}
+                                                            entityId={item.org.id}
+                                                            mediaId={item.org.logo_media_id}
+                                                        />
+                                                        <span className="truncate">{item.org.name}</span>
+                                                        <div className="ml-auto">
+                                                            <AccessLevelIndicator organization={item.org} />
+                                                        </div>
+                                                    </ButtonPrimitive>
+                                                )}
+                                            />
+                                        )}
+                                    </Combobox.Collection>
+                                </Combobox.Group>
+                            )}
 
-                        {/* Other Organizations */}
-                        {otherOrgItems.length > 0 && (
-                            <Combobox.Group items={otherOrgItems}>
-                                <Combobox.Collection>
-                                    {(item: OrgListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    fullWidth
-                                                    disabled={item.isDisabled}
-                                                    tooltip={item.isDisabled ? item.disabledReason : undefined}
-                                                    tooltipPlacement="right"
-                                                >
-                                                    <IconBlank />
-                                                    <UploadedLogo
-                                                        size="xsmall"
-                                                        name={item.org.name}
-                                                        entityId={item.org.id}
-                                                        mediaId={item.org.logo_media_id}
-                                                    />
-                                                    <span className="truncate">{item.org.name}</span>
-                                                    <div className="ml-auto">
-                                                        <AccessLevelIndicator organization={item.org} />
-                                                    </div>
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
+                            {/* Other Organizations */}
+                            {otherOrgItems.length > 0 && (
+                                <Combobox.Group items={otherOrgItems}>
+                                    <Combobox.Collection>
+                                        {(item: OrgListItem) => (
+                                            <Combobox.Item
+                                                key={item.id}
+                                                value={item}
+                                                onClick={() => handleItemClick(item)}
+                                                render={(props) => (
+                                                    <ButtonPrimitive
+                                                        {...props}
+                                                        menuItem
+                                                        fullWidth
+                                                        disabled={item.isDisabled}
+                                                        tooltip={item.isDisabled ? item.disabledReason : undefined}
+                                                        tooltipPlacement="right"
+                                                    >
+                                                        <IconBlank />
+                                                        <UploadedLogo
+                                                            size="xsmall"
+                                                            name={item.org.name}
+                                                            entityId={item.org.id}
+                                                            mediaId={item.org.logo_media_id}
+                                                        />
+                                                        <span className="truncate">{item.org.name}</span>
+                                                        <div className="ml-auto">
+                                                            <AccessLevelIndicator organization={item.org} />
+                                                        </div>
+                                                    </ButtonPrimitive>
+                                                )}
+                                            />
+                                        )}
+                                    </Combobox.Collection>
+                                </Combobox.Group>
+                            )}
+                        </div>
+                    </ScrollableShadows>
 
-                        <MenuSeparator />
-
-                        {/* Create New Organization */}
-                        {createItem && (
+                    {/* Create New Organization — pinned outside the scrollable area */}
+                    {createItem && (
+                        <div
+                            className={`flex flex-col gap-px ${spacingClass} bg-surface-primary border-t border-primary`}
+                        >
                             <Combobox.Group items={[createItem]}>
                                 <Combobox.Collection>
                                     {(item: CreateOrgItem) => (
@@ -303,9 +307,9 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                     )}
                                 </Combobox.Collection>
                             </Combobox.Group>
-                        )}
-                    </Combobox.List>
-                </ScrollableShadows>
+                        </div>
+                    )}
+                </Combobox.List>
 
                 {/* Footer */}
                 {dialog && (

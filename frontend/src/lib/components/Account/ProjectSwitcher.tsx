@@ -7,7 +7,6 @@ import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@postho
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -228,100 +227,111 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                 </div>
 
                 {/* Results */}
-                <ScrollableShadows
-                    direction="vertical"
-                    styledScrollbars
-                    className="flex-1 overflow-y-auto max-h-[400px]"
-                >
-                    <Combobox.List
-                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
-                        tabIndex={-1}
+                <Combobox.List className="flex flex-col min-h-0 flex-1" tabIndex={-1}>
+                    <ScrollableShadows
+                        direction="vertical"
+                        styledScrollbars
+                        className="flex-1 overflow-y-auto max-h-[400px]"
                     >
-                        {/* Current Project */}
-                        {currentProject && (
-                            <Combobox.Group items={[currentProject]}>
-                                <Combobox.Collection>
-                                    {(item: ProjectListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
-                                                    <IconCheck className="text-tertiary" />
-                                                    <ProjectName team={item.team} />
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
+                        <div
+                            className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${
+                                !dialog && 'pt-0.5'
+                            }`}
+                        >
+                            {/* Current Project */}
+                            {currentProject && (
+                                <Combobox.Group items={[currentProject]}>
+                                    <Combobox.Collection>
+                                        {(item: ProjectListItem) => (
+                                            <Combobox.Item
+                                                key={item.id}
+                                                value={item}
+                                                onClick={() => handleItemClick(item)}
+                                                render={(props) => (
+                                                    <ButtonPrimitive
+                                                        {...props}
+                                                        menuItem
+                                                        active
+                                                        className="flex-1"
+                                                        truncate
+                                                    >
+                                                        <IconCheck className="text-tertiary" />
+                                                        <ProjectName team={item.team} />
+                                                    </ButtonPrimitive>
+                                                )}
+                                            />
+                                        )}
+                                    </Combobox.Collection>
+                                </Combobox.Group>
+                            )}
 
-                        {/* Other Projects */}
-                        {otherProjects.length > 0 && (
-                            <Combobox.Group items={otherProjects}>
-                                <Combobox.Collection>
-                                    {(item: ProjectListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    className="flex-1"
-                                                    tabIndex={-1}
-                                                    hasSideActionRight
-                                                >
-                                                    <IconBlank />
-                                                    <ProjectName team={item.team} />
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
+                            {/* Other Projects */}
+                            {otherProjects.length > 0 && (
+                                <Combobox.Group items={otherProjects}>
+                                    <Combobox.Collection>
+                                        {(item: ProjectListItem) => (
+                                            <Combobox.Item
+                                                key={item.id}
+                                                value={item}
+                                                onClick={() => handleItemClick(item)}
+                                                render={(props) => (
+                                                    <ButtonPrimitive
+                                                        {...props}
+                                                        menuItem
+                                                        className="flex-1"
+                                                        tabIndex={-1}
+                                                        hasSideActionRight
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={item.team} />
+                                                    </ButtonPrimitive>
+                                                )}
+                                            />
+                                        )}
+                                    </Combobox.Collection>
+                                </Combobox.Group>
+                            )}
 
-                        {/* Pending Invitations */}
-                        {pendingInviteItems.length > 0 && (
-                            <Combobox.Group items={pendingInviteItems}>
-                                <Combobox.Collection>
-                                    {(item: PendingInviteListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    className="flex-1"
-                                                    tabIndex={-1}
-                                                    tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
-                                                    tooltipPlacement="right"
-                                                >
-                                                    <IconLetter className="text-warning" />
-                                                    <span className="truncate flex-1">
-                                                        {item.invite.organization_name}
-                                                    </span>
-                                                    <span className="text-xxs text-tertiary shrink-0 ml-1">
-                                                        Pending invite
-                                                    </span>
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
+                            {/* Pending Invitations */}
+                            {pendingInviteItems.length > 0 && (
+                                <Combobox.Group items={pendingInviteItems}>
+                                    <Combobox.Collection>
+                                        {(item: PendingInviteListItem) => (
+                                            <Combobox.Item
+                                                key={item.id}
+                                                value={item}
+                                                onClick={() => handleItemClick(item)}
+                                                render={(props) => (
+                                                    <ButtonPrimitive
+                                                        {...props}
+                                                        menuItem
+                                                        className="flex-1"
+                                                        tabIndex={-1}
+                                                        tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
+                                                        tooltipPlacement="right"
+                                                    >
+                                                        <IconLetter className="text-warning" />
+                                                        <span className="truncate flex-1">
+                                                            {item.invite.organization_name}
+                                                        </span>
+                                                        <span className="text-xxs text-tertiary shrink-0 ml-1">
+                                                            Pending invite
+                                                        </span>
+                                                    </ButtonPrimitive>
+                                                )}
+                                            />
+                                        )}
+                                    </Combobox.Collection>
+                                </Combobox.Group>
+                            )}
+                        </div>
+                    </ScrollableShadows>
 
-                        <MenuSeparator />
-
-                        {/* Create New Project */}
-                        {createItem && (
+                    {/* Create New Project — pinned outside the scrollable area */}
+                    {createItem && (
+                        <div
+                            className={`flex flex-col gap-px ${spacingClass} bg-surface-primary border-t border-primary`}
+                        >
                             <Combobox.Group items={[createItem]}>
                                 <Combobox.Collection>
                                     {(item: CreateProjectItem) => (
@@ -351,9 +361,9 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                     )}
                                 </Combobox.Collection>
                             </Combobox.Group>
-                        )}
-                    </Combobox.List>
-                </ScrollableShadows>
+                        </div>
+                    )}
+                </Combobox.List>
 
                 {/* Footer */}
                 {dialog && (
